@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt ./
 RUN pip install -r requirements.txt
 
-COPY agent.py ./
+COPY *.py ./
 
 # Pre-download Silero VAD + turn-detector weights so the first cold-start is fast.
 RUN python agent.py download-files
