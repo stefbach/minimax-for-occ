@@ -47,6 +47,25 @@ def _minimax_llm() -> openai.LLM:
     return openai.LLM(model=model, base_url=base_url, api_key=api_key)
 
 
+class MinimaxAgent(Agent):
+    """Agent that greets via TTS instead of via the default LLM auto-greet.
+
+    LiveKit Agents 1.5's default `Agent.on_enter()` triggers a
+    `generate_reply()` with no user message, which MiniMax rejects with
+    HTTP 400 "chat content is empty (2013)". We override on_enter to do
+    a deterministic TTS-only greeting and let the conversation start
+    properly when the user speaks.
+    """
+
+    GREETING = (
+        "Bonjour, je suis votre assistant vocal MiniMax. "
+        "Vous pouvez me parler en français ou en anglais, je vous écoute."
+    )
+
+    async def on_enter(self) -> None:
+        await self.session.say(text=self.GREETING, allow_interruptions=True)
+
+
 async def entrypoint(ctx: JobContext) -> None:
     await ctx.connect()
 
@@ -78,17 +97,7 @@ async def entrypoint(ctx: JobContext) -> None:
 
     await session.start(
         room=ctx.room,
-        agent=Agent(instructions=INSTRUCTIONS, tools=tools),
-    )
-
-    # Greet via TTS only — avoids an LLM call with no user message,
-    # which MiniMax rejects with "chat content is empty (2013)".
-    await session.say(
-        text=(
-            "Bonjour, je suis votre assistant vocal MiniMax. "
-            "Vous pouvez me parler en français ou en anglais, je vous écoute."
-        ),
-        allow_interruptions=True,
+        agent=MinimaxAgent(instructions=INSTRUCTIONS, tools=tools),
     )
 
 
