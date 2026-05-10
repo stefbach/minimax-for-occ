@@ -28,6 +28,11 @@ const VOICE_ID_RE = /^[A-Za-z][A-Za-z0-9_]{7,63}$/;
  *   language:       'multi' | 'fr' | 'en' | ...
  *   description?:   optional notes
  *   sample_text?:   default text used for previews
+ *   model?:         MiniMax speech model the clone is registered for (default speech-02-hd)
+ *
+ * Critically: we only persist the row in `voices` AFTER MiniMax confirms
+ * the clone. If voice_clone returns a non-zero base_resp.status_code, we
+ * surface the error and write nothing.
  */
 export async function POST(req: Request) {
   if (!hasSupabase()) {
@@ -46,6 +51,7 @@ export async function POST(req: Request) {
   const language = String(form.get("language") ?? "multi").trim() || "multi";
   const description = (form.get("description") as string | null)?.toString() || null;
   const sampleText = (form.get("sample_text") as string | null)?.toString() || undefined;
+  const model = (form.get("model") as string | null)?.toString() || undefined;
 
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "audio file required" }, { status: 400 });
@@ -63,12 +69,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "file too small/large (max 20MB)" }, { status: 400 });
   }
 
-  // 1. upload sample to MiniMax, 2. register clone
+  // 1. upload sample to MiniMax, 2. register clone — both raise on real errors now.
   let fileId: string;
   try {
     const up = await uploadVoiceCloneSample(file);
     fileId = up.file_id;
-    await registerVoiceClone({ file_id: fileId, voice_id: voiceId });
+    await registerVoiceClone({ file_id: fileId, voice_id: voiceId, model });
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : String(e) },
@@ -76,7 +82,7 @@ export async function POST(req: Request) {
     );
   }
 
-  // 3. record in Supabase so the dropdown picks it up
+  // 3. only NOW record in Supabase so the dropdown picks it up
   const sb = supabaseServer();
   const { data, error } = await sb
     .from("voices")
@@ -88,7 +94,7 @@ export async function POST(req: Request) {
         source: "cloned",
         description,
         sample_text: sampleText ?? undefined,
-        metadata: { minimax_file_id: fileId, original_filename: file.name },
+        metadata: { minimax_file_id: fileId, original_filename: file.name, model: model ?? "speech-02-hd" },
       },
       { onConflict: "voice_id" },
     )
