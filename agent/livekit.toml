@@ -1,0 +1,11 @@
+# LiveKit Cloud Agents deployment manifest.
+# Ref: https://docs.livekit.io/agents/ops/deployment/
+
+[project]
+  subdomain = "your-project"
+
+[agent]
+  id        = "minimax-voice-agent"
+
+[build]
+  dockerfile = "Dockerfile"

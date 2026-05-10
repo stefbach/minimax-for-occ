@@ -1,0 +1,28 @@
+{
+  "name": "minimax-livekit-web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@livekit/components-react": "^2.9.0",
+    "@livekit/components-styles": "^1.1.6",
+    "ai": "^4.3.16",
+    "livekit-client": "^2.13.0",
+    "livekit-server-sdk": "^2.13.0",
+    "next": "^15.1.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "vercel-minimax-ai-provider": "^0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.7.0"
+  }
+}
