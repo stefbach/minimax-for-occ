@@ -1,0 +1,7 @@
+{
+  "name": "twilio-inbound",
+  "numbers": ["+33000000000"],
+  "krisp_enabled": true,
+  "auth_username": "REPLACE_WITH_TRUNK_USER",
+  "auth_password": "REPLACE_WITH_TRUNK_PASSWORD"
+}

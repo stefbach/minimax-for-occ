@@ -68,13 +68,23 @@ Ouvrez http://localhost:3000.
 
 ### Déploiement Vercel
 
+> ⚠️ **Le projet Next.js est dans `web/`, pas à la racine.** Si vous obtenez un `404: NOT_FOUND` après déploiement, c'est que Vercel build à la racine.
+>
+> **Fix** : Vercel Dashboard → Project → **Settings → General → Root Directory → `web`** → Save → Redeploy.
+
 ```bash
 cd web
-vercel
+vercel               # première fois : choisissez "web" comme root
+vercel --prod
 ```
 
-Définissez côté Vercel les variables d'environnement :
-`NEXT_PUBLIC_LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `MINIMAX_API_KEY`.
+Variables d'environnement à définir côté Vercel :
+- `NEXT_PUBLIC_LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`
+- `MINIMAX_API_KEY`
+- `N8N_BASE_URL`, `N8N_API_KEY` (si vous utilisez les workflows depuis le chat)
+- `LIVEKIT_SIP_URI` (si vous utilisez le webhook Twilio)
+- `APP_SHARED_TOKEN` (optionnel, pour protéger `/api/token` côté API non-navigateur)
+- `TOKEN_RATE_LIMIT_PER_MINUTE` (défaut 20)
 
 ## 4. Comment ça parle ensemble
 
