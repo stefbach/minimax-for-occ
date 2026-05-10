@@ -2,7 +2,7 @@
 # Ref: https://docs.livekit.io/agents/ops/deployment/
 
 [project]
-  subdomain = "your-project"
+  subdomain = "minimax-i107a5a3"
 
 [agent]
   id        = "minimax-voice-agent"

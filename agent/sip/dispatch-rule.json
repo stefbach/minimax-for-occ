@@ -6,10 +6,5 @@
       "roomPrefix": "tel-"
     }
   },
-  "roomConfig": {
-    "agents": [
-      { "agentName": "minimax-voice-agent" }
-    ]
-  },
   "metadata": "{\"channel\":\"telephony\",\"provider\":\"twilio\"}"
 }
