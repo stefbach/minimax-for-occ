@@ -1,10 +1,15 @@
-"""LiveKit voice agent powered by MiniMax (LLM + TTS) with Deepgram STT.
+"""LiveKit voice agent with MiniMax TTS, OpenAI gpt-4o-mini LLM, Deepgram STT.
+
+Brain (LLM) is OpenAI: gpt-4o-mini is cheap, fast, and accepts the message
+shapes that LiveKit Agents 1.5 emits. Voice (TTS) stays MiniMax for the
+intended timbre / voice cloning. STT is Deepgram nova-3 multilingual.
 
 Run locally:
     python agent.py dev
 
 Deploy to LiveKit Cloud Agents:
-    lk agent create
+    lk agent update      # update existing deployment, keeps secrets
+    lk agent create      # only for the very first deployment
 """
 
 from __future__ import annotations
@@ -15,7 +20,6 @@ import os
 from dotenv import load_dotenv
 from livekit import agents
 from livekit.agents import Agent, AgentSession, JobContext, WorkerOptions, cli
-from livekit.agents.llm import ChatContext
 from livekit.plugins import deepgram, minimax, openai, silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
@@ -40,47 +44,21 @@ Confirme toujours brièvement à l'utilisateur avant de déclencher une action
 qui a un effet de bord (envoi d'email, paiement, prise de rendez-vous, etc.)."""
 
 
-def _minimax_llm() -> openai.LLM:
-    """MiniMax-M2 via OpenAI-compatible endpoint."""
-    api_key = os.environ["MINIMAX_API_KEY"]
-    base_url = os.getenv("MINIMAX_BASE_URL", "https://api.minimax.io/v1")
-    model = os.getenv("MINIMAX_MODEL", "MiniMax-M2")
-    return openai.LLM(model=model, base_url=base_url, api_key=api_key)
-
-
-def _seed_user_turn(ctx: ChatContext, content: str) -> None:
-    """Best-effort cross-version helper to inject a user message.
-
-    livekit-agents has shipped two different ChatContext APIs in the
-    1.x line; try the modern one first, fall back to the older shape.
-    """
-    try:
-        ctx.add_message(role="user", content=content)  # newer API
-        return
-    except (AttributeError, TypeError):
-        pass
-    try:
-        ctx.append(role="user", text=content)  # older API
-        return
-    except (AttributeError, TypeError):
-        pass
-    # Last resort: poke the underlying messages list directly.
-    from livekit.agents.llm import ChatMessage
-    ctx.messages.append(ChatMessage(role="user", content=content))
+def _llm() -> openai.LLM:
+    """OpenAI gpt-4o-mini by default; allows override via env vars."""
+    api_key = os.environ["OPENAI_API_KEY"]
+    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    base_url = os.getenv("OPENAI_BASE_URL")  # None = default api.openai.com
+    if base_url:
+        return openai.LLM(model=model, base_url=base_url, api_key=api_key)
+    return openai.LLM(model=model, api_key=api_key)
 
 
 class MinimaxAgent(Agent):
-    """Agent that greets via TTS instead of via the default LLM auto-greet.
-
-    LiveKit Agents 1.5's default `Agent.on_enter()` triggers a
-    `generate_reply()` with no user message, which MiniMax rejects with
-    HTTP 400 "chat content is empty (2013)". We override on_enter to do
-    a deterministic TTS-only greeting and let the conversation start
-    properly when the user speaks.
-    """
+    """Voice agent — greets via TTS only to skip the framework auto-greet."""
 
     GREETING = (
-        "Bonjour, je suis votre assistant vocal MiniMax. "
+        "Bonjour, je suis votre assistant vocal. "
         "Vous pouvez me parler en français ou en anglais, je vous écoute."
     )
 
@@ -102,7 +80,7 @@ async def entrypoint(ctx: JobContext) -> None:
 
     session = AgentSession(
         stt=deepgram.STT(model="nova-3", language="multi"),
-        llm=_minimax_llm(),
+        llm=_llm(),
         tts=minimax.TTS(**tts_kwargs),
         vad=silero.VAD.load(),
         turn_detection=MultilingualModel(),
@@ -117,21 +95,9 @@ async def entrypoint(ctx: JobContext) -> None:
         except Exception:
             logger.exception("n8n tools failed to load; running without them")
 
-    # MiniMax-M2 rejects chat completions whose `messages` array contains only
-    # system entries with HTTP 400 "chat content is empty (2013)". The framework
-    # may auto-trigger generate_reply (e.g. on a VAD false-positive) before the
-    # user has spoken, so we seed the chat context with a placeholder user turn
-    # to guarantee the array is never empty when the LLM is called.
-    seed_ctx = ChatContext()
-    _seed_user_turn(seed_ctx, "Bonjour.")
-
     await session.start(
         room=ctx.room,
-        agent=MinimaxAgent(
-            instructions=INSTRUCTIONS,
-            tools=tools,
-            chat_ctx=seed_ctx,
-        ),
+        agent=MinimaxAgent(instructions=INSTRUCTIONS, tools=tools),
     )
 
 
