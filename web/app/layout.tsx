@@ -3,8 +3,8 @@ import "@livekit/components-styles";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "MiniMax Voice Agent",
-  description: "LiveKit + MiniMax voice & chat agent",
+  title: "Axon · Voice Agent Platform",
+  description: "Multi-agent voice + chat platform on LiveKit, OpenAI/MiniMax, and n8n.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -1,2 +1,4 @@
-livekit-agents[minimax,deepgram,openai,silero,turn-detector]~=1.5
+livekit-agents[minimax,deepgram,openai,silero,turn-detector,anthropic]~=1.5
 python-dotenv>=1.0.0
+supabase>=2.7.0
+httpx>=0.27.0

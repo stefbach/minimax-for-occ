@@ -152,3 +152,49 @@ def build_n8n_tools(client: N8nClient | None = None) -> list:
             return json.dumps({"error": str(exc)})
 
     return [list_n8n_workflows, trigger_n8n_workflow, get_n8n_execution]
+
+
+def build_scoped_n8n_tools(client: N8nClient, allowed: list[dict]) -> list:
+    """Tools restricted to a whitelist of workflows (one tool per workflow).
+
+    Each entry of `allowed` is an `agent_n8n_workflows` row, with at minimum
+    `workflow_name`, `webhook_path` and optionally `description`.
+    """
+    from livekit.agents import function_tool
+
+    tools = []
+    seen = set()
+    for w in allowed:
+        path = (w.get("webhook_path") or "").strip().lstrip("/")
+        name = (w.get("workflow_name") or path).strip()
+        if not path or path in seen:
+            continue
+        seen.add(path)
+        description = (w.get("description") or f"Trigger the n8n workflow '{name}' (POST {path}).").strip()
+
+        # Build a dedicated tool function per workflow with a clean name and docstring.
+        # Function name must be a valid Python identifier — derive from path.
+        ident = "n8n_" + "".join(ch if ch.isalnum() else "_" for ch in path).strip("_")
+        path_value = path  # bind for closure
+
+        async def _impl(payload_json: str = "{}", _path: str = path_value) -> str:
+            try:
+                payload = json.loads(payload_json) if payload_json else {}
+            except json.JSONDecodeError as exc:
+                return json.dumps({"error": f"invalid JSON payload: {exc}"})
+            try:
+                return json.dumps(
+                    await client.trigger_webhook(_path, payload), ensure_ascii=False
+                )
+            except httpx.HTTPStatusError as exc:
+                return json.dumps(
+                    {"error": "http_error", "status": exc.response.status_code, "body": exc.response.text}
+                )
+            except Exception as exc:
+                logger.exception("n8n trigger failed for %s", _path)
+                return json.dumps({"error": str(exc)})
+
+        _impl.__name__ = ident
+        _impl.__doc__ = description
+        tools.append(function_tool(_impl))
+    return tools
