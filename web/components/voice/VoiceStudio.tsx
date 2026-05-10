@@ -113,8 +113,45 @@ export function VoiceStudio({ initial }: { initial: Voice[] }) {
   const cloned = voices.filter((v) => v.source === "cloned");
   const presets = voices.filter((v) => v.source === "preset");
 
+  const [diag, setDiag] = useState<{ ok: boolean; checks: { name: string; ok: boolean; detail: string }[] } | null>(null);
+  const [diagBusy, setDiagBusy] = useState(false);
+  async function runDiagnostic() {
+    setDiagBusy(true);
+    try {
+      const r = await fetch("/api/voices/diagnostic");
+      setDiag(await r.json());
+    } catch (e) {
+      setDiag({ ok: false, checks: [{ name: "diagnostic", ok: false, detail: String(e) }] });
+    } finally {
+      setDiagBusy(false);
+    }
+  }
+
   return (
     <div style={{ display: "grid", gap: 16 }}>
+      <div className="card">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+          <h3 style={{ margin: 0 }}>Diagnostic MiniMax</h3>
+          <button className="ghost" onClick={runDiagnostic} disabled={diagBusy} style={{ padding: "5px 10px" }}>
+            {diagBusy ? "…" : "Tester la connexion"}
+          </button>
+        </div>
+        {diag && (
+          <table className="list" style={{ marginTop: 8 }}>
+            <thead><tr><th>Check</th><th>Statut</th><th>Détail</th></tr></thead>
+            <tbody>
+              {diag.checks.map((c) => (
+                <tr key={c.name}>
+                  <td><span className="kbd">{c.name}</span></td>
+                  <td>{c.ok ? <span className="tag good">OK</span> : <span className="tag" style={{ color: "var(--bad)", borderColor: "var(--bad)" }}>KO</span>}</td>
+                  <td className="muted" style={{ fontSize: 13 }}>{c.detail}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
       <div className="card">
         <h3 style={{ marginTop: 0 }}>Modèle TTS pour les écoutes</h3>
         <div className="form-row">
