@@ -1,0 +1,64 @@
+name: Deploy LiveKit voice agent
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "agent/**"
+      - ".github/workflows/deploy-agent.yml"
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./agent
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LiveKit CLI
+        run: curl -sSL https://get.livekit.io/cli | bash
+
+      - name: Authenticate lk with project token
+        env:
+          LIVEKIT_PROJECT_TOKEN: ${{ secrets.LIVEKIT_PROJECT_TOKEN }}
+        run: |
+          if [ -z "${LIVEKIT_PROJECT_TOKEN:-}" ]; then
+            echo "::error::LIVEKIT_PROJECT_TOKEN secret missing"
+            echo "Generate one with 'lk cloud auth' once locally, then 'lk cloud token create',"
+            echo "and add it to repo Settings -> Secrets -> Actions."
+            exit 1
+          fi
+          mkdir -p "$HOME/.livekit"
+          printf '{"default_project":"%s"}\n' "$LIVEKIT_PROJECT_TOKEN" > "$HOME/.livekit/cli-config.yaml" || true
+          # Modern lk CLI accepts --api-key/--api-secret flags or env LIVEKIT_API_KEY/SECRET.
+          # If you prefer, swap to environment-variable auth here.
+
+      - name: Push agent secrets to LiveKit Cloud
+        env:
+          LIVEKIT_API_KEY: ${{ secrets.LIVEKIT_API_KEY }}
+          LIVEKIT_API_SECRET: ${{ secrets.LIVEKIT_API_SECRET }}
+          LIVEKIT_URL: ${{ secrets.LIVEKIT_URL }}
+          MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
+          DEEPGRAM_API_KEY: ${{ secrets.DEEPGRAM_API_KEY }}
+          N8N_BASE_URL: ${{ secrets.N8N_BASE_URL }}
+          N8N_API_KEY: ${{ secrets.N8N_API_KEY }}
+        run: |
+          cat > .env.local <<EOF
+          LIVEKIT_URL=$LIVEKIT_URL
+          LIVEKIT_API_KEY=$LIVEKIT_API_KEY
+          LIVEKIT_API_SECRET=$LIVEKIT_API_SECRET
+          MINIMAX_API_KEY=$MINIMAX_API_KEY
+          DEEPGRAM_API_KEY=$DEEPGRAM_API_KEY
+          N8N_BASE_URL=$N8N_BASE_URL
+          N8N_API_KEY=$N8N_API_KEY
+          EOF
+
+      - name: Deploy or update agent
+        run: |
+          if lk agent list 2>/dev/null | grep -q minimax-voice-agent; then
+            lk agent update
+          else
+            lk agent create
+          fi
