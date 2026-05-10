@@ -28,6 +28,7 @@ class AxonAgent:
     tts_voice_id: Optional[str]
     tts_emotion: Optional[str]
     tts_speed: float
+    tts_model: Optional[str]
     system_prompt: str
     greeting: str
     rag_enabled: bool
@@ -117,6 +118,7 @@ def load_agent(agent_id: str) -> Optional[AxonAgent]:
         tts_voice_id=a.get("tts_voice_id"),
         tts_emotion=a.get("tts_emotion"),
         tts_speed=float(a.get("tts_speed") or 1.0),
+        tts_model=a.get("tts_model"),
         system_prompt=(a.get("system_prompt") or DEFAULT_PROMPT).strip(),
         greeting=(a.get("greeting") or DEFAULT_GREETING).strip(),
         rag_enabled=bool(a.get("rag_enabled")),

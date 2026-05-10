@@ -1,14 +1,24 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import type { Agent, AgentInput, LlmProvider } from "@/lib/types";
+import type { Agent, AgentInput, LlmProvider, Voice } from "@/lib/types";
 
 const PROVIDER_MODELS: Record<LlmProvider, string[]> = {
   openai: ["gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini", "o4-mini"],
   anthropic: ["claude-sonnet-4-5", "claude-opus-4-5", "claude-haiku-4-5"],
   minimax: ["MiniMax-M2", "MiniMax-M2-Stable"],
 };
+
+const TTS_MODELS = [
+  { id: "", label: "— défaut (env / plugin) —" },
+  { id: "speech-2.5-hd-preview", label: "speech-2.5-hd (preview, qualité maximale)" },
+  { id: "speech-02-hd", label: "speech-02-hd (HD multilingue, recommandé)" },
+  { id: "speech-02-turbo", label: "speech-02-turbo (rapide, multilingue)" },
+  { id: "speech-01-turbo", label: "speech-01-turbo (rapide, économique)" },
+  { id: "speech-01", label: "speech-01 (legacy)" },
+];
 
 const LANGUAGES = [
   { id: "multi", label: "Multilingue (FR/EN)" },
@@ -23,6 +33,9 @@ export function AgentForm({ initial }: { initial?: Agent }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [voices, setVoices] = useState<Voice[]>([]);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const objectUrlRef = useRef<string | null>(null);
 
   const [name, setName] = useState(initial?.name ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
@@ -32,10 +45,26 @@ export function AgentForm({ initial }: { initial?: Agent }) {
   const [voice, setVoice] = useState(initial?.tts_voice_id ?? "");
   const [emotion, setEmotion] = useState(initial?.tts_emotion ?? "");
   const [speed, setSpeed] = useState(initial?.tts_speed ?? 1.0);
+  const [ttsModel, setTtsModel] = useState(initial?.tts_model ?? "");
   const [systemPrompt, setSystemPrompt] = useState(initial?.system_prompt ?? "");
   const [greeting, setGreeting] = useState(initial?.greeting ?? "Bonjour, je vous écoute.");
   const [rag, setRag] = useState(initial?.rag_enabled ?? false);
   const [ragK, setRagK] = useState(initial?.rag_top_k ?? 4);
+  const [previewing, setPreviewing] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/voices")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) => {
+        if (!cancelled) setVoices(Array.isArray(data) ? data : []);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
+    };
+  }, []);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -50,6 +79,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
       tts_voice_id: voice || null,
       tts_emotion: emotion || null,
       tts_speed: speed,
+      tts_model: ttsModel || null,
       system_prompt: systemPrompt,
       greeting,
       rag_enabled: rag,
@@ -87,7 +117,43 @@ export function AgentForm({ initial }: { initial?: Agent }) {
     router.refresh();
   }
 
-  const models = PROVIDER_MODELS[provider];
+  async function onPreviewVoice() {
+    if (!voice) return;
+    setPreviewing(true);
+    setError(null);
+    try {
+      const r = await fetch("/api/voices/preview", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          voice_id: voice,
+          text: greeting || "Bonjour, je suis votre assistant.",
+          model: ttsModel || undefined,
+          speed,
+          emotion: emotion || undefined,
+        }),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error(j.error ?? `${r.status}`);
+      }
+      const blob = await r.blob();
+      if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
+      const url = URL.createObjectURL(blob);
+      objectUrlRef.current = url;
+      if (!audioRef.current) audioRef.current = new Audio();
+      audioRef.current.src = url;
+      await audioRef.current.play();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPreviewing(false);
+    }
+  }
+
+  const llmModels = PROVIDER_MODELS[provider];
+  const cloned = voices.filter((v) => v.source === "cloned");
+  const presets = voices.filter((v) => v.source === "preset");
 
   return (
     <form onSubmit={onSubmit} style={{ display: "grid", gap: 18 }}>
@@ -129,8 +195,8 @@ export function AgentForm({ initial }: { initial?: Agent }) {
           <div>
             <label>Modèle</label>
             <select value={model} onChange={(e) => setModel(e.target.value)}>
-              {models.map((m) => <option key={m} value={m}>{m}</option>)}
-              <option value={model}>{model} (custom)</option>
+              {llmModels.map((m) => <option key={m} value={m}>{m}</option>)}
+              {!llmModels.includes(model) && <option value={model}>{model} (custom)</option>}
             </select>
           </div>
         </div>
@@ -146,12 +212,44 @@ export function AgentForm({ initial }: { initial?: Agent }) {
       </div>
 
       <div className="card" style={{ display: "grid", gap: 14 }}>
-        <h3 style={{ margin: 0 }}>Voix (MiniMax TTS)</h3>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <h3 style={{ margin: 0 }}>Voix (MiniMax TTS)</h3>
+          <Link href="/voices" style={{ fontSize: 12, color: "var(--muted)" }}>
+            Gérer dans Voice Studio →
+          </Link>
+        </div>
         <div className="form-row">
           <div>
-            <label>Voice ID (clone ou preset)</label>
-            <input value={voice} onChange={(e) => setVoice(e.target.value)} placeholder="my_cloned_voice" />
+            <label>Voix</label>
+            <select value={voice} onChange={(e) => setVoice(e.target.value)}>
+              <option value="">— défaut MiniMax —</option>
+              {cloned.length > 0 && (
+                <optgroup label="Mes voix clonées">
+                  {cloned.map((v) => (
+                    <option key={v.id} value={v.voice_id}>{v.display_name}</option>
+                  ))}
+                </optgroup>
+              )}
+              {presets.length > 0 && (
+                <optgroup label="Voix presets">
+                  {presets.map((v) => (
+                    <option key={v.id} value={v.voice_id}>{v.display_name}</option>
+                  ))}
+                </optgroup>
+              )}
+              {voice && !voices.some((v) => v.voice_id === voice) && (
+                <option value={voice}>{voice} (manuel)</option>
+              )}
+            </select>
           </div>
+          <div>
+            <label>Modèle TTS</label>
+            <select value={ttsModel} onChange={(e) => setTtsModel(e.target.value)}>
+              {TTS_MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="form-row">
           <div>
             <label>Émotion</label>
             <select value={emotion} onChange={(e) => setEmotion(e.target.value)}>
@@ -165,17 +263,27 @@ export function AgentForm({ initial }: { initial?: Agent }) {
               <option value="surprised">surprised</option>
             </select>
           </div>
-        </div>
-        <div>
-          <label>Vitesse ({speed.toFixed(2)}×)</label>
-          <input
-            type="range" min="0.5" max="2" step="0.05"
-            value={speed} onChange={(e) => setSpeed(Number(e.target.value))}
-          />
+          <div>
+            <label>Vitesse ({speed.toFixed(2)}×)</label>
+            <input
+              type="range" min="0.5" max="2" step="0.05"
+              value={speed} onChange={(e) => setSpeed(Number(e.target.value))}
+            />
+          </div>
         </div>
         <div>
           <label>Salutation à l&apos;entrée en session</label>
           <input value={greeting} onChange={(e) => setGreeting(e.target.value)} />
+        </div>
+        <div>
+          <button
+            type="button"
+            className="ghost"
+            disabled={!voice || previewing}
+            onClick={onPreviewVoice}
+          >
+            {previewing ? "Synthèse en cours…" : "▶ Écouter cette voix"}
+          </button>
         </div>
       </div>
 

@@ -10,6 +10,7 @@ export interface Agent {
   tts_voice_id: string | null;
   tts_emotion: string | null;
   tts_speed: number;
+  tts_model: string | null;
   system_prompt: string;
   greeting: string | null;
   rag_enabled: boolean;
@@ -51,4 +52,18 @@ export interface N8nWorkflowSummary {
   active: boolean;
   tags: string[];
   webhook_paths: string[];
+}
+
+export type VoiceSource = "cloned" | "preset";
+
+export interface Voice {
+  id: string;
+  voice_id: string;
+  display_name: string;
+  language: string;
+  source: VoiceSource;
+  description: string | null;
+  sample_text: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
 }

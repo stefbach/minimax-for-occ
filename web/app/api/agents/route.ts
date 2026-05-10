@@ -32,6 +32,7 @@ export async function POST(req: Request) {
       tts_voice_id: body.tts_voice_id ?? null,
       tts_emotion: body.tts_emotion ?? null,
       tts_speed: body.tts_speed ?? 1.0,
+      tts_model: body.tts_model ?? null,
       system_prompt: body.system_prompt ?? "",
       greeting: body.greeting ?? "Bonjour, je vous écoute.",
       rag_enabled: body.rag_enabled ?? false,

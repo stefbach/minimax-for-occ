@@ -7,6 +7,7 @@ import { Brand } from "./brand/Brand";
 const NAV = [
   { href: "/", label: "Accueil", icon: "◎" },
   { href: "/agents", label: "Agents", icon: "◇" },
+  { href: "/voices", label: "Voice Studio", icon: "♪" },
   { href: "/workflows", label: "Workflows n8n", icon: "⇄" },
   { href: "/documents", label: "Documents (RAG)", icon: "≡" },
   { href: "/settings", label: "Paramètres", icon: "⚙" },

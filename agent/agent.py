@@ -74,6 +74,9 @@ def _tts_for(agent: Optional[AxonAgent]) -> minimax.TTS:
         kwargs["emotion"] = emotion
     if agent and agent.tts_speed and agent.tts_speed != 1.0:
         kwargs["speed"] = float(agent.tts_speed)
+    model = (agent.tts_model if agent and agent.tts_model else os.getenv("MINIMAX_TTS_MODEL"))
+    if model:
+        kwargs["model"] = model
     return minimax.TTS(**kwargs)
 
 
