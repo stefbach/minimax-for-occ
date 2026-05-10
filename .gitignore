@@ -1,0 +1,40 @@
+# env / secrets
+.env
+.env.local
+.env.*.local
+*.pem
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+
+# node
+node_modules/
+.next/
+out/
+dist/
+build/
+.npm/
+.pnpm-store/
+
+# os
+.DS_Store
+Thumbs.db
+
+# editors
+.vscode/
+.idea/
+*.swp
+
+# livekit / agent caches
+.lkagent/
+*.onnx
+
+# next build artifacts
+web/.next/
+web/tsconfig.tsbuildinfo
+web/node_modules/

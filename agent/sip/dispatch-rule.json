@@ -1,0 +1,10 @@
+{
+  "name": "twilio-to-minimax",
+  "trunk_ids": ["REPLACE_WITH_INBOUND_TRUNK_ID"],
+  "rule": {
+    "dispatchRuleIndividual": {
+      "roomPrefix": "tel-"
+    }
+  },
+  "metadata": "{\"channel\":\"telephony\",\"provider\":\"twilio\"}"
+}
