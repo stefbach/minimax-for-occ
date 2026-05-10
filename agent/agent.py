@@ -81,11 +81,14 @@ async def entrypoint(ctx: JobContext) -> None:
         agent=Agent(instructions=INSTRUCTIONS, tools=tools),
     )
 
-    await session.generate_reply(
-        instructions=(
-            "Salue brièvement l'utilisateur en français, présente-toi comme un "
-            "assistant vocal MiniMax, et invite-le à parler."
+    # Greet via TTS only — avoids an LLM call with no user message,
+    # which MiniMax rejects with "chat content is empty (2013)".
+    await session.say(
+        text=(
+            "Bonjour, je suis votre assistant vocal MiniMax. "
+            "Vous pouvez me parler en français ou en anglais, je vous écoute."
         ),
+        allow_interruptions=True,
     )
 
 
