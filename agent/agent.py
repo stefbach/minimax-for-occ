@@ -18,8 +18,6 @@ from livekit.agents import Agent, AgentSession, JobContext, WorkerOptions, cli
 from livekit.plugins import deepgram, minimax, openai, silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
-from n8n_tools import N8nClient, build_n8n_tools
-
 load_dotenv()
 
 logger = logging.getLogger("minimax-voice-agent")
@@ -71,8 +69,12 @@ async def entrypoint(ctx: JobContext) -> None:
 
     tools = []
     if os.getenv("N8N_BASE_URL") and os.getenv("N8N_API_KEY"):
-        tools = build_n8n_tools(N8nClient())
-        logger.info("n8n tools enabled (%d)", len(tools))
+        try:
+            from n8n_tools import N8nClient, build_n8n_tools
+            tools = build_n8n_tools(N8nClient())
+            logger.info("n8n tools enabled (%d)", len(tools))
+        except Exception:
+            logger.exception("n8n tools failed to load; running without them")
 
     await session.start(
         room=ctx.room,
