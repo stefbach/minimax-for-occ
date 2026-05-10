@@ -1,5 +1,9 @@
 FROM python:3.11-slim
 
+# Build label that bumps every time we need to bust LiveKit Cloud's image cache.
+# Increment this when a `lk agent update` skips the rebuild.
+LABEL build_id="2026-05-10-openai-llm-v1"
+
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
