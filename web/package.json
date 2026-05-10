@@ -9,9 +9,11 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@ai-sdk/openai": "^3.0.0",
     "@ai-sdk/react": "^3.0.0",
     "@livekit/components-react": "^2.9.0",
     "@livekit/components-styles": "^1.2.0",
+    "@supabase/supabase-js": "^2.105.0",
     "ai": "^6.0.0",
     "livekit-client": "^2.18.0",
     "livekit-server-sdk": "^2.15.0",
