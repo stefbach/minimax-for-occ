@@ -171,6 +171,36 @@ Route Next.js `web/app/api/n8n/trigger/route.ts` :
 2. Donnez au workflow un **nom explicite** et des **tags** : ils servent de description pour le LLM.
 3. L'agent appellera `list_n8n_workflows` au démarrage si l'utilisateur demande "que peux-tu faire ?", puis choisira le bon webhook.
 
+### Construire les workflows depuis Claude Code (n8n-mcp)
+
+[`n8n-mcp`](https://github.com/czlonkowski/n8n-mcp) est un serveur MCP qui donne
+à un assistant LLM la connaissance complète des 1 650+ nœuds n8n et 20 outils
+de gestion (search/get/validate/create/update/delete/test workflow, etc.).
+
+Le projet inclut déjà `.mcp.json` à la racine. Pour l'activer dans Claude Code :
+
+```bash
+export N8N_BASE_URL=https://votre-n8n.example.cloud
+export N8N_API_KEY=...      # JWT de Settings -> API
+claude                       # ou: claude mcp list  pour vérifier
+# Acceptez l'autorisation MCP au premier lancement.
+```
+
+À partir de là, vous pouvez demander en langage naturel :
+> "Crée-moi un workflow n8n qui reçoit `{date, customer}` sur un webhook
+> `book-appointment`, vérifie la dispo dans Google Calendar, crée l'événement
+> et renvoie l'ID de confirmation."
+
+Claude utilisera `n8n-mcp` pour valider chaque nœud et `create_workflow` pour
+le déployer directement sur votre instance — puis l'agent vocal le découvrira
+via `list_n8n_workflows`.
+
+> Note runtime : LiveKit Agents 1.5 supporte aussi les serveurs MCP côté agent
+> vocal (param `mcp_servers` sur `AgentSession`). On peut donc, en option,
+> exposer `n8n-mcp` directement au LLM MiniMax pendant les appels — utile pour
+> du self-service avancé, à éviter par défaut car ça ajoute beaucoup de tools
+> et augmente la latence vocale.
+
 ## 8. Personnalisation
 
 - **Voix / émotion / vitesse MiniMax** : variables `MINIMAX_VOICE_ID`, `MINIMAX_TTS_MODEL`, `MINIMAX_TTS_EMOTION` ou éditez `minimax.TTS(...)` dans `agent/agent.py` (`speed`, `english_normalization`).
