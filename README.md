@@ -47,13 +47,45 @@ python agent.py dev              # mode dev local
 
 ### Déploiement LiveKit Cloud Agents
 
+Trois chemins selon votre setup :
+
+**① Localement (machine avec terminal)**
 ```bash
-# Installer le CLI LiveKit (https://docs.livekit.io/home/cli/cli-setup/)
-lk cloud auth
-cd agent
-# Éditez livekit.toml (subdomain de votre projet)
-lk agent create
+curl -sSL https://get.livekit.io/cli | bash       # installer le CLI
+lk cloud auth                                      # auth navigateur
+cd agent && lk agent create
 ```
+
+**② GitHub Codespaces (zéro install, tout dans le navigateur)**
+
+Sur https://github.com/stefbach/minimax-for-occ → bouton vert **Code → Codespaces → Create codespace on main**.
+Le devcontainer (`.devcontainer/devcontainer.json`) installe automatiquement Python, Node, le CLI `lk`, et les deps. Au bout de ~1 min vous avez un terminal :
+```bash
+lk cloud auth
+cd agent && lk agent create
+```
+
+**③ GitHub Actions auto-deploy (CI/CD)**
+
+À chaque push sur `main` qui touche `agent/**`, un workflow GitHub Actions redéploie le worker. Le YAML est dans `docs/deploy-agent.workflow.yml` — copiez son contenu dans `.github/workflows/deploy-agent.yml` via l'UI GitHub :
+
+1. Sur GitHub, cliquez **Add file → Create new file**
+2. Nom : `.github/workflows/deploy-agent.yml`
+3. Collez le contenu de `docs/deploy-agent.workflow.yml`
+4. Commit
+
+(Le déplacement est dû à une limitation de permission de l'agent qui n'a pas pu écrire directement dans `.github/workflows/`.)
+
+Pré-requis one-shot : ajouter ces secrets dans **GitHub → repo → Settings → Secrets and variables → Actions** :
+
+| Secret | Valeur |
+|---|---|
+| `LIVEKIT_PROJECT_TOKEN` | `lk cloud token create` une fois en local |
+| `LIVEKIT_URL` | `wss://minimax-i107a5a3.livekit.cloud` |
+| `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` | Dashboard LiveKit |
+| `MINIMAX_API_KEY` | Dashboard MiniMax |
+| `DEEPGRAM_API_KEY` | Console Deepgram |
+| `N8N_BASE_URL` / `N8N_API_KEY` | n8n Settings → API |
 
 ## 3. Front-end (`web/`)
 
