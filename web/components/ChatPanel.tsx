@@ -1,11 +1,24 @@
 "use client";
 
-import { useChat } from "ai/react";
+import { useState } from "react";
+import { useChat } from "@ai-sdk/react";
+import { DefaultChatTransport } from "ai";
 
 export function ChatPanel() {
-  const { messages, input, handleInputChange, handleSubmit, isLoading, error } = useChat({
-    api: "/api/chat",
+  const [input, setInput] = useState("");
+  const { messages, sendMessage, status, error } = useChat({
+    transport: new DefaultChatTransport({ api: "/api/chat" }),
   });
+
+  const isLoading = status === "submitted" || status === "streaming";
+
+  function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const text = input.trim();
+    if (!text) return;
+    sendMessage({ text });
+    setInput("");
+  }
 
   return (
     <>
@@ -17,17 +30,21 @@ export function ChatPanel() {
         )}
         {messages.map((m) => (
           <div key={m.id} className={`chat-msg ${m.role}`}>
-            {m.content}
+            {m.parts
+              .filter((p) => p.type === "text")
+              .map((p, i) => (
+                <span key={i}>{(p as { type: "text"; text: string }).text}</span>
+              ))}
           </div>
         ))}
       </div>
 
       {error && <div style={{ color: "#ff8080" }}>{error.message}</div>}
 
-      <form className="chat-form" onSubmit={handleSubmit}>
+      <form className="chat-form" onSubmit={onSubmit}>
         <input
           value={input}
-          onChange={handleInputChange}
+          onChange={(e) => setInput(e.target.value)}
           placeholder="Votre message…"
           disabled={isLoading}
         />

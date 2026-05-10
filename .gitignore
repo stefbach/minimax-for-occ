@@ -33,3 +33,8 @@ Thumbs.db
 # livekit / agent caches
 .lkagent/
 *.onnx
+
+# next build artifacts
+web/.next/
+web/tsconfig.tsbuildinfo
+web/node_modules/

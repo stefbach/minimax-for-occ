@@ -1,4 +1,4 @@
-import { streamText } from "ai";
+import { streamText, convertToModelMessages, type UIMessage } from "ai";
 import { minimax } from "vercel-minimax-ai-provider";
 
 export const runtime = "nodejs";
@@ -16,15 +16,13 @@ export async function POST(req: Request) {
     );
   }
 
-  const { messages } = (await req.json()) as {
-    messages: { role: "user" | "assistant" | "system"; content: string }[];
-  };
+  const { messages } = (await req.json()) as { messages: UIMessage[] };
 
   const result = streamText({
     model: minimax("MiniMax-M2"),
     system: SYSTEM_PROMPT,
-    messages,
+    messages: await convertToModelMessages(messages),
   });
 
-  return result.toDataStreamResponse();
+  return result.toUIMessageStreamResponse();
 }
