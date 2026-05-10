@@ -28,6 +28,7 @@ export async function PUT(req: Request, ctx: { params: Promise<{ id: string }> }
     "tts_voice_id",
     "tts_emotion",
     "tts_speed",
+    "tts_model",
     "system_prompt",
     "greeting",
     "rag_enabled",

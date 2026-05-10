@@ -61,7 +61,10 @@ export default async function AgentsPage() {
                     <div style={{ color: "var(--muted)", fontSize: 12 }}>{a.description ?? ""}</div>
                   </td>
                   <td><span className="tag">{a.llm_provider}/{a.llm_model}</span></td>
-                  <td>{a.tts_voice_id ?? <em style={{ color: "var(--muted)" }}>défaut</em>}</td>
+                  <td>
+                    {a.tts_voice_id ? <span className="kbd">{a.tts_voice_id}</span> : <em style={{ color: "var(--muted)" }}>défaut</em>}
+                    {a.tts_model && <div style={{ color: "var(--muted)", fontSize: 11 }}>{a.tts_model}</div>}
+                  </td>
                   <td>{a.language}</td>
                   <td>{a.rag_enabled ? <span className="tag good">on</span> : <span className="tag">off</span>}</td>
                   <td style={{ color: "var(--muted)" }}>{new Date(a.updated_at).toLocaleString()}</td>
