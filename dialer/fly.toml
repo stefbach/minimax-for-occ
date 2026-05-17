@@ -1,0 +1,20 @@
+app = "minimax-for-occ"
+primary_region = "cdg"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  POLL_INTERVAL_MS = "30000"
+  WORKER_CONCURRENCY = "10"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+
+[processes]
+  worker = "node dist/main.js"
+
+[deploy]
+  strategy = "rolling"

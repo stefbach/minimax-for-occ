@@ -30,6 +30,9 @@ Thumbs.db
 .idea/
 *.swp
 
+# claude code (parallel-agent worktrees, local-only state)
+.claude/
+
 # livekit / agent caches
 .lkagent/
 *.onnx
