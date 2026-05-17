@@ -332,3 +332,69 @@ table.list tr:hover td { background: var(--panel-2); }
   gap: 10px;
 }
 .softphone-center { min-height: 240px; }
+
+/* ─── Live supervision ───────────────────────────────────── */
+.calls-kpis { gap: 12px; }
+.calls-grid { display: flex; flex-direction: column; gap: 12px; }
+
+.call-row.live td:first-child {
+  position: relative;
+  border-left: 2px solid var(--accent);
+}
+.call-row.live td {
+  background: linear-gradient(90deg, var(--accent-soft) 0%, transparent 40%);
+  animation: live-pulse 2.4s ease-in-out infinite;
+}
+@keyframes live-pulse {
+  0%, 100% { background-color: transparent; }
+  50% { background-color: color-mix(in srgb, var(--accent) 6%, transparent); }
+}
+
+.supervision-card {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.supervision-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.supervision-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.supervision-mode {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--muted);
+}
+.supervision-mode-listen {
+  border-color: var(--info);
+  color: var(--info);
+  background: rgba(96, 165, 250, 0.1);
+}
+.supervision-mode-whisper {
+  border-color: var(--warn);
+  color: var(--warn);
+  background: rgba(251, 191, 36, 0.1);
+}
+.supervision-mode-barge {
+  border-color: var(--bad);
+  color: var(--bad);
+  background: rgba(248, 113, 113, 0.1);
+}
