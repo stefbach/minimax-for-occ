@@ -38,3 +38,6 @@ Thumbs.db
 web/.next/
 web/tsconfig.tsbuildinfo
 web/node_modules/
+
+# Claude Code local state (worktrees from parallel agents, transcripts, etc.)
+.claude/
