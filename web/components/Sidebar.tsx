@@ -2,42 +2,81 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import { Brand } from "./brand/Brand";
 import { OrgSwitcher } from "./OrgSwitcher";
+import { supabaseBrowser } from "@/lib/supabase-browser";
 
-const NAV: Array<{
+type Role = "super_admin" | "admin" | "manager" | "supervisor" | "agent";
+
+interface NavItem {
   href: string;
   label: string;
   icon: string;
-  phase?: string;
-  group?: string;
-}> = [
-  { href: "/",          label: "Accueil",          icon: "◎", group: "Overview" },
-  { href: "/calls",     label: "Appels (live)",    icon: "☎", phase: "phase 1", group: "Operations" },
-  { href: "/desk",      label: "Mon poste",        icon: "⌂", group: "Operations" },
-  { href: "/queues",    label: "Files d'attente",  icon: "≡", phase: "phase 1", group: "Operations" },
-  { href: "/campaigns", label: "Campagnes",        icon: "⇈", phase: "phase 5", group: "Operations" },
+  group: string;
+  /** Which roles can see this entry. Empty/omitted = everyone. */
+  roles?: Role[];
+}
 
-  { href: "/agents",    label: "Agents IA",        icon: "◇", group: "Builder" },
-  { href: "/voices",    label: "Voice Studio",     icon: "♪", group: "Builder" },
-  { href: "/flows",     label: "Flows / IVR",      icon: "❖", group: "Builder" },
-  { href: "/workflows", label: "Workflows n8n",    icon: "⇄", group: "Builder" },
-  { href: "/documents", label: "Documents (RAG)",  icon: "≣", group: "Builder" },
+const NAV: NavItem[] = [
+  // ── Overview ──
+  { href: "/dashboard", label: "Dashboard",         icon: "▣", group: "Overview", roles: ["super_admin","admin","manager","supervisor"] },
+  { href: "/desk",      label: "Mon poste",         icon: "⌂", group: "Overview" },
 
-  { href: "/contacts",  label: "Contacts",         icon: "◐", group: "CRM" },
-  { href: "/numbers",   label: "Numéros",          icon: "✆", phase: "phase 1", group: "CRM" },
+  // ── Operations ──
+  { href: "/calls",     label: "Appels (live)",     icon: "☎", group: "Operations", roles: ["super_admin","admin","manager","supervisor"] },
+  { href: "/queues",    label: "Files d'attente",   icon: "≡", group: "Operations", roles: ["super_admin","admin","manager","supervisor"] },
+  { href: "/campaigns", label: "Campagnes",         icon: "⇈", group: "Operations", roles: ["super_admin","admin","manager"] },
 
-  { href: "/settings",  label: "Paramètres",       icon: "⚙", group: "Admin" },
+  // ── Builder ──
+  { href: "/agents",    label: "Agents IA",         icon: "◇", group: "Builder", roles: ["super_admin","admin","manager"] },
+  { href: "/voices",    label: "Voice Studio",      icon: "♪", group: "Builder", roles: ["super_admin","admin","manager"] },
+  { href: "/flows",     label: "Flows / IVR",       icon: "❖", group: "Builder", roles: ["super_admin","admin","manager"] },
+  { href: "/workflows", label: "Workflows n8n",     icon: "⇄", group: "Builder", roles: ["super_admin","admin","manager"] },
+  { href: "/documents", label: "Documents (RAG)",   icon: "≣", group: "Builder", roles: ["super_admin","admin","manager"] },
+
+  // ── CRM ──
+  { href: "/contacts",  label: "Contacts",          icon: "◐", group: "CRM" },
+  { href: "/numbers",   label: "Numéros",           icon: "✆", group: "CRM", roles: ["super_admin","admin","manager"] },
+
+  // ── Admin ──
+  { href: "/admin",     label: "Administration",    icon: "★", group: "Admin", roles: ["super_admin","admin"] },
+  { href: "/settings",  label: "Paramètres",        icon: "⚙", group: "Admin", roles: ["super_admin","admin","manager"] },
 ];
 
 export function Sidebar() {
   const pathname = usePathname() ?? "/";
+  const [role, setRole] = useState<Role | null>(null);
+  const [loadedRole, setLoadedRole] = useState(false);
 
-  // Render nav grouped by `group`, preserving the array order for groups.
-  const groups: Record<string, typeof NAV> = {};
-  for (const item of NAV) {
-    const g = item.group ?? "—";
-    (groups[g] ??= []).push(item);
+  useEffect(() => {
+    const sb = supabaseBrowser();
+    sb.auth.getUser().then((res: { data: { user: { id?: string } | null } }) => {
+      if (!res.data.user) {
+        setLoadedRole(true);
+        return;
+      }
+      sb.from("memberships")
+        .select("role")
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle()
+        .then((mr: { data: { role?: string } | null }) => {
+          setRole((mr.data?.role as Role) ?? "agent");
+          setLoadedRole(true);
+        });
+    });
+  }, []);
+
+  const visible = NAV.filter((n) => {
+    if (!loadedRole || !role) return true; // pre-load: show everything to avoid flicker
+    if (!n.roles || n.roles.length === 0) return true;
+    return n.roles.includes(role);
+  });
+
+  const groups: Record<string, NavItem[]> = {};
+  for (const item of visible) {
+    (groups[item.group] ??= []).push(item);
   }
 
   return (
@@ -69,24 +108,9 @@ export function Sidebar() {
                 key={n.href}
                 href={n.href}
                 className={`nav-link ${active ? "active" : ""}`}
-                style={{ position: "relative" }}
               >
                 <span aria-hidden="true" style={{ width: 16, opacity: 0.7 }}>{n.icon}</span>
                 <span>{n.label}</span>
-                {n.phase && (
-                  <span
-                    style={{
-                      marginLeft: "auto",
-                      fontSize: 9,
-                      color: "var(--muted-2)",
-                      border: "1px solid var(--border)",
-                      padding: "1px 5px",
-                      borderRadius: 4,
-                    }}
-                  >
-                    {n.phase}
-                  </span>
-                )}
               </Link>
             );
           })}
@@ -94,6 +118,11 @@ export function Sidebar() {
       ))}
 
       <div style={{ marginTop: "auto" }}>
+        {loadedRole && role && (
+          <div style={{ padding: "6px 12px", fontSize: 10, color: "var(--muted-2)" }}>
+            rôle : <span className="kbd" style={{ fontSize: 10 }}>{role}</span>
+          </div>
+        )}
         <OrgSwitcher />
         <div style={{ padding: "10px 12px", color: "var(--muted-2)", fontSize: 11 }}>
           Axon Voice Platform · v2

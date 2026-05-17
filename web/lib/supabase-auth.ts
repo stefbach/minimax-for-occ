@@ -49,3 +49,40 @@ export async function currentUserOrgs() {
     organizations: { id: string; name: string; slug: string } | null;
   }>;
 }
+
+export type AppRole = "super_admin" | "admin" | "manager" | "supervisor" | "agent";
+
+/** Returns the user's primary membership (first one by created_at), or null. */
+export async function currentMembership(): Promise<{
+  org_id: string;
+  role: AppRole;
+} | null> {
+  const sb = await supabaseSession();
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) return null;
+  const { data } = await sb
+    .from("memberships")
+    .select("org_id, role")
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (!data) return null;
+  return { org_id: data.org_id as string, role: (data.role as AppRole) ?? "agent" };
+}
+
+/** Where a given role should land after login or when hitting `/`. */
+export function landingPathFor(role: AppRole | string | undefined): string {
+  switch (role) {
+    case "super_admin":
+    case "admin":
+      return "/admin";
+    case "manager":
+      return "/dashboard";
+    case "supervisor":
+      return "/dashboard"; // /supervision will replace this when shipped
+    case "agent":
+      return "/desk";
+    default:
+      return "/dashboard";
+  }
+}
