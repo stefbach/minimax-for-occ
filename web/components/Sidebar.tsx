@@ -20,7 +20,7 @@ const NAV: Array<{
 
   { href: "/agents",    label: "Agents IA",        icon: "◇", group: "Builder" },
   { href: "/voices",    label: "Voice Studio",     icon: "♪", group: "Builder" },
-  { href: "/flows",     label: "Flows / IVR",      icon: "❖", phase: "phase 2", group: "Builder" },
+  { href: "/flows",     label: "Flows / IVR",      icon: "❖", group: "Builder" },
   { href: "/workflows", label: "Workflows n8n",    icon: "⇄", group: "Builder" },
   { href: "/documents", label: "Documents (RAG)",  icon: "≣", group: "Builder" },
 
