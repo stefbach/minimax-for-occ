@@ -14,7 +14,7 @@ const NAV: Array<{
 }> = [
   { href: "/",          label: "Accueil",          icon: "◎", group: "Overview" },
   { href: "/calls",     label: "Appels (live)",    icon: "☎", phase: "phase 1", group: "Operations" },
-  { href: "/desk",      label: "Mon poste",        icon: "⌂", phase: "phase 3", group: "Operations" },
+  { href: "/desk",      label: "Mon poste",        icon: "⌂", group: "Operations" },
   { href: "/queues",    label: "Files d'attente",  icon: "≡", phase: "phase 1", group: "Operations" },
   { href: "/campaigns", label: "Campagnes",        icon: "⇈", phase: "phase 5", group: "Operations" },
 

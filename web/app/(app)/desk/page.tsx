@@ -1,17 +1,19 @@
-import { PhaseStub } from "@/components/PhaseStub";
+import { Softphone } from "@/components/voice/Softphone";
+
+export const dynamic = "force-dynamic";
 
 export default function DeskPage() {
   return (
-    <PhaseStub
-      title="Mon poste — softphone web"
-      phase="Phase 3"
-      description="Poste de travail de l'agent humain : WebRTC via LiveKit, présence (available/busy/away), réception des appels routés par les queues, click-to-call sortant, transfert AI ↔ humain en un clic."
-      bullets={[
-        "Présence persistée dans public.human_presence (Supabase Realtime)",
-        "Audio LiveKit avec mute / hold / transfer",
-        "Volet droit : fiche contact CRM + transcript live + notes de fin d'appel",
-        "Bouton transfert vers un autre agent ou vers un agent IA",
-      ]}
-    />
+    <div>
+      <div className="page-header">
+        <div>
+          <h1>Mon poste</h1>
+          <div className="subtitle">
+            Softphone web — présence, appels routés, contrôles LiveKit.
+          </div>
+        </div>
+      </div>
+      <Softphone />
+    </div>
   );
 }
