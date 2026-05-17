@@ -22,6 +22,26 @@ create table if not exists public.organizations (
   created_at  timestamptz not null default now()
 );
 
+-- Defensive: if `organizations` was pre-created by an earlier partial run
+-- without the v2 columns, make sure they all exist before we INSERT below.
+alter table public.organizations
+  add column if not exists name        text,
+  add column if not exists slug        text,
+  add column if not exists created_at  timestamptz not null default now();
+
+-- Ensure the unique constraint on slug, regardless of how the table was
+-- originally created.
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.organizations'::regclass
+      and conname  = 'organizations_slug_key'
+  ) then
+    alter table public.organizations add constraint organizations_slug_key unique (slug);
+  end if;
+end $$;
+
 create table if not exists public.memberships (
   id              uuid primary key default uuid_generate_v4(),
   org_id          uuid not null references public.organizations(id) on delete cascade,
