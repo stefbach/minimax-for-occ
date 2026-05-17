@@ -17,6 +17,7 @@ Deploy:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from typing import Optional
@@ -28,6 +29,12 @@ from livekit.plugins import deepgram, minimax, openai, silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
 from agent_config import AxonAgent, load_agent, rag_search, resolve_agent_id
+from flow_runtime import (
+    FlowRuntime,
+    call_id_from_metadata,
+    flow_id_from_metadata,
+    handoff_target_from_metadata,
+)
 
 load_dotenv()
 
@@ -129,8 +136,81 @@ class AxonVoiceAgent(Agent):
             await self.session.say(text=self._greeting, allow_interruptions=True)
 
 
+async def _watch_handoff(ctx: JobContext, session: AgentSession) -> None:
+    """When room metadata gains `handoff_to`, hot-swap to that agent.
+
+    The sibling handoff API patches the LiveKit room metadata; we react
+    in-process so the same call seamlessly switches persona.
+    """
+    seen: Optional[str] = handoff_target_from_metadata(ctx.room.metadata)
+
+    def _on_meta_changed(*_args, **_kwargs) -> None:
+        nonlocal seen
+        target = handoff_target_from_metadata(ctx.room.metadata)
+        if not target or target == seen:
+            return
+        seen = target
+        try:
+            axon_next = load_agent(target)
+        except Exception:
+            logger.exception("handoff: failed to load agent %s", target)
+            return
+        if not axon_next:
+            logger.warning("handoff: agent %s not found", target)
+            return
+        try:
+            session.llm = _llm_for(axon_next)
+            session.tts = _tts_for(axon_next)
+            logger.info("handoff: swapped persona -> %s (%s)", axon_next.id, axon_next.name)
+        except Exception:
+            logger.exception("handoff: hot-swap failed")
+
+    for name in ("metadata_changed", "room_metadata_changed"):
+        try:
+            ctx.room.on(name, _on_meta_changed)
+            return
+        except Exception:
+            continue
+    logger.debug("handoff watcher: no metadata_changed event on this LiveKit version")
+
+
 async def entrypoint(ctx: JobContext) -> None:
     await ctx.connect()
+
+    # Flow runtime path — if room metadata carries flow_id, drive the IVR
+    # state machine instead of running a single-agent persona.
+    flow_id = flow_id_from_metadata(ctx.room.metadata)
+    call_id = call_id_from_metadata(ctx.room.metadata)
+    if flow_id:
+        logger.info("flow_id=%s detected — booting FlowRuntime", flow_id)
+        runtime = FlowRuntime(call_id=call_id)
+        try:
+            await runtime.load(flow_id)
+        except Exception:
+            logger.exception("failed to load flow %s — falling back to single-agent mode", flow_id)
+        else:
+            # A session is still required to drive say()/STT during the flow.
+            session = AgentSession(
+                stt=deepgram.STT(model="nova-3", language="multi"),
+                llm=openai.LLM(
+                    model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+                    api_key=os.environ["OPENAI_API_KEY"],
+                ),
+                tts=_tts_for(None),
+                vad=silero.VAD.load(),
+                turn_detection=MultilingualModel(),
+            )
+            await session.start(
+                room=ctx.room,
+                agent=AxonVoiceAgent(
+                    instructions="You are an IVR runtime; follow flow instructions.",
+                    tools=[],
+                    greeting="",
+                ),
+            )
+            await _watch_handoff(ctx, session)
+            await runtime.execute(session, ctx)
+            return
 
     # Resolve which agent persona this room is for.
     agent_id = resolve_agent_id(
