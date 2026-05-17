@@ -289,6 +289,9 @@ drop policy if exists "open_all_runs"       on public.agent_runs;
 drop policy if exists "open_all_voices"     on public.voices;
 
 -- Generic per-org policies. service_role bypasses RLS by default in Supabase.
+-- NOTE: queue_memberships + call_events are intentionally NOT in this list —
+-- they have no direct org_id; they're scoped via their parent (queue, call)
+-- in the dedicated policies below.
 do $$
 declare
   t text;
@@ -296,8 +299,8 @@ begin
   for t in
     select unnest(array[
       'agents','agent_n8n_workflows','documents','agent_runs','voices',
-      'phone_numbers','queues','agent_handles','queue_memberships',
-      'human_presence','contacts','conversations','calls','call_events'
+      'phone_numbers','queues','agent_handles',
+      'human_presence','contacts','conversations','calls'
     ])
   loop
     execute format($f$
