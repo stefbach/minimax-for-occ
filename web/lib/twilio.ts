@@ -208,6 +208,44 @@ function pickCaps(c: any): { voice: boolean; sms: boolean; mms: boolean; fax: bo
 }
 
 /**
+ * Place an outbound call via Twilio's REST API.
+ * Twilio will POST `twimlUrl` once the call is answered to fetch instructions.
+ *
+ * If `amd` is true, Twilio runs Answering Machine Detection and the result
+ * is sent via the AsyncAmdStatusCallback (or the regular status callback).
+ */
+export async function createCall(opts: {
+  to: string;
+  from: string;
+  twimlUrl: string;
+  statusCallback?: string;
+  amd?: boolean;
+  timeout?: number;
+}): Promise<{ sid: string; status: string }> {
+  const body = new URLSearchParams();
+  body.set("To", opts.to);
+  body.set("From", opts.from);
+  body.set("Url", opts.twimlUrl);
+  body.set("Method", "POST");
+  if (opts.statusCallback) {
+    body.set("StatusCallback", opts.statusCallback);
+    body.set("StatusCallbackMethod", "POST");
+    body.set("StatusCallbackEvent", "initiated");
+    body.append("StatusCallbackEvent", "ringing");
+    body.append("StatusCallbackEvent", "answered");
+    body.append("StatusCallbackEvent", "completed");
+  }
+  if (opts.amd) {
+    body.set("MachineDetection", "DetectMessageEnd");
+  }
+  if (opts.timeout !== undefined) {
+    body.set("Timeout", String(opts.timeout));
+  }
+  const res = await twilioFetch(`/Calls.json`, { method: "POST", body });
+  return { sid: res?.sid, status: res?.status };
+}
+
+/**
  * Build the public webhook URL Twilio should hit when a call comes in.
  * Prefers the explicit NEXT_PUBLIC_APP_URL, then VERCEL_URL, then a passed origin.
  */
