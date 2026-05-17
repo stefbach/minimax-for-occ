@@ -1,23 +1,18 @@
 import { NextResponse } from "next/server";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
+import { requestOrgId } from "@/lib/request-org";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const DEFAULT_ORG = "00000000-0000-0000-0000-000000000001";
-
-function orgFrom(req: Request): string {
-  const { searchParams } = new URL(req.url);
-  return searchParams.get("org_id") ?? DEFAULT_ORG;
-}
-
 export async function GET(req: Request) {
   if (!hasSupabase()) return NextResponse.json([]);
+  const orgId = await requestOrgId(req);
   const sb = supabaseServer();
   const { data, error } = await sb
     .from("contacts")
     .select("*")
-    .eq("org_id", orgFrom(req))
+    .eq("org_id", orgId)
     .order("updated_at", { ascending: false })
     .limit(500);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -26,8 +21,8 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   if (!hasSupabase()) return NextResponse.json({ error: "Supabase not configured" }, { status: 500 });
+  const orgId = await requestOrgId(req);
   const body = (await req.json()) as {
-    org_id?: string;
     e164: string;
     display_name?: string;
     email?: string;
@@ -40,7 +35,7 @@ export async function POST(req: Request) {
     .from("contacts")
     .upsert(
       {
-        org_id: body.org_id ?? DEFAULT_ORG,
+        org_id: orgId,
         e164: body.e164,
         display_name: body.display_name ?? null,
         email: body.email ?? null,

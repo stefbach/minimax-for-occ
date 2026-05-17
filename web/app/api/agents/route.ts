@@ -1,21 +1,25 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase";
+import { requestOrgId } from "@/lib/request-org";
 import type { AgentInput } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: Request) {
+  const orgId = await requestOrgId(req);
   const sb = supabaseServer();
   const { data, error } = await sb
     .from("agents")
     .select("*")
+    .eq("org_id", orgId)
     .order("updated_at", { ascending: false });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data ?? []);
 }
 
 export async function POST(req: Request) {
+  const orgId = await requestOrgId(req);
   const sb = supabaseServer();
   const body = (await req.json()) as AgentInput;
   if (!body.name) {
@@ -24,6 +28,7 @@ export async function POST(req: Request) {
   const { data, error } = await sb
     .from("agents")
     .insert({
+      org_id: orgId,
       name: body.name,
       description: body.description ?? null,
       language: body.language ?? "multi",

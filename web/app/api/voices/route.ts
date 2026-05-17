@@ -1,17 +1,20 @@
 import { NextResponse } from "next/server";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { registerVoiceClone, uploadVoiceCloneSample } from "@/lib/minimax";
+import { requestOrgId } from "@/lib/request-org";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
-export async function GET() {
+export async function GET(req: Request) {
   if (!hasSupabase()) return NextResponse.json([]);
+  const orgId = await requestOrgId(req);
   const sb = supabaseServer();
   const { data, error } = await sb
     .from("voices")
     .select("*")
+    .eq("org_id", orgId)
     .order("source", { ascending: true })
     .order("created_at", { ascending: false });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -38,6 +41,7 @@ export async function POST(req: Request) {
   if (!hasSupabase()) {
     return NextResponse.json({ error: "Supabase not configured" }, { status: 500 });
   }
+  const orgId = await requestOrgId(req);
   let form: FormData;
   try {
     form = await req.formData();
@@ -88,6 +92,7 @@ export async function POST(req: Request) {
     .from("voices")
     .upsert(
       {
+        org_id: orgId,
         voice_id: voiceId,
         display_name: displayName,
         language,

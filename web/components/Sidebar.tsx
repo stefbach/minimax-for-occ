@@ -21,6 +21,7 @@ interface NavItem {
 const NAV: NavItem[] = [
   // ── Overview ──
   { href: "/dashboard", label: "Dashboard",         icon: "▣", group: "Overview", roles: ["super_admin","admin","manager","supervisor"] },
+  { href: "/analytics", label: "Analytics",         icon: "▤", group: "Overview", roles: ["super_admin","admin","manager","supervisor"] },
   { href: "/desk",      label: "Mon poste",         icon: "⌂", group: "Overview" },
 
   // ── Operations ──
