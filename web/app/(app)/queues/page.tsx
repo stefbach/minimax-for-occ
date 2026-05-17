@@ -1,16 +1,48 @@
-import { PhaseStub } from "@/components/PhaseStub";
+import { hasSupabase, supabaseServer } from "@/lib/supabase";
+import { QueuesClient, type QueueRow, type AgentHandleOption } from "@/components/queues/QueuesClient";
 
-export default function QueuesPage() {
+export const dynamic = "force-dynamic";
+
+const DEFAULT_ORG = "00000000-0000-0000-0000-000000000001";
+
+export default async function QueuesPage() {
+  let queues: QueueRow[] = [];
+  let handles: AgentHandleOption[] = [];
+
+  if (hasSupabase()) {
+    try {
+      const sb = supabaseServer();
+      const [{ data: qs }, { data: hs }] = await Promise.all([
+        sb
+          .from("queues")
+          .select("*")
+          .eq("org_id", DEFAULT_ORG)
+          .order("created_at", { ascending: false }),
+        sb
+          .from("agent_handles")
+          .select("id, kind, display_name, active")
+          .eq("org_id", DEFAULT_ORG)
+          .eq("active", true)
+          .order("display_name", { ascending: true }),
+      ]);
+      queues = (qs ?? []) as QueueRow[];
+      handles = (hs ?? []) as AgentHandleOption[];
+    } catch {
+      /* tables may not exist yet on this Supabase project — start empty */
+    }
+  }
+
   return (
-    <PhaseStub
-      title="Files d'attente"
-      phase="Phase 1"
-      description="Files de routage skill-based : chaque file regroupe N agents (IA et humains). Quand un appel arrive dans une file, l'algorithme (longest-idle, round-robin, broadcast) choisit l'agent libre prioritaire."
-      bullets={[
-        "Création de file, choix de stratégie, max_wait_secs, fallback voicemail",
-        "Drag-drop des agents (IA + humains) avec priorité",
-        "Métriques live : appels en attente, temps moyen d'attente, agents disponibles",
-      ]}
-    />
+    <>
+      <div className="page-header">
+        <div>
+          <h1>Files d&apos;attente</h1>
+          <div className="subtitle">
+            {queues.length} file{queues.length === 1 ? "" : "s"} · routage skill-based vers les agents AI + humains
+          </div>
+        </div>
+      </div>
+      <QueuesClient initial={queues} handles={handles} />
+    </>
   );
 }
