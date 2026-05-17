@@ -1,0 +1,25 @@
+-- =========================================================================
+--  Axon — migration 0011 — Storage bucket note (NO-OP SQL)
+--
+--  Supabase Storage buckets cannot be created reliably via plain SQL (the
+--  `storage.buckets` table is owned by `supabase_storage_admin` and requires
+--  the management API or the dashboard).  This migration is intentionally
+--  inert: it just documents the manual step required for the Twilio
+--  recording pipeline to work.
+--
+--  REQUIRED MANUAL STEP — once per project:
+--
+--    1) Supabase Dashboard → Storage → New bucket
+--         · Name:   axon-recordings
+--         · Public: NO   (keep it private; we hand out signed URLs)
+--    2) Policies tab → keep defaults — `service_role` already has full
+--       access on every bucket. No extra row-level policy is required
+--       because the webhook routes upload with the service-role key.
+--
+--  The /api/twilio/recording webhook downloads the .mp3 from Twilio
+--  (Basic auth) and writes it to:
+--        axon-recordings/calls/<call_id>.mp3
+--  then stores a 7-day signed URL in public.calls.recording_url.
+-- =========================================================================
+
+select 'OK — axon-recordings bucket must be created manually in the dashboard' as note;

@@ -349,6 +349,30 @@ See `agent/sip/README.md` for the full procedure. Short version:
 4. The worker auto-dispatches on every SIP-originated room, so callers
    talk to the same agent personas you defined in the dashboard.
 
+### 6. Twilio StatusCallback + recording pipeline
+
+The outbound campaign lifecycle (driven by `dialer/`) closes the loop
+through two webhooks living in the Next.js app:
+
+- `POST /api/twilio/status` — updates `public.calls` and
+  `public.campaign_targets` from Twilio `CallStatus` + `AnsweredBy`
+  (AMD). Append `?campaign_id=…&target_id=…` (the dialer already does).
+- `POST /api/twilio/recording` — downloads the Twilio recording with
+  Basic auth and uploads it to Supabase Storage
+  (`axon-recordings/calls/<call_id>.mp3`), then patches
+  `public.calls.recording_url` with a 7-day signed URL.
+
+**Manual one-time step** (Supabase Storage buckets cannot be created
+via SQL):
+
+```
+1) Supabase Dashboard → Storage → Create bucket "axon-recordings", private.
+2) Policies: service_role has full access (default).
+```
+
+Full documentation, including the Twilio Console configuration and the
+campaign-target state machine, is in [`docs/TELEPHONY.md`](docs/TELEPHONY.md).
+
 ---
 
 ## Day-to-day workflows
