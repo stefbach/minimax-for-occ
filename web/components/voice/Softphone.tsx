@@ -8,6 +8,7 @@ import {
   VoiceAssistantControlBar,
 } from "@livekit/components-react";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+import { TransferModal } from "./TransferModal";
 
 type PresenceStatus = "offline" | "available" | "busy" | "away";
 
@@ -30,6 +31,8 @@ type CallRow = {
 type Conn = { token: string; url: string; room: string; agent_handle_id: string };
 
 type Handle = { id: string; org_id: string; display_name: string };
+
+type ActiveCallExt = CallRow & { agent_handle_id?: string | null };
 
 const STATUSES: PresenceStatus[] = ["available", "busy", "away", "offline"];
 
@@ -76,6 +79,8 @@ export function Softphone() {
   const [connecting, setConnecting] = useState(false);
   const [connError, setConnError] = useState<string | null>(null);
   const [muted, setMuted] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [showTransfer, setShowTransfer] = useState(false);
 
   // Bootstrap: figure out if user has a human agent_handle.
   const bootstrap = useCallback(async () => {
@@ -89,6 +94,7 @@ export function Softphone() {
         setBootstrapError("Vous devez être connecté.");
         return;
       }
+      setUserId(user.id);
       const { data, error } = await sb
         .from("agent_handles")
         .select("id, org_id, display_name")
@@ -348,6 +354,7 @@ export function Softphone() {
                 muted={muted}
                 onToggleMute={() => setMuted((m) => !m)}
                 onHangup={disconnect}
+                onTransfer={activeCall ? () => setShowTransfer(true) : undefined}
               />
             </LiveKitRoom>
           )}
@@ -355,6 +362,19 @@ export function Softphone() {
 
         <ContactPanel call={activeCall} />
       </div>
+
+      {showTransfer && activeCall && (
+        <TransferModal
+          callId={activeCall.id}
+          orgId={handle.org_id}
+          currentAgentHandleId={
+            (activeCall as ActiveCallExt).agent_handle_id ?? handle.id
+          }
+          excludeUserId={userId}
+          onClose={() => setShowTransfer(false)}
+          onTransferred={() => void refreshCalls()}
+        />
+      )}
     </div>
   );
 }
@@ -462,10 +482,12 @@ function CallActions({
   muted,
   onToggleMute,
   onHangup,
+  onTransfer,
 }: {
   muted: boolean;
   onToggleMute: () => void;
   onHangup: () => void;
+  onTransfer?: () => void;
 }) {
   return (
     <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
@@ -481,10 +503,11 @@ function CallActions({
       </button>
       <button
         className="ghost"
-        onClick={() => alert("Transfert — à brancher")}
-        title="Stub : transfert vers un autre handle"
+        onClick={onTransfer}
+        disabled={!onTransfer}
+        title="Transférer cet appel vers un autre agent"
       >
-        Transfert
+        Transférer
       </button>
       <button className="danger" onClick={onHangup}>
         Raccrocher

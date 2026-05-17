@@ -8,6 +8,7 @@ import {
   SupervisionRoom,
   type SupervisionMode,
 } from "@/components/supervision/SupervisionRoom";
+import { HandoffCard } from "@/components/calls/HandoffCard";
 
 type AgentHandle = {
   id: string;
@@ -228,6 +229,15 @@ export default function CallDetailPage() {
             onClose={() => setSupervisionMode(null)}
           />
         </div>
+      )}
+
+      {isLive && (
+        <HandoffCard
+          callId={id}
+          orgId={call.org_id}
+          currentAgentHandleId={call.agent_handle_id}
+          onChanged={() => void refresh()}
+        />
       )}
 
       <div className="duo">
