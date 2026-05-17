@@ -60,6 +60,16 @@ export default function SettingsPage() {
       ok: !!process.env.N8N_API_KEY,
       hint: "n8n → Settings → API.",
     },
+    {
+      name: "TWILIO_ACCOUNT_SID",
+      ok: !!process.env.TWILIO_ACCOUNT_SID,
+      hint: "Twilio Console → Account → API keys & tokens (commence par AC...). Requis pour /numbers.",
+    },
+    {
+      name: "TWILIO_AUTH_TOKEN",
+      ok: !!process.env.TWILIO_AUTH_TOKEN,
+      hint: "Auth Token Twilio — utilisé pour l'achat/release de numéros et l'API REST.",
+    },
   ];
 
   return (
