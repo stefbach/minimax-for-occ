@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase";
+import {
+  recordUsage,
+  secondsToBillableMinutes,
+  estimateCostCents,
+} from "@/lib/billing";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -154,6 +159,38 @@ export async function POST(req: Request) {
         raw: rawPayload,
       },
     });
+  }
+
+  // ── 2bis. Billing: record call minutes on completed calls ──────────────
+  if (CallStatus === "completed" && Duration && Number.isFinite(Number(Duration))) {
+    // Prefer the org_id of the existing row; if we just inserted, the
+    // insert path above resolved one (campaign or legacy fallback).
+    let orgIdForBilling: string | null =
+      (existing?.org_id as string | undefined) ?? null;
+    if (!orgIdForBilling && callId) {
+      const { data: row } = await sb
+        .from("calls")
+        .select("org_id")
+        .eq("id", callId)
+        .maybeSingle();
+      orgIdForBilling = (row?.org_id as string | undefined) ?? null;
+    }
+    if (orgIdForBilling) {
+      const minutes = secondsToBillableMinutes(Number(Duration));
+      if (minutes > 0) {
+        await recordUsage(
+          orgIdForBilling,
+          "call_minutes",
+          minutes,
+          estimateCostCents("call_minutes", minutes),
+          {
+            call_id: callId,
+            twilio_call_sid: CallSid,
+            direction: Direction,
+          },
+        );
+      }
+    }
   }
 
   // ── 3. Drive campaign_targets lifecycle ────────────────────────────────

@@ -1,0 +1,125 @@
+{
+  "name": "google-ads-lead-to-axon",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "google-ads-lead",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "ga-webhook",
+      "name": "Webhook (Google Ads)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "google-ads-lead"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ga-1",
+              "name": "user_columns",
+              "type": "object",
+              "value": "={{ ($json.body && ($json.body.lead && $json.body.lead.user_column_data)) || ($json.body && $json.body.user_column_data) || [] }}"
+            },
+            {
+              "id": "ga-2",
+              "name": "lead_id",
+              "type": "string",
+              "value": "={{ ($json.body && $json.body.lead && $json.body.lead.lead_id) || ($json.body && $json.body.lead_id) || '' }}"
+            },
+            {
+              "id": "ga-3",
+              "name": "campaign_id_gads",
+              "type": "string",
+              "value": "={{ ($json.body && $json.body.lead && $json.body.lead.campaign_id) || ($json.body && $json.body.campaign_id) || '' }}"
+            },
+            {
+              "id": "ga-4",
+              "name": "form_id",
+              "type": "string",
+              "value": "={{ ($json.body && $json.body.lead && $json.body.lead.form_id) || '' }}"
+            },
+            {
+              "id": "ga-5",
+              "name": "lead_creation_time",
+              "type": "string",
+              "value": "={{ ($json.body && $json.body.lead && $json.body.lead.lead_creation_time) || $now.toISO() }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "ga-extract",
+      "name": "Extract lead fields",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Google Ads Lead Form Extensions deliver fields as an array of\n// { column_name, string_value } pairs. Normalise into a flat object\n// using lower-snake-case keys.\nconst raw = $input.first().json.user_columns || [];\nconst out = {};\nfor (const row of raw) {\n  const k = String(row.column_name || row.column_id || '').toLowerCase().replace(/[^a-z0-9]+/g, '_');\n  if (!k) continue;\n  out[k] = row.string_value ?? row.value ?? '';\n}\n\nconst phone = (\n  out.phone_number ||\n  out.phone ||\n  out.mobile ||\n  out.mobile_phone ||\n  ''\n).toString().trim();\n\nconst first = (out.first_name || out.given_name || '').toString().trim();\nconst last  = (out.last_name  || out.family_name || '').toString().trim();\nconst email = (out.email || out.email_address || '').toString().trim();\n\nreturn [\n  {\n    json: {\n      e164: phone,\n      first_name: first,\n      last_name: last,\n      email,\n      name: [first, last].filter(Boolean).join(' '),\n      lead_id: $input.first().json.lead_id,\n      lead_creation_time: $input.first().json.lead_creation_time,\n      campaign_id_gads: $input.first().json.campaign_id_gads,\n      form_id: $input.first().json.form_id,\n      raw: out,\n    },\n  },\n];"
+      },
+      "id": "ga-map",
+      "name": "Map to Axon payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.AXON_URL}}/api/leads/inbound",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "content-type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  secret: $env.AXON_INBOUND_SECRET,\n  source: 'google_ads',\n  e164: $json.e164,\n  first_name: $json.first_name,\n  last_name: $json.last_name,\n  name: $json.name,\n  email: $json.email,\n  metadata: {\n    lead_id: $json.lead_id,\n    lead_created_at: $json.lead_creation_time,\n    google_ads_campaign_id: $json.campaign_id_gads,\n    form_id: $json.form_id,\n    raw: $json.raw,\n  },\n}) }}",
+        "options": {
+          "response": { "response": { "responseFormat": "json" } }
+        }
+      },
+      "id": "ga-post",
+      "name": "POST /api/leads/inbound",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: true, target_id: $json.target_id, priority: $json.priority } }}",
+        "options": {}
+      },
+      "id": "ga-respond",
+      "name": "Respond OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1120, 300]
+    }
+  ],
+  "connections": {
+    "Webhook (Google Ads)": {
+      "main": [[{ "node": "Extract lead fields", "type": "main", "index": 0 }]]
+    },
+    "Extract lead fields": {
+      "main": [[{ "node": "Map to Axon payload", "type": "main", "index": 0 }]]
+    },
+    "Map to Axon payload": {
+      "main": [[{ "node": "POST /api/leads/inbound", "type": "main", "index": 0 }]]
+    },
+    "POST /api/leads/inbound": {
+      "main": [[{ "node": "Respond OK", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "tags": [{ "name": "axon" }, { "name": "google-ads" }]
+}

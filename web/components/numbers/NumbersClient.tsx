@@ -11,6 +11,9 @@ export interface PhoneNumberRow {
   provider_sid: string | null;
   flow_id: string | null;
   capabilities: { voice?: boolean; sms?: boolean; mms?: boolean; fax?: boolean } | null;
+  country_code: string | null;
+  prefix: string | null;
+  is_default: boolean;
   active: boolean;
   created_at: string;
 }
@@ -93,7 +96,9 @@ export function NumbersClient({
     const r = await fetch("/api/numbers", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ phone_number: phoneNumber }),
+      // Pass the search country so NANP (+1, US/CA) doesn't default to US
+      // when the user is buying a Canadian number.
+      body: JSON.stringify({ phone_number: phoneNumber, country: searchCountry }),
     });
     setPurchasing(null);
     if (!r.ok) {
@@ -121,7 +126,12 @@ export function NumbersClient({
     refresh();
   }
 
-  async function patch(id: string, body: Partial<Pick<PhoneNumberRow, "label" | "active" | "flow_id">>) {
+  async function patch(
+    id: string,
+    body: Partial<
+      Pick<PhoneNumberRow, "label" | "active" | "flow_id" | "country_code" | "is_default">
+    >,
+  ) {
     setActionError(null);
     const r = await fetch(`/api/numbers?id=${id}`, {
       method: "PATCH",
@@ -134,7 +144,22 @@ export function NumbersClient({
       return;
     }
     const updated = (await r.json()) as PhoneNumberRow;
-    setRows((cur) => cur.map((n) => (n.id === id ? updated : n)));
+    setRows((cur) =>
+      cur.map((n) => {
+        if (n.id === id) return updated;
+        // Setting a new default clears other defaults in the same org locally
+        // to keep the UI in sync without re-fetching.
+        if (body.is_default === true && updated.is_default && n.org_id === updated.org_id) {
+          return { ...n, is_default: false };
+        }
+        return n;
+      }),
+    );
+  }
+
+  async function setDefault(row: PhoneNumberRow) {
+    if (row.is_default) return;
+    await patch(row.id, { is_default: true });
   }
 
   return (
@@ -262,9 +287,11 @@ export function NumbersClient({
             <thead>
               <tr>
                 <th>Numéro</th>
+                <th>Pays</th>
                 <th>Label</th>
                 <th>Flow attaché</th>
                 <th>Capabilities</th>
+                <th>Défaut</th>
                 <th>Actif</th>
                 <th></th>
               </tr>
@@ -275,6 +302,25 @@ export function NumbersClient({
                 return (
                   <tr key={n.id}>
                     <td><span className="kbd">{n.e164}</span></td>
+                    <td>
+                      <select
+                        value={n.country_code ?? ""}
+                        onChange={(e) => patch(n.id, { country_code: e.target.value || null })}
+                        title="Pays utilisé pour le geo-routing outbound"
+                      >
+                        <option value="">—</option>
+                        {COUNTRY_OPTIONS.map((c) => (
+                          <option key={c.code} value={c.code}>
+                            {c.code}
+                          </option>
+                        ))}
+                      </select>
+                      {n.prefix && (
+                        <span className="muted" style={{ marginLeft: 6, fontSize: 12 }}>
+                          {n.prefix}
+                        </span>
+                      )}
+                    </td>
                     <td>
                       <input
                         defaultValue={n.label ?? ""}
@@ -302,6 +348,19 @@ export function NumbersClient({
                       {caps.sms && <span className="tag" style={{ marginRight: 4 }}>sms</span>}
                       {caps.mms && <span className="tag" style={{ marginRight: 4 }}>mms</span>}
                       {caps.fax && <span className="tag" style={{ marginRight: 4 }}>fax</span>}
+                    </td>
+                    <td>
+                      {n.is_default ? (
+                        <span className="tag good">par défaut</span>
+                      ) : (
+                        <button
+                          style={{ padding: "4px 8px", fontSize: 12 }}
+                          onClick={() => setDefault(n)}
+                          title="Utiliser ce numéro comme fallback quand aucun numéro pays ne matche"
+                        >
+                          Définir par défaut
+                        </button>
+                      )}
                     </td>
                     <td>
                       <label style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>

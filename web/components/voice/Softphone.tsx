@@ -9,6 +9,8 @@ import {
 } from "@livekit/components-react";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 import { TransferModal } from "./TransferModal";
+import { ContactPanel } from "./ContactPanel";
+import { ScriptPanel } from "./ScriptPanel";
 
 type PresenceStatus = "offline" | "available" | "busy" | "away";
 
@@ -479,6 +481,10 @@ export function Softphone() {
               )}
             </LiveKitRoom>
           )}
+
+          {/* Phase 4: "Script en cours" — only renders if the active
+              call has a script attached (campaign with script_id). */}
+          <ScriptPanel callId={activeCall?.id ?? null} />
         </div>
 
         <ContactPanel call={activeCall} />
@@ -648,74 +654,3 @@ function CallActions({
   );
 }
 
-function ContactPanel({ call }: { call: CallRow | null }) {
-  if (!call) {
-    return (
-      <div className="card softphone-right">
-        <h3>Fiche contact</h3>
-        <p className="muted" style={{ margin: 0 }}>
-          Sélectionnez un appel pour afficher la fiche contact et le transcript.
-        </p>
-      </div>
-    );
-  }
-  const phone = call.direction === "in" ? call.from_e164 : call.to_e164;
-  return (
-    <div className="card softphone-right">
-      <h3>{call.contacts?.display_name ?? phone ?? "Contact inconnu"}</h3>
-      <div className="muted" style={{ fontSize: 13 }}>{phone}</div>
-
-      <div style={{ display: "grid", gap: 6, marginTop: 12, fontSize: 13 }}>
-        <div>
-          <span className="muted">État : </span>
-          <span className="tag">{call.state}</span>
-        </div>
-        <div>
-          <span className="muted">Direction : </span>
-          {call.direction === "in" ? "Entrant" : "Sortant"}
-        </div>
-        <div>
-          <span className="muted">Début : </span>
-          {new Date(call.started_at).toLocaleString()}
-        </div>
-        {call.answered_at && (
-          <div>
-            <span className="muted">Répondu : </span>
-            {new Date(call.answered_at).toLocaleTimeString()}
-          </div>
-        )}
-        {call.ended_at && (
-          <div>
-            <span className="muted">Terminé : </span>
-            {new Date(call.ended_at).toLocaleTimeString()}
-          </div>
-        )}
-        {call.room_id && (
-          <div>
-            <span className="muted">Room : </span>
-            <span className="kbd">{call.room_id}</span>
-          </div>
-        )}
-      </div>
-
-      <div style={{ marginTop: 14 }}>
-        <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>
-          Transcript live
-        </div>
-        <div
-          style={{
-            background: "var(--bg-2)",
-            border: "1px solid var(--border)",
-            borderRadius: 10,
-            padding: 10,
-            color: "var(--muted)",
-            fontSize: 13,
-            minHeight: 80,
-          }}
-        >
-          Le transcript live sera branché ici (phase suivante).
-        </div>
-      </div>
-    </div>
-  );
-}

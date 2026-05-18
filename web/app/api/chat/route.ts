@@ -3,6 +3,8 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { embedText } from "@/lib/embed";
 import type { Agent } from "@/lib/types";
+import { requestOrgId } from "@/lib/request-org";
+import { recordUsage, estimateCostCents } from "@/lib/billing";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -69,10 +71,36 @@ export async function POST(req: Request) {
   const openai = createOpenAI({ apiKey: process.env.OPENAI_API_KEY! });
   const model = agent?.llm_model || "gpt-4o-mini";
 
+  // Resolve the org for billing up-front (cookies are still readable here).
+  let billingOrgId: string | null = null;
+  try {
+    billingOrgId = await requestOrgId(req);
+  } catch {
+    /* unauth or no membership — skip billing */
+  }
+
   const result = streamText({
     model: openai(model),
     system,
     messages: await convertToModelMessages(messages),
+    onFinish: async ({ totalUsage }) => {
+      try {
+        const input = totalUsage?.inputTokens ?? 0;
+        const output = totalUsage?.outputTokens ?? 0;
+        const total = (input ?? 0) + (output ?? 0);
+        if (billingOrgId && total > 0) {
+          await recordUsage(
+            billingOrgId,
+            "llm_tokens",
+            total,
+            estimateCostCents("llm_tokens", total),
+            { model, input_tokens: input, output_tokens: output, agent_id: agent?.id ?? null },
+          );
+        }
+      } catch {
+        /* never let billing tracking break the stream */
+      }
+    },
   });
 
   return result.toUIMessageStreamResponse();

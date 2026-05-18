@@ -36,6 +36,7 @@ from flow_runtime import (
     flow_id_from_metadata,
     handoff_target_from_metadata,
 )
+from swarm import build_transfer_tool
 
 load_dotenv()
 
@@ -309,6 +310,16 @@ async def entrypoint(ctx: JobContext) -> None:
         if axon.rag_enabled:
             tools.append(_build_rag_tool(axon))
             logger.info("RAG tool enabled (top-%d)", axon.rag_top_k)
+        # Multi-agent swarm: add `transfer_to_specialist` if this agent
+        # belongs to a team. Non-blocking: returns None when no team.
+        try:
+            swarm_tool = build_transfer_tool(axon.id, ctx.room)
+        except Exception:
+            logger.exception("swarm tool build failed; continuing without it")
+            swarm_tool = None
+        if swarm_tool is not None:
+            tools.append(swarm_tool)
+            logger.info("swarm: transfer_to_specialist tool enabled")
     else:
         # legacy path: env-only n8n tools
         if os.getenv("N8N_BASE_URL") and os.getenv("N8N_API_KEY"):

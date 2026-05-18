@@ -8,6 +8,14 @@ interface Org {
   id: string;
   name: string;
   slug: string;
+  role?: string;
+}
+
+interface MeResponse {
+  user: { id: string; email: string | null } | null;
+  orgs: Org[];
+  current_org_id: string | null;
+  current_role: string | null;
 }
 
 export function OrgSwitcher() {
@@ -15,32 +23,47 @@ export function OrgSwitcher() {
   const [orgs, setOrgs] = useState<Org[]>([]);
   const [currentOrgId, setCurrentOrgId] = useState<string | null>(null);
   const [email, setEmail] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    const sb = supabaseBrowser();
-    sb.auth.getUser().then((res: { data: { user: { email?: string } | null } }) => {
-      setEmail(res.data.user?.email ?? null);
-    });
-    sb.from("memberships")
-      .select("organizations(id, name, slug)")
-      .then((res: { data: Array<{ organizations: Org | null }> | null }) => {
-        const list = (res.data ?? [])
-          .map((m) => m.organizations)
-          .filter((o): o is Org => o !== null);
-        setOrgs(list);
-        if (typeof window !== "undefined") {
-          const saved = window.localStorage.getItem("axon.org_id");
-          setCurrentOrgId(saved ?? list[0]?.id ?? null);
-        }
+    let cancelled = false;
+    // Hydrate from /api/me — single source of truth for the active org
+    // (it reads the HttpOnly cookie set by /api/orgs/switch).
+    fetch("/api/me", { credentials: "same-origin" })
+      .then((r) => (r.ok ? (r.json() as Promise<MeResponse>) : null))
+      .then((data) => {
+        if (cancelled || !data || !data.user) return;
+        setEmail(data.user.email);
+        setOrgs(data.orgs);
+        setCurrentOrgId(data.current_org_id);
+      })
+      .catch(() => {
+        /* network glitch — leave the switcher empty rather than crashing */
       });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  function pick(id: string) {
-    setCurrentOrgId(id);
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem("axon.org_id", id);
+  async function pick(id: string) {
+    if (!id || id === currentOrgId || busy) return;
+    setBusy(true);
+    try {
+      const r = await fetch("/api/orgs/switch", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ org_id: id }),
+      });
+      if (r.ok) {
+        setCurrentOrgId(id);
+        // Refresh server components so the new middleware-applied role
+        // takes effect everywhere.
+        router.refresh();
+      }
+    } finally {
+      setBusy(false);
     }
-    router.refresh();
   }
 
   async function signOut() {
@@ -56,7 +79,7 @@ export function OrgSwitcher() {
       <select
         value={currentOrgId ?? ""}
         onChange={(e) => pick(e.target.value)}
-        disabled={orgs.length === 0}
+        disabled={orgs.length === 0 || busy}
         style={{ padding: "6px 8px", fontSize: 13 }}
       >
         {orgs.length === 0 && <option value="">(aucune)</option>}

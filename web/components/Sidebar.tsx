@@ -32,6 +32,8 @@ const NAV: NavItem[] = [
 
   // ── Builder ──
   { href: "/agents",    label: "Agents IA",         icon: "◇", group: "Builder", roles: ["super_admin","admin","manager"] },
+  { href: "/teams",     label: "Teams IA",          icon: "⌬", group: "Builder", roles: ["super_admin","admin","manager"] },
+  { href: "/scripts",   label: "Scripts",           icon: "✎", group: "Builder", roles: ["super_admin","admin","manager"] },
   { href: "/voices",    label: "Voice Studio",      icon: "♪", group: "Builder", roles: ["super_admin","admin","manager"] },
   { href: "/flows",     label: "Flows / IVR",       icon: "❖", group: "Builder", roles: ["super_admin","admin","manager"] },
   { href: "/workflows", label: "Workflows n8n",     icon: "⇄", group: "Builder", roles: ["super_admin","admin","manager"] },
@@ -43,8 +45,10 @@ const NAV: NavItem[] = [
   { href: "/numbers",   label: "Numéros",           icon: "✆", group: "CRM", roles: ["super_admin","admin","manager"] },
 
   // ── Admin ──
-  { href: "/admin",     label: "Administration",    icon: "★", group: "Admin", roles: ["super_admin","admin"] },
-  { href: "/settings",  label: "Paramètres",        icon: "⚙", group: "Admin", roles: ["super_admin","admin","manager"] },
+  { href: "/admin",         label: "Administration",       icon: "★", group: "Admin", roles: ["super_admin","admin"] },
+  { href: "/admin/inbound", label: "Connecteurs entrants", icon: "⇩", group: "Admin", roles: ["super_admin","admin"] },
+  { href: "/admin/billing", label: "Facturation",          icon: "€", group: "Admin", roles: ["super_admin","admin"] },
+  { href: "/settings",      label: "Paramètres",           icon: "⚙", group: "Admin", roles: ["super_admin","admin","manager"] },
 ];
 
 export function Sidebar() {
