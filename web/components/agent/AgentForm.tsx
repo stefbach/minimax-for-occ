@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { Agent, AgentInput, LlmProvider, Voice } from "@/lib/types";
+import { PromptEditor } from "@/components/agents/PromptEditor";
 
 const PROVIDER_MODELS: Record<LlmProvider, string[]> = {
   openai: ["gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini", "o4-mini"],
@@ -200,15 +201,14 @@ export function AgentForm({ initial }: { initial?: Agent }) {
             </select>
           </div>
         </div>
-        <div>
-          <label>Prompt système</label>
-          <textarea
-            rows={6}
-            value={systemPrompt}
-            onChange={(e) => setSystemPrompt(e.target.value)}
-            placeholder="Tu es un assistant vocal pour la pharmacie Tibok. Tu parles en français et en anglais. Tu peux..."
-          />
-        </div>
+        <PromptEditor
+          agentId={initial?.id}
+          value={systemPrompt}
+          onChange={setSystemPrompt}
+          greeting={greeting}
+          onRestoreGreeting={setGreeting}
+          placeholder="Tu es un assistant vocal pour la pharmacie Tibok. Tu parles en français et en anglais. Tu peux..."
+        />
       </div>
 
       <div className="card" style={{ display: "grid", gap: 14 }}>
