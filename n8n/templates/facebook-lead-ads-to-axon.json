@@ -1,0 +1,147 @@
+{
+  "name": "facebook-lead-ads-to-axon",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "facebook-lead",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "fb-verify-webhook",
+      "name": "Webhook verify (GET)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 200],
+      "webhookId": "facebook-lead-verify"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+          "conditions": [
+            {
+              "id": "fb-cv-1",
+              "leftValue": "={{ $json.query['hub.verify_token'] }}",
+              "rightValue": "={{ $env.FB_VERIFY_TOKEN }}",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "fb-verify-if",
+      "name": "Verify token matches",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [460, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.query['hub.challenge'] }}",
+        "options": {}
+      },
+      "id": "fb-verify-respond",
+      "name": "Echo hub.challenge",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [680, 140]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "forbidden",
+        "options": { "responseCode": 403 }
+      },
+      "id": "fb-verify-deny",
+      "name": "Deny verify",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [680, 260]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "facebook-lead",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "fb-webhook",
+      "name": "Webhook (Facebook)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 440],
+      "webhookId": "facebook-lead"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Facebook Lead Ads delivers leads as:\n// { object: 'page', entry: [{ changes: [{ field: 'leadgen', value: { leadgen_id, page_id, form_id, adgroup_id, ad_id, created_time } }] }] }\n// You then need a second API call to /{leadgen_id}?fields=field_data,created_time using\n// a Page access token to fetch the actual fields. For simplicity this template assumes\n// the user has either:\n//   - already enriched the payload upstream (field_data present), OR\n//   - is in test mode where Facebook posts the field_data inline.\n// Adjust as needed for your token flow.\nconst body = $input.first().json.body || {};\nconst out = [];\nfor (const entry of (body.entry || [])) {\n  for (const change of (entry.changes || [])) {\n    const v = change.value || {};\n    const fields = v.field_data || v.fields || [];\n    const flat = {};\n    for (const f of fields) {\n      const k = String(f.name || '').toLowerCase().replace(/[^a-z0-9]+/g, '_');\n      const val = Array.isArray(f.values) ? f.values[0] : f.value;\n      flat[k] = val ?? '';\n    }\n    const phone = (flat.phone_number || flat.phone || flat.mobile || '').toString().trim();\n    const first = (flat.first_name || flat.full_name || '').toString().trim();\n    const last  = (flat.last_name || '').toString().trim();\n    const email = (flat.email || '').toString().trim();\n    out.push({\n      json: {\n        e164: phone,\n        first_name: first,\n        last_name: last,\n        name: [first, last].filter(Boolean).join(' ') || flat.full_name || '',\n        email,\n        lead_id: v.leadgen_id || '',\n        created_time: v.created_time || new Date().toISOString(),\n        page_id: v.page_id || '',\n        form_id: v.form_id || '',\n        ad_id: v.ad_id || '',\n        raw: flat,\n      },\n    });\n  }\n}\nif (out.length === 0) {\n  out.push({ json: { _empty: true } });\n}\nreturn out;"
+      },
+      "id": "fb-parse",
+      "name": "Parse Facebook leadgen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 440]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.AXON_URL}}/api/leads/inbound",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "content-type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  secret: $env.AXON_INBOUND_SECRET,\n  source: 'facebook_ads',\n  e164: $json.e164,\n  first_name: $json.first_name,\n  last_name: $json.last_name,\n  name: $json.name,\n  email: $json.email,\n  metadata: {\n    lead_id: $json.lead_id,\n    lead_created_at: $json.created_time,\n    facebook_page_id: $json.page_id,\n    facebook_form_id: $json.form_id,\n    facebook_ad_id: $json.ad_id,\n    raw: $json.raw,\n  },\n}) }}",
+        "options": {
+          "response": { "response": { "responseFormat": "json" } }
+        }
+      },
+      "id": "fb-post",
+      "name": "POST /api/leads/inbound",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 440]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: true } }}",
+        "options": {}
+      },
+      "id": "fb-respond",
+      "name": "Respond OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [900, 440]
+    }
+  ],
+  "connections": {
+    "Webhook verify (GET)": {
+      "main": [[{ "node": "Verify token matches", "type": "main", "index": 0 }]]
+    },
+    "Verify token matches": {
+      "main": [
+        [{ "node": "Echo hub.challenge", "type": "main", "index": 0 }],
+        [{ "node": "Deny verify", "type": "main", "index": 0 }]
+      ]
+    },
+    "Webhook (Facebook)": {
+      "main": [[{ "node": "Parse Facebook leadgen", "type": "main", "index": 0 }]]
+    },
+    "Parse Facebook leadgen": {
+      "main": [[{ "node": "POST /api/leads/inbound", "type": "main", "index": 0 }]]
+    },
+    "POST /api/leads/inbound": {
+      "main": [[{ "node": "Respond OK", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "tags": [{ "name": "axon" }, { "name": "facebook-ads" }]
+}
