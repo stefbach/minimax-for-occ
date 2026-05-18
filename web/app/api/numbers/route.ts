@@ -8,6 +8,7 @@ import {
   TwilioApiError,
   TwilioConfigError,
 } from "@/lib/twilio";
+import { countryFromE164, prefixForCountry } from "@/lib/phone-utils";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -51,10 +52,18 @@ export async function POST(req: Request) {
     label?: string;
     org_id?: string;
     flow_id?: string | null;
+    country?: string | null;
   } | null;
   if (!body?.phone_number) {
     return NextResponse.json({ error: "phone_number requis" }, { status: 400 });
   }
+
+  // Derive country_code + prefix from the E.164 number. If the caller passed
+  // an explicit `country` we trust it (e.g. NANP +1 where US/CA share a prefix);
+  // otherwise we infer from the number.
+  const inferredCountry = countryFromE164(body.phone_number);
+  const countryCode = ((body.country ?? inferredCountry) ?? null)?.toUpperCase() ?? null;
+  const prefix = prefixForCountry(countryCode);
 
   const origin = new URL(req.url).origin;
   const webhookUrl = defaultWebhookUrl(origin);
@@ -97,6 +106,8 @@ export async function POST(req: Request) {
         mms: purchased.capabilities.mms,
         fax: purchased.capabilities.fax,
       },
+      country_code: countryCode,
+      prefix: prefix,
       active: true,
     })
     .select()
@@ -129,14 +140,45 @@ export async function PATCH(req: Request) {
     label?: string | null;
     active?: boolean;
     flow_id?: string | null;
+    country_code?: string | null;
+    is_default?: boolean;
   } | null;
   if (!body) return NextResponse.json({ error: "body requis" }, { status: 400 });
   const patch: Record<string, unknown> = {};
   if (body.label !== undefined) patch.label = body.label;
   if (body.active !== undefined) patch.active = body.active;
   if (body.flow_id !== undefined) patch.flow_id = body.flow_id;
+  if (body.country_code !== undefined) {
+    const cc = body.country_code ? body.country_code.toUpperCase() : null;
+    patch.country_code = cc;
+    patch.prefix = prefixForCountry(cc);
+  }
+  if (body.is_default !== undefined) patch.is_default = body.is_default;
 
   const sb = supabaseServer();
+
+  // If we're setting is_default=true, clear any existing default in the same
+  // org first — the uniq_default_per_org index would otherwise refuse the update.
+  if (body.is_default === true) {
+    const { data: target, error: fErr } = await sb
+      .from("phone_numbers")
+      .select("org_id")
+      .eq("id", id)
+      .single();
+    if (fErr || !target) {
+      return NextResponse.json({ error: fErr?.message ?? "numéro introuvable" }, { status: 404 });
+    }
+    const { error: clearErr } = await sb
+      .from("phone_numbers")
+      .update({ is_default: false })
+      .eq("org_id", target.org_id)
+      .eq("is_default", true)
+      .neq("id", id);
+    if (clearErr) {
+      return NextResponse.json({ error: clearErr.message }, { status: 500 });
+    }
+  }
+
   const { data, error } = await sb
     .from("phone_numbers")
     .update(patch)
