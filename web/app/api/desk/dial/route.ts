@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseSession } from "@/lib/supabase-auth";
 import { supabaseServer } from "@/lib/supabase";
+import { NoPhoneNumberError, pickFromNumber } from "@/lib/geo-routing";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,10 +14,14 @@ export const dynamic = "force-dynamic";
  * dials the target and bridges the PSTN leg through the configured SIP trunk
  * into the agent's room.
  *
+ * The From number is chosen by geo-routing (pickFromNumber): a phone_numbers
+ * row owned by the agent's org whose country matches the destination, falling
+ * back to the org default and finally any active number. TWILIO_FROM_NUMBER is
+ * no longer consulted.
+ *
  * Required env:
  *   TWILIO_ACCOUNT_SID
  *   TWILIO_AUTH_TOKEN
- *   TWILIO_FROM_NUMBER (E.164)
  *   APP_URL            (https origin of this Next.js deployment)
  */
 export async function POST(req: Request) {
@@ -28,11 +33,10 @@ export async function POST(req: Request) {
 
   const sid = process.env.TWILIO_ACCOUNT_SID;
   const token = process.env.TWILIO_AUTH_TOKEN;
-  const from = process.env.TWILIO_FROM_NUMBER;
   const appUrl = process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL;
-  if (!sid || !token || !from || !appUrl) {
+  if (!sid || !token || !appUrl) {
     return NextResponse.json(
-      { error: "Twilio env vars missing (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER, APP_URL)" },
+      { error: "Twilio env vars missing (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, APP_URL)" },
       { status: 500 },
     );
   }
@@ -54,8 +58,29 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "no human agent_handle for this user" }, { status: 404 });
   }
 
-  // Insert a call row first so we have an id to track.
+  // Resolve the From number via geo-routing (admin client bypasses RLS so
+  // the lookup sees every number owned by the org).
   const admin = supabaseServer();
+  let from: string;
+  try {
+    const picked = await pickFromNumber(admin, handle.org_id, to);
+    from = picked.e164;
+  } catch (err) {
+    if (err instanceof NoPhoneNumberError) {
+      return NextResponse.json(
+        {
+          error:
+            "Aucun numéro de téléphone provisionné pour cette organisation. " +
+            "Achetez un numéro dans la page Numéros avant d'appeler.",
+        },
+        { status: 400 },
+      );
+    }
+    const msg = err instanceof Error ? err.message : "Erreur de routage géo";
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
+
+  // Insert a call row first so we have an id to track.
   const { data: call, error: callErr } = await admin
     .from("calls")
     .insert({

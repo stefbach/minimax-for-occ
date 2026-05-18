@@ -3,6 +3,10 @@ import { createServerClient } from "@supabase/ssr";
 
 type Role = "super_admin" | "admin" | "manager" | "supervisor" | "agent";
 
+/** Must match `ORG_COOKIE` from web/lib/supabase-auth.ts. Duplicated here to
+ *  avoid pulling next/headers into the Edge middleware bundle. */
+const ORG_COOKIE = "axon.org_id";
+
 /**
  * Path prefix → allowed roles. The longest matching prefix wins. Paths not
  * listed here are allowed for any authenticated user.
@@ -99,14 +103,32 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  // Fetch the user's primary role (oldest membership first).
-  const { data: membership } = await supabase
-    .from("memberships")
-    .select("role")
-    .order("created_at", { ascending: true })
-    .limit(1)
-    .maybeSingle();
-  const role = (membership?.role as Role) ?? null;
+  // Resolve the active org for this request:
+  //   1. If the user set the `axon.org_id` cookie (via the OrgSwitcher or
+  //      super_admin impersonate), use the role inside *that* org.
+  //   2. Otherwise fall back to the oldest membership (legacy behavior).
+  const wantedOrg = req.cookies.get(ORG_COOKIE)?.value || null;
+
+  let role: Role | null = null;
+  if (wantedOrg) {
+    const { data: membership } = await supabase
+      .from("memberships")
+      .select("role")
+      .eq("org_id", wantedOrg)
+      .eq("user_id", user.id)
+      .maybeSingle();
+    role = (membership?.role as Role) ?? null;
+  }
+
+  if (!role) {
+    const { data: fallback } = await supabase
+      .from("memberships")
+      .select("role")
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    role = (fallback?.role as Role) ?? null;
+  }
 
   if (!isAllowed(path, role)) {
     const back = req.nextUrl.clone();

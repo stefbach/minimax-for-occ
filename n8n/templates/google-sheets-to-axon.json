@@ -1,0 +1,101 @@
+{
+  "name": "google-sheets-to-axon",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            { "mode": "everyMinute" }
+          ]
+        },
+        "event": "rowAdded",
+        "documentId": { "__rl": true, "mode": "list", "value": "={{$env.AXON_SHEET_ID}}" },
+        "sheetName": { "__rl": true, "mode": "list", "value": "Sheet1" },
+        "options": {}
+      },
+      "id": "gs-trigger",
+      "name": "Google Sheets — Row added",
+      "type": "n8n-nodes-base.googleSheetsTrigger",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "credentials": {
+        "googleSheetsTriggerOAuth2Api": {
+          "id": "REPLACE_WITH_GOOGLE_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Expect the sheet to have at least the following columns (case-insensitive):\n//   phone (or e164 / mobile), first_name, last_name (or name), email\n// Any other column is forwarded as metadata.raw.\nfunction k(s) { return String(s || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '_'); }\nconst row = $input.first().json || {};\nconst flat = {};\nfor (const key of Object.keys(row)) flat[k(key)] = row[key];\n\nconst phone = (flat.phone || flat.e164 || flat.mobile || flat.phone_number || '').toString().trim();\nconst first = (flat.first_name || flat.firstname || '').toString().trim();\nconst last  = (flat.last_name  || flat.lastname  || '').toString().trim();\nconst name  = (flat.name || flat.full_name || [first, last].filter(Boolean).join(' ')).toString().trim();\nconst email = (flat.email || '').toString().trim();\n\nreturn [{\n  json: {\n    e164: phone,\n    first_name: first,\n    last_name: last,\n    name,\n    email,\n    raw: flat,\n  },\n}];"
+      },
+      "id": "gs-map",
+      "name": "Map row to Axon payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+          "conditions": [
+            {
+              "id": "gs-cv-1",
+              "leftValue": "={{ $json.e164 }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "notEmpty" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "gs-if",
+      "name": "Has phone?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.AXON_URL}}/api/leads/inbound",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "content-type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  secret: $env.AXON_INBOUND_SECRET,\n  source: 'csv',\n  e164: $json.e164,\n  first_name: $json.first_name,\n  last_name: $json.last_name,\n  name: $json.name,\n  email: $json.email,\n  metadata: {\n    lead_created_at: $now.toISO(),\n    source_kind: 'google_sheets',\n    raw: $json.raw,\n  },\n}) }}",
+        "options": {
+          "response": { "response": { "responseFormat": "json" } }
+        }
+      },
+      "id": "gs-post",
+      "name": "POST /api/leads/inbound",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 240]
+    }
+  ],
+  "connections": {
+    "Google Sheets — Row added": {
+      "main": [[{ "node": "Map row to Axon payload", "type": "main", "index": 0 }]]
+    },
+    "Map row to Axon payload": {
+      "main": [[{ "node": "Has phone?", "type": "main", "index": 0 }]]
+    },
+    "Has phone?": {
+      "main": [
+        [{ "node": "POST /api/leads/inbound", "type": "main", "index": 0 }],
+        []
+      ]
+    }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "tags": [{ "name": "axon" }, { "name": "google-sheets" }, { "name": "csv" }]
+}

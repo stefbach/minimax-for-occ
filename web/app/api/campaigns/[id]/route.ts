@@ -51,7 +51,21 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     if (pn) phone_number = pn as any;
   }
 
-  return NextResponse.json({ ...data, counts, agent_handle, phone_number });
+  // Phase 4: resolve linked script (name + mission) if any. We swallow
+  // errors silently so older deploys (without the 0016 migration) keep
+  // working: campaigns.script_id may simply be absent.
+  let script: { id: string; name: string; mission: string | null } | null = null;
+  const scriptId = (data as Record<string, unknown>).script_id as string | undefined;
+  if (scriptId) {
+    const { data: sc } = await sb
+      .from("scripts")
+      .select("id,name,mission")
+      .eq("id", scriptId)
+      .maybeSingle();
+    if (sc) script = sc as { id: string; name: string; mission: string | null };
+  }
+
+  return NextResponse.json({ ...data, counts, agent_handle, phone_number, script });
 }
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -73,6 +87,10 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     "retry_delay_min",
     "amd_enabled",
     "metadata",
+    // Phase 4: mission + script + agent team (no FK on agent_team_id).
+    "mission",
+    "script_id",
+    "agent_team_id",
   ];
   for (const k of writable) {
     if (k in body) patch[k] = body[k];

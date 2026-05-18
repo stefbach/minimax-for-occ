@@ -28,13 +28,17 @@ const NAV: NavItem[] = [
   { href: "/calls",     label: "Appels (live)",     icon: "☎", group: "Operations", roles: ["super_admin","admin","manager","supervisor"] },
   { href: "/queues",    label: "Files d'attente",   icon: "≡", group: "Operations", roles: ["super_admin","admin","manager","supervisor"] },
   { href: "/campaigns", label: "Campagnes",         icon: "⇈", group: "Operations", roles: ["super_admin","admin","manager"] },
+  { href: "/alerts",    label: "Alertes",           icon: "!", group: "Operations", roles: ["super_admin","admin","manager","supervisor"] },
 
   // ── Builder ──
   { href: "/agents",    label: "Agents IA",         icon: "◇", group: "Builder", roles: ["super_admin","admin","manager"] },
+  { href: "/teams",     label: "Teams IA",          icon: "⌬", group: "Builder", roles: ["super_admin","admin","manager"] },
+  { href: "/scripts",   label: "Scripts",           icon: "✎", group: "Builder", roles: ["super_admin","admin","manager"] },
   { href: "/voices",    label: "Voice Studio",      icon: "♪", group: "Builder", roles: ["super_admin","admin","manager"] },
   { href: "/flows",     label: "Flows / IVR",       icon: "❖", group: "Builder", roles: ["super_admin","admin","manager"] },
   { href: "/workflows", label: "Workflows n8n",     icon: "⇄", group: "Builder", roles: ["super_admin","admin","manager"] },
   { href: "/documents", label: "Documents (RAG)",   icon: "≣", group: "Builder", roles: ["super_admin","admin","manager"] },
+  { href: "/analyses",  label: "Analyses LLM",      icon: "∑", group: "Builder", roles: ["super_admin","admin","manager"] },
 
   // ── CRM ──
   { href: "/contacts",  label: "Contacts",          icon: "◐", group: "CRM" },
@@ -43,6 +47,8 @@ const NAV: NavItem[] = [
   // ── Admin ──
   { href: "/admin",          label: "Administration",       icon: "★", group: "Admin", roles: ["super_admin","admin"] },
   { href: "/admin/copilot",  label: "Copilote Super Admin", icon: "✦", group: "Admin", roles: ["super_admin"] },
+  { href: "/admin/inbound",  label: "Connecteurs entrants", icon: "⇩", group: "Admin", roles: ["super_admin","admin"] },
+  { href: "/admin/billing",  label: "Facturation",          icon: "€", group: "Admin", roles: ["super_admin","admin"] },
   { href: "/settings",       label: "Paramètres",           icon: "⚙", group: "Admin", roles: ["super_admin","admin","manager"] },
 ];
 
