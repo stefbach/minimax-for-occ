@@ -43,6 +43,7 @@ const NAV: NavItem[] = [
   // ── CRM ──
   { href: "/contacts",  label: "Contacts",          icon: "◐", group: "CRM" },
   { href: "/numbers",   label: "Numéros",           icon: "✆", group: "CRM", roles: ["super_admin","admin","manager"] },
+  { href: "/numbers/health", label: "Santé numéros", icon: "♥", group: "CRM", roles: ["super_admin","admin","manager"] },
 
   // ── Admin ──
   { href: "/admin",          label: "Administration",       icon: "★", group: "Admin", roles: ["super_admin","admin"] },
