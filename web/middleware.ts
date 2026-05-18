@@ -1,10 +1,66 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
+type Role = "super_admin" | "admin" | "manager" | "supervisor" | "agent";
+
 /**
- * Refresh the Supabase auth cookie on every request and gate /app routes
- * behind a valid session. The `(app)` route group is therefore protected;
- * /login, /signup, /api/*, static assets stay public.
+ * Path prefix → allowed roles. The longest matching prefix wins. Paths not
+ * listed here are allowed for any authenticated user.
+ */
+const ROUTE_ROLES: Array<[string, Role[]]> = [
+  ["/admin",     ["super_admin", "admin"]],
+  ["/agents",    ["super_admin", "admin", "manager"]],
+  ["/voices",    ["super_admin", "admin", "manager"]],
+  ["/flows",     ["super_admin", "admin", "manager"]],
+  ["/workflows", ["super_admin", "admin", "manager"]],
+  ["/documents", ["super_admin", "admin", "manager"]],
+  ["/numbers",   ["super_admin", "admin", "manager"]],
+  ["/campaigns", ["super_admin", "admin", "manager"]],
+  ["/settings",  ["super_admin", "admin", "manager"]],
+  ["/queues",    ["super_admin", "admin", "manager", "supervisor"]],
+  ["/calls",     ["super_admin", "admin", "manager", "supervisor"]],
+  ["/dashboard", ["super_admin", "admin", "manager", "supervisor"]],
+  ["/analytics", ["super_admin", "admin", "manager", "supervisor"]],
+  // /desk and /contacts: open to everyone (no entry → no filter)
+];
+
+function landingFor(role: Role | null): string {
+  switch (role) {
+    case "super_admin":
+    case "admin":
+      return "/admin";
+    case "manager":
+      return "/dashboard";
+    case "supervisor":
+      return "/calls";
+    case "agent":
+    default:
+      return "/desk";
+  }
+}
+
+function isAllowed(path: string, role: Role | null): boolean {
+  if (!role) return false;
+  // longest prefix match
+  let match: Role[] | null = null;
+  let matchLen = 0;
+  for (const [prefix, roles] of ROUTE_ROLES) {
+    if (path === prefix || path.startsWith(prefix + "/")) {
+      if (prefix.length > matchLen) {
+        match = roles;
+        matchLen = prefix.length;
+      }
+    }
+  }
+  if (!match) return true; // no rule → permissive
+  return match.includes(role);
+}
+
+/**
+ * Refresh the Supabase auth cookie on every request, gate /app routes behind
+ * a valid session, and enforce role-based access on sensitive paths. The
+ * `(app)` route group is therefore protected; /login, /signup, /api/*, static
+ * assets stay public.
  */
 export async function middleware(req: NextRequest) {
   const res = NextResponse.next({ request: req });
@@ -41,6 +97,22 @@ export async function middleware(req: NextRequest) {
     loginUrl.pathname = "/login";
     loginUrl.searchParams.set("next", path);
     return NextResponse.redirect(loginUrl);
+  }
+
+  // Fetch the user's primary role (oldest membership first).
+  const { data: membership } = await supabase
+    .from("memberships")
+    .select("role")
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  const role = (membership?.role as Role) ?? null;
+
+  if (!isAllowed(path, role)) {
+    const back = req.nextUrl.clone();
+    back.pathname = landingFor(role);
+    back.search = "";
+    return NextResponse.redirect(back);
   }
 
   return res;
