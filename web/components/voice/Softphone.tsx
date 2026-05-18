@@ -82,6 +82,33 @@ export function Softphone() {
   const [userId, setUserId] = useState<string | null>(null);
   const [showTransfer, setShowTransfer] = useState(false);
 
+  // Outbound dialer state
+  const [dialNumber, setDialNumber] = useState("+33");
+  const [dialing, setDialing] = useState(false);
+  const [dialError, setDialError] = useState<string | null>(null);
+
+  const dial = useCallback(async () => {
+    setDialing(true);
+    setDialError(null);
+    try {
+      const r = await fetch("/api/desk/dial", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ to_e164: dialNumber }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.error ?? "dial failed");
+    } catch (e) {
+      setDialError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDialing(false);
+    }
+  }, [dialNumber]);
+
+  const padKey = useCallback((k: string) => {
+    setDialNumber((n) => (n === "+33" && k === "+" ? "+" : n + k));
+  }, []);
+
   // Bootstrap: figure out if user has a human agent_handle.
   const bootstrap = useCallback(async () => {
     setBootstrapping(true);
@@ -317,7 +344,64 @@ export function Softphone() {
         />
 
         <div className="card softphone-center">
-          <h3>Session vocale</h3>
+          <h3>Composer un numéro</h3>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <input
+              type="tel"
+              value={dialNumber}
+              onChange={(e) => setDialNumber(e.target.value)}
+              placeholder="+33756123456"
+              style={{ flex: 1, fontSize: 16, padding: "10px 12px" }}
+            />
+            <button
+              onClick={dial}
+              disabled={dialing || !/^\+\d{6,15}$/.test(dialNumber)}
+              style={{ padding: "10px 16px" }}
+            >
+              {dialing ? "Appel…" : "☎ Appeler"}
+            </button>
+          </div>
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(3, 1fr)",
+            gap: 6,
+            marginTop: 12,
+            maxWidth: 280,
+          }}>
+            {["1","2","3","4","5","6","7","8","9","*","0","#"].map((k) => (
+              <button
+                key={k}
+                className="ghost"
+                onClick={() => padKey(k)}
+                style={{ padding: "10px", fontSize: 16 }}
+              >
+                {k}
+              </button>
+            ))}
+          </div>
+          <div style={{ marginTop: 8 }}>
+            <button
+              className="ghost"
+              onClick={() => setDialNumber((n) => n.slice(0, -1) || "+")}
+              style={{ padding: "6px 10px", fontSize: 13 }}
+            >
+              ⌫ Effacer
+            </button>
+            <button
+              className="ghost"
+              onClick={() => setDialNumber("+33")}
+              style={{ padding: "6px 10px", fontSize: 13, marginLeft: 6 }}
+            >
+              Reset
+            </button>
+          </div>
+          {dialError && (
+            <div style={{ color: "var(--bad)", fontSize: 13, marginTop: 8 }}>
+              {dialError}
+            </div>
+          )}
+
+          <h3 style={{ marginTop: 24 }}>Session vocale</h3>
           {!conn ? (
             <>
               <p className="muted" style={{ margin: 0 }}>
