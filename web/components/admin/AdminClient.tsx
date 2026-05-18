@@ -50,6 +50,14 @@ export function AdminClient({
   const [inviteBusy, setInviteBusy] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
 
+  // Direct user creation (email + password)
+  const [newEmail, setNewEmail] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [newDisplayName, setNewDisplayName] = useState("");
+  const [newRole, setNewRole] = useState<string>("agent");
+  const [createBusy, setCreateBusy] = useState(false);
+  const [createOk, setCreateOk] = useState<string | null>(null);
+
   async function refreshUsers() {
     const r = await fetch(`/api/admin/users?org_id=${orgId}`);
     if (r.ok) setMembers(await r.json());
@@ -95,6 +103,33 @@ export function AdminClient({
       return;
     }
     setError(null);
+    refreshUsers();
+  }
+
+  async function createUser(e: React.FormEvent) {
+    e.preventDefault();
+    setCreateBusy(true);
+    setError(null);
+    setCreateOk(null);
+    const r = await fetch(`/api/admin/users`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        email: newEmail,
+        password: newPassword,
+        role: newRole,
+        display_name: newDisplayName || undefined,
+        org_id: orgId,
+      }),
+    });
+    setCreateBusy(false);
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      setError(j.error ?? "Erreur lors de la création");
+      return;
+    }
+    setCreateOk(`${newEmail} créé. Mot de passe à transmettre à l'utilisateur.`);
+    setNewEmail(""); setNewPassword(""); setNewDisplayName(""); setNewRole("agent");
     refreshUsers();
   }
 
@@ -174,7 +209,67 @@ export function AdminClient({
       )}
 
       {tab === "users" && (
-        <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+        <>
+          <div className="card">
+            <h3 style={{ marginTop: 0 }}>Créer un utilisateur (email + mot de passe)</h3>
+            <form onSubmit={createUser} style={{ display: "grid", gap: 10 }}>
+              <div className="form-row">
+                <div>
+                  <label>Email</label>
+                  <input
+                    type="email"
+                    required
+                    value={newEmail}
+                    onChange={(e) => setNewEmail(e.target.value)}
+                    placeholder="utilisateur@example.com"
+                  />
+                </div>
+                <div>
+                  <label>Nom complet (optionnel)</label>
+                  <input
+                    value={newDisplayName}
+                    onChange={(e) => setNewDisplayName(e.target.value)}
+                    placeholder="Jean Dupont"
+                  />
+                </div>
+              </div>
+              <div className="form-row">
+                <div>
+                  <label>Mot de passe (8 caractères min.)</label>
+                  <input
+                    type="password"
+                    required
+                    minLength={8}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="Mot de passe initial"
+                  />
+                </div>
+                <div>
+                  <label>Rôle</label>
+                  <select value={newRole} onChange={(e) => setNewRole(e.target.value)}>
+                    {ROLES.map((r) => (
+                      <option key={r} value={r}>{r}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              {createOk && (
+                <div style={{ color: "var(--good)", fontSize: 13 }}>{createOk}</div>
+              )}
+              <div>
+                <button type="submit" disabled={createBusy || !newEmail || newPassword.length < 8}>
+                  {createBusy ? "…" : "Créer l'utilisateur"}
+                </button>
+              </div>
+              <div style={{ fontSize: 12, color: "var(--muted)" }}>
+                L&apos;utilisateur est créé avec son email validé. Il peut se connecter
+                immédiatement avec le mot de passe que vous lui transmettez. Pour un flux
+                par lien magique, utilisez l&apos;onglet Invitations à la place.
+              </div>
+            </form>
+          </div>
+          <div className="card" style={{ padding: 0, overflow: "hidden" }}>
           {loading ? (
             <div style={{ padding: 16, color: "var(--muted)" }}>Chargement…</div>
           ) : members.length === 0 ? (
@@ -236,7 +331,8 @@ export function AdminClient({
               </tbody>
             </table>
           )}
-        </div>
+          </div>
+        </>
       )}
 
       {tab === "invitations" && (
