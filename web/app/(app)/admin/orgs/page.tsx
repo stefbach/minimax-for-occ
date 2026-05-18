@@ -1,16 +1,8 @@
 import { hasSupabase, supabaseServer } from "@/lib/supabase";
 import { currentUser } from "@/lib/supabase-auth";
+import { OrgsAdminClient, type OrgRow } from "@/components/admin/OrgsAdminClient";
 
 export const dynamic = "force-dynamic";
-
-interface OrgRow {
-  id: string;
-  name: string;
-  slug: string;
-  created_at: string;
-  members: number;
-  calls_7d: number;
-}
 
 export default async function SuperAdminOrgsPage() {
   let rows: OrgRow[] = [];
@@ -33,12 +25,12 @@ export default async function SuperAdminOrgsPage() {
       } else {
         const { data: orgs } = await sb
           .from("organizations")
-          .select("id, name, slug, created_at")
+          .select("id, name, slug, created_at, active")
           .order("created_at", { ascending: true });
 
         const since = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
         rows = await Promise.all(
-          (orgs ?? []).map(async (o) => {
+          (orgs ?? []).map(async (o: { id: string; name: string; slug: string; created_at: string; active?: boolean }) => {
             const [mem, calls] = await Promise.all([
               sb.from("memberships").select("id", { count: "exact", head: true }).eq("org_id", o.id),
               sb
@@ -52,6 +44,7 @@ export default async function SuperAdminOrgsPage() {
               name: o.name,
               slug: o.slug,
               created_at: o.created_at,
+              active: o.active ?? true,
               members: mem.count ?? 0,
               calls_7d: calls.count ?? 0,
             };
@@ -60,14 +53,6 @@ export default async function SuperAdminOrgsPage() {
       }
     } catch {
       /* fall through, render empty state */
-    }
-  }
-
-  function fmt(dt: string): string {
-    try {
-      return new Date(dt).toLocaleDateString("fr-FR");
-    } catch {
-      return dt;
     }
   }
 
@@ -90,36 +75,7 @@ export default async function SuperAdminOrgsPage() {
           cette page.
         </div>
       ) : (
-        <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-          {rows.length === 0 ? (
-            <div style={{ padding: 16, color: "var(--muted)" }}>Aucune organisation.</div>
-          ) : (
-            <table className="list">
-              <thead>
-                <tr>
-                  <th>Nom</th>
-                  <th>Slug</th>
-                  <th style={{ textAlign: "right" }}>Membres</th>
-                  <th style={{ textAlign: "right" }}>Appels (7j)</th>
-                  <th>Créée le</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => (
-                  <tr key={r.id}>
-                    <td>{r.name}</td>
-                    <td>
-                      <span className="kbd">{r.slug}</span>
-                    </td>
-                    <td style={{ textAlign: "right" }}>{r.members}</td>
-                    <td style={{ textAlign: "right" }}>{r.calls_7d}</td>
-                    <td style={{ color: "var(--muted)", fontSize: 13 }}>{fmt(r.created_at)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
+        <OrgsAdminClient initial={rows} />
       )}
     </>
   );
