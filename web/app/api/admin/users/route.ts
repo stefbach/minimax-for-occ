@@ -74,6 +74,88 @@ export async function GET(req: Request) {
 }
 
 /**
+ * POST /api/admin/users   { email, password, role, display_name?, org_id? }
+ *
+ * Creates an auth user with a confirmed email + password, then attaches a
+ * membership row to the target organization. Reuses the auth user if one
+ * already exists with the same email — in that case only the membership is
+ * added (or its role updated if it already exists).
+ */
+export async function POST(req: Request) {
+  if (!hasSupabase()) return NextResponse.json({ error: "Supabase not configured" }, { status: 500 });
+  const body = (await req.json().catch(() => ({}))) as {
+    email?: string;
+    password?: string;
+    role?: string;
+    display_name?: string;
+    org_id?: string;
+  };
+  if (!body.email || !body.password || !body.role) {
+    return NextResponse.json({ error: "email, password and role required" }, { status: 400 });
+  }
+  if (body.password.length < 8) {
+    return NextResponse.json({ error: "password must be at least 8 characters" }, { status: 400 });
+  }
+  const orgId = body.org_id ?? DEFAULT_ORG;
+  const sb = supabaseServer();
+
+  // 1) Try to create the auth user
+  let userId: string | null = null;
+  const { data: created, error: createErr } = await sb.auth.admin.createUser({
+    email: body.email,
+    password: body.password,
+    email_confirm: true,
+    user_metadata: body.display_name ? { display_name: body.display_name } : undefined,
+  });
+  if (created?.user?.id) {
+    userId = created.user.id;
+  } else if (createErr && /already/i.test(createErr.message)) {
+    // 2) User already exists — find them by listing pages
+    let page = 1;
+    const perPage = 200;
+    for (let i = 0; i < 10 && !userId; i++) {
+      const { data: pageData } = await sb.auth.admin.listUsers({ page, perPage });
+      const users = pageData?.users ?? [];
+      const match = users.find((u) => u.email?.toLowerCase() === body.email!.toLowerCase());
+      if (match) { userId = match.id; break; }
+      if (users.length < perPage) break;
+      page += 1;
+    }
+    if (!userId) {
+      return NextResponse.json({ error: "user exists but could not be located" }, { status: 500 });
+    }
+  } else if (createErr) {
+    return NextResponse.json({ error: createErr.message }, { status: 500 });
+  }
+
+  if (!userId) return NextResponse.json({ error: "user creation failed" }, { status: 500 });
+
+  // 3) Upsert membership for the org
+  const { data: existing } = await sb
+    .from("memberships")
+    .select("id, role")
+    .eq("org_id", orgId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (existing) {
+    if (existing.role !== body.role) {
+      const { error: upErr } = await sb
+        .from("memberships")
+        .update({ role: body.role })
+        .eq("id", existing.id);
+      if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 });
+    }
+  } else {
+    const { error: insErr } = await sb
+      .from("memberships")
+      .insert({ org_id: orgId, user_id: userId, role: body.role });
+    if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true, user_id: userId, email: body.email }, { status: 201 });
+}
+
+/**
  * PATCH /api/admin/users   { user_id, role, org_id? }
  *
  * Update the role of an existing membership row.
