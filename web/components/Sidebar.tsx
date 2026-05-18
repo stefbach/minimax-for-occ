@@ -28,6 +28,7 @@ const NAV: NavItem[] = [
   { href: "/calls",     label: "Appels (live)",     icon: "☎", group: "Operations", roles: ["super_admin","admin","manager","supervisor"] },
   { href: "/queues",    label: "Files d'attente",   icon: "≡", group: "Operations", roles: ["super_admin","admin","manager","supervisor"] },
   { href: "/campaigns", label: "Campagnes",         icon: "⇈", group: "Operations", roles: ["super_admin","admin","manager"] },
+  { href: "/alerts",    label: "Alertes",           icon: "!", group: "Operations", roles: ["super_admin","admin","manager","supervisor"] },
 
   // ── Builder ──
   { href: "/agents",    label: "Agents IA",         icon: "◇", group: "Builder", roles: ["super_admin","admin","manager"] },
@@ -35,6 +36,7 @@ const NAV: NavItem[] = [
   { href: "/flows",     label: "Flows / IVR",       icon: "❖", group: "Builder", roles: ["super_admin","admin","manager"] },
   { href: "/workflows", label: "Workflows n8n",     icon: "⇄", group: "Builder", roles: ["super_admin","admin","manager"] },
   { href: "/documents", label: "Documents (RAG)",   icon: "≣", group: "Builder", roles: ["super_admin","admin","manager"] },
+  { href: "/analyses",  label: "Analyses LLM",      icon: "∑", group: "Builder", roles: ["super_admin","admin","manager"] },
 
   // ── CRM ──
   { href: "/contacts",  label: "Contacts",          icon: "◐", group: "CRM" },

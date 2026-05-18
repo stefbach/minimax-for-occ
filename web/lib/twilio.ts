@@ -246,6 +246,36 @@ export async function createCall(opts: {
 }
 
 /**
+ * Update an in-flight call. Used to swap the active TwiML — e.g. to play
+ * hold music or to redirect the call back to its original handler.
+ *
+ * Either `twiml` (inline) or `url` (TwiML hosted at a URL) must be set.
+ */
+export async function updateCall(opts: {
+  sid: string;
+  twiml?: string;
+  url?: string;
+  method?: "GET" | "POST";
+  status?: "completed" | "canceled";
+}): Promise<{ sid: string; status: string }> {
+  const body = new URLSearchParams();
+  if (opts.twiml) body.set("Twiml", opts.twiml);
+  if (opts.url) {
+    body.set("Url", opts.url);
+    body.set("Method", opts.method ?? "POST");
+  }
+  if (opts.status) body.set("Status", opts.status);
+  const res = await twilioFetch(`/Calls/${encodeURIComponent(opts.sid)}.json`, {
+    method: "POST",
+    body,
+  });
+  return { sid: res?.sid, status: res?.status };
+}
+
+/** Default Twilio hold music — they host this publicly. */
+export const DEFAULT_HOLD_MUSIC_URL = "http://com.twilio.sounds.music.s3.amazonaws.com/MARKOVICHAMP-Borghestral.mp3";
+
+/**
  * Build the public webhook URL Twilio should hit when a call comes in.
  * Prefers the explicit NEXT_PUBLIC_APP_URL, then VERCEL_URL, then a passed origin.
  */

@@ -81,6 +81,9 @@ export function Softphone() {
   const [muted, setMuted] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const [showTransfer, setShowTransfer] = useState(false);
+  const [onHold, setOnHold] = useState(false);
+  const [holdBusy, setHoldBusy] = useState(false);
+  const [holdError, setHoldError] = useState<string | null>(null);
 
   // Outbound dialer state
   const [dialNumber, setDialNumber] = useState("+33");
@@ -276,6 +279,32 @@ export function Softphone() {
     setMuted(false);
   }, []);
 
+  const toggleHold = useCallback(async () => {
+    if (!activeCall) return;
+    setHoldBusy(true);
+    setHoldError(null);
+    try {
+      const r = await fetch(`/api/calls/${activeCall.id}/hold`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ resume: onHold }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.error ?? `HTTP ${r.status}`);
+      setOnHold(Boolean(data.on_hold));
+    } catch (e) {
+      setHoldError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setHoldBusy(false);
+    }
+  }, [activeCall, onHold]);
+
+  // Reset hold state whenever the active call changes / ends.
+  useEffect(() => {
+    setOnHold(false);
+    setHoldError(null);
+  }, [activeCall?.id]);
+
   // ── Render guards ──────────────────────────────────────────────────────
   if (bootstrapping) {
     return <div className="card"><p className="muted">Chargement du poste…</p></div>;
@@ -439,7 +468,15 @@ export function Softphone() {
                 onToggleMute={() => setMuted((m) => !m)}
                 onHangup={disconnect}
                 onTransfer={activeCall ? () => setShowTransfer(true) : undefined}
+                onHold={activeCall ? toggleHold : undefined}
+                onHold_busy={holdBusy}
+                onHold_active={onHold}
               />
+              {holdError && (
+                <div style={{ color: "var(--bad)", fontSize: 12, marginTop: 6 }}>
+                  Hold : {holdError}
+                </div>
+              )}
             </LiveKitRoom>
           )}
         </div>
@@ -567,11 +604,17 @@ function CallActions({
   onToggleMute,
   onHangup,
   onTransfer,
+  onHold,
+  onHold_busy,
+  onHold_active,
 }: {
   muted: boolean;
   onToggleMute: () => void;
   onHangup: () => void;
   onTransfer?: () => void;
+  onHold?: () => void;
+  onHold_busy?: boolean;
+  onHold_active?: boolean;
 }) {
   return (
     <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
@@ -580,10 +623,15 @@ function CallActions({
       </button>
       <button
         className="ghost"
-        onClick={() => alert("Hold — à brancher")}
-        title="Stub : sera relié au worker LiveKit"
+        onClick={onHold}
+        disabled={!onHold || onHold_busy}
+        title={
+          onHold_active
+            ? "Reprendre la conversation"
+            : "Mettre l'appel en attente avec musique"
+        }
       >
-        Hold
+        {onHold_busy ? "…" : onHold_active ? "Reprendre" : "Hold"}
       </button>
       <button
         className="ghost"
