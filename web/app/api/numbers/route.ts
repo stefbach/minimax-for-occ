@@ -8,6 +8,12 @@ import {
   TwilioApiError,
   TwilioConfigError,
 } from "@/lib/twilio";
+import {
+  countryFromE164,
+  defaultJurisdictionForCountry,
+  publicAppUrl,
+  tryConfigureWebhooks,
+} from "@/lib/twilio-config";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -58,6 +64,7 @@ export async function POST(req: Request) {
 
   const origin = new URL(req.url).origin;
   const webhookUrl = defaultWebhookUrl(origin);
+  const appUrl = publicAppUrl(origin);
 
   let purchased;
   try {
@@ -81,6 +88,23 @@ export async function POST(req: Request) {
     );
   }
 
+  // Auto-configure webhooks (VoiceUrl + StatusCallback) — best-effort, never
+  // rollback the purchase if Twilio config fails. We log a warning instead.
+  const webhookResult = await tryConfigureWebhooks(purchased.sid, appUrl);
+  let webhookWarning: string | null = null;
+  if (!webhookResult.ok) {
+    webhookWarning = webhookResult.error;
+    console.warn(
+      "[numbers.POST] webhook auto-config failed for",
+      purchased.sid,
+      "—",
+      webhookResult.error,
+    );
+  }
+
+  const { code: countryCode, prefix } = countryFromE164(purchased.phoneNumber);
+  const jurisdiction = defaultJurisdictionForCountry(countryCode);
+
   const sb = supabaseServer();
   const { data, error } = await sb
     .from("phone_numbers")
@@ -98,6 +122,11 @@ export async function POST(req: Request) {
         fax: purchased.capabilities.fax,
       },
       active: true,
+      country_code: countryCode,
+      prefix,
+      compliance_jurisdiction: jurisdiction,
+      webhook_configured: webhookResult.ok,
+      webhook_configured_at: webhookResult.ok ? new Date().toISOString() : null,
     })
     .select()
     .single();
@@ -115,7 +144,10 @@ export async function POST(req: Request) {
     );
   }
 
-  return NextResponse.json(data, { status: 201 });
+  return NextResponse.json(
+    webhookWarning ? { ...data, webhook_warning: webhookWarning } : data,
+    { status: 201 },
+  );
 }
 
 export async function PATCH(req: Request) {
@@ -129,12 +161,25 @@ export async function PATCH(req: Request) {
     label?: string | null;
     active?: boolean;
     flow_id?: string | null;
+    queue_id?: string | null;
+    agent_handle_id?: string | null;
+    compliance_jurisdiction?: string | null;
+    dnc_check_enabled?: boolean;
+    notes?: string | null;
+    is_default?: boolean;
   } | null;
   if (!body) return NextResponse.json({ error: "body requis" }, { status: 400 });
   const patch: Record<string, unknown> = {};
   if (body.label !== undefined) patch.label = body.label;
   if (body.active !== undefined) patch.active = body.active;
   if (body.flow_id !== undefined) patch.flow_id = body.flow_id;
+  if (body.queue_id !== undefined) patch.queue_id = body.queue_id;
+  if (body.agent_handle_id !== undefined) patch.agent_handle_id = body.agent_handle_id;
+  if (body.compliance_jurisdiction !== undefined)
+    patch.compliance_jurisdiction = body.compliance_jurisdiction;
+  if (body.dnc_check_enabled !== undefined) patch.dnc_check_enabled = body.dnc_check_enabled;
+  if (body.notes !== undefined) patch.notes = body.notes;
+  if (body.is_default !== undefined) patch.is_default = body.is_default;
 
   const sb = supabaseServer();
   const { data, error } = await sb
