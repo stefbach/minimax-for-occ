@@ -45,6 +45,7 @@ const NAV: NavItem[] = [
   // ── Admin ──
   { href: "/admin",         label: "Administration",       icon: "★", group: "Admin", roles: ["super_admin","admin"] },
   { href: "/admin/inbound", label: "Connecteurs entrants", icon: "⇩", group: "Admin", roles: ["super_admin","admin"] },
+  { href: "/admin/billing", label: "Facturation",          icon: "€", group: "Admin", roles: ["super_admin","admin"] },
   { href: "/settings",      label: "Paramètres",           icon: "⚙", group: "Admin", roles: ["super_admin","admin","manager"] },
 ];
 
