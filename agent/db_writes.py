@@ -82,6 +82,99 @@ def update_call_metadata(call_id: Optional[str], patch: dict[str, Any]) -> None:
         logger.exception("update_call_metadata failed (call=%s)", call_id)
 
 
+def append_transcript_turn(
+    call_id: Optional[str],
+    speaker: str,
+    text: str,
+    *,
+    seq: Optional[int] = None,
+    speaker_id: Optional[str] = None,
+    confidence: Optional[float] = None,
+    language: Optional[str] = None,
+    started_at: Optional[str] = None,
+    ended_at: Optional[str] = None,
+) -> None:
+    """Insert a single transcript turn into public.call_transcripts.
+
+    `seq` is auto-derived by the server-side API if omitted; this helper
+    posts directly to PostgREST so we must supply one. We use a coarse
+    monotonic counter via httpx to read the current max+1.
+    """
+    if not call_id or not has_supabase() or not text.strip():
+        return
+    from datetime import datetime, timezone
+
+    try:
+        with httpx.Client(timeout=httpx.Timeout(5.0), headers=_supabase_headers()) as c:
+            if seq is None:
+                r = c.get(
+                    _supabase_url(
+                        f"/rest/v1/call_transcripts?call_id=eq.{call_id}&select=seq&order=seq.desc&limit=1"
+                    ),
+                )
+                r.raise_for_status()
+                rows = r.json() or []
+                last = rows[0].get("seq") if rows else None
+                seq = (int(last) + 1) if isinstance(last, int) else 0
+
+            now_iso = datetime.now(timezone.utc).isoformat()
+            payload = {
+                "call_id": call_id,
+                "seq": seq,
+                "speaker": speaker,
+                "speaker_id": speaker_id,
+                "text": text,
+                "started_at": started_at or now_iso,
+                "ended_at": ended_at,
+                "confidence": confidence,
+                "language": language,
+            }
+            r2 = c.post(
+                _supabase_url("/rest/v1/call_transcripts"),
+                headers={
+                    **_supabase_headers(),
+                    "Content-Type": "application/json",
+                    "Prefer": "return=minimal",
+                },
+                json=payload,
+            )
+            r2.raise_for_status()
+    except Exception:
+        logger.exception("append_transcript_turn failed (call=%s)", call_id)
+
+
+def trigger_post_call_pipeline(call_id: Optional[str]) -> None:
+    """Best-effort: ask the web app to generate the summary then run analyses.
+
+    Uses NEXT_PUBLIC_APP_URL (or VERCEL_URL) so we hit the deployed API. If
+    neither is set, we no-op — the front-end can also trigger this manually.
+    """
+    if not call_id:
+        return
+    base = (
+        os.getenv("NEXT_PUBLIC_APP_URL")
+        or (f"https://{os.getenv('VERCEL_URL')}" if os.getenv("VERCEL_URL") else None)
+    )
+    if not base:
+        logger.debug("trigger_post_call_pipeline: no APP_URL — skipping")
+        return
+    base = base.rstrip("/")
+    headers = {"Content-Type": "application/json"}
+    # Forward the service-role key as a bearer to skip user auth — the
+    # endpoints don't enforce auth on the server-only flow yet.
+    try:
+        with httpx.Client(timeout=httpx.Timeout(30.0), headers=headers) as c:
+            for path in (f"/api/calls/{call_id}/summary", f"/api/calls/{call_id}/analyze"):
+                try:
+                    r = c.post(f"{base}{path}", json={})
+                    if r.status_code >= 400:
+                        logger.warning("post-call %s -> HTTP %d %s", path, r.status_code, r.text[:200])
+                except Exception:
+                    logger.exception("post-call %s failed", path)
+    except Exception:
+        logger.exception("trigger_post_call_pipeline failed")
+
+
 def update_call_recording_url(call_id: Optional[str], url: str) -> None:
     if not call_id or not has_supabase():
         return

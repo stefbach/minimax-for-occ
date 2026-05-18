@@ -29,6 +29,7 @@ from livekit.plugins import deepgram, minimax, openai, silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
 from agent_config import AxonAgent, load_agent, rag_search, resolve_agent_id
+from db_writes import append_transcript_turn, trigger_post_call_pipeline
 from flow_runtime import (
     FlowRuntime,
     call_id_from_metadata,
@@ -175,6 +176,58 @@ async def _watch_handoff(ctx: JobContext, session: AgentSession) -> None:
     logger.debug("handoff watcher: no metadata_changed event on this LiveKit version")
 
 
+def _wire_transcript_hooks(session: AgentSession, call_id: Optional[str]) -> None:
+    """Subscribe to session events to push each turn into call_transcripts.
+
+    LiveKit Agents emit `user_input_transcribed` (customer side, from STT)
+    and `conversation_item_added` (assistant side, after LLM/TTS). We try
+    both — version-tolerant.
+    """
+    if not call_id:
+        return
+
+    def _on_user_transcribed(ev):
+        try:
+            text = getattr(ev, "transcript", None) or getattr(ev, "text", None) or ""
+            if not text:
+                return
+            if not getattr(ev, "is_final", True):
+                return
+            lang = getattr(ev, "language", None)
+            conf = getattr(ev, "confidence", None)
+            append_transcript_turn(
+                call_id,
+                speaker="customer",
+                text=str(text),
+                confidence=float(conf) if conf is not None else None,
+                language=str(lang) if lang else None,
+            )
+        except Exception:
+            logger.exception("transcript hook (user) failed")
+
+    def _on_item_added(ev):
+        try:
+            item = getattr(ev, "item", None)
+            role = getattr(item, "role", None) if item else None
+            text = getattr(item, "text_content", None) if item else None
+            if callable(text):
+                text = text()
+            if not text or role not in ("assistant",):
+                return
+            append_transcript_turn(call_id, speaker="agent_ai", text=str(text))
+        except Exception:
+            logger.exception("transcript hook (assistant) failed")
+
+    for ev_name, fn in (
+        ("user_input_transcribed", _on_user_transcribed),
+        ("conversation_item_added", _on_item_added),
+    ):
+        try:
+            session.on(ev_name, fn)
+        except Exception:
+            logger.debug("session.on(%s) unavailable on this LiveKit version", ev_name)
+
+
 async def entrypoint(ctx: JobContext) -> None:
     await ctx.connect()
 
@@ -209,8 +262,12 @@ async def entrypoint(ctx: JobContext) -> None:
                     greeting="",
                 ),
             )
+            _wire_transcript_hooks(session, call_id)
             await _watch_handoff(ctx, session)
-            await runtime.execute(session, ctx)
+            try:
+                await runtime.execute(session, ctx)
+            finally:
+                trigger_post_call_pipeline(call_id)
             return
 
     # Resolve which agent persona this room is for.
@@ -281,6 +338,19 @@ async def entrypoint(ctx: JobContext) -> None:
             greeting=greeting,
         ),
     )
+    _wire_transcript_hooks(session, call_id)
+
+    async def _on_shutdown():
+        try:
+            trigger_post_call_pipeline(call_id)
+        except Exception:
+            logger.exception("post-call pipeline trigger failed")
+
+    try:
+        ctx.add_shutdown_callback(_on_shutdown)
+    except Exception:
+        # Older LiveKit versions don't expose add_shutdown_callback — best-effort.
+        logger.debug("ctx.add_shutdown_callback unavailable; skipping post-call hook")
 
 
 if __name__ == "__main__":

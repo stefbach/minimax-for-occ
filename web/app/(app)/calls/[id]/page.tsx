@@ -41,6 +41,8 @@ type CallDetail = {
   agent_handle_id: string | null;
   agent_handles: AgentHandle;
   contacts: Contact;
+  summary?: string | null;
+  summary_generated_at?: string | null;
 };
 
 type CallEvent = {
@@ -50,6 +52,39 @@ type CallEvent = {
   by_user_id: string | null;
   payload: Record<string, unknown> | null;
 };
+
+type TranscriptTurn = {
+  id: string;
+  seq: number;
+  speaker: string;
+  speaker_id: string | null;
+  text: string;
+  started_at: string;
+  ended_at: string | null;
+  confidence: number | null;
+  language: string | null;
+};
+
+type CallAnalysis = {
+  id: string;
+  policy_id: string;
+  result: Record<string, unknown>;
+  tokens_input: number | null;
+  tokens_output: number | null;
+  cost_cents: number | null;
+  created_at: string;
+};
+
+type AlertRow = {
+  id: string;
+  severity: string;
+  message: string;
+  payload: Record<string, unknown> | null;
+  acked: boolean;
+  created_at: string;
+};
+
+type AnalysisPolicy = { id: string; name: string };
 
 function stateClass(state: string): string {
   if (state === "in_progress") return "tag good";
@@ -75,29 +110,91 @@ export default function CallDetailPage() {
 
   const [call, setCall] = useState<CallDetail | null>(null);
   const [events, setEvents] = useState<CallEvent[]>([]);
+  const [transcripts, setTranscripts] = useState<TranscriptTurn[]>([]);
+  const [analyses, setAnalyses] = useState<CallAnalysis[]>([]);
+  const [alerts, setAlerts] = useState<AlertRow[]>([]);
+  const [policies, setPolicies] = useState<AnalysisPolicy[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [supervisionMode, setSupervisionMode] = useState<SupervisionMode | null>(
     null,
   );
+  const [summaryBusy, setSummaryBusy] = useState(false);
+  const [analyzeBusy, setAnalyzeBusy] = useState(false);
+  const [actionMsg, setActionMsg] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     if (!id) return;
     try {
-      const r = await fetch(`/api/calls/${id}`, { cache: "no-store" });
-      if (!r.ok) {
-        const data = await r.json().catch(() => ({}));
-        throw new Error(data.error ?? `HTTP ${r.status}`);
+      const [callRes, transRes] = await Promise.all([
+        fetch(`/api/calls/${id}`, { cache: "no-store" }),
+        fetch(`/api/calls/${id}/transcripts`, { cache: "no-store" }),
+      ]);
+      if (!callRes.ok) {
+        const data = await callRes.json().catch(() => ({}));
+        throw new Error(data.error ?? `HTTP ${callRes.status}`);
       }
-      const data = (await r.json()) as { call: CallDetail; events: CallEvent[] };
+      const data = (await callRes.json()) as { call: CallDetail; events: CallEvent[] };
       setCall(data.call);
       setEvents(data.events);
+      if (transRes.ok) {
+        const tr = (await transRes.json()) as TranscriptTurn[];
+        setTranscripts(tr);
+      }
+
+      // Fetch analyses + alerts + policies for this call via supabase-browser (RLS).
+      const sb = supabaseBrowser();
+      const [an, al, pol] = await Promise.all([
+        sb.from("call_analyses").select("*").eq("call_id", id).order("created_at", { ascending: false }),
+        sb.from("alerts").select("id, severity, message, payload, acked, created_at").eq("call_id", id).order("created_at", { ascending: false }),
+        sb.from("analysis_policies").select("id, name"),
+      ]);
+      setAnalyses(((an.data as unknown) as CallAnalysis[]) ?? []);
+      setAlerts(((al.data as unknown) as AlertRow[]) ?? []);
+      setPolicies(((pol.data as unknown) as AnalysisPolicy[]) ?? []);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
   }, [id]);
+
+  const generateSummary = useCallback(async () => {
+    setSummaryBusy(true);
+    setActionMsg(null);
+    try {
+      const r = await fetch(`/api/calls/${id}/summary`, { method: "POST" });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error ?? `HTTP ${r.status}`);
+      setActionMsg("Résumé généré.");
+      await refresh();
+    } catch (e) {
+      setActionMsg(`Erreur résumé : ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setSummaryBusy(false);
+    }
+  }, [id, refresh]);
+
+  const runAnalyses = useCallback(async () => {
+    setAnalyzeBusy(true);
+    setActionMsg(null);
+    try {
+      const r = await fetch(`/api/calls/${id}/analyze`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error ?? `HTTP ${r.status}`);
+      const okCount = (d.results ?? []).filter((x: { ok: boolean }) => x.ok).length;
+      setActionMsg(`Analyses lancées : ${okCount}/${(d.results ?? []).length} OK.`);
+      await refresh();
+    } catch (e) {
+      setActionMsg(`Erreur analyse : ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setAnalyzeBusy(false);
+    }
+  }, [id, refresh]);
 
   useEffect(() => {
     void refresh();
@@ -125,6 +222,36 @@ export default function CallDetailPage() {
           event: "*",
           schema: "public",
           table: "call_events",
+          filter: `call_id=eq.${id}`,
+        },
+        () => void refresh(),
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "call_transcripts",
+          filter: `call_id=eq.${id}`,
+        },
+        () => void refresh(),
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "call_analyses",
+          filter: `call_id=eq.${id}`,
+        },
+        () => void refresh(),
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "alerts",
           filter: `call_id=eq.${id}`,
         },
         () => void refresh(),
@@ -271,20 +398,125 @@ export default function CallDetailPage() {
 
         <div className="panel">
           <header>
-            <h2>Transcript live</h2>
-            <div className="meta">v1 : placeholder</div>
+            <h2>Transcript</h2>
+            <div className="meta">{transcripts.length} tour(s)</div>
           </header>
-          <div className="chat-log" style={{ minHeight: 240, justifyContent: "center", alignItems: "center" }}>
-            <p className="muted" style={{ margin: 0 }}>
-              transcript en attente
-            </p>
+          <div className="chat-log" style={{ minHeight: 240, maxHeight: 480, overflowY: "auto" }}>
+            {transcripts.length === 0 ? (
+              <p className="muted" style={{ margin: 0 }}>Transcript en attente.</p>
+            ) : (
+              transcripts.map((t) => (
+                <div key={t.id} className={`chat-msg ${t.speaker === "customer" ? "user" : "assistant"}`}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                    <strong style={{ fontSize: 12 }}>{t.speaker}</strong>
+                    <span className="muted" style={{ fontSize: 11 }}>
+                      {new Date(t.started_at).toLocaleTimeString()}
+                      {t.language ? ` · ${t.language}` : ""}
+                    </span>
+                  </div>
+                  <div style={{ marginTop: 4 }}>{t.text}</div>
+                </div>
+              ))
+            )}
           </div>
           {call.recording_url && (
-            <a className="tag" href={call.recording_url} target="_blank" rel="noreferrer">
+            <a className="tag" href={call.recording_url} target="_blank" rel="noreferrer" style={{ marginTop: 8, display: "inline-block" }}>
               Enregistrement
             </a>
           )}
         </div>
+      </div>
+
+      <div className="card" style={{ marginTop: 18 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <h3 style={{ margin: 0 }}>Résumé LLM</h3>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="ghost" onClick={generateSummary} disabled={summaryBusy}>
+              {summaryBusy ? "Génération…" : call.summary ? "Régénérer" : "Générer le résumé"}
+            </button>
+            <button className="ghost" onClick={runAnalyses} disabled={analyzeBusy}>
+              {analyzeBusy ? "Analyse…" : "Lancer les analyses"}
+            </button>
+          </div>
+        </div>
+        {actionMsg && (
+          <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>{actionMsg}</div>
+        )}
+        {call.summary ? (
+          <p style={{ marginTop: 10, whiteSpace: "pre-wrap" }}>{call.summary}</p>
+        ) : (
+          <p className="muted" style={{ marginTop: 10 }}>
+            Aucun résumé disponible.
+          </p>
+        )}
+        {call.summary_generated_at && (
+          <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+            généré le {new Date(call.summary_generated_at).toLocaleString()}
+          </div>
+        )}
+      </div>
+
+      <div className="card" style={{ marginTop: 18 }}>
+        <h3 style={{ marginTop: 0 }}>Analyses LLM ({analyses.length})</h3>
+        {analyses.length === 0 ? (
+          <p className="muted" style={{ margin: 0 }}>
+            Aucune analyse pour cet appel. Configurez des policies puis cliquez « Lancer les analyses ».
+          </p>
+        ) : (
+          <div style={{ display: "grid", gap: 12 }}>
+            {analyses.map((a) => {
+              const pol = policies.find((p) => p.id === a.policy_id);
+              return (
+                <div key={a.id} className="card" style={{ background: "var(--bg-2)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                    <strong>{pol?.name ?? a.policy_id.slice(0, 8)}</strong>
+                    <span className="muted" style={{ fontSize: 11 }}>
+                      {new Date(a.created_at).toLocaleString()}
+                      {a.cost_cents != null ? ` · ${(a.cost_cents / 100).toFixed(3)} $` : ""}
+                    </span>
+                  </div>
+                  <pre style={{ marginTop: 8, fontSize: 12, whiteSpace: "pre-wrap" }}>
+                    {JSON.stringify(a.result, null, 2)}
+                  </pre>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <div className="card" style={{ marginTop: 18 }}>
+        <h3 style={{ marginTop: 0 }}>Alertes générées ({alerts.length})</h3>
+        {alerts.length === 0 ? (
+          <p className="muted" style={{ margin: 0 }}>Aucune alerte.</p>
+        ) : (
+          <table className="list">
+            <thead>
+              <tr>
+                <th>Sév.</th>
+                <th>Message</th>
+                <th>Statut</th>
+                <th>Créée</th>
+              </tr>
+            </thead>
+            <tbody>
+              {alerts.map((a) => (
+                <tr key={a.id}>
+                  <td><span className="tag">{a.severity}</span></td>
+                  <td>{a.message}</td>
+                  <td>
+                    <span className={a.acked ? "tag" : "tag accent"}>
+                      {a.acked ? "ack" : "non lu"}
+                    </span>
+                  </td>
+                  <td className="muted" style={{ fontSize: 12 }}>
+                    {new Date(a.created_at).toLocaleString()}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   );
