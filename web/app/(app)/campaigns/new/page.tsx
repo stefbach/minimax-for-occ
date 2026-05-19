@@ -1,5 +1,6 @@
 import { hasSupabase, supabaseServer } from "@/lib/supabase";
 import { CampaignWizard, type AgentHandleOption, type PhoneNumberOption, type ContactOption } from "@/components/campaigns/CampaignWizard";
+import { HelpButton } from "@/components/help/HelpButton";
 
 export const dynamic = "force-dynamic";
 
@@ -85,6 +86,7 @@ export default async function NewCampaignPage() {
           <h1>Nouvelle campagne</h1>
           <div className="subtitle">Brouillon — vous pourrez démarrer la campagne après création.</div>
         </div>
+        <HelpButton contextKey="campaigns" />
       </div>
       <CampaignWizard agents={agents} numbers={numbers} contacts={contacts} />
     </>

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+import { HelpButton } from "@/components/help/HelpButton";
 
 type Alert = {
   id: string;
@@ -133,6 +134,7 @@ export function AlertsClient() {
           <button className="ghost" onClick={() => void refresh()}>
             Rafraîchir
           </button>
+          <HelpButton contextKey="alerts" />
         </div>
       </div>
 

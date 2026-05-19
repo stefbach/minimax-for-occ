@@ -9,6 +9,7 @@ import {
   type SupervisionMode,
 } from "@/components/supervision/SupervisionRoom";
 import { HandoffCard } from "@/components/calls/HandoffCard";
+import { HelpButton } from "@/components/help/HelpButton";
 
 type AgentHandle = {
   id: string;
@@ -286,6 +287,7 @@ export default function CallDetailPage() {
       <div>
         <div className="page-header">
           <h1>Appel</h1>
+          <HelpButton contextKey="calls" />
         </div>
         <div className="card">
           <p className="muted">Chargement…</p>
@@ -299,6 +301,7 @@ export default function CallDetailPage() {
       <div>
         <div className="page-header">
           <h1>Appel</h1>
+          <HelpButton contextKey="calls" />
         </div>
         <div className="card">
           <p style={{ color: "var(--bad)" }}>{error ?? "Appel introuvable."}</p>
@@ -328,6 +331,7 @@ export default function CallDetailPage() {
             <span>Agent : {call.agent_handles?.display_name ?? "—"}</span>
           </div>
         </div>
+        <HelpButton contextKey="calls" />
       </div>
 
       {isLive && (

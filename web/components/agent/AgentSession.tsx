@@ -7,6 +7,7 @@ import { VoicePanel } from "@/components/voice/VoicePanel";
 import { ChatPanel } from "./ChatPanel";
 import { AgentN8nBindings } from "./AgentN8nBindings";
 import { AgentDocuments } from "./AgentDocuments";
+import { HelpButton } from "@/components/help/HelpButton";
 
 const TABS = [
   { id: "session", label: "Session vocale + chat" },
@@ -29,9 +30,12 @@ export function AgentSession({ agent, initialTab }: { agent: Agent; initialTab: 
             {agent.rag_enabled && <span className="tag good">RAG on (top-{agent.rag_top_k})</span>}
           </div>
         </div>
-        <Link href={`/agents/${agent.id}/edit`}>
-          <button className="ghost">Éditer la config</button>
-        </Link>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <Link href={`/agents/${agent.id}/edit`}>
+            <button className="ghost">Éditer la config</button>
+          </Link>
+          <HelpButton contextKey="agents.detail" />
+        </div>
       </div>
 
       <div style={{ display: "flex", gap: 4, borderBottom: "1px solid var(--border)", marginBottom: 18 }}>

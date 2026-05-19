@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { hasSupabase, supabaseServer } from "@/lib/supabase";
+import { HelpButton } from "@/components/help/HelpButton";
 
 export const dynamic = "force-dynamic";
 
@@ -121,10 +122,11 @@ export default async function NumbersHealthPage() {
             Volume 30j, dormance et taux de réponse sur l&apos;ensemble des numéros provisionnés.
           </div>
         </div>
-        <div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <Link href="/numbers" className="button" style={{ textDecoration: "none" }}>
             ← Retour aux numéros
           </Link>
+          <HelpButton contextKey="numbers.health" />
         </div>
       </div>
 

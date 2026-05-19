@@ -1,5 +1,6 @@
 import { TEMPLATES } from "@/lib/workflow-templates";
 import { CreateWorkflowForm } from "@/components/workflow/CreateWorkflowForm";
+import { HelpButton } from "@/components/help/HelpButton";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +15,7 @@ export default function NewWorkflowPage() {
             tagué <span className="kbd">voice-agent</span> et accessible immédiatement.
           </div>
         </div>
+        <HelpButton contextKey="workflows" />
       </div>
       <CreateWorkflowForm templates={TEMPLATES.map((t) => ({
         slug: t.slug,

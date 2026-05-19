@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { hasSupabase, supabaseServer } from "@/lib/supabase";
 import { hasTwilio } from "@/lib/twilio";
+import { HelpButton } from "@/components/help/HelpButton";
 import {
   NumbersClient,
   type PhoneNumberRow,
@@ -76,10 +77,11 @@ export default async function NumbersPage() {
             {initial.length} numéro{initial.length === 1 ? "" : "s"} provisionné{initial.length === 1 ? "" : "s"} via Twilio
           </div>
         </div>
-        <div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <Link href="/numbers/health" className="button" style={{ textDecoration: "none" }}>
             Santé des numéros
           </Link>
+          <HelpButton contextKey="numbers" />
         </div>
       </div>
 

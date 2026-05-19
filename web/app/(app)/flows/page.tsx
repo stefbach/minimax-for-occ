@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { NewFlowButton } from "./NewFlowButton";
+import { HelpButton } from "@/components/help/HelpButton";
 
 export const dynamic = "force-dynamic";
 
@@ -44,7 +45,10 @@ export default async function FlowsPage() {
             {flows.length} flow{flows.length === 1 ? "" : "s"} · constructeur visuel drag-drop
           </div>
         </div>
-        <NewFlowButton />
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <NewFlowButton />
+          <HelpButton contextKey="flows" />
+        </div>
       </div>
 
       {!hasSupabase() ? (

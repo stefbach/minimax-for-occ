@@ -7,6 +7,7 @@ import { VolumeChart } from "./VolumeChart";
 import { DispositionsList } from "./DispositionsList";
 import { CampaignsTable } from "./CampaignsTable";
 import { CopilotPanel } from "./CopilotPanel";
+import { HelpButton } from "@/components/help/HelpButton";
 
 type Props = {
   initial: DashboardOverviewResponse | null;
@@ -53,9 +54,12 @@ export function DashboardClient({ initial, initialError, orgId }: Props) {
               Vue temps réel du centre d&apos;appels. Mise à jour automatique toutes les 30 s.
             </div>
           </div>
-          <button className="ghost" onClick={fetchData} disabled={refreshing}>
-            {refreshing ? "Actualisation…" : "Actualiser"}
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button className="ghost" onClick={fetchData} disabled={refreshing}>
+              {refreshing ? "Actualisation…" : "Actualiser"}
+            </button>
+            <HelpButton contextKey="dashboard" />
+          </div>
         </div>
 
         {error && (

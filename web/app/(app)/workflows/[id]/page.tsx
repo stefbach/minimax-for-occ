@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { HelpButton } from "@/components/help/HelpButton";
 
 export const dynamic = "force-dynamic";
 
@@ -21,11 +22,14 @@ export default async function WorkflowEditorPage({
             <Link href="/workflows" style={{ color: "var(--muted)" }}>← retour à la liste</Link>
           </div>
         </div>
-        {editorUrl && (
-          <a href={editorUrl} target="_blank" rel="noopener noreferrer">
-            <button className="ghost">Ouvrir dans un nouvel onglet ↗</button>
-          </a>
-        )}
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {editorUrl && (
+            <a href={editorUrl} target="_blank" rel="noopener noreferrer">
+              <button className="ghost">Ouvrir dans un nouvel onglet ↗</button>
+            </a>
+          )}
+          <HelpButton contextKey="workflows" />
+        </div>
       </div>
 
       {!editorUrl ? (

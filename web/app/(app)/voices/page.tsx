@@ -1,6 +1,7 @@
 import { hasSupabase, supabaseServer } from "@/lib/supabase";
 import type { Voice } from "@/lib/types";
 import { VoiceStudio } from "@/components/voice/VoiceStudio";
+import { HelpButton } from "@/components/help/HelpButton";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +25,7 @@ export default async function VoicesPage() {
           <h1>Voice Studio</h1>
           <div className="subtitle">Cloner, écouter et gérer vos voix MiniMax.</div>
         </div>
+        <HelpButton contextKey="voices" />
       </div>
       {!hasSupabase() ? (
         <div className="card">

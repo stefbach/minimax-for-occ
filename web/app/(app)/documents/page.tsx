@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import type { Agent } from "@/lib/types";
+import { HelpButton } from "@/components/help/HelpButton";
 
 export const dynamic = "force-dynamic";
 
@@ -44,6 +45,7 @@ export default async function DocumentsPage() {
           <h1>Documents (RAG)</h1>
           <div className="subtitle">{sources.length} source{sources.length === 1 ? "" : "s"} indexée{sources.length === 1 ? "" : "s"}.</div>
         </div>
+        <HelpButton contextKey="documents" />
       </div>
 
       {!hasSupabase() ? (
