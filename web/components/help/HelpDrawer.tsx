@@ -2,126 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { resolveHelp, type HelpRole } from "@/lib/help/registry";
+import { renderMarkdown } from "@/lib/help/markdown";
 
 type MeResponse = {
   user: { id: string; email: string | null } | null;
   current_role: HelpRole | null;
 };
-
-/**
- * Minimal markdown renderer. Supports a tiny subset that matches what we
- * author in `lib/help/registry.ts`:
- *   ## Heading
- *   - bullet (consecutive lines grouped)
- *   **bold**  *italic*  [text](url)
- *   blank line = paragraph break
- *
- * Returns a fragment of JSX nodes.
- */
-function renderInline(text: string): React.ReactNode[] {
-  // Order matters: links first (they contain []()), then bold, then italic.
-  const nodes: React.ReactNode[] = [];
-  let remaining = text;
-  let key = 0;
-
-  // Combined regex with alternation; we walk and split.
-  const re =
-    /(\[([^\]]+)\]\(([^)]+)\))|(\*\*([^*]+)\*\*)|(\*([^*]+)\*)/;
-
-  while (remaining.length > 0) {
-    const match = re.exec(remaining);
-    if (!match) {
-      nodes.push(remaining);
-      break;
-    }
-    if (match.index > 0) {
-      nodes.push(remaining.slice(0, match.index));
-    }
-    if (match[1]) {
-      // link
-      nodes.push(
-        <a
-          key={`l-${key++}`}
-          href={match[3]}
-          target="_blank"
-          rel="noreferrer"
-          style={{ color: "var(--accent-2, #6aa0ff)" }}
-        >
-          {match[2]}
-        </a>
-      );
-    } else if (match[4]) {
-      nodes.push(<strong key={`b-${key++}`}>{match[5]}</strong>);
-    } else if (match[6]) {
-      nodes.push(<em key={`i-${key++}`}>{match[7]}</em>);
-    }
-    remaining = remaining.slice(match.index + match[0].length);
-  }
-  return nodes;
-}
-
-function renderMarkdown(md: string): React.ReactNode {
-  const lines = md.split("\n");
-  const blocks: React.ReactNode[] = [];
-  let i = 0;
-  let key = 0;
-
-  while (i < lines.length) {
-    const line = lines[i];
-    const trimmed = line.trim();
-
-    if (trimmed === "") {
-      i++;
-      continue;
-    }
-
-    if (trimmed.startsWith("## ")) {
-      blocks.push(
-        <h3 key={`h-${key++}`} style={{ margin: "16px 0 8px", fontSize: 16 }}>
-          {renderInline(trimmed.slice(3))}
-        </h3>
-      );
-      i++;
-      continue;
-    }
-
-    if (trimmed.startsWith("- ")) {
-      const items: string[] = [];
-      while (i < lines.length && lines[i].trim().startsWith("- ")) {
-        items.push(lines[i].trim().slice(2));
-        i++;
-      }
-      blocks.push(
-        <ul key={`ul-${key++}`} style={{ margin: "8px 0", paddingLeft: 20 }}>
-          {items.map((it, idx) => (
-            <li key={idx} style={{ marginBottom: 4 }}>
-              {renderInline(it)}
-            </li>
-          ))}
-        </ul>
-      );
-      continue;
-    }
-
-    // paragraph: consume until blank line
-    const paraLines: string[] = [];
-    while (
-      i < lines.length &&
-      lines[i].trim() !== "" &&
-      !lines[i].trim().startsWith("## ") &&
-      !lines[i].trim().startsWith("- ")
-    ) {
-      paraLines.push(lines[i]);
-      i++;
-    }
-    blocks.push(
-      <p key={`p-${key++}`} style={{ margin: "8px 0", lineHeight: 1.5 }}>
-        {renderInline(paraLines.join(" "))}
-      </p>
-    );
-  }
-  return <>{blocks}</>;
-}
 
 export function HelpDrawer({
   contextKey,
@@ -165,6 +51,7 @@ export function HelpDrawer({
   }, [onClose]);
 
   const resolved = loaded ? resolveHelp(contextKey, role) : null;
+  const fullGuideHref = `/help#${contextKey}`;
 
   return (
     <>
@@ -185,7 +72,7 @@ export function HelpDrawer({
           top: 0,
           right: 0,
           bottom: 0,
-          width: "min(420px, 100vw)",
+          width: "min(460px, 100vw)",
           background: "var(--bg, #0f1115)",
           borderLeft: "1px solid var(--border, #2a2f3a)",
           zIndex: 1000,
@@ -245,43 +132,51 @@ export function HelpDrawer({
               Aucune aide n&apos;est encore disponible pour cette page.
             </p>
           )}
-          {loaded && resolved && (
-            <>
-              {renderMarkdown(resolved.body)}
-              {resolved.learnMoreHref && (
-                <p style={{ marginTop: 20 }}>
-                  <a
-                    href={resolved.learnMoreHref}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={{
-                      display: "inline-block",
-                      padding: "8px 14px",
-                      border: "1px solid var(--border, #2a2f3a)",
-                      borderRadius: 6,
-                      color: "var(--accent-2, #6aa0ff)",
-                      textDecoration: "none",
-                      fontSize: 13,
-                    }}
-                  >
-                    En savoir plus →
-                  </a>
-                </p>
-              )}
-              {role && (
-                <p
-                  style={{
-                    marginTop: 16,
-                    fontSize: 11,
-                    color: "var(--muted, #8b93a7)",
-                  }}
-                >
-                  Vue adaptée à votre rôle : <strong>{role}</strong>
-                </p>
-              )}
-            </>
-          )}
+          {loaded && resolved && <>{renderMarkdown(resolved.body)}</>}
         </div>
+
+        {loaded && resolved && (
+          <footer
+            style={{
+              padding: "12px 20px 16px",
+              borderTop: "1px solid var(--border, #2a2f3a)",
+              display: "flex",
+              flexDirection: "column",
+              gap: 8,
+            }}
+          >
+            <a
+              href={fullGuideHref}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
+                padding: "8px 14px",
+                border: "1px solid var(--border, #2a2f3a)",
+                borderRadius: 6,
+                color: "var(--accent-2, #6aa0ff)",
+                textDecoration: "none",
+                fontSize: 13,
+                background: "transparent",
+              }}
+            >
+              📖 Ouvrir le guide complet
+            </a>
+            {role && (
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: 11,
+                  color: "var(--muted, #8b93a7)",
+                  textAlign: "center",
+                }}
+              >
+                Vue adaptée à votre rôle : <strong>{role}</strong>
+              </p>
+            )}
+          </footer>
+        )}
       </aside>
     </>
   );
