@@ -51,6 +51,9 @@ const NAV: NavItem[] = [
   { href: "/admin/inbound",  label: "Connecteurs entrants", icon: "⇩", group: "Admin", roles: ["super_admin","admin"] },
   { href: "/admin/billing",  label: "Facturation",          icon: "€", group: "Admin", roles: ["super_admin","admin"] },
   { href: "/settings",       label: "Paramètres",           icon: "⚙", group: "Admin", roles: ["super_admin","admin","manager"] },
+
+  // ── Help (accessible to everyone) ──
+  { href: "/help",           label: "Guide",                icon: "?", group: "Aide" },
 ];
 
 export function Sidebar() {
