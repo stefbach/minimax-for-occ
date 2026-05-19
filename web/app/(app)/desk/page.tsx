@@ -1,4 +1,5 @@
 import { Softphone } from "@/components/voice/Softphone";
+import { HelpButton } from "@/components/help/HelpButton";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +13,7 @@ export default function DeskPage() {
             Softphone web — présence, appels routés, contrôles LiveKit.
           </div>
         </div>
+        <HelpButton contextKey="desk" />
       </div>
       <Softphone />
     </div>

@@ -1,5 +1,6 @@
 import { hasSupabase, supabaseServer } from "@/lib/supabase";
 import { InboundConnectorsClient } from "@/components/admin/InboundConnectorsClient";
+import { HelpButton } from "@/components/help/HelpButton";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +42,7 @@ export default async function InboundConnectorsPage() {
             Google Sheets) et colle l&apos;URL + le secret dans n8n.
           </div>
         </div>
+        <HelpButton contextKey="admin.inbound" />
       </div>
       <InboundConnectorsClient
         orgId={org?.id ?? DEFAULT_ORG}

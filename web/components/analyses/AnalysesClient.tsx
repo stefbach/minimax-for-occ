@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { HelpButton } from "@/components/help/HelpButton";
 
 type Policy = {
   id: string;
@@ -146,7 +147,10 @@ export function AnalysesClient() {
             appel terminé déclenchera les policies actives.
           </div>
         </div>
-        <button onClick={startNew}>+ Nouvelle policy</button>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button onClick={startNew}>+ Nouvelle policy</button>
+          <HelpButton contextKey="analyses" />
+        </div>
       </div>
 
       {error && (

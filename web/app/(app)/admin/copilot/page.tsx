@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { currentMembership } from "@/lib/supabase-auth";
 import { CopilotClient } from "@/components/admin/CopilotClient";
+import { HelpButton } from "@/components/help/HelpButton";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +23,7 @@ export default async function CopilotPage() {
             Les actions destructives demandent toujours une confirmation explicite.
           </div>
         </div>
+        <HelpButton contextKey="admin.copilot" />
       </div>
       <CopilotClient />
     </>

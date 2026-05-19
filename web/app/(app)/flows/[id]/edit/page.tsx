@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { FlowEditor, type FlowFull, type Step, type Edge } from "./FlowEditor";
+import { HelpButton } from "@/components/help/HelpButton";
 
 export const dynamic = "force-dynamic";
 
@@ -57,6 +58,7 @@ export default async function FlowEditPage({
             <div style={{ color: "var(--muted)", fontSize: 12 }}>{flow.description}</div>
           )}
         </div>
+        <HelpButton contextKey="flows" />
       </div>
       <FlowEditor flow={flow} />
     </div>

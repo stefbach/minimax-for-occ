@@ -1,5 +1,6 @@
 import { hasSupabase, supabaseServer } from "@/lib/supabase";
 import { ContactsClient } from "@/components/contacts/ContactsClient";
+import { HelpButton } from "@/components/help/HelpButton";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +29,7 @@ export default async function ContactsPage() {
           <h1>Contacts</h1>
           <div className="subtitle">{initial.length} contact{initial.length === 1 ? "" : "s"}</div>
         </div>
+        <HelpButton contextKey="contacts" />
       </div>
       <ContactsClient initial={initial} />
     </>

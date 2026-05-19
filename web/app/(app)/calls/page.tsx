@@ -7,6 +7,7 @@ import {
   SupervisionRoom,
   type SupervisionMode,
 } from "@/components/supervision/SupervisionRoom";
+import { HelpButton } from "@/components/help/HelpButton";
 
 type AgentHandle = {
   id: string;
@@ -166,9 +167,12 @@ export default function CallsPage() {
             Vue temps réel des appels en cours. Écoute, souffler, intervenir.
           </div>
         </div>
-        <button className="ghost" onClick={() => void refresh()}>
-          Rafraîchir
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button className="ghost" onClick={() => void refresh()}>
+            Rafraîchir
+          </button>
+          <HelpButton contextKey="calls" />
+        </div>
       </div>
 
       <div className="grid cols-3 calls-kpis">

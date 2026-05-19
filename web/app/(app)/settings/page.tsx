@@ -1,4 +1,5 @@
 import { hasSupabase } from "@/lib/supabase";
+import { HelpButton } from "@/components/help/HelpButton";
 
 export const dynamic = "force-dynamic";
 
@@ -79,6 +80,7 @@ export default function SettingsPage() {
           <h1>Paramètres</h1>
           <div className="subtitle">Variables d&apos;environnement détectées sur cette instance Vercel.</div>
         </div>
+        <HelpButton contextKey="settings" />
       </div>
 
       <div className="card" style={{ padding: 0, overflow: "hidden" }}>

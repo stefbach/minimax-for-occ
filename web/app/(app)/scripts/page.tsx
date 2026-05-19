@@ -1,4 +1,5 @@
 import { ScriptsClient } from "@/components/scripts/ScriptsClient";
+import { HelpButton } from "@/components/help/HelpButton";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +13,7 @@ export default function ScriptsPage() {
             Playbooks d&apos;appel versionnés, réutilisables par les campagnes
           </div>
         </div>
+        <HelpButton contextKey="scripts" />
       </div>
       <ScriptsClient />
     </>

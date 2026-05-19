@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { HelpButton } from "@/components/help/HelpButton";
 
 export interface CampaignDetail {
   id: string;
@@ -188,6 +189,7 @@ export function CampaignDetailClient({
               Annuler
             </button>
           )}
+          <HelpButton contextKey="campaigns" />
         </div>
       </div>
 
