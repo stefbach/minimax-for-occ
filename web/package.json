@@ -6,7 +6,12 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:ui": "vitest --ui",
+    "sync-utils": "node scripts/sync-dialer-utils.js",
+    "sync-utils:check": "node scripts/sync-dialer-utils.js --check"
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.0",
@@ -29,6 +34,8 @@
     "@types/node": "^22.10.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "typescript": "^5.7.0"
+    "@vitest/ui": "^2.1.9",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.9"
   }
 }

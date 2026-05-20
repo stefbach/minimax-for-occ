@@ -12,8 +12,11 @@
  * `base_resp` and surface the real status_msg.
  */
 
-const MINIMAX_BASE = (process.env.MINIMAX_BASE_URL ?? "https://api.minimax.io/v1").replace(/\/$/, "");
-const GROUP_ID = process.env.MINIMAX_GROUP_ID; // optional, required for some TTS endpoints
+import { cfg } from "./config";
+
+// Lazily read so importing this module never crashes at build time when the
+// MiniMax env vars are unset (e.g. CI / preview deploys).
+const minimaxBase = (): string => cfg.minimax.baseUrl.replace(/\/$/, "");
 
 interface BaseResp {
   status_code?: number;
@@ -21,7 +24,7 @@ interface BaseResp {
 }
 
 function authHeaders(): Record<string, string> {
-  const key = process.env.MINIMAX_API_KEY;
+  const key = cfg.minimax.apiKey;
   if (!key) throw new Error("MINIMAX_API_KEY missing");
   return { Authorization: `Bearer ${key}` };
 }
@@ -36,9 +39,10 @@ function ensureBaseRespOk(json: { base_resp?: BaseResp }, label: string): void {
 }
 
 function appendGroupId(url: string): string {
-  if (!GROUP_ID) return url;
+  const groupId = cfg.minimax.groupId;
+  if (!groupId) return url;
   const sep = url.includes("?") ? "&" : "?";
-  return `${url}${sep}GroupId=${encodeURIComponent(GROUP_ID)}`;
+  return `${url}${sep}GroupId=${encodeURIComponent(groupId)}`;
 }
 
 export async function uploadVoiceCloneSample(file: File): Promise<{ file_id: string }> {
@@ -46,7 +50,7 @@ export async function uploadVoiceCloneSample(file: File): Promise<{ file_id: str
   form.set("purpose", "voice_clone");
   form.set("file", file);
 
-  const r = await fetch(appendGroupId(`${MINIMAX_BASE}/files/upload`), {
+  const r = await fetch(appendGroupId(`${minimaxBase()}/files/upload`), {
     method: "POST",
     headers: authHeaders(),
     body: form,
@@ -79,7 +83,7 @@ export async function registerVoiceClone(opts: {
   text?: string;
   model?: string;
 }): Promise<unknown> {
-  const r = await fetch(appendGroupId(`${MINIMAX_BASE}/voice_clone`), {
+  const r = await fetch(appendGroupId(`${minimaxBase()}/voice_clone`), {
     method: "POST",
     headers: { ...authHeaders(), "content-type": "application/json" },
     body: JSON.stringify({
@@ -109,7 +113,7 @@ export async function previewTTS(opts: {
   emotion?: string;
   model?: string;
 }): Promise<{ audio: ArrayBuffer; format: string }> {
-  const url = appendGroupId(`${MINIMAX_BASE}/t2a_v2`);
+  const url = appendGroupId(`${minimaxBase()}/t2a_v2`);
 
   const body = {
     model: opts.model || "speech-02-hd",

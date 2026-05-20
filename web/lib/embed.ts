@@ -1,9 +1,11 @@
+import { cfg } from "./config";
+
 /**
  * Generate embeddings using OpenAI text-embedding-3-small (1536 dimensions).
  * Used by RAG ingest path — server-side only.
  */
 export async function embedText(input: string | string[]): Promise<number[][]> {
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey = cfg.openai.apiKey;
   if (!apiKey) throw new Error("OPENAI_API_KEY missing");
 
   const inputs = Array.isArray(input) ? input : [input];

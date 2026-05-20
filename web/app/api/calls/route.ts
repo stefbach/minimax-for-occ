@@ -1,10 +1,9 @@
 import { NextResponse } from "next/server";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
+import { requestOrgId } from "@/lib/request-org";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const DEFAULT_ORG = "00000000-0000-0000-0000-000000000001";
 
 const VALID_STATES = new Set([
   "queued",
@@ -20,7 +19,7 @@ export async function GET(request: Request) {
   if (!hasSupabase()) return NextResponse.json([]);
 
   const { searchParams } = new URL(request.url);
-  const orgId = searchParams.get("org_id") ?? DEFAULT_ORG;
+  const orgId = await requestOrgId(request);
   const stateParam = searchParams.get("state");
   const limit = Math.min(Number(searchParams.get("limit") ?? 100), 250);
 

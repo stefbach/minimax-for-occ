@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase";
 import { downloadTwilioRecording, uploadRecording } from "@/lib/storage";
+import { log } from "@/lib/log";
+import { LEGACY_ORG_ID } from "@/lib/constants";
+import { validateTwilioSignature } from "@/lib/twilio-signature";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,15 +27,13 @@ export const dynamic = "force-dynamic";
  * Twilio expects 200 with an empty body.
  */
 export async function POST(req: Request) {
-  let form: FormData | null = null;
-  try {
-    form = await req.formData();
-  } catch {
-    return new NextResponse("", { status: 200 });
+  const rawBody = await req.text().catch(() => "");
+  const params = new URLSearchParams(rawBody);
+  if (!validateTwilioSignature(req, params)) {
+    return new NextResponse("invalid twilio signature", { status: 403 });
   }
-  if (!form) return new NextResponse("", { status: 200 });
 
-  const get = (k: string) => form!.get(k)?.toString() ?? null;
+  const get = (k: string) => params.get(k);
   const CallSid = get("CallSid");
   const RecordingSid = get("RecordingSid");
   const RecordingUrl = get("RecordingUrl");
@@ -61,7 +62,7 @@ export async function POST(req: Request) {
     const { data: inserted, error: insErr } = await sb
       .from("calls")
       .insert({
-        org_id: "00000000-0000-0000-0000-000000000001",
+        org_id: LEGACY_ORG_ID,
         direction: "out",
         state: "ended",
         twilio_call_sid: CallSid,
@@ -69,10 +70,9 @@ export async function POST(req: Request) {
       .select("id, org_id")
       .single();
     if (insErr || !inserted) {
-      console.error(
-        "[twilio/recording] failed to create call row:",
-        insErr?.message,
-      );
+      log.error(`twilio/recording failed to create call row: ${insErr?.message ?? "unknown"}`, {
+        call: CallSid,
+      });
       return new NextResponse("", { status: 200 });
     }
     call = inserted as { id: string; org_id: string };
@@ -104,7 +104,7 @@ export async function POST(req: Request) {
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error("[twilio/recording] save failed:", msg);
+    log.error(`twilio/recording save failed: ${msg}`, { call: call.id });
     await sb.from("call_events").insert({
       call_id: call.id,
       kind: "recording_save_failed",
