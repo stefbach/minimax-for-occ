@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { validateTwilioSignature } from "@/lib/twilio-signature";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,6 +14,7 @@ export const dynamic = "force-dynamic";
  *   LIVEKIT_SIP_URI        e.g. sip:your-project.sip.livekit.cloud
  *   LIVEKIT_SIP_USERNAME   (optional) trunk auth username
  *   LIVEKIT_SIP_PASSWORD   (optional) trunk auth password
+ *   TWILIO_AUTH_TOKEN      used to validate X-Twilio-Signature on every call
  */
 export async function POST(req: Request) {
   const sipUri = process.env.LIVEKIT_SIP_URI;
@@ -20,9 +22,16 @@ export async function POST(req: Request) {
     return new NextResponse("LIVEKIT_SIP_URI missing", { status: 500 });
   }
 
-  const form = await req.formData().catch(() => null);
-  const from = form?.get("From")?.toString() ?? "";
-  const to = form?.get("To")?.toString() ?? "";
+  // Read the body once as text so we can both validate the Twilio signature
+  // and parse the form fields below.
+  const rawBody = await req.text().catch(() => "");
+  const params = new URLSearchParams(rawBody);
+  if (!validateTwilioSignature(req, params)) {
+    return new NextResponse("invalid twilio signature", { status: 403 });
+  }
+
+  const from = params.get("From") ?? "";
+  const to = params.get("To") ?? "";
 
   const auth =
     process.env.LIVEKIT_SIP_USERNAME && process.env.LIVEKIT_SIP_PASSWORD
@@ -31,8 +40,8 @@ export async function POST(req: Request) {
 
   // Pass caller metadata to LiveKit via SIP URI params; the dispatch rule can
   // forward them as participant attributes for the agent.
-  const params = new URLSearchParams({ from, to });
-  const target = `${sipUri}?${params.toString()}`;
+  const sipParams = new URLSearchParams({ from, to });
+  const target = `${sipUri}?${sipParams.toString()}`;
 
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>

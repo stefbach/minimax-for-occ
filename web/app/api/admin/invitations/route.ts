@@ -1,16 +1,10 @@
 import { NextResponse } from "next/server";
 import { randomBytes } from "node:crypto";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
+import { requestOrgId } from "@/lib/request-org";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const DEFAULT_ORG = "00000000-0000-0000-0000-000000000001";
-
-function orgFrom(req: Request): string {
-  const { searchParams } = new URL(req.url);
-  return searchParams.get("org_id") ?? DEFAULT_ORG;
-}
 
 function generateToken(): string {
   return randomBytes(24).toString("base64url");
@@ -28,11 +22,12 @@ function buildAcceptUrl(req: Request, token: string): string {
  */
 export async function GET(req: Request) {
   if (!hasSupabase()) return NextResponse.json([]);
+  const orgId = await requestOrgId(req);
   const sb = supabaseServer();
   const { data, error } = await sb
     .from("invitations")
     .select("*")
-    .eq("org_id", orgFrom(req))
+    .eq("org_id", orgId)
     .is("accepted_at", null)
     .order("created_at", { ascending: false });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -59,7 +54,9 @@ export async function POST(req: Request) {
   const email = (body.email ?? "").trim().toLowerCase();
   if (!email) return NextResponse.json({ error: "email required" }, { status: 400 });
   const role = body.role ?? "agent";
-  const orgId = body.org_id ?? DEFAULT_ORG;
+  // org_id always derived from session; body.org_id is silently ignored
+  // (super_admin can still target a tenant via ?org_id=).
+  const orgId = await requestOrgId(req);
   const token = generateToken();
 
   const sb = supabaseServer();

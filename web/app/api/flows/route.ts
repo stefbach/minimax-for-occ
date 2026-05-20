@@ -1,17 +1,17 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase";
+import { requestOrgId } from "@/lib/request-org";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const DEFAULT_ORG_ID = "00000000-0000-0000-0000-000000000001";
-
-export async function GET() {
+export async function GET(req: Request) {
+  const orgId = await requestOrgId(req);
   const sb = supabaseServer();
   const { data: flows, error } = await sb
     .from("flows")
     .select("*")
-    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("org_id", orgId)
     .order("updated_at", { ascending: false });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
@@ -32,6 +32,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  const orgId = await requestOrgId(req);
   const sb = supabaseServer();
   const body = (await req.json()) as { name?: string; description?: string };
   if (!body.name || !body.name.trim()) {
@@ -40,7 +41,7 @@ export async function POST(req: Request) {
   const { data, error } = await sb
     .from("flows")
     .insert({
-      org_id: DEFAULT_ORG_ID,
+      org_id: orgId,
       name: body.name.trim(),
       description: body.description ?? null,
       metadata: {},

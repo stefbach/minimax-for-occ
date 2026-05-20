@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { ORG_COOKIE, currentUser } from "@/lib/supabase-auth";
+import { orgCookieOptions, signOrgCookie } from "@/lib/org-cookie";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -55,13 +56,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
   }
 
   const store = await cookies();
-  store.set(ORG_COOKIE, orgId, {
-    httpOnly: true,
-    sameSite: "lax",
-    path: "/",
-    secure: process.env.NODE_ENV === "production",
-    maxAge: 60 * 60 * 24 * 30,
-  });
+  store.set(ORG_COOKIE, signOrgCookie(orgId), orgCookieOptions());
 
   return NextResponse.json({ ok: true, organization: org });
 }

@@ -9,7 +9,9 @@
     "lint": "next lint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:ui": "vitest --ui"
+    "test:ui": "vitest --ui",
+    "sync-utils": "node scripts/sync-dialer-utils.js",
+    "sync-utils:check": "node scripts/sync-dialer-utils.js --check"
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.0",

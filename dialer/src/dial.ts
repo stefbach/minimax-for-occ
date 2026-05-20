@@ -1,6 +1,14 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "./supabase.js";
 import { createCall, TwilioError } from "./twilio.js";
+import { countryFromE164 } from "./_phone-utils.generated.js";
+import {
+  parseContact,
+  toDialCampaignRow,
+  toDialTargetRow,
+  type DialCampaignRow,
+  type DialTargetRow,
+} from "./types.js";
 
 export interface DialJob {
   target_id: string;
@@ -8,11 +16,6 @@ export interface DialJob {
 }
 
 // ─── Per-call structured logging ─────────────────────────────────────────
-//
-// Every log line is prefixed with `[call_id=… target=… campaign=…]` so we can
-// trace a single outbound dial across the dialer worker, the Twilio
-// callback, and the LiveKit agent (which uses the matching call_id from
-// room metadata).
 type LogCtx = { call_id?: string; target_id?: string; campaign_id?: string };
 function prefix(ctx: LogCtx): string {
   const parts: string[] = [];
@@ -28,37 +31,6 @@ function dlog(level: "info" | "warn" | "error", ctx: LogCtx, msg: string): void 
   else console.log(line);
 }
 
-// ─── Geo-routing (mirrors web/lib/geo-routing.ts) ─────────────────────────
-//
-// The dialer runs out-of-process so it cannot import from web/. We replicate
-// the small bit of logic required to pick a From number for an org given a
-// destination E.164. Keep in sync with web/lib/phone-utils.ts.
-
-// Longest-prefix-first table of country prefixes used by countryFromE164Local.
-const COUNTRY_PREFIXES: ReadonlyArray<{ iso: string; prefix: string }> = [
-  { iso: "PT", prefix: "+351" },
-  { iso: "IE", prefix: "+353" },
-  { iso: "LU", prefix: "+352" },
-  { iso: "MU", prefix: "+230" },
-  { iso: "FR", prefix: "+33" },
-  { iso: "BE", prefix: "+32" },
-  { iso: "CH", prefix: "+41" },
-  { iso: "GB", prefix: "+44" },
-  { iso: "DE", prefix: "+49" },
-  { iso: "ES", prefix: "+34" },
-  { iso: "IT", prefix: "+39" },
-  { iso: "NL", prefix: "+31" },
-  { iso: "US", prefix: "+1" },
-  { iso: "CA", prefix: "+1" },
-];
-
-function countryFromE164Local(e164: string): string | null {
-  if (!/^\+\d{6,15}$/.test(e164)) return null;
-  for (const c of COUNTRY_PREFIXES) {
-    if (e164.startsWith(c.prefix)) return c.iso;
-  }
-  return null;
-}
 
 /**
  * Org-scoped From-number picker. Returns null if the org owns nothing usable.
@@ -69,7 +41,7 @@ async function pickFromNumberForOrg(
   orgId: string,
   toE164: string,
 ): Promise<string | null> {
-  const iso = countryFromE164Local(toE164);
+  const iso = countryFromE164(toE164);
   if (iso) {
     const { data } = await sb
       .from("phone_numbers")
@@ -124,60 +96,63 @@ export async function dialTarget(job: DialJob): Promise<void> {
   const sb = supabase();
   const ctx: LogCtx = { target_id: job.target_id, campaign_id: job.campaign_id };
 
-  const { data: target, error: tErr } = await sb
+  const { data: targetRaw, error: tErr } = await sb
     .from("campaign_targets")
     .select(
       "id,campaign_id,contact_id,status,attempts,contacts(e164,display_name)",
     )
     .eq("id", job.target_id)
     .single();
-  if (tErr || !target) {
+  if (tErr || !targetRaw) {
     dlog("error", ctx, `target not found: ${tErr?.message ?? "unknown"}`);
     return;
   }
+  const target: DialTargetRow = toDialTargetRow(
+    targetRaw as Record<string, unknown>,
+  );
   if (target.status !== "pending") {
     dlog("info", ctx, `target status=${target.status}, skipping`);
     return;
   }
 
-  const { data: campaign, error: cErr } = await sb
+  const { data: campaignRaw, error: cErr } = await sb
     .from("campaigns")
     .select(
       "id,org_id,state,phone_number_id,caller_id_e164,amd_enabled,max_attempts,retry_delay_min",
     )
     .eq("id", job.campaign_id)
     .single();
-  if (cErr || !campaign) {
+  if (cErr || !campaignRaw) {
     dlog("error", ctx, "campaign not found");
     return;
   }
+  const campaign: DialCampaignRow = toDialCampaignRow(
+    campaignRaw as Record<string, unknown>,
+  );
   if (campaign.state !== "running") {
     dlog("info", ctx, `campaign state=${campaign.state}, skipping`);
     return;
   }
 
-  const toE164 = (target as any).contacts?.e164 as string | null;
+  const contact = parseContact(target.contacts);
+  const toE164: string | null = contact?.e164 ?? null;
 
   // Resolve the caller-id (E.164) to use as From.
   //   1. campaign.caller_id_e164         (explicit override)
   //   2. campaign.phone_number_id        (number pinned to the campaign)
   //   3. geo-routing on the destination  (org-owned number that matches toE164's
   //      country, falling back to org default, then any active number)
-  let fromE164: string | null = (campaign as any).caller_id_e164 ?? null;
+  let fromE164: string | null = campaign.caller_id_e164 ?? null;
   if (!fromE164 && campaign.phone_number_id) {
     const { data: pn } = await sb
       .from("phone_numbers")
       .select("e164")
       .eq("id", campaign.phone_number_id)
       .single();
-    fromE164 = (pn?.e164 as string) ?? null;
+    fromE164 = (pn as { e164?: string } | null)?.e164 ?? null;
   }
-  if (!fromE164 && toE164 && (campaign as any).org_id) {
-    fromE164 = await pickFromNumberForOrg(
-      sb,
-      (campaign as any).org_id as string,
-      toE164,
-    );
+  if (!fromE164 && toE164 && campaign.org_id) {
+    fromE164 = await pickFromNumberForOrg(sb, campaign.org_id, toE164);
   }
   if (!fromE164 || !toE164) {
     dlog("error", ctx, `missing from/to (from=${fromE164}, to=${toE164})`);
