@@ -552,6 +552,43 @@ n8n_tools.py
 
 ---
 
+## Sécurité
+
+Axon applique plusieurs couches de défense :
+
+- **RLS sur toutes les tables Postgres** — chaque table est scopée par
+  `org_id` via `is_member_of(org)` (cf. `0006_v2_multitenant.sql`). Le
+  client navigateur passe par la clé anon et ne voit jamais d'autres
+  organisations ; les routes API utilisent la service-role uniquement
+  côté serveur.
+- **HMAC sur les webhooks** — `/api/twilio/*` valide la signature
+  `X-Twilio-Signature` ; les webhooks inbound n8n sont signés par
+  secret partagé scoped à l'organisation.
+- **Cookies signés HttpOnly** — sessions Supabase + cookie
+  `axon.org_id` réglés en `Secure`/`SameSite=Lax`. Aucun token n'est
+  exposé à `document.cookie`.
+- **Rate-limits par route** — fixed-window in-memory (`lib/rate-limit.ts`)
+  sur `/api/token`, `/api/desk/token`, `/api/desk/dial`, `/api/chat`,
+  `/api/copilot/chat`, `/api/voices/preview`, `/api/calls/*/transfer`,
+  `/api/calls/*/handoff`, `/api/calls/*/supervision/token`. Réglable via
+  les variables `*_RATE_LIMIT_PER_MINUTE`.
+- **Security headers globaux** — `X-Frame-Options: DENY`,
+  `X-Content-Type-Options: nosniff`,
+  `Referrer-Policy: strict-origin-when-cross-origin`,
+  `Permissions-Policy: camera=(), geolocation=(), microphone=(self)`,
+  injectés depuis `web/next.config.mjs`.
+- **Content-Security-Policy** — `default-src 'self'` avec une
+  `connect-src` limitée aux origines Supabase, LiveKit, Twilio,
+  OpenAI, MiniMax et Deepgram. Toute nouvelle destination tierce
+  doit être ajoutée explicitement.
+- **Endpoint RGPD** — `POST /api/admin/gdpr/erase` (UI :
+  `/admin/gdpr`) supprime un contact, anonymise un utilisateur
+  (email scramble + memberships purgées) ou efface une organisation
+  en cascade (super-admin uniquement). Chaque action est journalisée
+  dans `copilot_actions` (audit log).
+
+---
+
 ## Roadmap
 
 Done in this repo:
