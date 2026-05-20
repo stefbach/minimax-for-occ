@@ -1,15 +1,9 @@
 import { NextResponse } from "next/server";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
+import { requestOrgId } from "@/lib/request-org";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const DEFAULT_ORG = "00000000-0000-0000-0000-000000000001";
-
-function orgFrom(req: Request): string {
-  const { searchParams } = new URL(req.url);
-  return searchParams.get("org_id") ?? DEFAULT_ORG;
-}
 
 /**
  * GET /api/numbers/health?status=&country=
@@ -27,7 +21,7 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const status = url.searchParams.get("status"); // active|low_volume|dormant|never_used
   const country = url.searchParams.get("country"); // FR, US, ...
-  const orgId = orgFrom(req);
+  const orgId = await requestOrgId(req);
 
   const sb = supabaseServer();
   let query = sb

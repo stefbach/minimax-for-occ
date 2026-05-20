@@ -1,17 +1,21 @@
-import { supabaseSession } from "./supabase-auth";
+import { cookies } from "next/headers";
+import { ORG_COOKIE, supabaseSession } from "./supabase-auth";
 import { supabaseServer } from "./supabase";
-
-const LEGACY_ORG = "00000000-0000-0000-0000-000000000001";
+import { LEGACY_ORG_ID } from "./constants";
 
 /**
  * Resolve the org_id a request should operate on.
  *
  * Priority order:
- *   1. Caller-provided `?org_id=` on the request URL — only honored if the
- *      authenticated user has a membership in that org (or is super_admin).
- *   2. The user's primary membership (first by created_at).
- *   3. Fallback to the historical Legacy org (kept for backward compat with
- *      v1 routes that haven't been migrated yet).
+ *   1. The current-org cookie (set by /api/orgs/switch), iff the user has a
+ *      membership in that org or is super_admin.
+ *   2. Caller-provided `?org_id=` on the request URL — only honored when the
+ *      authenticated user is super_admin. For everyone else the query param
+ *      is now IGNORED and a warning is logged (cross-tenant read protection,
+ *      sprint 6).
+ *   3. The user's primary membership (first by created_at).
+ *   4. Fallback to the historical Legacy org (kept for backward compat with
+ *      unauthenticated callers — webhooks, server jobs, first deploy).
  *
  * Designed for Route Handlers — pass the `Request` to inspect the URL.
  */
@@ -25,7 +29,7 @@ export async function requestOrgId(req: Request): Promise<string> {
 
   if (!user) {
     // Unauthenticated → legacy fallback (server-side jobs / first deploy).
-    return wanted ?? LEGACY_ORG;
+    return wanted ?? LEGACY_ORG_ID;
   }
 
   // Look up the user's memberships. We use the user-scoped client so RLS is
@@ -38,18 +42,38 @@ export async function requestOrgId(req: Request): Promise<string> {
   const rows = (memberships ?? []) as Array<{ org_id: string; role: string }>;
   const isSuper = rows.some((m) => m.role === "super_admin");
 
-  if (wanted) {
-    if (isSuper) return wanted;
-    if (rows.some((m) => m.org_id === wanted)) return wanted;
-    // Asked for an org the user doesn't belong to — fall through to their primary.
+  // Cookie wins for the regular tenant-switching flow.
+  const store = await cookies();
+  const cookieOrg = store.get(ORG_COOKIE)?.value || null;
+  if (cookieOrg && (isSuper || rows.some((m) => m.org_id === cookieOrg))) {
+    if (wanted && wanted !== cookieOrg && !isSuper) {
+      console.warn(
+        "[requestOrgId] ?org_id= ignored for non-super user",
+        { userId: user.id, requestedOrg: wanted, cookieOrg },
+      );
+    }
+    return cookieOrg;
   }
 
-  return rows[0]?.org_id ?? LEGACY_ORG;
+  // Query param impersonation: only super_admin may force a different org.
+  if (wanted) {
+    if (isSuper) return wanted;
+    console.warn(
+      "[requestOrgId] ?org_id= ignored for non-super user (no cookie)",
+      { userId: user.id, requestedOrg: wanted },
+    );
+  }
+
+  return rows[0]?.org_id ?? LEGACY_ORG_ID;
 }
 
 /**
  * Same as requestOrgId but also returns whether the user is super_admin and
  * the resolved role for the chosen org (for finer-grained gating).
+ *
+ * Note: this is the *legacy* RequestContext shape (snake_case, lenient — does
+ * not throw on missing user). For new code prefer `requireContext` from
+ * `./request-context` which throws 401/403 cleanly.
  */
 export async function requestContext(req: Request): Promise<{
   org_id: string;
@@ -65,7 +89,12 @@ export async function requestContext(req: Request): Promise<{
   const wanted = url.searchParams.get("org_id");
 
   if (!user) {
-    return { org_id: wanted ?? LEGACY_ORG, user_id: null, role: null, is_super_admin: false };
+    return {
+      org_id: wanted ?? LEGACY_ORG_ID,
+      user_id: null,
+      role: null,
+      is_super_admin: false,
+    };
   }
 
   const { data: memberships } = await sb
@@ -75,11 +104,22 @@ export async function requestContext(req: Request): Promise<{
   const rows = (memberships ?? []) as Array<{ org_id: string; role: string }>;
   const isSuper = rows.some((m) => m.role === "super_admin");
 
+  const store = await cookies();
+  const cookieOrg = store.get(ORG_COOKIE)?.value || null;
+
   let orgId: string;
-  if (wanted && (isSuper || rows.some((m) => m.org_id === wanted))) {
+  if (cookieOrg && (isSuper || rows.some((m) => m.org_id === cookieOrg))) {
+    orgId = cookieOrg;
+  } else if (wanted && isSuper) {
     orgId = wanted;
   } else {
-    orgId = rows[0]?.org_id ?? LEGACY_ORG;
+    if (wanted && !isSuper) {
+      console.warn(
+        "[requestContext] ?org_id= ignored for non-super user",
+        { userId: user.id, requestedOrg: wanted },
+      );
+    }
+    orgId = rows[0]?.org_id ?? LEGACY_ORG_ID;
   }
 
   const role = rows.find((m) => m.org_id === orgId)?.role ?? null;

@@ -4,7 +4,7 @@ import {
   dispositionBucket,
   eachDay,
   isoDay,
-  orgFrom,
+  orgFromAsync,
   parseRange,
 } from "@/lib/analytics";
 
@@ -96,7 +96,7 @@ function emptyPayload(from: Date, to: Date): Empty {
 
 export async function GET(req: Request) {
   const { from, to } = parseRange(req);
-  const org_id = orgFrom(req);
+  const org_id = await orgFromAsync(req);
 
   if (!hasSupabase()) {
     return NextResponse.json(emptyPayload(from, to));

@@ -1,5 +1,5 @@
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
-import { csvRow, orgFrom, parseRange } from "@/lib/analytics";
+import { csvRow, orgFromAsync, parseRange } from "@/lib/analytics";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,7 +22,7 @@ export async function GET(req: Request) {
   const format = (searchParams.get("format") ?? "csv").toLowerCase();
   const entity = (searchParams.get("entity") ?? "calls") as Entity;
   const { from, to } = parseRange(req);
-  const org_id = orgFrom(req);
+  const org_id = await orgFromAsync(req);
 
   if (format !== "csv") {
     return new Response("only csv supported", { status: 400 });
