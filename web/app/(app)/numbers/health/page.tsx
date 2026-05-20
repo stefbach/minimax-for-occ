@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { hasSupabase, supabaseServer } from "@/lib/supabase";
 import { HelpButton } from "@/components/help/HelpButton";
+import { ReleaseButton } from "@/components/numbers/ReleaseButton";
 
 export const dynamic = "force-dynamic";
 
@@ -249,13 +250,7 @@ export default async function NumbersHealthPage() {
                     )}
                   </td>
                   <td>
-                    <Link
-                      href="/numbers"
-                      className="button"
-                      style={{ textDecoration: "none", padding: "4px 9px", fontSize: 12 }}
-                    >
-                      Suggérer release
-                    </Link>
+                    <ReleaseButton id={r.id} e164={r.e164} />
                   </td>
                 </tr>
               ))}

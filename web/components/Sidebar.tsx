@@ -121,6 +121,8 @@ export function Sidebar() {
                 key={n.href}
                 href={n.href}
                 className={`nav-link ${active ? "active" : ""}`}
+                aria-label={n.label}
+                aria-current={active ? "page" : undefined}
               >
                 <span aria-hidden="true" style={{ width: 16, opacity: 0.7 }}>{n.icon}</span>
                 <span>{n.label}</span>

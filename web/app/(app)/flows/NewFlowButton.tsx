@@ -2,9 +2,11 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { useToast } from "@/lib/use-toast";
 
 export function NewFlowButton() {
   const router = useRouter();
+  const toast = useToast();
   const [busy, setBusy] = useState(false);
 
   async function onClick() {
@@ -19,7 +21,7 @@ export function NewFlowButton() {
       });
       if (!res.ok) {
         const err = (await res.json().catch(() => ({}))) as { error?: string };
-        alert("Erreur : " + (err.error ?? res.statusText));
+        toast.error("Erreur : " + (err.error ?? res.statusText));
         return;
       }
       const flow = (await res.json()) as { id: string };

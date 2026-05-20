@@ -20,6 +20,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import { useCallback, useMemo, useRef, useState, type DragEvent } from "react";
 import { useRouter } from "next/navigation";
+import { useToast } from "@/lib/use-toast";
 
 export type StepKind =
   | "welcome"
@@ -183,6 +184,7 @@ const nodeTypes = { step: StepNode };
 // ─── Inner editor ──────────────────────────────────────────────────────
 function InnerEditor({ flow }: { flow: FlowFull }) {
   const router = useRouter();
+  const toast = useToast();
   const reactFlow = useReactFlow();
   const wrapperRef = useRef<HTMLDivElement | null>(null);
 
@@ -450,13 +452,16 @@ function InnerEditor({ flow }: { flow: FlowFull }) {
       dbEdgeIds.current = new Set(edges.map((e) => newEdgeRemap[e.id] ?? e.id));
 
       setSavedAt(new Date());
+      toast.success("Flow enregistré.");
       router.refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(msg);
+      toast.error(`Enregistrement échoué : ${msg}`);
     } finally {
       setSaving(false);
     }
-  }, [edges, flow.id, nodes, router, selectedNodeId, setEdges, setNodes, startStepId]);
+  }, [edges, flow.id, nodes, router, selectedNodeId, setEdges, setNodes, startStepId, toast]);
 
   return (
     <div

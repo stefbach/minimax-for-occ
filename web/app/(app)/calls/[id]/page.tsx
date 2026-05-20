@@ -336,7 +336,7 @@ export default function CallDetailPage() {
 
       {isLive && (
         <div className="card" style={{ marginBottom: 18 }}>
-          <h3>Supervision</h3>
+          <h2 style={{ margin: 0, fontSize: 18 }}>Supervision</h2>
           <p className="muted" style={{ marginTop: 0 }}>
             Rejoignez la salle pour écouter, souffler à l&apos;agent, ou intervenir.
           </p>
@@ -433,7 +433,7 @@ export default function CallDetailPage() {
 
       <div className="card" style={{ marginTop: 18 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <h3 style={{ margin: 0 }}>Résumé LLM</h3>
+          <h2 style={{ margin: 0, fontSize: 18 }}>Résumé LLM</h2>
           <div style={{ display: "flex", gap: 8 }}>
             <button className="ghost" onClick={generateSummary} disabled={summaryBusy}>
               {summaryBusy ? "Génération…" : call.summary ? "Régénérer" : "Générer le résumé"}
@@ -461,7 +461,7 @@ export default function CallDetailPage() {
       </div>
 
       <div className="card" style={{ marginTop: 18 }}>
-        <h3 style={{ marginTop: 0 }}>Analyses LLM ({analyses.length})</h3>
+        <h2 style={{ marginTop: 0, fontSize: 18 }}>Analyses LLM ({analyses.length})</h2>
         {analyses.length === 0 ? (
           <p className="muted" style={{ margin: 0 }}>
             Aucune analyse pour cet appel. Configurez des policies puis cliquez « Lancer les analyses ».
@@ -490,7 +490,7 @@ export default function CallDetailPage() {
       </div>
 
       <div className="card" style={{ marginTop: 18 }}>
-        <h3 style={{ marginTop: 0 }}>Alertes générées ({alerts.length})</h3>
+        <h2 style={{ marginTop: 0, fontSize: 18 }}>Alertes générées ({alerts.length})</h2>
         {alerts.length === 0 ? (
           <p className="muted" style={{ margin: 0 }}>Aucune alerte.</p>
         ) : (

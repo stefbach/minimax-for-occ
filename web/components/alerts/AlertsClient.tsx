@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 import { HelpButton } from "@/components/help/HelpButton";
+import { useToast } from "@/lib/use-toast";
+import { SkeletonRows } from "@/components/ui/Skeleton";
 
 type Alert = {
   id: string;
@@ -32,6 +34,7 @@ function sevColor(s: string): string {
 }
 
 export function AlertsClient() {
+  const toast = useToast();
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [showAcked, setShowAcked] = useState(false);
   const [severity, setSeverity] = useState<string>("");
@@ -81,32 +84,35 @@ export function AlertsClient() {
   const ackOne = useCallback(
     async (id: string) => {
       try {
-        await fetch(`/api/alerts/${id}`, {
+        const r = await fetch(`/api/alerts/${id}`, {
           method: "PATCH",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ acked: true }),
         });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
         await refresh();
-      } catch {
-        /* ignore */
+      } catch (e) {
+        toast.error(`Ack échoué : ${e instanceof Error ? e.message : String(e)}`);
       }
     },
-    [refresh],
+    [refresh, toast],
   );
 
   const ackAll = useCallback(async () => {
     if (!confirm("Ack toutes les alertes non lues ?")) return;
     try {
-      await fetch("/api/alerts", {
+      const r = await fetch("/api/alerts", {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ all_unacked: true }),
       });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      toast.success("Alertes marquées comme lues.");
       await refresh();
-    } catch {
-      /* ignore */
+    } catch (e) {
+      toast.error(`Ack échoué : ${e instanceof Error ? e.message : String(e)}`);
     }
-  }, [refresh]);
+  }, [refresh, toast]);
 
   const counts = useMemo(() => {
     const c = { critical: 0, warn: 0, info: 0 };
@@ -145,6 +151,9 @@ export function AlertsClient() {
       </div>
 
       <div className="card" style={{ marginTop: 18 }}>
+        <h2 style={{ margin: "0 0 12px", fontSize: 16 }}>
+          {showAcked ? "Alertes acknowledged" : "Alertes actives"}
+        </h2>
         <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 12 }}>
           <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
             <input
@@ -163,11 +172,31 @@ export function AlertsClient() {
         </div>
 
         {error && <p style={{ color: "var(--bad)" }}>{error}</p>}
-        {loading && <p className="muted">Chargement…</p>}
+        {loading && <SkeletonRows count={5} />}
         {!loading && alerts.length === 0 && (
-          <p className="muted" style={{ margin: 0 }}>
-            Aucune alerte {showAcked ? "ack'ée" : "active"}.
-          </p>
+          <div style={{ display: "grid", gap: 10, padding: "8px 2px" }}>
+            <p className="muted" style={{ margin: 0 }}>
+              Aucune alerte {showAcked ? "ack'ée" : "active"}.
+            </p>
+            {!showAcked && (
+              <>
+                <div className="muted" style={{ fontSize: 13, lineHeight: 1.5 }}>
+                  Les alertes apparaissent automatiquement quand une analyse LLM
+                  post-appel détecte un signal (insulte, plainte, opportunité…).
+                  Vous n&apos;avez encore aucune politique configurée ?
+                </div>
+                <div>
+                  <Link
+                    href="/analyses"
+                    className="button"
+                    style={{ textDecoration: "none", display: "inline-block" }}
+                  >
+                    Configurer une politique d&apos;analyse
+                  </Link>
+                </div>
+              </>
+            )}
+          </div>
         )}
         {alerts.length > 0 && (
           <table className="list">
