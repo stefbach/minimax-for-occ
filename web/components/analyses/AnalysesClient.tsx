@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { HelpButton } from "@/components/help/HelpButton";
+import { useToast } from "@/lib/use-toast";
 
 type Policy = {
   id: string;
@@ -39,6 +40,7 @@ function emptyPolicy(): Partial<Policy> {
 }
 
 export function AnalysesClient() {
+  const toast = useToast();
   const [list, setList] = useState<Policy[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -108,12 +110,15 @@ export function AnalysesClient() {
       }
       await refresh();
       setEditing(null);
+      toast.success("Policy enregistrée.");
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(msg);
+      toast.error(`Enregistrement échoué : ${msg}`);
     } finally {
       setSaving(false);
     }
-  }, [editing, schemaText, refresh]);
+  }, [editing, schemaText, refresh, toast]);
 
   const remove = useCallback(
     async (id: string) => {
@@ -262,9 +267,19 @@ export function AnalysesClient() {
         {loading ? (
           <p className="muted">Chargement…</p>
         ) : sorted.length === 0 ? (
-          <p className="muted" style={{ margin: 0 }}>
-            Aucune policy pour l&apos;instant.
-          </p>
+          <div style={{ display: "grid", gap: 12, padding: "8px 2px" }}>
+            <p className="muted" style={{ margin: 0 }}>
+              Aucune policy pour l&apos;instant.
+            </p>
+            <div className="muted" style={{ fontSize: 13, lineHeight: 1.5, maxWidth: 560 }}>
+              Une policy associe un <em>prompt LLM</em> à un <em>schéma JSON</em> :
+              à chaque appel terminé, le LLM remplit le schéma. Les valeurs servent
+              ensuite aux alertes, à l&apos;analytics et au scoring.
+            </div>
+            <div>
+              <button onClick={startNew}>+ Créer une politique</button>
+            </div>
+          </div>
         ) : (
           <table className="list">
             <thead>

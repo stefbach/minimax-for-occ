@@ -11,6 +11,7 @@ import { supabaseBrowser } from "@/lib/supabase-browser";
 import { TransferModal } from "./TransferModal";
 import { ContactPanel } from "./ContactPanel";
 import { ScriptPanel } from "./ScriptPanel";
+import { useToast } from "@/lib/use-toast";
 
 type PresenceStatus = "offline" | "available" | "busy" | "away";
 
@@ -69,6 +70,7 @@ function formatRelative(ts: string): string {
 }
 
 export function Softphone() {
+  const toast = useToast();
   const [bootstrapping, setBootstrapping] = useState(true);
   const [handle, setHandle] = useState<Handle | null>(null);
   const [registering, setRegistering] = useState(false);
@@ -294,12 +296,15 @@ export function Softphone() {
       const data = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(data.error ?? `HTTP ${r.status}`);
       setOnHold(Boolean(data.on_hold));
+      toast.success(data.on_hold ? "Appel mis en attente." : "Appel repris.");
     } catch (e) {
-      setHoldError(e instanceof Error ? e.message : String(e));
+      const msg = e instanceof Error ? e.message : String(e);
+      setHoldError(msg);
+      toast.error(`Hold : ${msg}`);
     } finally {
       setHoldBusy(false);
     }
-  }, [activeCall, onHold]);
+  }, [activeCall, onHold, toast]);
 
   // Reset hold state whenever the active call changes / ends.
   useEffect(() => {
@@ -314,11 +319,15 @@ export function Softphone() {
 
   if (!handle) {
     return (
-      <div className="card" style={{ maxWidth: 520 }}>
-        <h3>Activer mon poste</h3>
+      <div className="card" style={{ maxWidth: 560 }}>
+        <h3>Votre poste n&apos;est pas encore configuré</h3>
         <p className="muted" style={{ marginTop: 6 }}>
-          Aucun handle « agent humain » n&apos;est associé à votre compte. Activez votre
-          poste pour recevoir des appels routés par les files d&apos;attente.
+          Pour recevoir et émettre des appels, un <em>agent_handle</em> (poste agent)
+          doit être lié à votre compte.
+        </p>
+        <p className="muted" style={{ marginTop: 4 }}>
+          Vous pouvez l&apos;activer vous-même ci-dessous, ou demander à un
+          administrateur d&apos;aller dans <strong>Admin → Utilisateurs → vous → « Activer le poste agent »</strong>.
         </p>
         {bootstrapError && (
           <div style={{ color: "var(--bad)", fontSize: 13, marginTop: 8 }}>

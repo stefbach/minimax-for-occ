@@ -158,8 +158,10 @@ export function QueuesClient({ initial, handles }: { initial: QueueRow[]; handle
                         style={{ padding: "4px 8px", marginRight: 8 }}
                         onClick={() => setExpanded(expanded === q.id ? null : q.id)}
                         title="Voir / éditer les membres"
+                        aria-label={expanded === q.id ? `Réduire la file ${q.name}` : `Voir les membres de ${q.name}`}
+                        aria-expanded={expanded === q.id}
                       >
-                        {expanded === q.id ? "▾" : "▸"}
+                        <span aria-hidden="true">{expanded === q.id ? "▾" : "▸"}</span>
                       </button>
                       <strong>{q.name}</strong>
                       {q.description && <div style={{ color: "var(--muted)", fontSize: 12 }}>{q.description}</div>}

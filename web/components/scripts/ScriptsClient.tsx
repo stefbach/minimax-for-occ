@@ -138,7 +138,28 @@ export function ScriptsClient() {
         {loading ? (
           <p className="muted">Chargement…</p>
         ) : scripts.length === 0 ? (
-          <p className="muted">Aucun script pour le moment.</p>
+          <div style={{ display: "grid", gap: 10 }}>
+            <p className="muted" style={{ margin: 0 }}>
+              Aucun script pour le moment.
+            </p>
+            <div className="muted" style={{ fontSize: 12, lineHeight: 1.5 }}>
+              Un script définit la trame conversationnelle pour vos agents
+              (qualification, closing, SAV…). Remplissez le formulaire ci-dessus
+              pour créer votre premier script.
+            </div>
+            <div>
+              <button
+                onClick={() => {
+                  const el = document.querySelector<HTMLInputElement>(
+                    "input[placeholder^=\"Ex: Qualification\"]",
+                  );
+                  el?.focus();
+                }}
+              >
+                + Créer un script
+              </button>
+            </div>
+          </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {scripts.map((s) => (

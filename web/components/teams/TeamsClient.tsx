@@ -165,7 +165,25 @@ export function TeamsClient({ initial, agents }: { initial: TeamRow[]; agents: A
 
       <div className="card" style={{ padding: 0, overflow: "hidden" }}>
         {teams.length === 0 ? (
-          <div style={{ padding: 16, color: "var(--muted)" }}>Aucune team pour l&apos;instant.</div>
+          <div style={{ padding: 20, display: "grid", gap: 10 }}>
+            <div style={{ color: "var(--muted)" }}>Aucune team pour l&apos;instant.</div>
+            <div className="muted" style={{ fontSize: 12, lineHeight: 1.5, maxWidth: 560 }}>
+              Une <em>team</em> est un groupe d&apos;agents IA orchestrés par un agent lead.
+              Le lead route les conversations vers le bon spécialiste via le tool
+              <code> transfer_to_specialist</code>. Utilisez le formulaire ci-dessus
+              pour créer votre première team.
+            </div>
+            <div>
+              <button
+                onClick={() => {
+                  const el = document.querySelector<HTMLInputElement>("input[placeholder^=\"Concierge digital\"]");
+                  el?.focus();
+                }}
+              >
+                + Créer une team
+              </button>
+            </div>
+          </div>
         ) : (
           <table className="list">
             <thead>
@@ -190,8 +208,10 @@ export function TeamsClient({ initial, agents }: { initial: TeamRow[]; agents: A
                           style={{ padding: "4px 8px", marginRight: 8 }}
                           onClick={() => setExpanded(expanded === t.id ? null : t.id)}
                           title="Voir / éditer les membres"
+                          aria-label={expanded === t.id ? `Réduire la team ${t.name}` : `Voir les membres de ${t.name}`}
+                          aria-expanded={expanded === t.id}
                         >
-                          {expanded === t.id ? "▾" : "▸"}
+                          <span aria-hidden="true">{expanded === t.id ? "▾" : "▸"}</span>
                         </button>
                         <strong>{t.name}</strong>
                       </td>
@@ -301,7 +321,12 @@ export function TeamsClient({ initial, agents }: { initial: TeamRow[]; agents: A
                                   onChange={(e) => setDraftField(t.id, "priority", Number(e.target.value) || 1)}
                                 />
                               </div>
-                              <button type="button" onClick={() => addMember(t.id)} disabled={!d.agent_id}>
+                              <button
+                                type="button"
+                                onClick={() => addMember(t.id)}
+                                disabled={!d.agent_id}
+                                title={!d.agent_id ? "Sélectionnez d'abord un agent" : "Ajouter ce spécialiste à la team"}
+                              >
                                 + Ajouter
                               </button>
                             </div>

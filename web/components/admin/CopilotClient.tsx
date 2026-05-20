@@ -3,6 +3,8 @@
 import { useEffect, useState, useCallback } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
+import { useToast } from "@/lib/use-toast";
+import { SkeletonRows } from "@/components/ui/Skeleton";
 
 interface ActionRow {
   id: string;
@@ -60,10 +62,12 @@ function StatusBadge({ s }: { s: ActionRow["status"] }) {
 }
 
 export function CopilotClient() {
+  const toast = useToast();
   const [input, setInput] = useState("");
   const [actions, setActions] = useState<ActionRow[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [actionsErr, setActionsErr] = useState<string | null>(null);
+  const [auditLoading, setAuditLoading] = useState(true);
 
   const { messages, sendMessage, status, error } = useChat({
     transport: new DefaultChatTransport({ api: "/api/copilot/chat" }),
@@ -81,6 +85,8 @@ export function CopilotClient() {
       setActionsErr(null);
     } catch (e) {
       setActionsErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAuditLoading(false);
     }
   }, []);
 
@@ -96,7 +102,9 @@ export function CopilotClient() {
       const r = await fetch(`/api/copilot/actions/${id}/confirm`, { method: "POST" });
       if (!r.ok) {
         const j = (await r.json().catch(() => ({}))) as { error?: string };
-        alert(`Échec : ${j.error ?? r.statusText}`);
+        toast.error(`Échec : ${j.error ?? r.statusText}`);
+      } else {
+        toast.success("Action confirmée.");
       }
       await refreshActions();
     } finally {
@@ -332,7 +340,11 @@ export function CopilotClient() {
           Audit log
         </div>
         {actionsErr && <div style={{ color: "#ff8080", marginBottom: 8 }}>{actionsErr}</div>}
-        {actions.length === 0 && <div style={{ color: "var(--muted)" }}>Aucune action.</div>}
+        {auditLoading && actions.length === 0 ? (
+          <SkeletonRows count={4} />
+        ) : (
+          actions.length === 0 && <div style={{ color: "var(--muted)" }}>Aucune action.</div>
+        )}
         {actions.map((a) => (
           <div
             key={a.id}
