@@ -32,6 +32,7 @@ const NAV: NavItem[] = [
 
   // ── Builder ──
   { href: "/agents",    label: "Agents IA",         icon: "◇", group: "Builder", roles: ["super_admin","admin","manager"] },
+  { href: "/agents/library", label: "Bibliothèque persona", icon: "⊕", group: "Builder", roles: ["super_admin","admin","manager"] },
   { href: "/teams",     label: "Teams IA",          icon: "⌬", group: "Builder", roles: ["super_admin","admin","manager"] },
   { href: "/scripts",   label: "Scripts",           icon: "✎", group: "Builder", roles: ["super_admin","admin","manager"] },
   { href: "/voices",    label: "Voice Studio",      icon: "♪", group: "Builder", roles: ["super_admin","admin","manager"] },

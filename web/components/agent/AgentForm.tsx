@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { Agent, AgentInput, LlmProvider, Voice } from "@/lib/types";
 import { PromptEditor } from "@/components/agents/PromptEditor";
+import { parsePersona, serializePersona } from "@/lib/personas/parser";
 
 const PROVIDER_MODELS: Record<LlmProvider, string[]> = {
   openai: ["gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini", "o4-mini"],
@@ -20,6 +21,16 @@ const TTS_MODELS = [
   { id: "speech-01-turbo", label: "speech-01-turbo (rapide, économique)" },
   { id: "speech-01", label: "speech-01 (legacy)" },
 ];
+
+function slugify(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60) || "agent";
+}
 
 const LANGUAGES = [
   { id: "multi", label: "Multilingue (FR/EN)" },
@@ -66,6 +77,61 @@ export function AgentForm({ initial }: { initial?: Agent }) {
       if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
     };
   }, []);
+
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  function onImportMd(file: File) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = String(reader.result ?? "");
+      try {
+        const { frontmatter, body } = parsePersona(text);
+        if (typeof frontmatter.title === "string") setName(frontmatter.title);
+        if (typeof frontmatter.language === "string") setLanguage(frontmatter.language);
+        if (typeof frontmatter.llm_model === "string") {
+          const m = frontmatter.llm_model;
+          // try to infer provider from model name
+          const lower = m.toLowerCase();
+          if (lower.startsWith("claude")) setProvider("anthropic");
+          else if (lower.startsWith("minimax")) setProvider("minimax");
+          else setProvider("openai");
+          setModel(m);
+        }
+        if (body) setSystemPrompt(body);
+        // voice_suggestion is informational only — we don't auto-set voice_id
+        // because the persona hint format (gender_style_age) differs from the
+        // MiniMax voice_id format.
+        setError(null);
+      } catch {
+        setError("Impossible de parser le fichier .md");
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  function onExportMd() {
+    const slug = slugify(name || "agent");
+    const md = serializePersona({
+      frontmatter: {
+        slug,
+        title: name,
+        language,
+        llm_model: model,
+        voice_suggestion: voice || undefined,
+        tags: [language, provider].filter(Boolean) as string[],
+      },
+      body: systemPrompt || "",
+    });
+    const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${slug}.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -158,6 +224,40 @@ export function AgentForm({ initial }: { initial?: Agent }) {
 
   return (
     <form onSubmit={onSubmit} style={{ display: "grid", gap: 18 }}>
+      <div className="card" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "space-between" }}>
+        <div style={{ fontSize: 13, color: "var(--muted)" }}>
+          Importez un persona <span className="kbd">.md</span> pour remplir ce formulaire, ou exportez la configuration actuelle.
+        </div>
+        <div style={{ display: "flex", gap: 6 }}>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".md,text/markdown"
+            style={{ display: "none" }}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) onImportMd(f);
+              e.currentTarget.value = "";
+            }}
+          />
+          <button
+            type="button"
+            className="ghost"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            ⬆ Importer .md
+          </button>
+          <button type="button" className="ghost" onClick={onExportMd}>
+            ⬇ Exporter .md
+          </button>
+          <Link href="/agents/library">
+            <button type="button" className="ghost">
+              ⊕ Bibliothèque
+            </button>
+          </Link>
+        </div>
+      </div>
+
       <div className="card" style={{ display: "grid", gap: 14 }}>
         <h3 style={{ margin: 0 }}>Identité</h3>
         <div className="form-row">
