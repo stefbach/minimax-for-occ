@@ -2,7 +2,11 @@
  * Shared helpers for the /api/analytics/* routes.
  */
 
-export const DEFAULT_ORG = "00000000-0000-0000-0000-000000000001";
+import { LEGACY_ORG_ID } from "./constants";
+import { requestOrgId } from "./request-org";
+
+/** @deprecated import `LEGACY_ORG_ID` from `@/lib/constants` instead. */
+export const DEFAULT_ORG = LEGACY_ORG_ID;
 
 export type Range = { from: Date; to: Date };
 
@@ -27,6 +31,18 @@ export function parseRange(req: Request): Range {
   return { from, to };
 }
 
+/**
+ * @deprecated use `requestOrgId` from `@/lib/request-org` (or `requireContext`
+ * for routes that should reject unauthenticated callers). Kept as a thin
+ * wrapper so existing analytics routes keep compiling — it now defers to
+ * `requestOrgId`, which validates the query param against the user's
+ * memberships instead of trusting it blindly.
+ */
+export function orgFromAsync(req: Request): Promise<string> {
+  return requestOrgId(req);
+}
+
+/** @deprecated synchronous variant kept for legacy callers. */
 export function orgFrom(req: Request): string {
   const { searchParams } = new URL(req.url);
   return searchParams.get("org_id") ?? DEFAULT_ORG;

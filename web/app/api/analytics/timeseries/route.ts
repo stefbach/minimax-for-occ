@@ -6,7 +6,7 @@ import {
   eachHour,
   isoDay,
   isoHour,
-  orgFrom,
+  orgFromAsync,
   parseRange,
 } from "@/lib/analytics";
 
@@ -28,7 +28,7 @@ export async function GET(req: Request) {
   const metric = (searchParams.get("metric") ?? "volume") as Metric;
   const granularity = (searchParams.get("granularity") ?? "day") as Granularity;
   const { from, to } = parseRange(req);
-  const org_id = orgFrom(req);
+  const org_id = await orgFromAsync(req);
 
   // Build bucket list upfront so empty periods still render.
   const buckets =

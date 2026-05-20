@@ -5,6 +5,7 @@ import {
   secondsToBillableMinutes,
   estimateCostCents,
 } from "@/lib/billing";
+import { LEGACY_ORG_ID } from "@/lib/constants";
 import { validateTwilioSignature } from "@/lib/twilio-signature";
 
 export const runtime = "nodejs";
@@ -113,7 +114,7 @@ export async function POST(req: Request) {
     }
     if (!org_id) {
       // Fallback to the legacy org so the row is always insertable.
-      org_id = "00000000-0000-0000-0000-000000000001";
+      org_id = LEGACY_ORG_ID;
     }
     const insertRow: Record<string, unknown> = {
       org_id,

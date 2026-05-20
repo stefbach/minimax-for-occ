@@ -1,21 +1,15 @@
 import { NextResponse } from "next/server";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { ingestTargets } from "@/lib/campaign-targets";
+import { requestOrgId } from "@/lib/request-org";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const DEFAULT_ORG = "00000000-0000-0000-0000-000000000001";
-
-function orgFrom(req: Request): string {
-  const { searchParams } = new URL(req.url);
-  return searchParams.get("org_id") ?? DEFAULT_ORG;
-}
-
 export async function GET(req: Request) {
   if (!hasSupabase()) return NextResponse.json([]);
   const sb = supabaseServer();
-  const org_id = orgFrom(req);
+  const org_id = await requestOrgId(req);
 
   const { data: campaigns, error } = await sb
     .from("campaigns")
@@ -91,7 +85,9 @@ export async function POST(req: Request) {
   if (!body.agent_handle_id) {
     return NextResponse.json({ error: "agent_handle_id requis" }, { status: 400 });
   }
-  const org_id = body.org_id ?? DEFAULT_ORG;
+  // org_id always derived from session; body.org_id is silently ignored to
+  // prevent cross-tenant writes (sprint 6).
+  const org_id = await requestOrgId(req);
 
   const sb = supabaseServer();
   const { data: campaign, error } = await sb

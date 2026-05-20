@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase";
 import { downloadTwilioRecording, uploadRecording } from "@/lib/storage";
+import { LEGACY_ORG_ID } from "@/lib/constants";
 import { validateTwilioSignature } from "@/lib/twilio-signature";
 
 export const runtime = "nodejs";
@@ -60,7 +61,7 @@ export async function POST(req: Request) {
     const { data: inserted, error: insErr } = await sb
       .from("calls")
       .insert({
-        org_id: "00000000-0000-0000-0000-000000000001",
+        org_id: LEGACY_ORG_ID,
         direction: "out",
         state: "ended",
         twilio_call_sid: CallSid,

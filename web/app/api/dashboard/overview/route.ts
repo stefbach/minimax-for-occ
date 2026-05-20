@@ -1,10 +1,9 @@
 import { NextResponse } from "next/server";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
+import { requestOrgId } from "@/lib/request-org";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const DEFAULT_ORG = "00000000-0000-0000-0000-000000000001";
 
 export type DashboardKpis = {
   calls_count: number;
@@ -217,8 +216,7 @@ export async function GET(req: Request) {
       { status: 503 },
     );
   }
-  const url = new URL(req.url);
-  const orgId = url.searchParams.get("org_id") || DEFAULT_ORG;
+  const orgId = await requestOrgId(req);
 
   try {
     const todayStart = startOfTodayUTC();

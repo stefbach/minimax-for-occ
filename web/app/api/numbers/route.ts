@@ -14,24 +14,19 @@ import {
   publicAppUrl,
   tryConfigureWebhooks,
 } from "@/lib/twilio-config";
+import { requestOrgId } from "@/lib/request-org";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const DEFAULT_ORG = "00000000-0000-0000-0000-000000000001";
-
-function orgFrom(req: Request): string {
-  const { searchParams } = new URL(req.url);
-  return searchParams.get("org_id") ?? DEFAULT_ORG;
-}
-
 export async function GET(req: Request) {
   if (!hasSupabase()) return NextResponse.json([]);
+  const orgId = await requestOrgId(req);
   const sb = supabaseServer();
   const { data, error } = await sb
     .from("phone_numbers")
     .select("*")
-    .eq("org_id", orgFrom(req))
+    .eq("org_id", orgId)
     .order("created_at", { ascending: false })
     .limit(500);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -61,6 +56,9 @@ export async function POST(req: Request) {
   if (!body?.phone_number) {
     return NextResponse.json({ error: "phone_number requis" }, { status: 400 });
   }
+  // org_id is always derived from the session; body.org_id is silently
+  // ignored (super_admins can still target a tenant via ?org_id=).
+  const orgId = await requestOrgId(req);
 
   const origin = new URL(req.url).origin;
   const webhookUrl = defaultWebhookUrl(origin);
@@ -109,7 +107,7 @@ export async function POST(req: Request) {
   const { data, error } = await sb
     .from("phone_numbers")
     .insert({
-      org_id: body.org_id ?? DEFAULT_ORG,
+      org_id: orgId,
       e164: purchased.phoneNumber,
       label: body.label ?? purchased.friendlyName ?? null,
       provider: "twilio",
