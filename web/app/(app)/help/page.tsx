@@ -169,7 +169,7 @@ export default async function HelpPage() {
           </h1>
           <p
             style={{
-              margin: "0 0 24px",
+              margin: "0 0 16px",
               color: "var(--muted, #8b93a7)",
               fontSize: 15,
             }}
@@ -178,6 +178,32 @@ export default async function HelpPage() {
             quotidien. Cliquez sur une section dans le sommaire pour y aller
             directement.
           </p>
+          <div
+            style={{
+              display: "flex",
+              gap: 8,
+              flexWrap: "wrap",
+              marginBottom: 24,
+            }}
+          >
+            <a
+              href="/help/how-it-works"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "8px 14px",
+                border: "1px solid var(--border, #2a2f3a)",
+                borderRadius: 6,
+                color: "var(--accent-2, #6aa0ff)",
+                textDecoration: "none",
+                fontSize: 13,
+                background: "rgba(106,160,255,0.06)",
+              }}
+            >
+              Comment ça marche (sous le capot) →
+            </a>
+          </div>
         </section>
 
         <section id="registry" style={{ scrollMarginTop: 16 }}>

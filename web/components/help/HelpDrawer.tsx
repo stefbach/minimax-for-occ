@@ -163,6 +163,24 @@ export function HelpDrawer({
             >
               📖 Ouvrir le guide complet
             </a>
+            <a
+              href="/help/how-it-works"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
+                padding: "8px 14px",
+                border: "1px solid var(--border, #2a2f3a)",
+                borderRadius: 6,
+                color: "var(--accent-2, #6aa0ff)",
+                textDecoration: "none",
+                fontSize: 13,
+                background: "transparent",
+              }}
+            >
+              🛠️ Comment ça marche ?
+            </a>
             {role && (
               <p
                 style={{
