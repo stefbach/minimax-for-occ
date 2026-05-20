@@ -61,6 +61,29 @@ export async function POST(req: Request) {
   // Resolve the From number via geo-routing (admin client bypasses RLS so
   // the lookup sees every number owned by the org).
   const admin = supabaseServer();
+
+  // DNC enforcement — reject any destination that the org has flagged.
+  {
+    const { data: dnc } = await admin
+      .from("dnc_lists")
+      .select("id, reason")
+      .eq("org_id", handle.org_id)
+      .eq("e164", to)
+      .maybeSingle();
+    if (dnc) {
+      return NextResponse.json(
+        {
+          error:
+            "Ce numéro figure sur la liste DNC (Do Not Call) de votre organisation. " +
+            "Appel bloqué pour conformité TCPA." +
+            (dnc.reason ? ` Motif : ${dnc.reason}` : ""),
+          code: "dnc_blocked",
+        },
+        { status: 403 },
+      );
+    }
+  }
+
   let from: string;
   try {
     const picked = await pickFromNumber(admin, handle.org_id, to);

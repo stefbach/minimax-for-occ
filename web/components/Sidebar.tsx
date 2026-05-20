@@ -51,6 +51,7 @@ const NAV: NavItem[] = [
   { href: "/admin/copilot",  label: "Copilote Super Admin", icon: "✦", group: "Admin", roles: ["super_admin"] },
   { href: "/admin/inbound",  label: "Connecteurs entrants", icon: "⇩", group: "Admin", roles: ["super_admin","admin"] },
   { href: "/admin/billing",  label: "Facturation",          icon: "€", group: "Admin", roles: ["super_admin","admin"] },
+  { href: "/admin/compliance", label: "Conformité (DNC)",   icon: "⊘", group: "Admin", roles: ["super_admin","admin","manager"] },
   { href: "/settings",       label: "Paramètres",           icon: "⚙", group: "Admin", roles: ["super_admin","admin","manager"] },
 
   // ── Help (accessible to everyone) ──

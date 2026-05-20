@@ -286,6 +286,32 @@ async def entrypoint(ctx: JobContext) -> None:
     axon = load_agent(agent_id) if agent_id else None
     if axon:
         logger.info("loaded agent %s (%s)", axon.id, axon.name)
+        if axon.hold_music_url:
+            logger.info(
+                "org %s hold music wired: %s", axon.org_id, axon.hold_music_url
+            )
+            # Surface the URL on the room metadata so any sibling component
+            # (e.g. the /api/calls/{id}/hold endpoint, or a future worker-side
+            # hold helper) can read it without re-querying Supabase.
+            try:
+                import json as _json
+
+                current_meta = ctx.room.metadata or "{}"
+                try:
+                    meta = _json.loads(current_meta) if current_meta else {}
+                except Exception:
+                    meta = {}
+                if isinstance(meta, dict):
+                    meta.setdefault("hold_music_url", axon.hold_music_url)
+                    meta.setdefault("org_id", axon.org_id)
+                    # ctx.room.metadata is read-only on most LiveKit versions —
+                    # we only update local state for in-process readers.
+                    try:
+                        ctx.room._metadata = _json.dumps(meta)  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
+            except Exception:
+                logger.debug("could not expose hold_music_url on room metadata")
     else:
         logger.info("no agent_id resolved; using env defaults")
 

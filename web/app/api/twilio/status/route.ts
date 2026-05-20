@@ -98,6 +98,13 @@ export async function POST(req: Request) {
   if (Direction) metadataPatch.direction_twilio = Direction;
   baseUpdate.metadata = metadataPatch;
 
+  // AMD auto-disposition: derive `calls.disposition` from Twilio's AnsweredBy
+  // detection (human / machine_start / machine_end_* / fax / unknown).
+  const amdDisposition = dispositionFromAmd(AnsweredBy, CallStatus);
+  if (amdDisposition) {
+    baseUpdate.disposition = amdDisposition;
+  }
+
   let callId: string | null = existing?.id ?? null;
 
   if (!existing) {
@@ -207,6 +214,39 @@ export async function POST(req: Request) {
   return new NextResponse("", { status: 200 });
 }
 
+/**
+ * Map Twilio AnsweredBy → our `calls.disposition` enum.
+ *   human                 → "answered"
+ *   machine_start | machine_end_* → "voicemail"
+ *   fax                   → "failed"
+ *   unknown | null        → null (let other signals decide)
+ *
+ * We only set a disposition when we have a meaningful AnsweredBy AND the
+ * call status is at a terminal-ish point (otherwise we'd overwrite during
+ * the in-progress phase before AMD completes).
+ */
+function dispositionFromAmd(
+  answeredBy: string | null,
+  callStatus: string | null,
+): string | null {
+  if (!answeredBy) return null;
+  const ab = answeredBy.toLowerCase();
+  if (ab === "human") return "answered";
+  if (ab.startsWith("machine_")) return "voicemail";
+  if (ab === "fax") return "failed";
+  // 'unknown' — leave existing disposition alone, unless the call obviously
+  // failed at the carrier layer.
+  if (
+    callStatus === "failed" ||
+    callStatus === "busy" ||
+    callStatus === "no-answer" ||
+    callStatus === "canceled"
+  ) {
+    return "failed";
+  }
+  return null;
+}
+
 function mapCallState(s: string | null): string {
   switch (s) {
     case "queued":
@@ -296,10 +336,14 @@ async function updateCampaignTarget(opts: {
   let nextAttemptAt: string | null = null;
 
   if (opts.CallStatus === "completed") {
-    if (opts.AnsweredBy === "machine_start") {
+    const ab = opts.AnsweredBy?.toLowerCase() ?? "";
+    if (ab === "machine_start" || ab.startsWith("machine_end_")) {
+      // AMD reached voicemail — count as no-answer for retry semantics.
       nextStatus = "no_answer";
+    } else if (ab === "fax") {
+      nextStatus = "failed";
     } else {
-      // 'human', unset, or machine_end_* (we already left a beep message)
+      // 'human', 'unknown', or unset → consider the contact reached.
       nextStatus = "done";
     }
   } else if (opts.CallStatus === "busy") {

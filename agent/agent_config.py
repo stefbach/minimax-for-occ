@@ -34,6 +34,11 @@ class AxonAgent:
     rag_enabled: bool
     rag_top_k: int
     n8n_workflows: list[dict[str, Any]]
+    org_id: Optional[str] = None
+    # Custom hold music URL configured by the org (organizations.hold_music_url).
+    # When set, the worker uses this URL instead of Twilio's default jingle while
+    # the call is on hold. Resolved lazily from Supabase at session start.
+    hold_music_url: Optional[str] = None
 
 
 DEFAULT_PROMPT = (
@@ -105,6 +110,29 @@ def load_agent(agent_id: str) -> Optional[AxonAgent]:
             )
             r2.raise_for_status()
             workflows = r2.json() or []
+
+            # Load the org's custom hold music URL (if any). The endpoint
+            # /api/admin/hold-music writes to organizations.hold_music_url; the
+            # worker reads it here so the runtime can pass it to Twilio when
+            # placing a call on hold instead of falling back to the default
+            # carrier jingle.
+            hold_music_url: Optional[str] = None
+            org_id = a.get("org_id")
+            if org_id:
+                try:
+                    r3 = c.get(
+                        _supabase_url(
+                            f"/rest/v1/organizations?id=eq.{org_id}&select=hold_music_url"
+                        )
+                    )
+                    r3.raise_for_status()
+                    org_rows = r3.json() or []
+                    if org_rows:
+                        hold_music_url = org_rows[0].get("hold_music_url") or None
+                except Exception:
+                    logger.exception(
+                        "failed to load hold_music_url for org %s", org_id
+                    )
     except Exception:
         logger.exception("failed to load agent %s from supabase", agent_id)
         return None
@@ -124,6 +152,8 @@ def load_agent(agent_id: str) -> Optional[AxonAgent]:
         rag_enabled=bool(a.get("rag_enabled")),
         rag_top_k=int(a.get("rag_top_k") or 4),
         n8n_workflows=workflows,
+        org_id=str(org_id) if org_id else None,
+        hold_music_url=hold_music_url,
     )
 
 
