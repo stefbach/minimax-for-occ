@@ -163,6 +163,35 @@ export async function dialTarget(job: DialJob): Promise<void> {
     return;
   }
 
+  // DNC enforcement — abort before bumping attempts so we don't burn through
+  // retry budget on a phone number that legally must not be dialed.
+  if (toE164 && (campaign as any).org_id) {
+    const { data: dnc } = await sb
+      .from("dnc_lists")
+      .select("id, reason")
+      .eq("org_id", (campaign as any).org_id as string)
+      .eq("e164", toE164)
+      .maybeSingle();
+    if (dnc) {
+      console.warn(
+        `[dial] target=${target.id} blocked by DNC list (reason=${dnc.reason ?? "—"})`,
+      );
+      await sb
+        .from("campaign_targets")
+        .update({
+          status: "failed",
+          last_attempt_at: new Date().toISOString(),
+          next_attempt_at: null,
+          payload: {
+            last_error: "dnc_blocked",
+            dnc_reason: dnc.reason ?? null,
+          },
+        })
+        .eq("id", target.id);
+      return;
+    }
+  }
+
   // Optimistic update: mark dialing + bump attempts.
   const { error: uErr } = await sb
     .from("campaign_targets")

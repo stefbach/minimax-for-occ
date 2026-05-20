@@ -348,6 +348,9 @@ export default function CallDetailPage() {
             <button className="ghost" onClick={() => void startSupervision("barge")}>
               Intervenir
             </button>
+            <Link className="ghost" href={`/calls/${id}/supervise`} style={{ marginLeft: "auto" }}>
+              Superviser (vue dédiée) →
+            </Link>
           </div>
         </div>
       )}

@@ -308,6 +308,27 @@ async def entrypoint(ctx: JobContext) -> None:
     axon = load_agent(agent_id) if agent_id else None
     if axon:
         clog.info("loaded agent %s (%s)", axon.id, axon.name)
+        if axon.hold_music_url:
+            clog.info(
+                "org %s hold music wired: %s", axon.org_id, axon.hold_music_url
+            )
+            try:
+                import json as _json
+
+                current_meta = ctx.room.metadata or "{}"
+                try:
+                    meta = _json.loads(current_meta) if current_meta else {}
+                except Exception:
+                    meta = {}
+                if isinstance(meta, dict):
+                    meta.setdefault("hold_music_url", axon.hold_music_url)
+                    meta.setdefault("org_id", axon.org_id)
+                    try:
+                        ctx.room._metadata = _json.dumps(meta)  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
+            except Exception:
+                clog.debug("could not expose hold_music_url on room metadata")
     else:
         clog.info("no agent_id resolved; using env defaults")
 

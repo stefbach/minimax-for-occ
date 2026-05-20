@@ -37,6 +37,8 @@ export function AlertsClient() {
   const [severity, setSeverity] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [orgId, setOrgId] = useState<string | null>(null);
+  const [liveConnected, setLiveConnected] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -51,32 +53,39 @@ export function AlertsClient() {
       }
       const data = (await r.json()) as Alert[];
       setAlerts(data);
+      // Capture the org_id from the first row so we can scope the realtime
+      // subscription to this org (we never receive cross-org rows here, but
+      // an org-scoped filter avoids spurious websocket traffic).
+      if (!orgId && data.length > 0 && data[0].org_id) {
+        setOrgId(data[0].org_id);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
-  }, [showAcked, severity]);
+  }, [showAcked, severity, orgId]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
-  // Realtime subscription on alerts.
+  // Realtime subscription on alerts, scoped to the current org when known.
   useEffect(() => {
     const sb = supabaseBrowser();
+    const channelName = orgId ? `alerts-${orgId}` : "alerts-stream";
+    const filter = orgId ? { event: "INSERT" as const, schema: "public", table: "alerts", filter: `org_id=eq.${orgId}` } : { event: "*" as const, schema: "public", table: "alerts" };
     const channel = sb
-      .channel("alerts-stream")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "alerts" },
-        () => void refresh(),
-      )
-      .subscribe();
+      .channel(channelName)
+      .on("postgres_changes", filter, () => void refresh())
+      .subscribe((status: string) => {
+        setLiveConnected(status === "SUBSCRIBED");
+      });
     return () => {
+      setLiveConnected(false);
       void sb.removeChannel(channel);
     };
-  }, [refresh]);
+  }, [orgId, refresh]);
 
   const ackOne = useCallback(
     async (id: string) => {
@@ -120,7 +129,19 @@ export function AlertsClient() {
     <div>
       <div className="page-header">
         <div>
-          <h1>Alertes</h1>
+          <h1 style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            Alertes
+            <span
+              className="tag"
+              title={liveConnected ? "Connecté au flux temps réel" : "Reconnexion…"}
+              style={{
+                fontSize: 11,
+                color: liveConnected ? "var(--good, #16a34a)" : "var(--muted)",
+              }}
+            >
+              {liveConnected ? "🟢 Live" : "⚪ Hors-ligne"}
+            </span>
+          </h1>
           <div className="subtitle">
             Alertes générées en temps réel depuis les analyses LLM post-appel.
           </div>

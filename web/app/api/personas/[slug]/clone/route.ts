@@ -15,12 +15,14 @@ type CloneBody = {
 /**
  * POST /api/personas/[slug]/clone
  *
- * Clones a persona from the library into the current org as a new agent.
+ * Clones a persona from the library (`/personas/<industry>/<slug>.md`) into
+ * the current org as a fresh `agents` row. The persona markdown is parsed
+ * into YAML frontmatter + body; the body becomes the agent's system prompt.
  *
- * Body (all optional):
- *   { name?: string, voice_id?: string, llm_model?: string }
+ * Request body (all optional):
+ *   { name?: string, voice_id?: string|null, llm_model?: string|null }
  *
- * Returns the freshly created agent row.
+ * Returns: { id, name, url }
  */
 export async function POST(
   req: Request,
@@ -43,12 +45,16 @@ export async function POST(
   const sb = supabaseServer();
 
   const fm = persona.frontmatter;
-  const name = body.name?.trim() || persona.title;
+  const name =
+    body.name?.trim() ||
+    (typeof fm.title === "string" && fm.title) ||
+    persona.title;
   const language = typeof fm.language === "string" ? fm.language : "multi";
   const llmModel =
     body.llm_model ||
     (typeof fm.llm_model === "string" ? fm.llm_model : "gpt-4o-mini");
   const voiceId = body.voice_id ?? null;
+  const llmProvider = inferProvider(llmModel);
 
   const { data, error } = await sb
     .from("agents")
@@ -57,7 +63,7 @@ export async function POST(
       name,
       description: persona.description,
       language,
-      llm_provider: inferProvider(llmModel),
+      llm_provider: llmProvider,
       llm_model: llmModel,
       tts_voice_id: voiceId,
       tts_emotion: null,
@@ -68,22 +74,27 @@ export async function POST(
       rag_enabled: false,
       rag_top_k: 4,
       metadata: {
-        persona_source: persona.slug,
+        persona_source: {
+          slug: persona.slug,
+          frontmatter: fm,
+        },
         persona_industry: persona.industry,
-        persona_tags: persona.tags,
-        persona_voice_suggestion: persona.voice_suggestion,
-        persona_handoff_team: persona.handoff_team_suggested,
-        persona_n8n_bindings_suggested: persona.n8n_bindings_suggested,
-        persona_max_call_duration_secs: persona.max_call_duration_secs,
       },
     })
-    .select()
+    .select("id, name")
     .single();
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
-  return NextResponse.json(data, { status: 201 });
+  return NextResponse.json(
+    {
+      id: data.id,
+      name: data.name,
+      url: `/agents/${data.id}`,
+    },
+    { status: 201 }
+  );
 }
 
 function inferProvider(model: string): "openai" | "anthropic" | "minimax" {
