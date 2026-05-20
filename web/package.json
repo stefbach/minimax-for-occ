@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "sync-utils": "node scripts/sync-dialer-utils.js",
+    "sync-utils:check": "node scripts/sync-dialer-utils.js --check"
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.0",
