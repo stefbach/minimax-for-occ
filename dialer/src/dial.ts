@@ -7,6 +7,27 @@ export interface DialJob {
   campaign_id: string;
 }
 
+// ─── Per-call structured logging ─────────────────────────────────────────
+//
+// Every log line is prefixed with `[call_id=… target=… campaign=…]` so we can
+// trace a single outbound dial across the dialer worker, the Twilio
+// callback, and the LiveKit agent (which uses the matching call_id from
+// room metadata).
+type LogCtx = { call_id?: string; target_id?: string; campaign_id?: string };
+function prefix(ctx: LogCtx): string {
+  const parts: string[] = [];
+  if (ctx.call_id) parts.push(`call_id=${ctx.call_id}`);
+  if (ctx.target_id) parts.push(`target=${ctx.target_id}`);
+  if (ctx.campaign_id) parts.push(`campaign=${ctx.campaign_id}`);
+  return parts.length > 0 ? `[${parts.join(" ")}]` : "[dial]";
+}
+function dlog(level: "info" | "warn" | "error", ctx: LogCtx, msg: string): void {
+  const line = `${prefix(ctx)} ${msg}`;
+  if (level === "error") console.error(line);
+  else if (level === "warn") console.warn(line);
+  else console.log(line);
+}
+
 // ─── Geo-routing (mirrors web/lib/geo-routing.ts) ─────────────────────────
 //
 // The dialer runs out-of-process so it cannot import from web/. We replicate
@@ -101,6 +122,7 @@ async function pickFromNumberForOrg(
  */
 export async function dialTarget(job: DialJob): Promise<void> {
   const sb = supabase();
+  const ctx: LogCtx = { target_id: job.target_id, campaign_id: job.campaign_id };
 
   const { data: target, error: tErr } = await sb
     .from("campaign_targets")
@@ -110,11 +132,11 @@ export async function dialTarget(job: DialJob): Promise<void> {
     .eq("id", job.target_id)
     .single();
   if (tErr || !target) {
-    console.error(`[dial] target ${job.target_id} not found:`, tErr?.message);
+    dlog("error", ctx, `target not found: ${tErr?.message ?? "unknown"}`);
     return;
   }
   if (target.status !== "pending") {
-    console.log(`[dial] target ${job.target_id} status=${target.status}, skipping`);
+    dlog("info", ctx, `target status=${target.status}, skipping`);
     return;
   }
 
@@ -126,11 +148,11 @@ export async function dialTarget(job: DialJob): Promise<void> {
     .eq("id", job.campaign_id)
     .single();
   if (cErr || !campaign) {
-    console.error(`[dial] campaign ${job.campaign_id} not found`);
+    dlog("error", ctx, "campaign not found");
     return;
   }
   if (campaign.state !== "running") {
-    console.log(`[dial] campaign ${campaign.id} not running, skipping`);
+    dlog("info", ctx, `campaign state=${campaign.state}, skipping`);
     return;
   }
 
@@ -158,7 +180,7 @@ export async function dialTarget(job: DialJob): Promise<void> {
     );
   }
   if (!fromE164 || !toE164) {
-    console.error(`[dial] missing from/to (from=${fromE164}, to=${toE164})`);
+    dlog("error", ctx, `missing from/to (from=${fromE164}, to=${toE164})`);
     await sb
       .from("campaign_targets")
       .update({ status: "failed", last_attempt_at: new Date().toISOString() })
@@ -178,7 +200,7 @@ export async function dialTarget(job: DialJob): Promise<void> {
     .eq("id", target.id)
     .eq("status", "pending"); // optimistic lock
   if (uErr) {
-    console.error(`[dial] failed to mark dialing:`, uErr.message);
+    dlog("error", ctx, `failed to mark dialing: ${uErr.message}`);
     return;
   }
 
@@ -211,11 +233,13 @@ export async function dialTarget(job: DialJob): Promise<void> {
         },
       })
       .eq("id", target.id);
-    console.log(`[dial] target=${target.id} sid=${call.sid} status=${call.status}`);
+    // Annotate the call_id once we have the Twilio SID for cross-system tracing.
+    const callCtx: LogCtx = { ...ctx, call_id: call.sid };
+    dlog("info", callCtx, `dialed sid=${call.sid} status=${call.status}`);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     const isTwilio = err instanceof TwilioError;
-    console.error(`[dial] Twilio error target=${target.id}:`, msg);
+    dlog("error", ctx, `Twilio error: ${msg}`);
 
     // Failed before connecting — schedule a retry if we still have attempts.
     const attemptsNow = (target.attempts ?? 0) + 1;

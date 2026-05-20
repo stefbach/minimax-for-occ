@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase";
 import { downloadTwilioRecording, uploadRecording } from "@/lib/storage";
+import { log } from "@/lib/log";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -69,10 +70,9 @@ export async function POST(req: Request) {
       .select("id, org_id")
       .single();
     if (insErr || !inserted) {
-      console.error(
-        "[twilio/recording] failed to create call row:",
-        insErr?.message,
-      );
+      log.error(`twilio/recording failed to create call row: ${insErr?.message ?? "unknown"}`, {
+        call: CallSid,
+      });
       return new NextResponse("", { status: 200 });
     }
     call = inserted as { id: string; org_id: string };
@@ -104,7 +104,7 @@ export async function POST(req: Request) {
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error("[twilio/recording] save failed:", msg);
+    log.error(`twilio/recording save failed: ${msg}`, { call: call.id });
     await sb.from("call_events").insert({
       call_id: call.id,
       kind: "recording_save_failed",

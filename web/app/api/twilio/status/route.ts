@@ -5,6 +5,7 @@ import {
   secondsToBillableMinutes,
   estimateCostCents,
 } from "@/lib/billing";
+import { log } from "@/lib/log";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -128,7 +129,7 @@ export async function POST(req: Request) {
       .select("id")
       .single();
     if (insErr) {
-      console.error("[twilio/status] insert calls failed:", insErr.message);
+      log.error(`twilio/status insert calls failed: ${insErr.message}`, { call: CallSid });
     } else {
       callId = inserted?.id as string;
     }
@@ -138,7 +139,7 @@ export async function POST(req: Request) {
       .update(baseUpdate)
       .eq("id", existing.id);
     if (upErr) {
-      console.error("[twilio/status] update calls failed:", upErr.message);
+      log.error(`twilio/status update calls failed: ${upErr.message}`, { call: existing.id });
     }
   }
 
@@ -336,9 +337,9 @@ async function updateCampaignTarget(opts: {
     .update(update)
     .eq("id", opts.target_id);
   if (error) {
-    console.error(
-      "[twilio/status] update campaign_targets failed:",
-      error.message,
-    );
+    log.error(`twilio/status update campaign_targets failed: ${error.message}`, {
+      call: opts.call_id ?? null,
+      target: opts.target_id,
+    });
   }
 }
