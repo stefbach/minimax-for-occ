@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { verifyOrgCookie } from "@/lib/org-cookie";
 
 /** Name of the HttpOnly cookie used to remember the currently-selected org
  *  across requests. Set by POST /api/orgs/switch (and the super_admin
@@ -83,7 +84,9 @@ export async function currentMembership(): Promise<{
 export async function currentOrgFromCookie(): Promise<string | null> {
   const store = await cookies();
   const c = store.get(ORG_COOKIE);
-  return c?.value || null;
+  // Verify the signature + freshness of the cookie. verifyOrgCookie also
+  // accepts the legacy unsigned UUID form for backwards compatibility.
+  return verifyOrgCookie(c?.value);
 }
 
 /**

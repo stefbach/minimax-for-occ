@@ -2,9 +2,12 @@ import { NextResponse } from "next/server";
 import { supabaseSession } from "@/lib/supabase-auth";
 import { supabaseServer } from "@/lib/supabase";
 import { NoPhoneNumberError, pickFromNumber } from "@/lib/geo-routing";
+import { rateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const DIAL_RATE_LIMIT = Number(process.env.DIAL_RATE_LIMIT_PER_MINUTE ?? 30);
 
 /**
  * POST /api/desk/dial   { to_e164: string }
@@ -45,6 +48,18 @@ export async function POST(req: Request) {
   const sb = await supabaseSession();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
+  // Per-user rate limit (each call costs a Twilio originate).
+  const rl = rateLimit(`desk-dial:user:${user.id}`, DIAL_RATE_LIMIT);
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "rate_limited" },
+      {
+        status: 429,
+        headers: { "retry-after": Math.ceil((rl.resetAt - Date.now()) / 1000).toString() },
+      },
+    );
+  }
 
   const { data: handle, error: handleErr } = await sb
     .from("agent_handles")

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase";
 import { downloadTwilioRecording, uploadRecording } from "@/lib/storage";
 import { LEGACY_ORG_ID } from "@/lib/constants";
+import { validateTwilioSignature } from "@/lib/twilio-signature";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,15 +26,13 @@ export const dynamic = "force-dynamic";
  * Twilio expects 200 with an empty body.
  */
 export async function POST(req: Request) {
-  let form: FormData | null = null;
-  try {
-    form = await req.formData();
-  } catch {
-    return new NextResponse("", { status: 200 });
+  const rawBody = await req.text().catch(() => "");
+  const params = new URLSearchParams(rawBody);
+  if (!validateTwilioSignature(req, params)) {
+    return new NextResponse("invalid twilio signature", { status: 403 });
   }
-  if (!form) return new NextResponse("", { status: 200 });
 
-  const get = (k: string) => form!.get(k)?.toString() ?? null;
+  const get = (k: string) => params.get(k);
   const CallSid = get("CallSid");
   const RecordingSid = get("RecordingSid");
   const RecordingUrl = get("RecordingUrl");

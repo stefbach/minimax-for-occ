@@ -6,6 +6,7 @@ import {
   estimateCostCents,
 } from "@/lib/billing";
 import { LEGACY_ORG_ID } from "@/lib/constants";
+import { validateTwilioSignature } from "@/lib/twilio-signature";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,19 +26,18 @@ export const dynamic = "force-dynamic";
  * Twilio expects a 200 with empty body — payload content is ignored.
  */
 export async function POST(req: Request) {
-  let form: FormData | null = null;
-  try {
-    form = await req.formData();
-  } catch {
-    return new NextResponse("", { status: 200 });
+  // Read the raw body once so we can both validate the Twilio signature and
+  // parse it as form-encoded data below.
+  const rawBody = await req.text().catch(() => "");
+  const params = new URLSearchParams(rawBody);
+  if (!validateTwilioSignature(req, params)) {
+    return new NextResponse("invalid twilio signature", { status: 403 });
   }
-  if (!form) return new NextResponse("", { status: 200 });
-
   const url = new URL(req.url);
   const campaign_id = url.searchParams.get("campaign_id");
   const target_id = url.searchParams.get("target_id");
 
-  const get = (k: string) => form!.get(k)?.toString() ?? null;
+  const get = (k: string) => params.get(k);
 
   const CallSid = get("CallSid");
   const CallStatus = get("CallStatus"); // initiated|ringing|in-progress|answered|completed|busy|no-answer|failed|canceled
@@ -56,8 +56,8 @@ export async function POST(req: Request) {
 
   // Build the raw payload for call_events & metadata.
   const rawPayload: Record<string, string> = {};
-  form.forEach((v, k) => {
-    rawPayload[k] = typeof v === "string" ? v : "";
+  params.forEach((v, k) => {
+    rawPayload[k] = v;
   });
 
   // ── 1. Resolve / upsert the public.calls row by twilio_call_sid ─────────
