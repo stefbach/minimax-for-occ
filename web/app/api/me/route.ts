@@ -27,9 +27,20 @@ export async function GET() {
   }
 
   const orgs = await currentUserOrgs();
+  // Dedupe by org id: a super_admin reading the memberships table sees every
+  // row (RLS on memberships is permissive today, see Sprint 1 follow-up), so
+  // if two users share the same org it would surface that org twice in the
+  // switcher. Keep the first occurrence — that's the current user's own
+  // membership when ordered by created_at ascending.
+  const seenOrgs = new Set<string>();
   const flatOrgs = orgs
     .map((m) => (m.organizations ? { ...m.organizations, role: m.role } : null))
-    .filter((o): o is { id: string; name: string; slug: string; role: string } => o !== null);
+    .filter((o): o is { id: string; name: string; slug: string; role: string } => {
+      if (!o) return false;
+      if (seenOrgs.has(o.id)) return false;
+      seenOrgs.add(o.id);
+      return true;
+    });
 
   let currentOrgId = await currentOrgFromCookie();
   // Fallback: cookie absent or stale — use oldest membership.

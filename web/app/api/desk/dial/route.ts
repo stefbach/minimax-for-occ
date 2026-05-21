@@ -44,7 +44,11 @@ export async function POST(req: Request) {
     );
   }
 
-  // Authenticate the user and find their human agent_handle.
+  // Authenticate the user. We then look up their human agent_handle via the
+  // admin client (service-role): RLS on agent_handles has no policy today,
+  // so the user-scoped session client sees zero rows even for the user's
+  // own row. The user.id from auth.getUser() remains the security anchor —
+  // we only ever match handles owned by that user.
   const sb = await supabaseSession();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
@@ -61,7 +65,8 @@ export async function POST(req: Request) {
     );
   }
 
-  const { data: handle, error: handleErr } = await sb
+  const admin = supabaseServer();
+  const { data: handle, error: handleErr } = await admin
     .from("agent_handles")
     .select("id, org_id, display_name")
     .eq("kind", "human")
@@ -72,10 +77,6 @@ export async function POST(req: Request) {
   if (handleErr || !handle) {
     return NextResponse.json({ error: "no human agent_handle for this user" }, { status: 404 });
   }
-
-  // Resolve the From number via geo-routing (admin client bypasses RLS so
-  // the lookup sees every number owned by the org).
-  const admin = supabaseServer();
 
   // DNC enforcement — reject any destination that the org has flagged.
   {
