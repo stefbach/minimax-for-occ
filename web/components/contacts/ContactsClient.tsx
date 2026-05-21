@@ -88,6 +88,37 @@ export function ContactsClient({ initial }: { initial: Contact[] }) {
     router.push(`/desk?${qs.toString()}`);
   }
 
+  // Bulk Excel import state.
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<{
+    inserted: number;
+    skipped: number;
+    errors: { row: number; reason: string }[];
+  } | null>(null);
+
+  async function onExcelImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-selecting the same file later
+    if (!file) return;
+    setImporting(true);
+    setImportResult(null);
+    setError(null);
+    try {
+      const fd = new FormData();
+      fd.set("file", file);
+      const r = await fetch("/api/contacts/import", { method: "POST", body: fd });
+      const j = await r.json();
+      if (!r.ok) {
+        setError(j.error ?? "Import en échec");
+      } else {
+        setImportResult(j);
+        refresh();
+      }
+    } finally {
+      setImporting(false);
+    }
+  }
+
   return (
     <div style={{ display: "grid", gap: 16 }}>
       <div className="card">
@@ -124,6 +155,72 @@ export function ContactsClient({ initial }: { initial: Contact[] }) {
             </button>
           </div>
         </form>
+      </div>
+
+      {/* Bulk Excel import — for clients who'd rather not type 500 rows. */}
+      <div className="card">
+        <h3 style={{ marginTop: 0 }}>Import en masse (fichier Excel)</h3>
+        <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
+          Pour ajouter beaucoup de contacts d&apos;un coup, télécharge le modèle
+          Excel ci-dessous, remplis-le avec les colonnes exactes
+          (<span className="kbd">phone</span>, <span className="kbd">name</span>,{" "}
+          <span className="kbd">email</span>, <span className="kbd">tags</span>,{" "}
+          <span className="kbd">notes</span>), puis re-uploade-le. Les numéros
+          déjà connus sont mis à jour, les nouveaux ajoutés.
+        </p>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <a
+            href="/api/contacts/template"
+            className="button ghost"
+            style={{ textDecoration: "none", padding: "8px 12px" }}
+          >
+            📥 Télécharger le modèle Excel
+          </a>
+          <label
+            className="button"
+            style={{
+              padding: "8px 12px",
+              cursor: importing ? "wait" : "pointer",
+              opacity: importing ? 0.6 : 1,
+            }}
+          >
+            {importing ? "Import en cours…" : "📤 Importer un fichier Excel"}
+            <input
+              type="file"
+              accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+              style={{ display: "none" }}
+              onChange={onExcelImport}
+              disabled={importing}
+            />
+          </label>
+        </div>
+        {importResult && (
+          <div className="card" style={{ marginTop: 10, padding: 10, background: "var(--bg-2)" }}>
+            <div style={{ fontSize: 13 }}>
+              ✅ <strong>{importResult.inserted}</strong> contact{importResult.inserted === 1 ? "" : "s"} importé{importResult.inserted === 1 ? "" : "s"}
+              {importResult.skipped > 0 ? (
+                <>, <strong style={{ color: "var(--bad)" }}>{importResult.skipped}</strong> ligne{importResult.skipped === 1 ? "" : "s"} ignorée{importResult.skipped === 1 ? "" : "s"}</>
+              ) : null}
+            </div>
+            {importResult.errors.length > 0 && (
+              <details style={{ marginTop: 6 }}>
+                <summary style={{ cursor: "pointer", fontSize: 13 }}>
+                  Détail des erreurs ({importResult.errors.length})
+                </summary>
+                <ul style={{ marginTop: 6, fontSize: 12, paddingLeft: 18 }}>
+                  {importResult.errors.slice(0, 20).map((e, i) => (
+                    <li key={i}>
+                      {e.row > 0 ? `Ligne ${e.row}: ` : ""}{e.reason}
+                    </li>
+                  ))}
+                  {importResult.errors.length > 20 && (
+                    <li className="muted">… et {importResult.errors.length - 20} autres</li>
+                  )}
+                </ul>
+              </details>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Search bar — filters the contact list as you type. */}
