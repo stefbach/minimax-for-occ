@@ -27,18 +27,40 @@ export async function GET() {
     ["+23059452424", "Jean-Marc Lavoine", "", "mu", "Numéro mauricien"],
   ];
 
-  const wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.aoa_to_sheet([headers, ...examples]);
+  // Build the sheet cell-by-cell so we can pin the `phone` column to a
+  // String type + Text number format ("@"). Otherwise Excel sees a value
+  // starting with "+" and treats it as a formula prefix — strips the "+"
+  // and stores the cell as a number on user edit. The import endpoint
+  // already re-prefixes bare digits with "+", but it's friendlier if the
+  // template itself keeps the "+" visible end-to-end.
+  const allRows = [headers, ...examples];
+  const ws: XLSX.WorkSheet = {};
+  for (let r = 0; r < allRows.length; r++) {
+    for (let c = 0; c < allRows[r].length; c++) {
+      const cellAddr = XLSX.utils.encode_cell({ r, c });
+      const value = allRows[r][c];
+      // Phone data rows = column 0, rows 1+. Force string + text format.
+      const isPhoneData = c === 0 && r > 0;
+      ws[cellAddr] = isPhoneData
+        ? { t: "s", v: value, z: "@" }
+        : { t: "s", v: value };
+    }
+  }
+  ws["!ref"] = XLSX.utils.encode_range({
+    s: { c: 0, r: 0 },
+    e: { c: headers.length - 1, r: allRows.length - 1 },
+  });
 
   // Set column widths so the file looks readable when opened.
   ws["!cols"] = [
-    { wch: 18 }, // phone
+    { wch: 18, z: "@" }, // phone — text format also at the column level
     { wch: 22 }, // name
     { wch: 26 }, // email
     { wch: 18 }, // tags
     { wch: 40 }, // notes
   ];
 
+  const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Contacts");
 
   // Wrap the xlsx bytes in a Blob — that's the BodyInit shape Next.js's
