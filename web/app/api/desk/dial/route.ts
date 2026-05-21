@@ -7,6 +7,10 @@ import { rateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// LiveKit createSipParticipant with waitUntilAnswered=true blocks until the
+// destination picks up or the ringing timeout fires (we set it to 30s). The
+// Vercel function needs enough headroom to outlast it, hence 45s.
+export const maxDuration = 45;
 
 const DIAL_RATE_LIMIT = Number(process.env.DIAL_RATE_LIMIT_PER_MINUTE ?? 30);
 
@@ -174,11 +178,20 @@ export async function POST(req: Request) {
             "axon.agent_handle_id": handle.id,
             "axon.from_e164": from,
           },
+          // Wait synchronously until LiveKit reports the call has been
+          // answered (or failed) before returning. Without this, any
+          // downstream failure (Twilio rejects the INVITE, geo block,
+          // bad creds, …) happens silently in the background and the
+          // dial endpoint returns 201 even though nothing ever rang.
+          // Surfaces the actual SIP error in Vercel logs.
+          waitUntilAnswered: true,
+          // Ring timeout — fail the call if no answer within 30s rather
+          // than letting LiveKit retry indefinitely.
+          ringingTimeout: 30,
           // Caller-ID is chosen by LiveKit from the trunk's `numbers` list
           // (configured to `+447700162160` today). Newer SDK versions expose
           // a per-call override via `sip_number`, but it's not in the type
-          // shipped with livekit-server-sdk@2.15 — drop the SDK upgrade and
-          // we can pass it explicitly here.
+          // shipped with livekit-server-sdk@2.15.
         },
       );
       await admin
