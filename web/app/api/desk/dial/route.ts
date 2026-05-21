@@ -174,9 +174,11 @@ export async function POST(req: Request) {
             "axon.agent_handle_id": handle.id,
             "axon.from_e164": from,
           },
-          // sipNumber tells LiveKit/Twilio which caller-id to present —
-          // matches the geo-routed From number for this destination.
-          sipNumber: from,
+          // Caller-ID is chosen by LiveKit from the trunk's `numbers` list
+          // (configured to `+447700162160` today). Newer SDK versions expose
+          // a per-call override via `sip_number`, but it's not in the type
+          // shipped with livekit-server-sdk@2.15 — drop the SDK upgrade and
+          // we can pass it explicitly here.
         },
       );
       await admin
