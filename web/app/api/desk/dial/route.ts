@@ -165,34 +165,31 @@ export async function POST(req: Request) {
     const sipHost = lkUrl.replace(/^wss:/i, "https:").replace(/^ws:/i, "http:");
     const sip = new SipClient(sipHost, lkApiKey, lkApiSecret);
     try {
+      // Build options as `any` so we can pass `sipNumber` even though it
+      // isn't declared in livekit-server-sdk@2.15's TypeScript types — the
+      // underlying gRPC API does accept it (proto field sip_number) and
+      // without it LiveKit sends an empty/default From on the INVITE, which
+      // Twilio rejects with 403 Forbidden regardless of geo permissions or
+      // attached numbers. Type-cast workaround until we bump the SDK.
+      const sipOptions = {
+        participantIdentity: `pstn-${call.id}`,
+        participantName: to,
+        participantAttributes: {
+          "axon.call_id": call.id,
+          "axon.direction": "out",
+          "axon.agent_handle_id": handle.id,
+          "axon.from_e164": from,
+        },
+        waitUntilAnswered: true,
+        ringingTimeout: 30,
+        sipNumber: from,
+      };
       const participant = await sip.createSipParticipant(
         lkOutboundTrunkId,
         to,
         roomName,
-        {
-          participantIdentity: `pstn-${call.id}`,
-          participantName: to,
-          participantAttributes: {
-            "axon.call_id": call.id,
-            "axon.direction": "out",
-            "axon.agent_handle_id": handle.id,
-            "axon.from_e164": from,
-          },
-          // Wait synchronously until LiveKit reports the call has been
-          // answered (or failed) before returning. Without this, any
-          // downstream failure (Twilio rejects the INVITE, geo block,
-          // bad creds, …) happens silently in the background and the
-          // dial endpoint returns 201 even though nothing ever rang.
-          // Surfaces the actual SIP error in Vercel logs.
-          waitUntilAnswered: true,
-          // Ring timeout — fail the call if no answer within 30s rather
-          // than letting LiveKit retry indefinitely.
-          ringingTimeout: 30,
-          // Caller-ID is chosen by LiveKit from the trunk's `numbers` list
-          // (configured to `+447700162160` today). Newer SDK versions expose
-          // a per-call override via `sip_number`, but it's not in the type
-          // shipped with livekit-server-sdk@2.15.
-        },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        sipOptions as any,
       );
       await admin
         .from("calls")
