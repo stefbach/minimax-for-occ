@@ -120,6 +120,11 @@ export function NumbersClient({
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionNote, setActionNote] = useState<string | null>(null);
 
+  // ─── Import an existing Twilio number ────────────────────────────────────
+  const [importE164, setImportE164] = useState("");
+  const [importLabel, setImportLabel] = useState("");
+  const [importing, setImporting] = useState(false);
+
   // ─── Filters ─────────────────────────────────────────────────────────────
   const [fCountry, setFCountry] = useState<string>("");
   const [fStatus, setFStatus] = useState<StatusFilter>("");
@@ -225,6 +230,41 @@ export function NumbersClient({
         : `Numéro ${phoneNumber} acheté et webhook Twilio configuré automatiquement.`,
     );
     setResults((cur) => (cur ? cur.filter((n) => n.phoneNumber !== phoneNumber) : cur));
+    refresh();
+  }
+
+  async function importExisting(e: React.FormEvent) {
+    e.preventDefault();
+    const e164 = importE164.trim();
+    if (!/^\+\d{6,15}$/.test(e164)) {
+      setActionError("Numéro invalide : format E.164 attendu (ex: +447700162160).");
+      return;
+    }
+    setImporting(true);
+    setActionError(null);
+    setActionNote(null);
+    const r = await fetch("/api/numbers/import", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        phone_number: e164,
+        label: importLabel.trim() || undefined,
+      }),
+    });
+    setImporting(false);
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      setActionError(j.error ?? "Import en échec");
+      return;
+    }
+    const j = await r.json().catch(() => ({} as { webhook_warning?: string }));
+    setActionNote(
+      j?.webhook_warning
+        ? `Numéro ${e164} importé mais webhook non reconfiguré: ${j.webhook_warning}`
+        : `Numéro ${e164} importé et webhook Twilio reconfiguré automatiquement.`,
+    );
+    setImportE164("");
+    setImportLabel("");
     refresh();
   }
 
@@ -419,6 +459,45 @@ export function NumbersClient({
             )}
           </div>
         )}
+      </div>
+
+      {/* ─── Import an existing Twilio number ─── */}
+      <div className="card">
+        <h3 style={{ marginTop: 0 }}>Importer un numéro Twilio existant</h3>
+        <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
+          Pour un numéro déjà acheté sur Twilio (avant Axon, ou ailleurs). Axon
+          vérifie que le numéro appartient bien au compte Twilio relié, puis
+          (re)configure ses webhooks (VoiceUrl + StatusCallback) pour qu&apos;il
+          se comporte comme un numéro acheté via Axon.
+        </p>
+        <form onSubmit={importExisting} style={{ display: "grid", gap: 10 }}>
+          <div className="form-row">
+            <div>
+              <label>Numéro (E.164)</label>
+              <input
+                value={importE164}
+                onChange={(e) => setImportE164(e.target.value)}
+                placeholder="+447700162160"
+                disabled={!twilioReady || importing}
+                required
+              />
+            </div>
+            <div>
+              <label>Label (optionnel)</label>
+              <input
+                value={importLabel}
+                onChange={(e) => setImportLabel(e.target.value)}
+                placeholder="ex: ligne UK principale"
+                disabled={!twilioReady || importing}
+              />
+            </div>
+          </div>
+          <div>
+            <button type="submit" disabled={!twilioReady || importing || !importE164.trim()}>
+              {importing ? "Import…" : "Importer ce numéro"}
+            </button>
+          </div>
+        </form>
       </div>
 
       {actionError && (
