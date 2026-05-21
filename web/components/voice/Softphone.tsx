@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   LiveKitRoom,
   RoomAudioRenderer,
@@ -71,10 +72,14 @@ function formatRelative(ts: string): string {
 
 export function Softphone() {
   const toast = useToast();
+  const searchParams = useSearchParams();
   const [bootstrapping, setBootstrapping] = useState(true);
   const [handle, setHandle] = useState<Handle | null>(null);
   const [registering, setRegistering] = useState(false);
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
+  // Optional display name passed via ?name= for context next to the
+  // outbound call card.
+  const [dialContactName, setDialContactName] = useState<string | null>(null);
 
   const [status, setStatus] = useState<PresenceStatus>("offline");
   const [calls, setCalls] = useState<CallRow[]>([]);
@@ -291,6 +296,24 @@ export function Softphone() {
       twilioCallRef.current = null;
     };
   }, []);
+
+  // Click-to-dial from another page (e.g. /contacts): if the URL carries
+  // ?call=<e164>[&name=…], pre-fill the dial pad and fire the call as soon
+  // as the agent_handle is loaded. autoDialedRef prevents re-dialing on
+  // re-renders / handle refreshes after the first attempt.
+  const autoDialedRef = useRef(false);
+  useEffect(() => {
+    const callParam = searchParams?.get("call");
+    if (!callParam) return;
+    if (!/^\+\d{6,15}$/.test(callParam)) return;
+    setDialNumber(callParam);
+    const nameParam = searchParams?.get("name");
+    if (nameParam) setDialContactName(nameParam);
+    if (handle && !autoDialedRef.current) {
+      autoDialedRef.current = true;
+      void dial();
+    }
+  }, [searchParams, handle, dial]);
 
   const register = useCallback(async () => {
     setRegistering(true);
@@ -584,7 +607,9 @@ export function Softphone() {
                   <div style={{ fontWeight: 600 }}>
                     {twilioCallState === "ringing" ? "📞 Sonne…" : "🔊 En conversation"}
                   </div>
-                  <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>{dialNumber}</div>
+                  <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
+                    {dialContactName ? `${dialContactName} · ${dialNumber}` : dialNumber}
+                  </div>
                 </div>
                 <div style={{ display: "flex", gap: 6 }}>
                   <button
