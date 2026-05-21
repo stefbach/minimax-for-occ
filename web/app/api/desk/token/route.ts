@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { AccessToken } from "livekit-server-sdk";
 import { rateLimit, clientIp } from "@/lib/rate-limit";
 import { supabaseSession } from "@/lib/supabase-auth";
+import { supabaseServer } from "@/lib/supabase";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -45,8 +46,12 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  // Find the human agent_handle for this user.
-  const { data: handle, error: handleErr } = await sb
+  // Find the human agent_handle for this user. Same caveat as /api/desk/dial:
+  // RLS on agent_handles has no policy today, so the user-scoped client sees
+  // zero rows. Use the admin client and gate via user.id from the verified
+  // session.
+  const admin = supabaseServer();
+  const { data: handle, error: handleErr } = await admin
     .from("agent_handles")
     .select("id, org_id, display_name")
     .eq("kind", "human")
