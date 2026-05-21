@@ -99,6 +99,11 @@ label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px
   display: flex;
   flex-direction: column;
   gap: 4px;
+  /* Scroll the sidebar internally when its menu is taller than the viewport.
+     Without this the bottom entries stay cropped on short pages, since the
+     sticky positioning prevents the outer page scroll from revealing them. */
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 @media (max-width: 880px) {
   .sidebar {
