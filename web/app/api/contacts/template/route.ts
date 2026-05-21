@@ -51,9 +51,11 @@ export async function GET() {
     e: { c: headers.length - 1, r: allRows.length - 1 },
   });
 
-  // Set column widths so the file looks readable when opened.
+  // Set column widths so the file looks readable when opened. The
+  // per-cell `z: "@"` set above is what actually pins the text format;
+  // ColInfo doesn't accept a column-level `z` in xlsx's TypeScript types.
   ws["!cols"] = [
-    { wch: 18, z: "@" }, // phone — text format also at the column level
+    { wch: 18 }, // phone
     { wch: 22 }, // name
     { wch: 26 }, // email
     { wch: 18 }, // tags
