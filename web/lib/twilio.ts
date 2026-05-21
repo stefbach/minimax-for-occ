@@ -186,6 +186,23 @@ export async function getIncomingNumber(sid: string): Promise<TwilioIncomingNumb
   }
 }
 
+/**
+ * Look up an IncomingPhoneNumber on the connected Twilio account by E.164.
+ * Returns null when the account doesn't own that number — the caller can
+ * surface a clean "ce numéro n'est pas sur ce compte Twilio" message
+ * instead of a raw 404 stack.
+ */
+export async function findIncomingNumberByE164(
+  e164: string,
+): Promise<TwilioIncomingNumber | null> {
+  const res = await twilioFetch(`/IncomingPhoneNumbers.json`, {
+    query: { PhoneNumber: e164 },
+  });
+  const arr: any[] = res?.incoming_phone_numbers ?? [];
+  if (arr.length === 0) return null;
+  return mapIncoming(arr[0]);
+}
+
 function mapIncoming(n: any): TwilioIncomingNumber {
   return {
     sid: n.sid,
