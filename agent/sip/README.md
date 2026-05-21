@@ -74,47 +74,62 @@ by the dispatch rule before the participant was created.
 
 Two clean ways to close this gap:
 
-### Option A — Refactor `/api/desk/dial` to use LiveKit's outbound SIP API (preferred)
+### Option A — LiveKit outbound SIP API (implemented; activate via env var)
 
-Replace the Twilio REST `Calls.json` originate + TwiML-callback pattern
-with a single call to LiveKit's `SipClient.createSipParticipant`:
+`/api/desk/dial` already supports this path. When the env var
+`LIVEKIT_SIP_OUTBOUND_TRUNK_ID` is set, the endpoint calls
+`SipClient.createSipParticipant` instead of Twilio's REST `Calls.json` —
+LiveKit then dials Twilio (via the configured outbound trunk), Twilio
+dials the PSTN destination, and the answered leg is bridged directly
+into `desk-<handle>` (the room you specify in the API call). The human
+can actually talk through their softphone.
 
-```ts
-import { SipClient } from "livekit-server-sdk";
+Twilio is still the PSTN gateway and bills the minutes — only the
+orchestration changes (Vercel → LiveKit → Twilio, instead of Vercel →
+Twilio → … → LiveKit).
 
-const sip = new SipClient(
-  process.env.LIVEKIT_URL!,
-  process.env.LIVEKIT_API_KEY!,
-  process.env.LIVEKIT_API_SECRET!,
-);
+If `LIVEKIT_SIP_OUTBOUND_TRUNK_ID` is absent, `/desk/dial` falls back to
+the legacy Twilio REST + TwiML path — useful for the "IA calls this
+number" use case where you don't need the human in the loop.
 
-await sip.createSipParticipant(
-  process.env.LIVEKIT_SIP_OUTBOUND_TRUNK_ID!,
-  to_e164,
-  `desk-${handle.id}`,         // ← target room, naturally the human's
-  {
-    participantIdentity: `pstn-${call.id}`,
-    participantName: to_e164,
-    participantAttributes: { call_id: call.id, direction: "out" },
-  },
-);
-```
+#### One-time setup
 
-LiveKit then dials Twilio (via the configured outbound trunk) and bridges
-the answered PSTN leg into the room you specified — the human's existing
-softphone room. No dispatch rule juggling.
+**1. Twilio side** — make your Elastic SIP Trunk accept INVITEs from LiveKit.
 
-Required one-time setup:
+Twilio Console → Elastic SIP Trunking → your trunk → *Termination*:
+- Note the **Termination URI** (something like `your-trunk.pstn.twilio.com`).
+- Under *Authentication*: either whitelist LiveKit's egress IPs (in the
+  trunk's Access Control Lists) or create a Credential List and remember
+  the username/password.
+
+**2. LiveKit side** — create the outbound trunk.
+
+Edit `agent/sip/outbound-trunk.json`:
+- `address` ← the Twilio Termination URI (no `sip:` prefix needed).
+- `auth_username` / `auth_password` ← credentials from step 1 (or remove
+  both fields if you whitelisted IPs).
+- `numbers` ← optional list of caller-id E.164s you want to allow on
+  this trunk. Empty list = LiveKit picks whatever `sipNumber` you pass
+  in `createSipParticipant` (the code already passes the geo-routed
+  From number).
+
 ```bash
-# Configure an outbound trunk on LiveKit pointing at your Twilio Elastic
-# SIP Trunk. Twilio must be set up to accept SIP INVITEs from LiveKit
-# (Origination IP whitelist or trunk credentials).
+lk cloud auth
 lk sip outbound-trunk create outbound-trunk.json
-# -> set LIVEKIT_SIP_OUTBOUND_TRUNK_ID in env (or web/.env.production)
+# -> note the returned trunk_id (starts with ST_)
 ```
 
-This deprecates the Twilio REST + TwiML callback path for `/desk/dial`.
-Inbound calls still go through Twilio → `/api/twilio-voice` → LiveKit SIP.
+**3. Wire it into the app**
+
+Add to `web/.env.production` (or Vercel dashboard):
+```
+LIVEKIT_SIP_OUTBOUND_TRUNK_ID=ST_xxxxxxxxxxxx
+```
+
+Push / redeploy. Open `/settings` — the new `LIVEKIT_SIP_OUTBOUND_TRUNK_ID`
+entry under "LiveKit" should now read **défini**. Click **Appeler** in
+`/desk` → the destination's phone rings → you answer → you actually hear
+each other through the softphone. ✅
 
 ### Option B — Per-agent static dispatch rules
 
