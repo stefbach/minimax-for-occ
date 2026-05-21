@@ -41,7 +41,11 @@ export async function GET() {
 
   XLSX.utils.book_append_sheet(wb, ws, "Contacts");
 
-  const buf = XLSX.write(wb, { bookType: "xlsx", type: "buffer" }) as Buffer;
+  // NextResponse expects BodyInit; XLSX.write with type: "array" already
+  // returns a Uint8Array which satisfies it directly (vs `type: "buffer"`
+  // which returns Node's Buffer and trips TypeScript on Vercel's edge
+  // typings).
+  const buf = XLSX.write(wb, { bookType: "xlsx", type: "array" }) as Uint8Array;
 
   return new NextResponse(buf, {
     status: 200,
