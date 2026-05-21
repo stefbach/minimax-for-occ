@@ -136,8 +136,18 @@ export async function POST(req: Request) {
   if (callErr) return NextResponse.json({ error: callErr.message }, { status: 500 });
 
   // Originate the Twilio call. The TwiML URL bridges the PSTN leg into the
-  // agent's LiveKit room via the SIP trunk.
-  const twimlUrl = `${appUrl.replace(/\/$/, "")}/api/twilio-voice?room=${encodeURIComponent(`desk-${handle.id}`)}&call_id=${call.id}`;
+  // agent's LiveKit room via the SIP trunk. The `room` + `call_id` + `direction`
+  // query params are forwarded by /api/twilio-voice as SIP custom headers
+  // (X-LK-Room, X-LK-Call-Id, X-LK-Direction) so the LiveKit dispatch rule
+  // can route the call into the human's existing desk room instead of
+  // creating a fresh `tel-*` one. See agent/sip/README.md for the LiveKit
+  // dispatch-rule update that consumes these headers.
+  const roomName = `desk-${handle.id}`;
+  const twimlUrl =
+    `${appUrl.replace(/\/$/, "")}/api/twilio-voice` +
+    `?room=${encodeURIComponent(roomName)}` +
+    `&call_id=${encodeURIComponent(call.id)}` +
+    `&direction=out`;
   const statusCb = `${appUrl.replace(/\/$/, "")}/api/twilio/status`;
 
   const params = new URLSearchParams();
