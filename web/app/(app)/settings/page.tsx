@@ -44,6 +44,9 @@ export default function SettingsPage() {
     // ─── Telephony · Twilio ──────────────────────────────────────────────
     { name: "TWILIO_ACCOUNT_SID", ok: !!process.env.TWILIO_ACCOUNT_SID, hint: "Twilio Console → Account → API keys & tokens (commence par AC...). Requis pour /numbers et /desk/dial.", level: "required", section: "Telephony · Twilio" },
     { name: "TWILIO_AUTH_TOKEN", ok: !!process.env.TWILIO_AUTH_TOKEN, hint: "Auth Token Twilio — utilisé pour l'API REST ET pour valider les webhooks signés (X-Twilio-Signature).", level: "required", section: "Telephony · Twilio" },
+    { name: "TWILIO_API_KEY_SID", ok: !!process.env.TWILIO_API_KEY_SID, hint: "API Key SID Twilio (commence par SK...). Sert à minter les tokens Twilio Voice SDK pour le softphone navigateur. Créer dans Console Twilio → Account → API keys & tokens.", level: "required", section: "Telephony · Twilio" },
+    { name: "TWILIO_API_KEY_SECRET", ok: !!process.env.TWILIO_API_KEY_SECRET, hint: "Secret accompagnant TWILIO_API_KEY_SID. Affiché UNE seule fois au moment de la création — note-le.", level: "required", section: "Telephony · Twilio" },
+    { name: "TWILIO_TWIML_APP_SID", ok: !!process.env.TWILIO_TWIML_APP_SID, hint: "TwiML App SID (commence par AP...). Créer dans Console Twilio → Voice → Manage → TwiML apps, Voice URL = https://<ton-app>/api/twilio/voice-outbound. Indique à Twilio où récupérer la TwiML quand le navigateur compose un numéro.", level: "required", section: "Telephony · Twilio" },
     { name: "TWILIO_SKIP_VALIDATION", ok: !!process.env.TWILIO_SKIP_VALIDATION, hint: "⚠️ Bypass de la validation de signature Twilio. À NE PAS définir en production — uniquement pour les tests locaux.", level: "info", section: "Telephony · Twilio" },
 
     // ─── App · webhooks ──────────────────────────────────────────────────
