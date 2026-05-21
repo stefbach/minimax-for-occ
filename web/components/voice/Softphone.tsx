@@ -141,6 +141,27 @@ export function Softphone() {
     setDialError(null);
     try {
       if (!handle) throw new Error("no agent_handle — activate the desk first");
+
+      // Register the call in Supabase first so it appears in /calls,
+      // the desk EN COURS column, per-contact history, etc. Auto-creates
+      // the contact for first-time E.164s.
+      let callId: string | null = null;
+      try {
+        const reg = await fetch("/api/desk/sdk-call", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ to_e164: dialNumber }),
+        });
+        if (reg.ok) {
+          const j = await reg.json();
+          callId = j.call_id as string;
+        }
+      } catch {
+        /* if the logging endpoint fails, still let the dial go through —
+           Twilio bills the call regardless, no point blocking on
+           bookkeeping. */
+      }
+
       // Twilio.Device — registers with Twilio over WebSocket if not yet.
       const device = (await ensureTwilioDevice()) as {
         connect: (opts: { params: Record<string, string> }) => Promise<{
@@ -159,18 +180,39 @@ export function Softphone() {
       twilioCallRef.current = call;
       setTwilioCallState("ringing");
 
-      call.on("accept", () => setTwilioCallState("in-progress"));
+      // Helper to patch the Supabase row as the SDK call lifecycle fires.
+      const patchCall = (
+        state: "in_progress" | "ended",
+        disposition?: string,
+      ) => {
+        if (!callId) return;
+        void fetch("/api/desk/sdk-call", {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ call_id: callId, state, disposition }),
+        }).catch(() => {});
+      };
+
+      call.on("accept", () => {
+        setTwilioCallState("in-progress");
+        patchCall("in_progress");
+      });
       call.on("ringing", () => setTwilioCallState("ringing"));
       call.on("disconnect", () => {
         setTwilioCallState("idle");
         setTwilioMuted(false);
         twilioCallRef.current = null;
+        patchCall("ended", "answered");
       });
-      call.on("cancel", () => setTwilioCallState("idle"));
+      call.on("cancel", () => {
+        setTwilioCallState("idle");
+        patchCall("ended", "cancelled");
+      });
       call.on("error", (err: unknown) => {
         const msg = err instanceof Error ? err.message : String(err);
         setDialError(`Twilio call: ${msg}`);
         setTwilioCallState("idle");
+        patchCall("ended", "failed");
       });
     } catch (e) {
       setDialError(e instanceof Error ? e.message : String(e));
