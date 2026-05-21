@@ -12,11 +12,11 @@ import {
   publicAppUrl,
   tryConfigureWebhooks,
 } from "@/lib/twilio-config";
+import { requestOrgId } from "@/lib/request-org";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const DEFAULT_ORG = "00000000-0000-0000-0000-000000000001";
 const E164_RE = /^\+\d{6,15}$/;
 
 /**
@@ -49,7 +49,6 @@ export async function POST(req: Request) {
   const body = (await req.json().catch(() => null)) as {
     phone_number?: string;
     label?: string;
-    org_id?: string;
   } | null;
   const e164 = body?.phone_number?.trim() ?? "";
   if (!E164_RE.test(e164)) {
@@ -88,8 +87,11 @@ export async function POST(req: Request) {
   }
 
   // 2) Avoid duplicates: a single phone_numbers row per E.164.
+  //    Resolve the target org from the caller's session — never silently
+  //    fall back to the Legacy catch-all, which would hide newly imported
+  //    numbers from the user who actually clicked "Importer".
   const sb = supabaseServer();
-  const orgId = body?.org_id ?? DEFAULT_ORG;
+  const orgId = await requestOrgId(req);
   const { data: existing } = await sb
     .from("phone_numbers")
     .select("id, org_id, e164")
