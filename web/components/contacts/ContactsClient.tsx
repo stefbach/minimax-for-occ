@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 
 interface Contact {
   id: string;
@@ -13,6 +14,7 @@ interface Contact {
 }
 
 export function ContactsClient({ initial }: { initial: Contact[] }) {
+  const router = useRouter();
   const [rows, setRows] = useState<Contact[]>(initial);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -22,6 +24,22 @@ export function ContactsClient({ initial }: { initial: Contact[] }) {
   const [email, setEmail] = useState("");
   const [tags, setTags] = useState("");
   const [notes, setNotes] = useState("");
+
+  // Search bar: matches any of name / e164 / email / tags. Updates
+  // as the user types, no debouncing needed since the list is in-memory.
+  const [search, setSearch] = useState("");
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((c) => {
+      if (c.display_name?.toLowerCase().includes(q)) return true;
+      if (c.e164.toLowerCase().includes(q)) return true;
+      if (c.email?.toLowerCase().includes(q)) return true;
+      if ((c.tags ?? []).some((t) => t.toLowerCase().includes(q))) return true;
+      return false;
+    });
+  }, [rows, search]);
 
   async function refresh() {
     const r = await fetch("/api/contacts");
@@ -59,10 +77,21 @@ export function ContactsClient({ initial }: { initial: Contact[] }) {
     refresh();
   }
 
+  /**
+   * Click-to-dial: navigate the softphone with the contact's number
+   * pre-filled in the URL. /desk reads ?call=<e164> on mount and
+   * fires the dial automatically.
+   */
+  function callContact(c: Contact) {
+    const qs = new URLSearchParams({ call: c.e164 });
+    if (c.display_name) qs.set("name", c.display_name);
+    router.push(`/desk?${qs.toString()}`);
+  }
+
   return (
     <div style={{ display: "grid", gap: 16 }}>
       <div className="card">
-        <h3 style={{ marginTop: 0 }}>Ajouter un contact</h3>
+        <h3 style={{ marginTop: 0 }}>Ajouter un contact manuellement</h3>
         <form onSubmit={onSubmit} style={{ display: "grid", gap: 10 }}>
           <div className="form-row">
             <div>
@@ -97,16 +126,44 @@ export function ContactsClient({ initial }: { initial: Contact[] }) {
         </form>
       </div>
 
+      {/* Search bar — filters the contact list as you type. */}
+      <div className="card" style={{ padding: 12 }}>
+        <div className="form-row" style={{ alignItems: "center" }}>
+          <div style={{ flex: 1 }}>
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Rechercher un contact (nom, numéro, email, tag…)"
+              style={{ width: "100%", padding: "8px 12px", fontSize: 14 }}
+            />
+          </div>
+          <div className="muted" style={{ fontSize: 13, whiteSpace: "nowrap" }}>
+            {filtered.length} / {rows.length} contact{rows.length === 1 ? "" : "s"}
+          </div>
+        </div>
+      </div>
+
       <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-        {rows.length === 0 ? (
-          <div style={{ padding: 16, color: "var(--muted)" }}>Aucun contact pour l&apos;instant.</div>
+        {filtered.length === 0 ? (
+          <div style={{ padding: 16, color: "var(--muted)" }}>
+            {rows.length === 0
+              ? "Aucun contact pour l'instant. Ajoute-en un manuellement ci-dessus."
+              : "Aucun contact ne correspond à ta recherche."}
+          </div>
         ) : (
           <table className="list">
             <thead>
-              <tr><th>Nom</th><th>Téléphone</th><th>Email</th><th>Tags</th><th></th></tr>
+              <tr>
+                <th>Nom</th>
+                <th>Téléphone</th>
+                <th>Email</th>
+                <th>Tags</th>
+                <th style={{ textAlign: "right" }}>Actions</th>
+              </tr>
             </thead>
             <tbody>
-              {rows.map((c) => (
+              {filtered.map((c) => (
                 <tr key={c.id}>
                   <td>{c.display_name ?? <em style={{ color: "var(--muted)" }}>—</em>}</td>
                   <td><span className="kbd">{c.e164}</span></td>
@@ -116,7 +173,14 @@ export function ContactsClient({ initial }: { initial: Contact[] }) {
                       <span key={t} className="tag" style={{ marginRight: 4 }}>{t}</span>
                     ))}
                   </td>
-                  <td style={{ textAlign: "right" }}>
+                  <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                    <button
+                      onClick={() => callContact(c)}
+                      style={{ padding: "5px 10px", marginRight: 6 }}
+                      title="Appeler ce contact depuis le softphone"
+                    >
+                      ☎ Appeler
+                    </button>
                     <button className="danger" style={{ padding: "5px 9px" }} onClick={() => del(c.id)}>
                       Supprimer
                     </button>
