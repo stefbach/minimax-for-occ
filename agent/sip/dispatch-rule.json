@@ -1,10 +1,16 @@
 {
-  "name": "twilio-to-minimax",
+  "name": "twilio-to-axon",
   "trunk_ids": ["REPLACE_WITH_INBOUND_TRUNK_ID"],
   "rule": {
     "dispatchRuleIndividual": {
       "roomPrefix": "tel-"
     }
   },
-  "metadata": "{\"channel\":\"telephony\",\"provider\":\"twilio\"}"
+  "metadata": "{\"channel\":\"telephony\",\"provider\":\"twilio\"}",
+  "attributes": {
+    "axon.room_hint": "X-LK-Room",
+    "axon.call_id": "X-LK-Call-Id",
+    "axon.agent_handle_id": "X-LK-Agent-Handle-Id",
+    "axon.direction": "X-LK-Direction"
+  }
 }

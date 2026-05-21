@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { SipClient } from "livekit-server-sdk";
 import { supabaseSession } from "@/lib/supabase-auth";
 import { supabaseServer } from "@/lib/supabase";
 import { NoPhoneNumberError, pickFromNumber } from "@/lib/geo-routing";
@@ -6,6 +7,10 @@ import { rateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// LiveKit createSipParticipant with waitUntilAnswered=true blocks until the
+// destination picks up or the ringing timeout fires (we set it to 30s). The
+// Vercel function needs enough headroom to outlast it, hence 45s.
+export const maxDuration = 45;
 
 const DIAL_RATE_LIMIT = Number(process.env.DIAL_RATE_LIMIT_PER_MINUTE ?? 30);
 
@@ -13,35 +18,43 @@ const DIAL_RATE_LIMIT = Number(process.env.DIAL_RATE_LIMIT_PER_MINUTE ?? 30);
  * POST /api/desk/dial   { to_e164: string }
  *
  * Originates an outbound call from the agent's softphone. The agent must be
- * already connected to their desk LiveKit room (via /api/desk/token). Twilio
- * dials the target and bridges the PSTN leg through the configured SIP trunk
- * into the agent's room.
+ * already connected to their desk LiveKit room (via /api/desk/token).
  *
- * The From number is chosen by geo-routing (pickFromNumber): a phone_numbers
- * row owned by the agent's org whose country matches the destination, falling
- * back to the org default and finally any active number. TWILIO_FROM_NUMBER is
- * no longer consulted.
+ * Two call patterns, picked by env:
  *
- * Required env:
+ *   1. LiveKit outbound SIP API (preferred). When LIVEKIT_SIP_OUTBOUND_TRUNK_ID
+ *      is set, we ask LiveKit to dial via Twilio (the trunk) and drop the
+ *      answered PSTN leg directly into the human's `desk-<handle>` room. The
+ *      human can actually talk through their softphone.
+ *
+ *   2. Twilio REST originate + TwiML callback (legacy fallback). When the
+ *      LiveKit outbound trunk isn't configured, we POST to Twilio's
+ *      /Calls.json with TwimlUrl pointing at /api/twilio-voice — the answered
+ *      leg lands in whichever room the LiveKit dispatch rule chooses
+ *      (typically `tel-<callsid>` with the default dispatchRuleIndividual),
+ *      where an auto-dispatched AI persona picks up. The human and the
+ *      destination end up in different rooms — useful for "let the IA call
+ *      this number for me" but NOT for human-to-human softphone.
+ *
+ * Twilio still bills both paths the same way: it's the PSTN gateway in both
+ * cases. Only the orchestration changes — who originates the SIP/REST call.
+ *
+ * Required env (path 1):
+ *   LIVEKIT_URL or NEXT_PUBLIC_LIVEKIT_URL
+ *   LIVEKIT_API_KEY
+ *   LIVEKIT_API_SECRET
+ *   LIVEKIT_SIP_OUTBOUND_TRUNK_ID  (set this to opt into path 1)
+ *
+ * Required env (path 2 fallback):
  *   TWILIO_ACCOUNT_SID
  *   TWILIO_AUTH_TOKEN
- *   APP_URL            (https origin of this Next.js deployment)
+ *   APP_URL                        (https origin of this Next.js deployment)
  */
 export async function POST(req: Request) {
   const body = (await req.json().catch(() => ({}))) as { to_e164?: string };
   const to = (body.to_e164 ?? "").trim();
   if (!to || !/^\+\d{6,15}$/.test(to)) {
     return NextResponse.json({ error: "to_e164 must be E.164 (e.g. +33756123456)" }, { status: 400 });
-  }
-
-  const sid = process.env.TWILIO_ACCOUNT_SID;
-  const token = process.env.TWILIO_AUTH_TOKEN;
-  const appUrl = process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL;
-  if (!sid || !token || !appUrl) {
-    return NextResponse.json(
-      { error: "Twilio env vars missing (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, APP_URL)" },
-      { status: 500 },
-    );
   }
 
   // Authenticate the user. We then look up their human agent_handle via the
@@ -120,6 +133,7 @@ export async function POST(req: Request) {
   }
 
   // Insert a call row first so we have an id to track.
+  const roomName = `desk-${handle.id}`;
   const { data: call, error: callErr } = await admin
     .from("calls")
     .insert({
@@ -129,15 +143,107 @@ export async function POST(req: Request) {
       from_e164: from,
       to_e164: to,
       agent_handle_id: handle.id,
-      room_id: `desk-${handle.id}`,
+      room_id: roomName,
     })
     .select()
     .single();
   if (callErr) return NextResponse.json({ error: callErr.message }, { status: 500 });
 
-  // Originate the Twilio call. The TwiML URL bridges the PSTN leg into the
-  // agent's LiveKit room via the SIP trunk.
-  const twimlUrl = `${appUrl.replace(/\/$/, "")}/api/twilio-voice?room=${encodeURIComponent(`desk-${handle.id}`)}&call_id=${call.id}`;
+  // ─── Path 1: LiveKit outbound SIP API ──────────────────────────────────
+  //
+  // When the outbound trunk is configured, LiveKit drives: it sends the
+  // SIP INVITE to Twilio (the trunk), Twilio dials the PSTN destination,
+  // and the answered leg is bridged into roomName ("desk-<handle>") —
+  // the same room the human softphone is in. They can actually talk.
+  const lkOutboundTrunkId = process.env.LIVEKIT_SIP_OUTBOUND_TRUNK_ID;
+  const lkUrl = process.env.LIVEKIT_URL ?? process.env.NEXT_PUBLIC_LIVEKIT_URL;
+  const lkApiKey = process.env.LIVEKIT_API_KEY;
+  const lkApiSecret = process.env.LIVEKIT_API_SECRET;
+
+  if (lkOutboundTrunkId && lkUrl && lkApiKey && lkApiSecret) {
+    // SipClient wants the HTTPS host, not the WSS one.
+    const sipHost = lkUrl.replace(/^wss:/i, "https:").replace(/^ws:/i, "http:");
+    const sip = new SipClient(sipHost, lkApiKey, lkApiSecret);
+    try {
+      // Build options as `any` so we can pass `sipNumber` even though it
+      // isn't declared in livekit-server-sdk@2.15's TypeScript types — the
+      // underlying gRPC API does accept it (proto field sip_number) and
+      // without it LiveKit sends an empty/default From on the INVITE, which
+      // Twilio rejects with 403 Forbidden regardless of geo permissions or
+      // attached numbers. Type-cast workaround until we bump the SDK.
+      const sipOptions = {
+        participantIdentity: `pstn-${call.id}`,
+        participantName: to,
+        participantAttributes: {
+          "axon.call_id": call.id,
+          "axon.direction": "out",
+          "axon.agent_handle_id": handle.id,
+          "axon.from_e164": from,
+        },
+        waitUntilAnswered: true,
+        ringingTimeout: 30,
+        sipNumber: from,
+      };
+      const participant = await sip.createSipParticipant(
+        lkOutboundTrunkId,
+        to,
+        roomName,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        sipOptions as any,
+      );
+      await admin
+        .from("calls")
+        .update({ metadata: { livekit_participant_sid: participant.participantId ?? null } })
+        .eq("id", call.id);
+      return NextResponse.json(
+        { ok: true, call_id: call.id, via: "livekit", room: roomName },
+        { status: 201 },
+      );
+    } catch (err) {
+      await admin
+        .from("calls")
+        .update({ state: "failed", ended_at: new Date().toISOString() })
+        .eq("id", call.id);
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[desk-dial] LiveKit createSipParticipant failed:", msg);
+      return NextResponse.json(
+        { error: `LiveKit: ${msg}`, via: "livekit" },
+        { status: 502 },
+      );
+    }
+  }
+
+  // ─── Path 2: Twilio REST + TwiML callback (legacy fallback) ────────────
+  const sid = process.env.TWILIO_ACCOUNT_SID;
+  const token = process.env.TWILIO_AUTH_TOKEN;
+  const appUrl = process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL;
+  if (!sid || !token || !appUrl) {
+    await admin
+      .from("calls")
+      .update({ state: "failed", ended_at: new Date().toISOString() })
+      .eq("id", call.id);
+    return NextResponse.json(
+      {
+        error:
+          "Aucun moyen d'originer l'appel : ni LIVEKIT_SIP_OUTBOUND_TRUNK_ID " +
+          "(voie privilégiée), ni TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN/APP_URL " +
+          "(voie de repli) ne sont définis.",
+      },
+      { status: 500 },
+    );
+  }
+
+  // The `room` + `call_id` + `direction` query params are forwarded by
+  // /api/twilio-voice as SIP custom headers (X-LK-Room, X-LK-Call-Id,
+  // X-LK-Direction). With dispatchRuleIndividual the destination still
+  // lands in `tel-*` and the IA picks up — that's the known limitation
+  // of this path. Set LIVEKIT_SIP_OUTBOUND_TRUNK_ID to take path 1
+  // instead.
+  const twimlUrl =
+    `${appUrl.replace(/\/$/, "")}/api/twilio-voice` +
+    `?room=${encodeURIComponent(roomName)}` +
+    `&call_id=${encodeURIComponent(call.id)}` +
+    `&direction=out`;
   const statusCb = `${appUrl.replace(/\/$/, "")}/api/twilio/status`;
 
   const params = new URLSearchParams();
@@ -165,7 +271,7 @@ export async function POST(req: Request) {
   if (!twRes.ok) {
     const errBody = await twRes.text();
     await admin.from("calls").update({ state: "failed", ended_at: new Date().toISOString() }).eq("id", call.id);
-    return NextResponse.json({ error: `Twilio: ${errBody}` }, { status: 502 });
+    return NextResponse.json({ error: `Twilio: ${errBody}`, via: "twilio" }, { status: 502 });
   }
   const twData = (await twRes.json()) as { sid?: string };
 
@@ -174,5 +280,8 @@ export async function POST(req: Request) {
     .update({ twilio_call_sid: twData.sid ?? null })
     .eq("id", call.id);
 
-  return NextResponse.json({ ok: true, call_id: call.id, twilio_sid: twData.sid }, { status: 201 });
+  return NextResponse.json(
+    { ok: true, call_id: call.id, twilio_sid: twData.sid, via: "twilio" },
+    { status: 201 },
+  );
 }

@@ -22,7 +22,7 @@ const securityHeaders = [
       "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob: https:",
-      "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.livekit.cloud wss://*.livekit.cloud https://api.twilio.com https://api.openai.com https://api.minimax.io https://api.deepgram.com",
+      "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.livekit.cloud wss://*.livekit.cloud https://api.twilio.com https://*.twilio.com wss://*.twilio.com https://eventgw.twilio.com https://api.openai.com https://api.minimax.io https://api.deepgram.com",
       "font-src 'self' data:",
       "frame-src 'self' https:",
     ].join("; "),

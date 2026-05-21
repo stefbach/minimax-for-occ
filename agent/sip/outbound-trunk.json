@@ -1,0 +1,8 @@
+{
+  "name": "axon-outbound-via-twilio",
+  "address": "REPLACE_WITH_TWILIO_TERMINATION_URI.pstn.twilio.com",
+  "transport": "SIP_TRANSPORT_AUTO",
+  "numbers": [],
+  "auth_username": "REPLACE_WITH_TRUNK_USER",
+  "auth_password": "REPLACE_WITH_TRUNK_PASSWORD"
+}
