@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { hasSupabase, supabaseServer } from "@/lib/supabase";
 import { hasTwilio } from "@/lib/twilio";
+import { currentMembership, currentOrgFromCookie } from "@/lib/supabase-auth";
 import {
   NumbersClient,
   type PhoneNumberRow,
@@ -11,7 +12,20 @@ import {
 
 export const dynamic = "force-dynamic";
 
-const DEFAULT_ORG = "00000000-0000-0000-0000-000000000001";
+const LEGACY_ORG = "00000000-0000-0000-0000-000000000001";
+
+/** Resolve the org the current request should operate on:
+ *  1. the org cookie set by the OrgSwitcher,
+ *  2. the caller's primary membership,
+ *  3. the historical Legacy catch-all.
+ *  Without this the page used to hardcode Legacy, so switching orgs in the
+ *  sidebar had no effect on the numbers list. */
+async function resolveOrgId(): Promise<string> {
+  const fromCookie = await currentOrgFromCookie();
+  if (fromCookie) return fromCookie;
+  const membership = await currentMembership();
+  return membership?.org_id ?? LEGACY_ORG;
+}
 
 export default async function NumbersPage() {
   let initial: PhoneNumberRow[] = [];
@@ -21,11 +35,12 @@ export default async function NumbersPage() {
 
   if (hasSupabase()) {
     const sb = supabaseServer();
+    const orgId = await resolveOrgId();
     try {
       const { data } = await sb
         .from("phone_numbers")
         .select("*")
-        .eq("org_id", DEFAULT_ORG)
+        .eq("org_id", orgId)
         .order("created_at", { ascending: false })
         .limit(500);
       initial = (data ?? []) as PhoneNumberRow[];
@@ -36,7 +51,7 @@ export default async function NumbersPage() {
       const { data } = await sb
         .from("flows")
         .select("id, name")
-        .eq("org_id", DEFAULT_ORG)
+        .eq("org_id", orgId)
         .order("name", { ascending: true })
         .limit(200);
       flows = (data ?? []) as FlowOption[];
@@ -47,7 +62,7 @@ export default async function NumbersPage() {
       const { data } = await sb
         .from("queues")
         .select("id, name")
-        .eq("org_id", DEFAULT_ORG)
+        .eq("org_id", orgId)
         .order("name", { ascending: true })
         .limit(200);
       queues = (data ?? []) as QueueOption[];
@@ -58,7 +73,7 @@ export default async function NumbersPage() {
       const { data } = await sb
         .from("agent_handles")
         .select("id, display_name, kind")
-        .eq("org_id", DEFAULT_ORG)
+        .eq("org_id", orgId)
         .order("display_name", { ascending: true })
         .limit(200);
       agents = (data ?? []) as AgentOption[];
