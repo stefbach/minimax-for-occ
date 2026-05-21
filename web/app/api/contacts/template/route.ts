@@ -41,17 +41,17 @@ export async function GET() {
 
   XLSX.utils.book_append_sheet(wb, ws, "Contacts");
 
-  // NextResponse expects BodyInit; XLSX.write with type: "array" already
-  // returns a Uint8Array which satisfies it directly (vs `type: "buffer"`
-  // which returns Node's Buffer and trips TypeScript on Vercel's edge
-  // typings).
+  // Wrap the xlsx bytes in a Blob — that's the BodyInit shape Next.js's
+  // NextResponse type accepts unambiguously across runtimes. Plain Buffer
+  // and Uint8Array both trip the stricter TypeScript checks in Next 15.
   const buf = XLSX.write(wb, { bookType: "xlsx", type: "array" }) as Uint8Array;
+  const blob = new Blob([buf as BlobPart], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
 
-  return new NextResponse(buf, {
+  return new NextResponse(blob, {
     status: 200,
     headers: {
-      "content-type":
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       "content-disposition":
         'attachment; filename="modele-contacts-axon.xlsx"',
       "cache-control": "no-store",
