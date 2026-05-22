@@ -37,12 +37,15 @@ jobs:
 
       - name: Show available lk commands
         run: |
-          lk --help || true
-          echo "---"
-          lk cloud --help || true
+          echo "=== lk --help ==="
+          lk --help 2>&1 || true
+          echo "=== lk cloud --help ==="
+          lk cloud --help 2>&1 || true
+          echo "=== lk agent --help ==="
+          lk agent --help 2>&1 || true
 
       - name: Deploy to LiveKit Cloud Agents
-        run: lk cloud agent deploy --yes
+        run: lk agent deploy
         env:
           LIVEKIT_URL: ${{ secrets.LIVEKIT_URL }}
           LIVEKIT_API_KEY: ${{ secrets.LIVEKIT_API_KEY }}
