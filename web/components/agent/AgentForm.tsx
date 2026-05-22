@@ -187,7 +187,6 @@ export function AgentForm({ initial }: { initial?: Agent }) {
   }
 
   async function onPreviewVoice() {
-    if (!voice) return;
     setPreviewing(true);
     setError(null);
     try {
@@ -195,7 +194,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          voice_id: voice,
+          voice_id: voice || "male-qn-qingse",
           text: greeting || "Bonjour, je suis votre assistant.",
           model: ttsModel || undefined,
           speed,
@@ -291,8 +290,6 @@ export function AgentForm({ initial }: { initial?: Agent }) {
               setModel(PROVIDER_MODELS[p][0]);
             }}>
               <option value="deepseek">DeepSeek</option>
-              <option value="openai">OpenAI</option>
-              <option value="anthropic">Anthropic</option>
               <option value="minimax">MiniMax</option>
             </select>
           </div>
@@ -382,7 +379,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
           <button
             type="button"
             className="ghost"
-            disabled={!voice || previewing}
+            disabled={previewing}
             onClick={onPreviewVoice}
           >
             {previewing ? "Synthèse en cours…" : "▶ Écouter cette voix"}
