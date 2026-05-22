@@ -16,7 +16,8 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.105.0",
     "bullmq": "^5.34.0",
-    "ioredis": "^5.4.1"
+    "ioredis": "^5.4.1",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
