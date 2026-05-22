@@ -64,7 +64,8 @@ export async function POST(req: Request) {
 
   const deepseek = createOpenAI({
     apiKey: process.env.DEEPSEEK_API_KEY!,
-    baseURL: process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com",
+    baseURL: (process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com/v1"),
+    compatibility: "compatible",
   });
   const tools = buildTools({ userId: user.id, orgId: m.org_id ?? null });
 
