@@ -35,8 +35,14 @@ jobs:
           chmod +x /usr/local/bin/lk
           lk --version
 
+      - name: Show available lk commands
+        run: |
+          lk --help || true
+          echo "---"
+          lk cloud --help || true
+
       - name: Deploy to LiveKit Cloud Agents
-        run: lk cloud deploy --yes
+        run: lk cloud agent deploy --yes
         env:
           LIVEKIT_URL: ${{ secrets.LIVEKIT_URL }}
           LIVEKIT_API_KEY: ${{ secrets.LIVEKIT_API_KEY }}
