@@ -2,7 +2,7 @@ import { hasSupabase } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
-type Section = "Base & auth" | "IA · LLM / TTS / STT" | "LiveKit" | "Telephony · Twilio" | "App · webhooks" | "n8n";
+type Section = "Base & auth" | "IA · LLM / TTS / STT" | "LiveKit" | "Telephony · Twilio" | "Telephony · Telnyx" | "App · webhooks" | "n8n";
 
 interface Check {
   name: string;
@@ -43,6 +43,13 @@ export default function SettingsPage() {
     { name: "TWILIO_AUTH_TOKEN", ok: !!process.env.TWILIO_AUTH_TOKEN, hint: "Auth Token Twilio — utilisé pour l'API REST ET pour valider les webhooks signés (X-Twilio-Signature).", level: "required", section: "Telephony · Twilio" },
     { name: "TWILIO_SKIP_VALIDATION", ok: !!process.env.TWILIO_SKIP_VALIDATION, hint: "⚠️ Bypass de la validation de signature Twilio. À NE PAS définir en production — uniquement pour les tests locaux.", level: "info", section: "Telephony · Twilio" },
 
+    // ─── Telephony · Telnyx ─────────────────────────────────────────────
+    { name: "TELNYX_API_KEY", ok: !!process.env.TELNYX_API_KEY, hint: "Telnyx Mission Control → Auth → API Keys → Create v2 (commence par KEY_...). Requis pour la gestion des numéros et le routing.", level: "required", section: "Telephony · Telnyx" },
+    { name: "TELNYX_SIP_CONNECTION_ID", ok: !!process.env.TELNYX_SIP_CONNECTION_ID, hint: "Telnyx → Voice Suite → SIP Trunking → ton trunk → ID de connexion. Utilisé pour assigner les numéros achetés au trunk LiveKit.", level: "required", section: "Telephony · Telnyx" },
+    { name: "TELNYX_OUTBOUND_PROFILE_ID", ok: !!process.env.TELNYX_OUTBOUND_PROFILE_ID, hint: "Telnyx → Voice Suite → Outbound Voice → ton profil → ID. Requis pour les appels sortants via Telnyx.", level: "optional", section: "Telephony · Telnyx" },
+    { name: "TELNYX_WEBHOOK_SECRET", ok: !!process.env.TELNYX_WEBHOOK_SECRET, hint: "Telnyx → Webhooks → ton endpoint → Signing Secret (whsec_...). Valide les signatures Ed25519 sur /api/telnyx-voice et /api/telnyx/status.", level: "optional", section: "Telephony · Telnyx" },
+    { name: "TELNYX_SKIP_VALIDATION", ok: !!process.env.TELNYX_SKIP_VALIDATION, hint: "⚠️ Bypass validation signature Telnyx. Dev uniquement.", level: "info", section: "Telephony · Telnyx" },
+
     // ─── App · webhooks ──────────────────────────────────────────────────
     { name: "APP_URL", ok: !!process.env.APP_URL, hint: "URL publique de cette app (ex: https://minimax-for-occ.vercel.app). Utilisée par /api/desk/dial pour construire la TwiML URL et StatusCallback Twilio. Si absente, fallback sur NEXT_PUBLIC_APP_URL puis VERCEL_URL.", level: "required", section: "App · webhooks" },
     { name: "NEXT_PUBLIC_APP_URL", ok: !!process.env.NEXT_PUBLIC_APP_URL, hint: "Alternative à APP_URL exposée au navigateur. Au moins l'une des deux doit pointer vers la prod.", level: "optional", section: "App · webhooks" },
@@ -61,6 +68,7 @@ export default function SettingsPage() {
     "IA · LLM / TTS / STT",
     "LiveKit",
     "Telephony · Twilio",
+    "Telephony · Telnyx",
     "App · webhooks",
     "n8n",
   ];
@@ -69,6 +77,7 @@ export default function SettingsPage() {
     "IA · LLM / TTS / STT": [],
     "LiveKit": [],
     "Telephony · Twilio": [],
+    "Telephony · Telnyx": [],
     "App · webhooks": [],
     "n8n": [],
   };
