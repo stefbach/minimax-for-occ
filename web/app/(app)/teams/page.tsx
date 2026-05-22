@@ -1,9 +1,10 @@
 import { hasSupabase, supabaseServer } from "@/lib/supabase";
 import { TeamsClient, type TeamRow, type AgentOption } from "@/components/teams/TeamsClient";
+import { HelpButton } from "@/components/help/HelpButton";
 
 export const dynamic = "force-dynamic";
 
-const DEFAULT_ORG = "00000000-0000-0000-0000-000000000001";
+import { LEGACY_ORG_ID as DEFAULT_ORG } from "@/lib/constants";
 
 export default async function TeamsPage() {
   let teams: TeamRow[] = [];
@@ -40,6 +41,7 @@ export default async function TeamsPage() {
             {teams.length} team{teams.length === 1 ? "" : "s"} · des agents qui peuvent se passer la parole en cours d&apos;appel (swarm)
           </div>
         </div>
+        <HelpButton contextKey="teams" />
       </div>
       <TeamsClient initial={teams} agents={agents} />
     </>

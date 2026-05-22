@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { hasSupabase, supabaseServer } from "@/lib/supabase";
+import { HelpButton } from "@/components/help/HelpButton";
 
 export const dynamic = "force-dynamic";
 
-const DEFAULT_ORG = "00000000-0000-0000-0000-000000000001";
+import { LEGACY_ORG_ID as DEFAULT_ORG } from "@/lib/constants";
 
 interface CampaignRow {
   id: string;
@@ -99,9 +100,12 @@ export default async function CampaignsPage() {
             {campaigns.length} campagne{campaigns.length === 1 ? "" : "s"}
           </div>
         </div>
-        <Link href="/campaigns/new">
-          <button>+ Nouvelle campagne</button>
-        </Link>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <Link href="/campaigns/new">
+            <button>+ Nouvelle campagne</button>
+          </Link>
+          <HelpButton contextKey="campaigns" />
+        </div>
       </div>
 
       {campaigns.length === 0 ? (

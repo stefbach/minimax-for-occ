@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { hasSupabase, supabaseServer } from "@/lib/supabase";
+import { HelpButton } from "@/components/help/HelpButton";
+import { ReleaseButton } from "@/components/numbers/ReleaseButton";
 
 export const dynamic = "force-dynamic";
 
-const DEFAULT_ORG = "00000000-0000-0000-0000-000000000001";
+import { LEGACY_ORG_ID as DEFAULT_ORG } from "@/lib/constants";
 
 interface HealthRow {
   id: string;
@@ -121,10 +123,11 @@ export default async function NumbersHealthPage() {
             Volume 30j, dormance et taux de réponse sur l&apos;ensemble des numéros provisionnés.
           </div>
         </div>
-        <div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <Link href="/numbers" className="button" style={{ textDecoration: "none" }}>
             ← Retour aux numéros
           </Link>
+          <HelpButton contextKey="numbers.health" />
         </div>
       </div>
 
@@ -247,13 +250,7 @@ export default async function NumbersHealthPage() {
                     )}
                   </td>
                   <td>
-                    <Link
-                      href="/numbers"
-                      className="button"
-                      style={{ textDecoration: "none", padding: "4px 9px", fontSize: 12 }}
-                    >
-                      Suggérer release
-                    </Link>
+                    <ReleaseButton id={r.id} e164={r.e164} />
                   </td>
                 </tr>
               ))}

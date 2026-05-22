@@ -1,12 +1,11 @@
 import { streamText, convertToModelMessages, type UIMessage } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
+import { requestOrgId } from "@/lib/request-org";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
-
-const DEFAULT_ORG = "00000000-0000-0000-0000-000000000001";
 
 type CallSummary = {
   id: string;
@@ -87,12 +86,14 @@ export async function POST(req: Request) {
     );
   }
 
-  const { messages, org_id } = (await req.json()) as {
+  const { messages } = (await req.json()) as {
     messages: UIMessage[];
-    org_id?: string;
+    org_id?: string; // accepted for backward compat with old clients but ignored
   };
 
-  const orgId = org_id || DEFAULT_ORG;
+  // Derive org from session — never trust the body. RLS guards the DB
+  // queries inside buildContextSummary().
+  const orgId = await requestOrgId(req);
   let summary = "";
   try {
     summary = await buildContextSummary(orgId);

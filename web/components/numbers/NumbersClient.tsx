@@ -359,7 +359,7 @@ export function NumbersClient({
   return (
     <div style={{ display: "grid", gap: 16 }}>
       {/* ─── Search & purchase ─── */}
-      <div className="card">
+      <div className="card" data-numbers-search>
         <h3 style={{ marginTop: 0 }}>Rechercher et acheter un numéro</h3>
         <form onSubmit={doSearch} style={{ display: "grid", gap: 10 }}>
           <div className="form-row">
@@ -662,8 +662,28 @@ export function NumbersClient({
       {/* ─── Numbers table ─── */}
       <div className="card" style={{ padding: 0, overflow: "auto" }}>
         {rows.length === 0 ? (
-          <div style={{ padding: 16, color: "var(--muted)" }}>
-            Aucun numéro provisionné pour l&apos;instant. Recherchez et achetez votre premier numéro ci-dessus.
+          <div style={{ padding: 20, display: "grid", gap: 10 }}>
+            <div style={{ color: "var(--muted)" }}>
+              Aucun numéro provisionné pour l&apos;instant.
+            </div>
+            <div className="muted" style={{ fontSize: 12, lineHeight: 1.5, maxWidth: 560 }}>
+              Achetez un numéro Twilio pour le brancher sur un flow IVR, une file
+              d&apos;attente ou un agent IA. Le webhook Twilio est configuré
+              automatiquement à l&apos;achat.
+            </div>
+            <div>
+              <button
+                onClick={() => {
+                  const el = document.querySelector<HTMLElement>("[data-numbers-search]");
+                  el?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  el?.querySelector<HTMLInputElement>("input")?.focus();
+                }}
+                disabled={!twilioReady}
+                title={!twilioReady ? "Twilio non configuré (variables d'env manquantes)" : ""}
+              >
+                Acheter un numéro
+              </button>
+            </div>
           </div>
         ) : (
           <table className="list">

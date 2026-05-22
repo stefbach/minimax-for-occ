@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { verifyOrgCookieEdge } from "@/lib/org-cookie-edge";
 
 type Role = "super_admin" | "admin" | "manager" | "supervisor" | "agent";
 
@@ -105,9 +106,11 @@ export async function middleware(req: NextRequest) {
 
   // Resolve the active org for this request:
   //   1. If the user set the `axon.org_id` cookie (via the OrgSwitcher or
-  //      super_admin impersonate), use the role inside *that* org.
+  //      super_admin impersonate), verify its HMAC signature + freshness and
+  //      use the role inside *that* org.
   //   2. Otherwise fall back to the oldest membership (legacy behavior).
-  const wantedOrg = req.cookies.get(ORG_COOKIE)?.value || null;
+  const rawOrgCookie = req.cookies.get(ORG_COOKIE)?.value || null;
+  const wantedOrg = await verifyOrgCookieEdge(rawOrgCookie);
 
   let role: Role | null = null;
   if (wantedOrg) {

@@ -32,6 +32,7 @@ const NAV: NavItem[] = [
 
   // ── Builder ──
   { href: "/agents",    label: "Agents IA",         icon: "◇", group: "Builder", roles: ["super_admin","admin","manager"] },
+  { href: "/agents/library", label: "Bibliothèque persona", icon: "⊕", group: "Builder", roles: ["super_admin","admin","manager"] },
   { href: "/teams",     label: "Teams IA",          icon: "⌬", group: "Builder", roles: ["super_admin","admin","manager"] },
   { href: "/scripts",   label: "Scripts",           icon: "✎", group: "Builder", roles: ["super_admin","admin","manager"] },
   { href: "/voices",    label: "Voice Studio",      icon: "♪", group: "Builder", roles: ["super_admin","admin","manager"] },
@@ -50,7 +51,11 @@ const NAV: NavItem[] = [
   { href: "/admin/copilot",  label: "Copilote Super Admin", icon: "✦", group: "Admin", roles: ["super_admin"] },
   { href: "/admin/inbound",  label: "Connecteurs entrants", icon: "⇩", group: "Admin", roles: ["super_admin","admin"] },
   { href: "/admin/billing",  label: "Facturation",          icon: "€", group: "Admin", roles: ["super_admin","admin"] },
+  { href: "/admin/compliance", label: "Conformité (DNC)",   icon: "⊘", group: "Admin", roles: ["super_admin","admin","manager"] },
   { href: "/settings",       label: "Paramètres",           icon: "⚙", group: "Admin", roles: ["super_admin","admin","manager"] },
+
+  // ── Help (accessible to everyone) ──
+  { href: "/help",           label: "Guide",                icon: "?", group: "Aide" },
 ];
 
 export function Sidebar() {
@@ -117,6 +122,8 @@ export function Sidebar() {
                 key={n.href}
                 href={n.href}
                 className={`nav-link ${active ? "active" : ""}`}
+                aria-label={n.label}
+                aria-current={active ? "page" : undefined}
               >
                 <span aria-hidden="true" style={{ width: 16, opacity: 0.7 }}>{n.icon}</span>
                 <span>{n.label}</span>

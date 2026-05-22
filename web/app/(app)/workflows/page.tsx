@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { listN8nWorkflows } from "@/lib/n8n";
+import { HelpButton } from "@/components/help/HelpButton";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +24,10 @@ export default async function WorkflowsPage() {
           <h1>Workflows n8n</h1>
           <div className="subtitle">{workflows.length} workflow{workflows.length === 1 ? "" : "s"} sur l&apos;instance.</div>
         </div>
-        <Link href="/workflows/new"><button>+ Nouveau workflow</button></Link>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <Link href="/workflows/new"><button>+ Nouveau workflow</button></Link>
+          <HelpButton contextKey="workflows" />
+        </div>
       </div>
 
       {error && (

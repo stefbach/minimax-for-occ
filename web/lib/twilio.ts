@@ -9,6 +9,8 @@
  * with HTTP Basic auth (sid:token).
  */
 
+import { cfg } from "./config";
+
 const TWILIO_API_BASE = "https://api.twilio.com/2010-04-01";
 
 export interface TwilioAvailableNumber {
@@ -50,12 +52,12 @@ export class TwilioApiError extends Error {
 }
 
 export function hasTwilio(): boolean {
-  return Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN);
+  return Boolean(cfg.twilio.sid && cfg.twilio.authToken);
 }
 
 function getCreds(): { sid: string; token: string } {
-  const sid = process.env.TWILIO_ACCOUNT_SID;
-  const token = process.env.TWILIO_AUTH_TOKEN;
+  const sid = cfg.twilio.sid;
+  const token = cfg.twilio.authToken;
   if (!sid || !token) throw new TwilioConfigError();
   return { sid, token };
 }
@@ -297,7 +299,8 @@ export const DEFAULT_HOLD_MUSIC_URL = "http://com.twilio.sounds.music.s3.amazona
  * Prefers the explicit NEXT_PUBLIC_APP_URL, then VERCEL_URL, then a passed origin.
  */
 export function defaultWebhookUrl(originFromRequest?: string): string {
-  const explicit = process.env.NEXT_PUBLIC_APP_URL;
+  // cfg.app.url already resolves APP_URL → NEXT_PUBLIC_APP_URL → "".
+  const explicit = cfg.app.url;
   if (explicit) return trimSlash(explicit) + "/api/twilio-voice";
   const vercel = process.env.VERCEL_URL;
   if (vercel) return `https://${trimSlash(vercel)}/api/twilio-voice`;

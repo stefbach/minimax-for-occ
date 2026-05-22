@@ -5,6 +5,9 @@ import {
   secondsToBillableMinutes,
   estimateCostCents,
 } from "@/lib/billing";
+import { log } from "@/lib/log";
+import { LEGACY_ORG_ID } from "@/lib/constants";
+import { validateTwilioSignature } from "@/lib/twilio-signature";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,19 +27,18 @@ export const dynamic = "force-dynamic";
  * Twilio expects a 200 with empty body — payload content is ignored.
  */
 export async function POST(req: Request) {
-  let form: FormData | null = null;
-  try {
-    form = await req.formData();
-  } catch {
-    return new NextResponse("", { status: 200 });
+  // Read the raw body once so we can both validate the Twilio signature and
+  // parse it as form-encoded data below.
+  const rawBody = await req.text().catch(() => "");
+  const params = new URLSearchParams(rawBody);
+  if (!validateTwilioSignature(req, params)) {
+    return new NextResponse("invalid twilio signature", { status: 403 });
   }
-  if (!form) return new NextResponse("", { status: 200 });
-
   const url = new URL(req.url);
   const campaign_id = url.searchParams.get("campaign_id");
   const target_id = url.searchParams.get("target_id");
 
-  const get = (k: string) => form!.get(k)?.toString() ?? null;
+  const get = (k: string) => params.get(k);
 
   const CallSid = get("CallSid");
   const CallStatus = get("CallStatus"); // initiated|ringing|in-progress|answered|completed|busy|no-answer|failed|canceled
@@ -55,8 +57,8 @@ export async function POST(req: Request) {
 
   // Build the raw payload for call_events & metadata.
   const rawPayload: Record<string, string> = {};
-  form.forEach((v, k) => {
-    rawPayload[k] = typeof v === "string" ? v : "";
+  params.forEach((v, k) => {
+    rawPayload[k] = v;
   });
 
   // ── 1. Resolve / upsert the public.calls row by twilio_call_sid ─────────
@@ -98,6 +100,13 @@ export async function POST(req: Request) {
   if (Direction) metadataPatch.direction_twilio = Direction;
   baseUpdate.metadata = metadataPatch;
 
+  // AMD auto-disposition: derive `calls.disposition` from Twilio's AnsweredBy
+  // detection (human / machine_start / machine_end_* / fax / unknown).
+  const amdDisposition = dispositionFromAmd(AnsweredBy, CallStatus);
+  if (amdDisposition) {
+    baseUpdate.disposition = amdDisposition;
+  }
+
   let callId: string | null = existing?.id ?? null;
 
   if (!existing) {
@@ -113,7 +122,7 @@ export async function POST(req: Request) {
     }
     if (!org_id) {
       // Fallback to the legacy org so the row is always insertable.
-      org_id = "00000000-0000-0000-0000-000000000001";
+      org_id = LEGACY_ORG_ID;
     }
     const insertRow: Record<string, unknown> = {
       org_id,
@@ -128,7 +137,7 @@ export async function POST(req: Request) {
       .select("id")
       .single();
     if (insErr) {
-      console.error("[twilio/status] insert calls failed:", insErr.message);
+      log.error(`twilio/status insert calls failed: ${insErr.message}`, { call: CallSid });
     } else {
       callId = inserted?.id as string;
     }
@@ -138,7 +147,7 @@ export async function POST(req: Request) {
       .update(baseUpdate)
       .eq("id", existing.id);
     if (upErr) {
-      console.error("[twilio/status] update calls failed:", upErr.message);
+      log.error(`twilio/status update calls failed: ${upErr.message}`, { call: existing.id });
     }
   }
 
@@ -205,6 +214,39 @@ export async function POST(req: Request) {
   }
 
   return new NextResponse("", { status: 200 });
+}
+
+/**
+ * Map Twilio AnsweredBy → our `calls.disposition` enum.
+ *   human                 → "answered"
+ *   machine_start | machine_end_* → "voicemail"
+ *   fax                   → "failed"
+ *   unknown | null        → null (let other signals decide)
+ *
+ * We only set a disposition when we have a meaningful AnsweredBy AND the
+ * call status is at a terminal-ish point (otherwise we'd overwrite during
+ * the in-progress phase before AMD completes).
+ */
+function dispositionFromAmd(
+  answeredBy: string | null,
+  callStatus: string | null,
+): string | null {
+  if (!answeredBy) return null;
+  const ab = answeredBy.toLowerCase();
+  if (ab === "human") return "answered";
+  if (ab.startsWith("machine_")) return "voicemail";
+  if (ab === "fax") return "failed";
+  // 'unknown' — leave existing disposition alone, unless the call obviously
+  // failed at the carrier layer.
+  if (
+    callStatus === "failed" ||
+    callStatus === "busy" ||
+    callStatus === "no-answer" ||
+    callStatus === "canceled"
+  ) {
+    return "failed";
+  }
+  return null;
 }
 
 function mapCallState(s: string | null): string {
@@ -297,8 +339,10 @@ async function updateCampaignTarget(opts: {
 
   if (opts.CallStatus === "completed") {
     const ab = opts.AnsweredBy?.toLowerCase() ?? "";
-    if (ab.startsWith("machine_") || ab === "fax") {
+    if (ab === "machine_start" || ab.startsWith("machine_end_")) {
       nextStatus = "no_answer";
+    } else if (ab === "fax") {
+      nextStatus = "failed";
     } else {
       nextStatus = "done";
     }
@@ -336,9 +380,9 @@ async function updateCampaignTarget(opts: {
     .update(update)
     .eq("id", opts.target_id);
   if (error) {
-    console.error(
-      "[twilio/status] update campaign_targets failed:",
-      error.message,
-    );
+    log.error(`twilio/status update campaign_targets failed: ${error.message}`, {
+      call: opts.call_id ?? null,
+      target: opts.target_id,
+    });
   }
 }

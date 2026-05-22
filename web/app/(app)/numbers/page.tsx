@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { hasSupabase, supabaseServer } from "@/lib/supabase";
 import { hasTwilio } from "@/lib/twilio";
+import { HelpButton } from "@/components/help/HelpButton";
 import { currentMembership, currentOrgFromCookie } from "@/lib/supabase-auth";
+import { LEGACY_ORG_ID } from "@/lib/constants";
 import {
   NumbersClient,
   type PhoneNumberRow,
@@ -11,8 +13,6 @@ import {
 } from "@/components/numbers/NumbersClient";
 
 export const dynamic = "force-dynamic";
-
-const LEGACY_ORG = "00000000-0000-0000-0000-000000000001";
 
 /** Resolve the org the current request should operate on:
  *  1. the org cookie set by the OrgSwitcher,
@@ -24,7 +24,7 @@ async function resolveOrgId(): Promise<string> {
   const fromCookie = await currentOrgFromCookie();
   if (fromCookie) return fromCookie;
   const membership = await currentMembership();
-  return membership?.org_id ?? LEGACY_ORG;
+  return membership?.org_id ?? LEGACY_ORG_ID;
 }
 
 export default async function NumbersPage() {
@@ -91,10 +91,11 @@ export default async function NumbersPage() {
             {initial.length} numéro{initial.length === 1 ? "" : "s"} provisionné{initial.length === 1 ? "" : "s"} via Twilio
           </div>
         </div>
-        <div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <Link href="/numbers/health" className="button" style={{ textDecoration: "none" }}>
             Santé des numéros
           </Link>
+          <HelpButton contextKey="numbers" />
         </div>
       </div>
 

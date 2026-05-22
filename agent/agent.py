@@ -44,6 +44,26 @@ logger = logging.getLogger("axon-voice-agent")
 logger.setLevel(logging.INFO)
 
 
+# ─── Observability: prefix every log line with [call_id=…] when known ─────
+class CallIdAdapter(logging.LoggerAdapter):
+    """LoggerAdapter that injects `[call_id=<id>]` into every log message.
+
+    Built once per JobContext after we resolve the call_id from room metadata
+    so downstream filters in Vercel/Fly/Datadog can group by call.
+    """
+
+    def process(self, msg, kwargs):  # type: ignore[override]
+        cid = self.extra.get("call_id") if self.extra else None
+        if cid:
+            return f"[call_id={cid}] {msg}", kwargs
+        return msg, kwargs
+
+
+def _logger_for_call(call_id: Optional[str]) -> logging.LoggerAdapter:
+    """Return a LoggerAdapter bound to a call_id (None → unprefixed)."""
+    return CallIdAdapter(logger, {"call_id": call_id} if call_id else {})
+
+
 # ─── LLM factory ──────────────────────────────────────────────────────────
 def _llm_for(agent: Optional[AxonAgent]):
     """Build a LiveKit-Agents-compatible LLM from the agent's provider/model."""
@@ -235,13 +255,15 @@ async def entrypoint(ctx: JobContext) -> None:
     # state machine instead of running a single-agent persona.
     flow_id = flow_id_from_metadata(ctx.room.metadata)
     call_id = call_id_from_metadata(ctx.room.metadata)
+    # Per-call logger: every line carries [call_id=…] for traceability.
+    clog = _logger_for_call(call_id)
     if flow_id:
-        logger.info("flow_id=%s detected — booting FlowRuntime", flow_id)
+        clog.info("flow_id=%s detected — booting FlowRuntime", flow_id)
         runtime = FlowRuntime(call_id=call_id)
         try:
             await runtime.load(flow_id)
         except Exception:
-            logger.exception("failed to load flow %s — falling back to single-agent mode", flow_id)
+            clog.exception("failed to load flow %s — falling back to single-agent mode", flow_id)
         else:
             # A session is still required to drive say()/STT during the flow.
             session = AgentSession(
@@ -285,9 +307,30 @@ async def entrypoint(ctx: JobContext) -> None:
 
     axon = load_agent(agent_id) if agent_id else None
     if axon:
-        logger.info("loaded agent %s (%s)", axon.id, axon.name)
+        clog.info("loaded agent %s (%s)", axon.id, axon.name)
+        if axon.hold_music_url:
+            clog.info(
+                "org %s hold music wired: %s", axon.org_id, axon.hold_music_url
+            )
+            try:
+                import json as _json
+
+                current_meta = ctx.room.metadata or "{}"
+                try:
+                    meta = _json.loads(current_meta) if current_meta else {}
+                except Exception:
+                    meta = {}
+                if isinstance(meta, dict):
+                    meta.setdefault("hold_music_url", axon.hold_music_url)
+                    meta.setdefault("org_id", axon.org_id)
+                    try:
+                        ctx.room._metadata = _json.dumps(meta)  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
+            except Exception:
+                clog.debug("could not expose hold_music_url on room metadata")
     else:
-        logger.info("no agent_id resolved; using env defaults")
+        clog.info("no agent_id resolved; using env defaults")
 
     instructions = axon.system_prompt if axon else (
         "Tu es un assistant vocal multilingue (FR/EN). Sois concis et conversationnel."
@@ -309,26 +352,26 @@ async def entrypoint(ctx: JobContext) -> None:
         tools.extend(_build_n8n_tools(axon))
         if axon.rag_enabled:
             tools.append(_build_rag_tool(axon))
-            logger.info("RAG tool enabled (top-%d)", axon.rag_top_k)
+            clog.info("RAG tool enabled (top-%d)", axon.rag_top_k)
         # Multi-agent swarm: add `transfer_to_specialist` if this agent
         # belongs to a team. Non-blocking: returns None when no team.
         try:
             swarm_tool = build_transfer_tool(axon.id, ctx.room)
         except Exception:
-            logger.exception("swarm tool build failed; continuing without it")
+            clog.exception("swarm tool build failed; continuing without it")
             swarm_tool = None
         if swarm_tool is not None:
             tools.append(swarm_tool)
-            logger.info("swarm: transfer_to_specialist tool enabled")
+            clog.info("swarm: transfer_to_specialist tool enabled")
     else:
         # legacy path: env-only n8n tools
         if os.getenv("N8N_BASE_URL") and os.getenv("N8N_API_KEY"):
             try:
                 from n8n_tools import N8nClient, build_n8n_tools
                 tools = build_n8n_tools(N8nClient())
-                logger.info("n8n tools enabled (%d) — legacy mode", len(tools))
+                clog.info("n8n tools enabled (%d) — legacy mode", len(tools))
             except Exception:
-                logger.exception("n8n tools failed to load")
+                clog.exception("n8n tools failed to load")
 
     await session.start(
         room=ctx.room,
@@ -344,13 +387,13 @@ async def entrypoint(ctx: JobContext) -> None:
         try:
             trigger_post_call_pipeline(call_id)
         except Exception:
-            logger.exception("post-call pipeline trigger failed")
+            clog.exception("post-call pipeline trigger failed")
 
     try:
         ctx.add_shutdown_callback(_on_shutdown)
     except Exception:
         # Older LiveKit versions don't expose add_shutdown_callback — best-effort.
-        logger.debug("ctx.add_shutdown_callback unavailable; skipping post-call hook")
+        clog.debug("ctx.add_shutdown_callback unavailable; skipping post-call hook")
 
 
 if __name__ == "__main__":

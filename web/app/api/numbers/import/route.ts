@@ -20,7 +20,7 @@ export const dynamic = "force-dynamic";
 const E164_RE = /^\+\d{6,15}$/;
 
 /**
- * POST /api/numbers/import   { phone_number, label?, org_id? }
+ * POST /api/numbers/import   { phone_number, label? }
  *
  * Register a Twilio number that already exists on the connected account
  * into Axon's phone_numbers table. The standard /api/numbers POST only
@@ -87,9 +87,6 @@ export async function POST(req: Request) {
   }
 
   // 2) Avoid duplicates: a single phone_numbers row per E.164.
-  //    Resolve the target org from the caller's session — never silently
-  //    fall back to the Legacy catch-all, which would hide newly imported
-  //    numbers from the user who actually clicked "Importer".
   const sb = supabaseServer();
   const orgId = await requestOrgId(req);
   const { data: existing } = await sb

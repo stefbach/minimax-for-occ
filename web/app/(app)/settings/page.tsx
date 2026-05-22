@@ -1,4 +1,5 @@
 import { hasSupabase } from "@/lib/supabase";
+import { HelpButton } from "@/components/help/HelpButton";
 
 export const dynamic = "force-dynamic";
 
@@ -37,10 +38,15 @@ export default function SettingsPage() {
     { name: "LIVEKIT_SIP_URI", ok: !!process.env.LIVEKIT_SIP_URI, hint: "REQUIS pour la téléphonie. URI du trunk SIP LiveKit, ex: sip:<projet>.sip.livekit.cloud. Sans ça /api/twilio-voice renvoie 500 et tout appel (entrant comme sortant) joue 'application error'.", level: "required", section: "LiveKit" },
     { name: "LIVEKIT_SIP_USERNAME", ok: !!process.env.LIVEKIT_SIP_USERNAME, hint: "Optionnel — uniquement si ton trunk SIP exige une auth username/password.", level: "optional", section: "LiveKit" },
     { name: "LIVEKIT_SIP_PASSWORD", ok: !!process.env.LIVEKIT_SIP_PASSWORD, hint: "Optionnel — pendant de LIVEKIT_SIP_USERNAME.", level: "optional", section: "LiveKit" },
+    { name: "LIVEKIT_URL", ok: !!process.env.LIVEKIT_URL, hint: "Optionnel — variante server-only de NEXT_PUBLIC_LIVEKIT_URL. /api/desk/dial l'utilise pour appeler l'API SIP outbound de LiveKit. Si absent, fallback sur NEXT_PUBLIC_LIVEKIT_URL.", level: "optional", section: "LiveKit" },
+    { name: "LIVEKIT_SIP_OUTBOUND_TRUNK_ID", ok: !!process.env.LIVEKIT_SIP_OUTBOUND_TRUNK_ID, hint: "Active la voie LiveKit outbound SIP API dans /api/desk/dial (au lieu de Twilio REST + TwiML callback) — c'est ce qui permet à l'humain de parler à la destination via son softphone. ID retourné par 'lk sip outbound-trunk create agent/sip/outbound-trunk.json'. Sans ça, /desk/dial retombe sur Twilio REST et la destination atterrit dans une room 'tel-*' (l'IA répond, pas toi).", level: "optional", section: "LiveKit" },
 
     // ─── Telephony · Twilio ──────────────────────────────────────────────
     { name: "TWILIO_ACCOUNT_SID", ok: !!process.env.TWILIO_ACCOUNT_SID, hint: "Twilio Console → Account → API keys & tokens (commence par AC...). Requis pour /numbers et /desk/dial.", level: "required", section: "Telephony · Twilio" },
     { name: "TWILIO_AUTH_TOKEN", ok: !!process.env.TWILIO_AUTH_TOKEN, hint: "Auth Token Twilio — utilisé pour l'API REST ET pour valider les webhooks signés (X-Twilio-Signature).", level: "required", section: "Telephony · Twilio" },
+    { name: "TWILIO_API_KEY_SID", ok: !!process.env.TWILIO_API_KEY_SID, hint: "API Key SID Twilio (commence par SK...). Sert à minter les tokens Twilio Voice SDK pour le softphone navigateur. Créer dans Console Twilio → Account → API keys & tokens.", level: "required", section: "Telephony · Twilio" },
+    { name: "TWILIO_API_KEY_SECRET", ok: !!process.env.TWILIO_API_KEY_SECRET, hint: "Secret accompagnant TWILIO_API_KEY_SID. Affiché UNE seule fois au moment de la création — note-le.", level: "required", section: "Telephony · Twilio" },
+    { name: "TWILIO_TWIML_APP_SID", ok: !!process.env.TWILIO_TWIML_APP_SID, hint: "TwiML App SID (commence par AP...). Créer dans Console Twilio → Voice → Manage → TwiML apps, Voice URL = https://<ton-app>/api/twilio/voice-outbound. Indique à Twilio où récupérer la TwiML quand le navigateur compose un numéro.", level: "required", section: "Telephony · Twilio" },
     { name: "TWILIO_SKIP_VALIDATION", ok: !!process.env.TWILIO_SKIP_VALIDATION, hint: "⚠️ Bypass de la validation de signature Twilio. À NE PAS définir en production — uniquement pour les tests locaux.", level: "info", section: "Telephony · Twilio" },
 
     // ─── Telephony · Telnyx ─────────────────────────────────────────────
@@ -62,7 +68,6 @@ export default function SettingsPage() {
     { name: "N8N_WEBHOOK_BASE_URL", ok: !!process.env.N8N_WEBHOOK_BASE_URL, hint: "Optionnel — uniquement si tes webhooks n8n sont hébergés sur un domaine distinct du base_url API.", level: "optional", section: "n8n" },
   ];
 
-  // Group by section for the rendered table.
   const sections: Section[] = [
     "Base & auth",
     "IA · LLM / TTS / STT",
@@ -83,7 +88,6 @@ export default function SettingsPage() {
   };
   for (const c of checks) grouped[c.section].push(c);
 
-  // Summary: count required-missing for the header banner.
   const missingRequired = checks.filter((c) => c.level === "required" && !c.ok);
 
   return (
@@ -97,6 +101,7 @@ export default function SettingsPage() {
             puis <strong>Redeploy</strong> (les env sont snapshotées au build des serverless functions).
           </div>
         </div>
+        <HelpButton contextKey="settings" />
       </div>
 
       {missingRequired.length > 0 ? (

@@ -1,5 +1,6 @@
 import { headers } from "next/headers";
 import { AnalyticsClient } from "@/components/analytics/AnalyticsClient";
+import { HelpButton } from "@/components/help/HelpButton";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -62,6 +63,7 @@ export default async function AnalyticsPage() {
             Volumes, performance agents, files d&apos;attente et campagnes.
           </div>
         </div>
+        <HelpButton contextKey="analytics" />
       </div>
       <AnalyticsClient initial={initial} initialRange={range} />
     </div>

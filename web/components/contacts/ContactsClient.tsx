@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 
 interface Contact {
   id: string;
@@ -13,6 +14,7 @@ interface Contact {
 }
 
 export function ContactsClient({ initial }: { initial: Contact[] }) {
+  const router = useRouter();
   const [rows, setRows] = useState<Contact[]>(initial);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -22,6 +24,22 @@ export function ContactsClient({ initial }: { initial: Contact[] }) {
   const [email, setEmail] = useState("");
   const [tags, setTags] = useState("");
   const [notes, setNotes] = useState("");
+
+  // Search bar: matches any of name / e164 / email / tags. Updates
+  // as the user types, no debouncing needed since the list is in-memory.
+  const [search, setSearch] = useState("");
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((c) => {
+      if (c.display_name?.toLowerCase().includes(q)) return true;
+      if (c.e164.toLowerCase().includes(q)) return true;
+      if (c.email?.toLowerCase().includes(q)) return true;
+      if ((c.tags ?? []).some((t) => t.toLowerCase().includes(q))) return true;
+      return false;
+    });
+  }, [rows, search]);
 
   async function refresh() {
     const r = await fetch("/api/contacts");
@@ -59,10 +77,52 @@ export function ContactsClient({ initial }: { initial: Contact[] }) {
     refresh();
   }
 
+  /**
+   * Click-to-dial: navigate the softphone with the contact's number
+   * pre-filled in the URL. /desk reads ?call=<e164> on mount and
+   * fires the dial automatically.
+   */
+  function callContact(c: Contact) {
+    const qs = new URLSearchParams({ call: c.e164 });
+    if (c.display_name) qs.set("name", c.display_name);
+    router.push(`/desk?${qs.toString()}`);
+  }
+
+  // Bulk Excel import state.
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<{
+    inserted: number;
+    skipped: number;
+    errors: { row: number; reason: string }[];
+  } | null>(null);
+
+  async function onExcelImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-selecting the same file later
+    if (!file) return;
+    setImporting(true);
+    setImportResult(null);
+    setError(null);
+    try {
+      const fd = new FormData();
+      fd.set("file", file);
+      const r = await fetch("/api/contacts/import", { method: "POST", body: fd });
+      const j = await r.json();
+      if (!r.ok) {
+        setError(j.error ?? "Import en échec");
+      } else {
+        setImportResult(j);
+        refresh();
+      }
+    } finally {
+      setImporting(false);
+    }
+  }
+
   return (
     <div style={{ display: "grid", gap: 16 }}>
       <div className="card">
-        <h3 style={{ marginTop: 0 }}>Ajouter un contact</h3>
+        <h3 style={{ marginTop: 0 }}>Ajouter un contact manuellement</h3>
         <form onSubmit={onSubmit} style={{ display: "grid", gap: 10 }}>
           <div className="form-row">
             <div>
@@ -97,16 +157,110 @@ export function ContactsClient({ initial }: { initial: Contact[] }) {
         </form>
       </div>
 
+      {/* Bulk Excel import — for clients who'd rather not type 500 rows. */}
+      <div className="card">
+        <h3 style={{ marginTop: 0 }}>Import en masse (fichier Excel)</h3>
+        <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
+          Pour ajouter beaucoup de contacts d&apos;un coup, télécharge le modèle
+          Excel ci-dessous, remplis-le avec les colonnes exactes
+          (<span className="kbd">phone</span>, <span className="kbd">name</span>,{" "}
+          <span className="kbd">email</span>, <span className="kbd">tags</span>,{" "}
+          <span className="kbd">notes</span>), puis re-uploade-le. Les numéros
+          déjà connus sont mis à jour, les nouveaux ajoutés.
+        </p>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <a
+            href="/api/contacts/template"
+            className="button ghost"
+            style={{ textDecoration: "none", padding: "8px 12px" }}
+          >
+            📥 Télécharger le modèle Excel
+          </a>
+          <label
+            className="button"
+            style={{
+              padding: "8px 12px",
+              cursor: importing ? "wait" : "pointer",
+              opacity: importing ? 0.6 : 1,
+            }}
+          >
+            {importing ? "Import en cours…" : "📤 Importer un fichier Excel"}
+            <input
+              type="file"
+              accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+              style={{ display: "none" }}
+              onChange={onExcelImport}
+              disabled={importing}
+            />
+          </label>
+        </div>
+        {importResult && (
+          <div className="card" style={{ marginTop: 10, padding: 10, background: "var(--bg-2)" }}>
+            <div style={{ fontSize: 13 }}>
+              ✅ <strong>{importResult.inserted}</strong> contact{importResult.inserted === 1 ? "" : "s"} importé{importResult.inserted === 1 ? "" : "s"}
+              {importResult.skipped > 0 ? (
+                <>, <strong style={{ color: "var(--bad)" }}>{importResult.skipped}</strong> ligne{importResult.skipped === 1 ? "" : "s"} ignorée{importResult.skipped === 1 ? "" : "s"}</>
+              ) : null}
+            </div>
+            {importResult.errors.length > 0 && (
+              <details style={{ marginTop: 6 }}>
+                <summary style={{ cursor: "pointer", fontSize: 13 }}>
+                  Détail des erreurs ({importResult.errors.length})
+                </summary>
+                <ul style={{ marginTop: 6, fontSize: 12, paddingLeft: 18 }}>
+                  {importResult.errors.slice(0, 20).map((e, i) => (
+                    <li key={i}>
+                      {e.row > 0 ? `Ligne ${e.row}: ` : ""}{e.reason}
+                    </li>
+                  ))}
+                  {importResult.errors.length > 20 && (
+                    <li className="muted">… et {importResult.errors.length - 20} autres</li>
+                  )}
+                </ul>
+              </details>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Search bar — filters the contact list as you type. */}
+      <div className="card" style={{ padding: 12 }}>
+        <div className="form-row" style={{ alignItems: "center" }}>
+          <div style={{ flex: 1 }}>
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Rechercher un contact (nom, numéro, email, tag…)"
+              style={{ width: "100%", padding: "8px 12px", fontSize: 14 }}
+            />
+          </div>
+          <div className="muted" style={{ fontSize: 13, whiteSpace: "nowrap" }}>
+            {filtered.length} / {rows.length} contact{rows.length === 1 ? "" : "s"}
+          </div>
+        </div>
+      </div>
+
       <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-        {rows.length === 0 ? (
-          <div style={{ padding: 16, color: "var(--muted)" }}>Aucun contact pour l&apos;instant.</div>
+        {filtered.length === 0 ? (
+          <div style={{ padding: 16, color: "var(--muted)" }}>
+            {rows.length === 0
+              ? "Aucun contact pour l'instant. Ajoute-en un manuellement ci-dessus."
+              : "Aucun contact ne correspond à ta recherche."}
+          </div>
         ) : (
           <table className="list">
             <thead>
-              <tr><th>Nom</th><th>Téléphone</th><th>Email</th><th>Tags</th><th></th></tr>
+              <tr>
+                <th>Nom</th>
+                <th>Téléphone</th>
+                <th>Email</th>
+                <th>Tags</th>
+                <th style={{ textAlign: "right" }}>Actions</th>
+              </tr>
             </thead>
             <tbody>
-              {rows.map((c) => (
+              {filtered.map((c) => (
                 <tr key={c.id}>
                   <td>{c.display_name ?? <em style={{ color: "var(--muted)" }}>—</em>}</td>
                   <td><span className="kbd">{c.e164}</span></td>
@@ -116,7 +270,14 @@ export function ContactsClient({ initial }: { initial: Contact[] }) {
                       <span key={t} className="tag" style={{ marginRight: 4 }}>{t}</span>
                     ))}
                   </td>
-                  <td style={{ textAlign: "right" }}>
+                  <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                    <button
+                      onClick={() => callContact(c)}
+                      style={{ padding: "5px 10px", marginRight: 6 }}
+                      title="Appeler ce contact depuis le softphone"
+                    >
+                      ☎ Appeler
+                    </button>
                     <button className="danger" style={{ padding: "5px 9px" }} onClick={() => del(c.id)}>
                       Supprimer
                     </button>

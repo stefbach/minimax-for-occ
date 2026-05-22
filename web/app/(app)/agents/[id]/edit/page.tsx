@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { AgentForm } from "@/components/agent/AgentForm";
 import type { Agent } from "@/lib/types";
+import { HelpButton } from "@/components/help/HelpButton";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +33,7 @@ export default async function EditAgentPage({ params }: { params: Promise<{ id: 
             </Link>
           </div>
         </div>
+        <HelpButton contextKey="agents.detail" />
       </div>
       <AgentForm initial={agent} />
     </>

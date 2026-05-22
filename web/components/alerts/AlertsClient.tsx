@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+import { HelpButton } from "@/components/help/HelpButton";
+import { useToast } from "@/lib/use-toast";
+import { SkeletonRows } from "@/components/ui/Skeleton";
 
 type Alert = {
   id: string;
@@ -31,11 +34,14 @@ function sevColor(s: string): string {
 }
 
 export function AlertsClient() {
+  const toast = useToast();
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [showAcked, setShowAcked] = useState(false);
   const [severity, setSeverity] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [orgId, setOrgId] = useState<string | null>(null);
+  const [liveConnected, setLiveConnected] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -50,62 +56,72 @@ export function AlertsClient() {
       }
       const data = (await r.json()) as Alert[];
       setAlerts(data);
+      // Capture the org_id from the first row so we can scope the realtime
+      // subscription to this org (we never receive cross-org rows here, but
+      // an org-scoped filter avoids spurious websocket traffic).
+      if (!orgId && data.length > 0 && data[0].org_id) {
+        setOrgId(data[0].org_id);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
-  }, [showAcked, severity]);
+  }, [showAcked, severity, orgId]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
-  // Realtime subscription on alerts.
+  // Realtime subscription on alerts, scoped to the current org when known.
   useEffect(() => {
     const sb = supabaseBrowser();
+    const channelName = orgId ? `alerts-${orgId}` : "alerts-stream";
+    const filter = orgId ? { event: "INSERT" as const, schema: "public", table: "alerts", filter: `org_id=eq.${orgId}` } : { event: "*" as const, schema: "public", table: "alerts" };
     const channel = sb
-      .channel("alerts-stream")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "alerts" },
-        () => void refresh(),
-      )
-      .subscribe();
+      .channel(channelName)
+      .on("postgres_changes", filter, () => void refresh())
+      .subscribe((status: string) => {
+        setLiveConnected(status === "SUBSCRIBED");
+      });
     return () => {
+      setLiveConnected(false);
       void sb.removeChannel(channel);
     };
-  }, [refresh]);
+  }, [orgId, refresh]);
 
   const ackOne = useCallback(
     async (id: string) => {
       try {
-        await fetch(`/api/alerts/${id}`, {
+        const r = await fetch(`/api/alerts/${id}`, {
           method: "PATCH",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ acked: true }),
         });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
         await refresh();
-      } catch {
-        /* ignore */
+      } catch (e) {
+        toast.error(`Ack échoué : ${e instanceof Error ? e.message : String(e)}`);
       }
     },
-    [refresh],
+    [refresh, toast],
   );
 
   const ackAll = useCallback(async () => {
     if (!confirm("Ack toutes les alertes non lues ?")) return;
     try {
-      await fetch("/api/alerts", {
+      const r = await fetch("/api/alerts", {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ all_unacked: true }),
       });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      toast.success("Alertes marquées comme lues.");
       await refresh();
-    } catch {
-      /* ignore */
+    } catch (e) {
+      toast.error(`Ack échoué : ${e instanceof Error ? e.message : String(e)}`);
     }
-  }, [refresh]);
+  }, [refresh, toast]);
 
   const counts = useMemo(() => {
     const c = { critical: 0, warn: 0, info: 0 };
@@ -119,7 +135,19 @@ export function AlertsClient() {
     <div>
       <div className="page-header">
         <div>
-          <h1>Alertes</h1>
+          <h1 style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            Alertes
+            <span
+              className="tag"
+              title={liveConnected ? "Connecté au flux temps réel" : "Reconnexion…"}
+              style={{
+                fontSize: 11,
+                color: liveConnected ? "var(--good, #16a34a)" : "var(--muted)",
+              }}
+            >
+              {liveConnected ? "🟢 Live" : "⚪ Hors-ligne"}
+            </span>
+          </h1>
           <div className="subtitle">
             Alertes générées en temps réel depuis les analyses LLM post-appel.
           </div>
@@ -133,6 +161,7 @@ export function AlertsClient() {
           <button className="ghost" onClick={() => void refresh()}>
             Rafraîchir
           </button>
+          <HelpButton contextKey="alerts" />
         </div>
       </div>
 
@@ -143,6 +172,9 @@ export function AlertsClient() {
       </div>
 
       <div className="card" style={{ marginTop: 18 }}>
+        <h2 style={{ margin: "0 0 12px", fontSize: 16 }}>
+          {showAcked ? "Alertes acknowledged" : "Alertes actives"}
+        </h2>
         <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 12 }}>
           <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
             <input
@@ -161,11 +193,31 @@ export function AlertsClient() {
         </div>
 
         {error && <p style={{ color: "var(--bad)" }}>{error}</p>}
-        {loading && <p className="muted">Chargement…</p>}
+        {loading && <SkeletonRows count={5} />}
         {!loading && alerts.length === 0 && (
-          <p className="muted" style={{ margin: 0 }}>
-            Aucune alerte {showAcked ? "ack'ée" : "active"}.
-          </p>
+          <div style={{ display: "grid", gap: 10, padding: "8px 2px" }}>
+            <p className="muted" style={{ margin: 0 }}>
+              Aucune alerte {showAcked ? "ack'ée" : "active"}.
+            </p>
+            {!showAcked && (
+              <>
+                <div className="muted" style={{ fontSize: 13, lineHeight: 1.5 }}>
+                  Les alertes apparaissent automatiquement quand une analyse LLM
+                  post-appel détecte un signal (insulte, plainte, opportunité…).
+                  Vous n&apos;avez encore aucune politique configurée ?
+                </div>
+                <div>
+                  <Link
+                    href="/analyses"
+                    className="button"
+                    style={{ textDecoration: "none", display: "inline-block" }}
+                  >
+                    Configurer une politique d&apos;analyse
+                  </Link>
+                </div>
+              </>
+            )}
+          </div>
         )}
         {alerts.length > 0 && (
           <table className="list">

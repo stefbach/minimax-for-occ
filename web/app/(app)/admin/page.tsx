@@ -1,9 +1,10 @@
 import { hasSupabase, supabaseServer } from "@/lib/supabase";
 import { AdminClient } from "@/components/admin/AdminClient";
+import { HelpButton } from "@/components/help/HelpButton";
 
 export const dynamic = "force-dynamic";
 
-const DEFAULT_ORG = "00000000-0000-0000-0000-000000000001";
+import { LEGACY_ORG_ID as DEFAULT_ORG } from "@/lib/constants";
 
 export default async function AdminPage() {
   let org: { id: string; name: string; slug: string } | null = null;
@@ -30,6 +31,7 @@ export default async function AdminPage() {
             Gestion des utilisateurs, invitations et paramètres de l&apos;organisation.
           </div>
         </div>
+        <HelpButton contextKey="admin" />
       </div>
       <AdminClient
         orgId={org?.id ?? DEFAULT_ORG}

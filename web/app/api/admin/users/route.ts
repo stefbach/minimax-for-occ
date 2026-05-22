@@ -1,15 +1,9 @@
 import { NextResponse } from "next/server";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
+import { requestOrgId } from "@/lib/request-org";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const DEFAULT_ORG = "00000000-0000-0000-0000-000000000001";
-
-function orgFrom(req: Request): string {
-  const { searchParams } = new URL(req.url);
-  return searchParams.get("org_id") ?? DEFAULT_ORG;
-}
 
 /**
  * GET /api/admin/users?org_id=
@@ -20,7 +14,7 @@ function orgFrom(req: Request): string {
 export async function GET(req: Request) {
   if (!hasSupabase()) return NextResponse.json([]);
   const sb = supabaseServer();
-  const orgId = orgFrom(req);
+  const orgId = await requestOrgId(req);
 
   const { data: members, error } = await sb
     .from("memberships")
@@ -96,7 +90,10 @@ export async function POST(req: Request) {
   if (body.password.length < 8) {
     return NextResponse.json({ error: "password must be at least 8 characters" }, { status: 400 });
   }
-  const orgId = body.org_id ?? DEFAULT_ORG;
+  // body.org_id is honoured only when the caller is super_admin (via
+  // requestOrgId reading ?org_id=). For everyone else we derive the org
+  // from the session.
+  const orgId = await requestOrgId(req);
   const sb = supabaseServer();
 
   // 1) Try to create the auth user
@@ -170,7 +167,7 @@ export async function PATCH(req: Request) {
   if (!body.user_id || !body.role) {
     return NextResponse.json({ error: "user_id and role required" }, { status: 400 });
   }
-  const orgId = body.org_id ?? DEFAULT_ORG;
+  const orgId = await requestOrgId(req);
   const sb = supabaseServer();
   const { data, error } = await sb
     .from("memberships")
@@ -192,7 +189,7 @@ export async function DELETE(req: Request) {
   if (!hasSupabase()) return NextResponse.json({ error: "Supabase not configured" }, { status: 500 });
   const { searchParams } = new URL(req.url);
   const userId = searchParams.get("user_id");
-  const orgId = searchParams.get("org_id") ?? DEFAULT_ORG;
+  const orgId = await requestOrgId(req);
   if (!userId) return NextResponse.json({ error: "user_id required" }, { status: 400 });
   const sb = supabaseServer();
   const { error } = await sb

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   LiveKitRoom,
   RoomAudioRenderer,
@@ -11,6 +12,7 @@ import { supabaseBrowser } from "@/lib/supabase-browser";
 import { TransferModal } from "./TransferModal";
 import { ContactPanel } from "./ContactPanel";
 import { ScriptPanel } from "./ScriptPanel";
+import { useToast } from "@/lib/use-toast";
 
 type PresenceStatus = "offline" | "available" | "busy" | "away";
 
@@ -69,10 +71,15 @@ function formatRelative(ts: string): string {
 }
 
 export function Softphone() {
+  const toast = useToast();
+  const searchParams = useSearchParams();
   const [bootstrapping, setBootstrapping] = useState(true);
   const [handle, setHandle] = useState<Handle | null>(null);
   const [registering, setRegistering] = useState(false);
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
+  // Optional display name passed via ?name= for context next to the
+  // outbound call card.
+  const [dialContactName, setDialContactName] = useState<string | null>(null);
 
   const [status, setStatus] = useState<PresenceStatus>("offline");
   const [calls, setCalls] = useState<CallRow[]>([]);
@@ -87,28 +94,154 @@ export function Softphone() {
   const [holdBusy, setHoldBusy] = useState(false);
   const [holdError, setHoldError] = useState<string | null>(null);
 
-  // Outbound dialer state
+  // Outbound dialer state — handled via Twilio Voice SDK (WebRTC ↔ Twilio
+  // ↔ PSTN), not LiveKit. Sidesteps the Elastic SIP Trunking 403s and
+  // gives the human softphone a real bidirectional audio path with the
+  // destination. Same pattern as CloudTalk / Aircall.
   const [dialNumber, setDialNumber] = useState("+33");
   const [dialing, setDialing] = useState(false);
   const [dialError, setDialError] = useState<string | null>(null);
+  // "idle" | "ringing" | "in-progress" — Twilio call state shown to the user.
+  const [twilioCallState, setTwilioCallState] = useState<
+    "idle" | "ringing" | "in-progress"
+  >("idle");
+  const [twilioMuted, setTwilioMuted] = useState(false);
+  const twilioDeviceRef = useRef<unknown>(null);
+  const twilioCallRef = useRef<unknown>(null);
+  // Cached SDK module — dynamic-imported on first dial so the bundle stays
+  // light for non-softphone users.
+  const twilioSdkRef = useRef<typeof import("@twilio/voice-sdk") | null>(null);
+
+  async function ensureTwilioDevice(): Promise<unknown> {
+    if (twilioDeviceRef.current) return twilioDeviceRef.current;
+
+    if (!twilioSdkRef.current) {
+      twilioSdkRef.current = await import("@twilio/voice-sdk");
+    }
+    const { Device } = twilioSdkRef.current;
+
+    const tokRes = await fetch("/api/desk/twilio-token", { cache: "no-store" });
+    const tokJson = await tokRes.json().catch(() => ({}));
+    if (!tokRes.ok || !tokJson.token) {
+      throw new Error(tokJson.error ?? "couldn't mint Twilio Voice token");
+    }
+
+    const device = new Device(tokJson.token, {
+      // Standard Twilio defaults; codec preference favours Opus for clarity.
+      codecPreferences: ["opus", "pcmu"] as unknown as never[],
+      logLevel: "warn",
+    });
+
+    device.on("error", (err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      setDialError(`Twilio Device: ${msg}`);
+    });
+
+    twilioDeviceRef.current = device;
+    return device;
+  }
 
   const dial = useCallback(async () => {
     setDialing(true);
     setDialError(null);
     try {
-      const r = await fetch("/api/desk/dial", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ to_e164: dialNumber }),
+      if (!handle) throw new Error("no agent_handle — activate the desk first");
+
+      // Register the call in Supabase first so it appears in /calls,
+      // the desk EN COURS column, per-contact history, etc. Auto-creates
+      // the contact for first-time E.164s.
+      let callId: string | null = null;
+      try {
+        const reg = await fetch("/api/desk/sdk-call", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ to_e164: dialNumber }),
+        });
+        if (reg.ok) {
+          const j = await reg.json();
+          callId = j.call_id as string;
+        }
+      } catch {
+        /* if the logging endpoint fails, still let the dial go through —
+           Twilio bills the call regardless, no point blocking on
+           bookkeeping. */
+      }
+
+      // Twilio.Device — registers with Twilio over WebSocket if not yet.
+      const device = (await ensureTwilioDevice()) as {
+        connect: (opts: { params: Record<string, string> }) => Promise<{
+          on: (event: string, handler: (...args: unknown[]) => void) => void;
+          mute: (m: boolean) => void;
+          disconnect: () => void;
+        }>;
+      };
+
+      // Twilio's TwiML app receives every param we set here as form fields.
+      // OrgId lets the backend geo-route the From caller-ID against
+      // phone_numbers for this org.
+      const call = await device.connect({
+        params: { To: dialNumber, OrgId: handle.org_id },
       });
-      const data = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(data.error ?? "dial failed");
+      twilioCallRef.current = call;
+      setTwilioCallState("ringing");
+
+      // Helper to patch the Supabase row as the SDK call lifecycle fires.
+      const patchCall = (
+        state: "in_progress" | "ended",
+        disposition?: string,
+      ) => {
+        if (!callId) return;
+        void fetch("/api/desk/sdk-call", {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ call_id: callId, state, disposition }),
+        }).catch(() => {});
+      };
+
+      call.on("accept", () => {
+        setTwilioCallState("in-progress");
+        patchCall("in_progress");
+      });
+      call.on("ringing", () => setTwilioCallState("ringing"));
+      call.on("disconnect", () => {
+        setTwilioCallState("idle");
+        setTwilioMuted(false);
+        twilioCallRef.current = null;
+        patchCall("ended", "answered");
+      });
+      call.on("cancel", () => {
+        setTwilioCallState("idle");
+        patchCall("ended", "cancelled");
+      });
+      call.on("error", (err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        setDialError(`Twilio call: ${msg}`);
+        setTwilioCallState("idle");
+        patchCall("ended", "failed");
+      });
     } catch (e) {
       setDialError(e instanceof Error ? e.message : String(e));
+      setTwilioCallState("idle");
     } finally {
       setDialing(false);
     }
-  }, [dialNumber]);
+  }, [dialNumber, handle]);
+
+  function hangupTwilio() {
+    const call = twilioCallRef.current as { disconnect: () => void } | null;
+    if (call) call.disconnect();
+    setTwilioCallState("idle");
+    setTwilioMuted(false);
+    twilioCallRef.current = null;
+  }
+
+  function toggleTwilioMute() {
+    const call = twilioCallRef.current as { mute: (m: boolean) => void } | null;
+    if (!call) return;
+    const next = !twilioMuted;
+    call.mute(next);
+    setTwilioMuted(next);
+  }
 
   const padKey = useCallback((k: string) => {
     setDialNumber((n) => (n === "+33" && k === "+" ? "+" : n + k));
@@ -150,6 +283,37 @@ export function Softphone() {
   useEffect(() => {
     void bootstrap();
   }, [bootstrap]);
+
+  // Tear down the Twilio Device when the softphone unmounts so we don't
+  // leak the websocket connection to Twilio or the audio device.
+  useEffect(() => {
+    return () => {
+      const device = twilioDeviceRef.current as { destroy?: () => void } | null;
+      if (device?.destroy) {
+        try { device.destroy(); } catch { /* noop */ }
+      }
+      twilioDeviceRef.current = null;
+      twilioCallRef.current = null;
+    };
+  }, []);
+
+  // Click-to-dial from another page (e.g. /contacts): if the URL carries
+  // ?call=<e164>[&name=…], pre-fill the dial pad and fire the call as soon
+  // as the agent_handle is loaded. autoDialedRef prevents re-dialing on
+  // re-renders / handle refreshes after the first attempt.
+  const autoDialedRef = useRef(false);
+  useEffect(() => {
+    const callParam = searchParams?.get("call");
+    if (!callParam) return;
+    if (!/^\+\d{6,15}$/.test(callParam)) return;
+    setDialNumber(callParam);
+    const nameParam = searchParams?.get("name");
+    if (nameParam) setDialContactName(nameParam);
+    if (handle && !autoDialedRef.current) {
+      autoDialedRef.current = true;
+      void dial();
+    }
+  }, [searchParams, handle, dial]);
 
   const register = useCallback(async () => {
     setRegistering(true);
@@ -294,12 +458,15 @@ export function Softphone() {
       const data = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(data.error ?? `HTTP ${r.status}`);
       setOnHold(Boolean(data.on_hold));
+      toast.success(data.on_hold ? "Appel mis en attente." : "Appel repris.");
     } catch (e) {
-      setHoldError(e instanceof Error ? e.message : String(e));
+      const msg = e instanceof Error ? e.message : String(e);
+      setHoldError(msg);
+      toast.error(`Hold : ${msg}`);
     } finally {
       setHoldBusy(false);
     }
-  }, [activeCall, onHold]);
+  }, [activeCall, onHold, toast]);
 
   // Reset hold state whenever the active call changes / ends.
   useEffect(() => {
@@ -314,11 +481,15 @@ export function Softphone() {
 
   if (!handle) {
     return (
-      <div className="card" style={{ maxWidth: 520 }}>
-        <h3>Activer mon poste</h3>
+      <div className="card" style={{ maxWidth: 560 }}>
+        <h3>Votre poste n&apos;est pas encore configuré</h3>
         <p className="muted" style={{ marginTop: 6 }}>
-          Aucun handle « agent humain » n&apos;est associé à votre compte. Activez votre
-          poste pour recevoir des appels routés par les files d&apos;attente.
+          Pour recevoir et émettre des appels, un <em>agent_handle</em> (poste agent)
+          doit être lié à votre compte.
+        </p>
+        <p className="muted" style={{ marginTop: 4 }}>
+          Vous pouvez l&apos;activer vous-même ci-dessous, ou demander à un
+          administrateur d&apos;aller dans <strong>Admin → Utilisateurs → vous → « Activer le poste agent »</strong>.
         </p>
         {bootstrapError && (
           <div style={{ color: "var(--bad)", fontSize: 13, marginTop: 8 }}>
@@ -426,6 +597,39 @@ export function Softphone() {
               Reset
             </button>
           </div>
+          {/* Twilio Voice SDK call controls — visible while an outbound
+              call is active. Browser ↔ Twilio ↔ PSTN, completely separate
+              from the LiveKit room session shown below. */}
+          {twilioCallState !== "idle" && (
+            <div className="card" style={{ marginTop: 12, background: "var(--bg-2)" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div>
+                  <div style={{ fontWeight: 600 }}>
+                    {twilioCallState === "ringing" ? "📞 Sonne…" : "🔊 En conversation"}
+                  </div>
+                  <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
+                    {dialContactName ? `${dialContactName} · ${dialNumber}` : dialNumber}
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button
+                    className="ghost"
+                    onClick={toggleTwilioMute}
+                    style={{ padding: "6px 10px", fontSize: 13 }}
+                  >
+                    {twilioMuted ? "🔈 Démute" : "🔇 Mute"}
+                  </button>
+                  <button
+                    className="danger"
+                    onClick={hangupTwilio}
+                    style={{ padding: "6px 10px", fontSize: 13 }}
+                  >
+                    Raccrocher
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
           {dialError && (
             <div style={{ color: "var(--bad)", fontSize: 13, marginTop: 8 }}>
               {dialError}

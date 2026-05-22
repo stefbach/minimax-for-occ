@@ -5,10 +5,14 @@ import { embedText } from "@/lib/embed";
 import type { Agent } from "@/lib/types";
 import { requestOrgId } from "@/lib/request-org";
 import { recordUsage, estimateCostCents } from "@/lib/billing";
+import { rateLimit, clientIp } from "@/lib/rate-limit";
+import { currentUser } from "@/lib/supabase-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
+
+const CHAT_RATE_LIMIT = Number(process.env.CHAT_RATE_LIMIT_PER_MINUTE ?? 30);
 
 const DEFAULT_PROMPT =
   "Tu es un assistant utile, multilingue (FR/EN). Réponds dans la langue de l'utilisateur. Sois concis.";
@@ -49,6 +53,20 @@ export async function POST(req: Request) {
       JSON.stringify({ error: "OPENAI_API_KEY missing" }),
       { status: 500, headers: { "content-type": "application/json" } },
     );
+  }
+
+  // Per-user rate limit, falling back to IP for unauthenticated callers.
+  const user = await currentUser().catch(() => null);
+  const rlKey = user ? `chat:user:${user.id}` : `chat:ip:${clientIp(req)}`;
+  const rl = rateLimit(rlKey, CHAT_RATE_LIMIT);
+  if (!rl.ok) {
+    return new Response(JSON.stringify({ error: "rate_limited" }), {
+      status: 429,
+      headers: {
+        "content-type": "application/json",
+        "retry-after": Math.ceil((rl.resetAt - Date.now()) / 1000).toString(),
+      },
+    });
   }
 
   const { messages, agent_id } = (await req.json()) as {

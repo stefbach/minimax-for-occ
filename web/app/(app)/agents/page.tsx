@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import type { Agent } from "@/lib/types";
+import { HelpButton } from "@/components/help/HelpButton";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +21,10 @@ export default async function AgentsPage() {
           <h1>Agents</h1>
           <div className="subtitle">{agents.length} agent{agents.length === 1 ? "" : "s"}</div>
         </div>
-        <Link href="/agents/new"><button>+ Nouvel agent</button></Link>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <Link href="/agents/new"><button>+ Nouvel agent</button></Link>
+          <HelpButton contextKey="agents" />
+        </div>
       </div>
 
       {!hasSupabase() ? (

@@ -59,12 +59,33 @@ async function logAction(
 
 // ───────────────────────── supabase_query safety ─────────────────────────
 
-const DANGEROUS_RE = /\b(drop|truncate|delete|alter|grant|revoke|create\s+role|create\s+user)\b/i;
-const WRITE_RE = /\b(insert|update|delete|create\s+table|alter|drop|truncate|merge|copy)\b/i;
+/**
+ * Strip SQL comments (block + line) so keyword detection isn't fooled by
+ * `/* drop *​/` or `-- delete from`. Block comments come first because line
+ * comments are line-bounded and might otherwise wrap a `/*` opener.
+ */
+function stripSqlComments(sql: string): string {
+  return sql
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/--.*$/gm, " ");
+}
+
+const DANGEROUS_RE =
+  /\b(drop|truncate|delete|alter|grant|revoke)\b|\bcreate\s+(role|user)\b|\bset\s+role\b/i;
+const WRITE_RE =
+  /\b(insert|update|delete|merge|copy|truncate|alter|drop)\b|\bcreate\s+(table|index|view|materialized|schema|extension|function|trigger|policy)\b/i;
+
+/** Cap dry-run output so a wildcard SELECT can't blow up the response. */
+export const SQL_DRY_RUN_ROW_LIMIT = 100;
 
 export function classifySql(sql: string): { kind: "read" | "write" | "dangerous"; reason?: string } {
-  const stripped = sql.replace(/--.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
-  if (DANGEROUS_RE.test(stripped)) return { kind: "dangerous", reason: "matched destructive keyword (DROP/TRUNCATE/DELETE/…)" };
+  const stripped = stripSqlComments(sql);
+  if (DANGEROUS_RE.test(stripped)) {
+    return {
+      kind: "dangerous",
+      reason: "matched destructive keyword (DROP/TRUNCATE/DELETE/ALTER/GRANT/REVOKE/CREATE ROLE|USER/SET ROLE)",
+    };
+  }
   if (WRITE_RE.test(stripped)) return { kind: "write" };
   return { kind: "read" };
 }
@@ -78,7 +99,10 @@ export function classifySql(sql: string): { kind: "read" | "write" | "dangerous"
  * SQL blob. For ad-hoc reads, we attempt the RPC and surface the error if the
  * project hasn't provisioned it.
  */
-async function runRawSql(sql: string): Promise<{ rows: unknown[]; note?: string }> {
+async function runRawSql(
+  sql: string,
+  opts: { limit?: number } = {},
+): Promise<{ rows: unknown[]; note?: string; truncated?: boolean }> {
   const sb = supabaseServer();
   const { data, error } = await sb.rpc("exec_sql_admin", { query: sql });
   if (error) {
@@ -87,8 +111,12 @@ async function runRawSql(sql: string): Promise<{ rows: unknown[]; note?: string 
       note: `RPC exec_sql_admin not available (${error.message}). Provision it as a security definer function returning jsonb to enable raw SQL from the Copilot.`,
     };
   }
-  const rows = Array.isArray(data) ? (data as unknown[]) : [data];
-  return { rows };
+  const all = Array.isArray(data) ? (data as unknown[]) : [data];
+  const limit = opts.limit ?? Infinity;
+  if (Number.isFinite(limit) && all.length > limit) {
+    return { rows: all.slice(0, limit), truncated: true };
+  }
+  return { rows: all };
 }
 
 // ───────────────────────── execute (used by confirm endpoint) ─────────────────────────
@@ -176,6 +204,9 @@ async function runWriteTool(name: string, args: Record<string, unknown>, _ctx: A
       return { id: a.id, active: a.active ?? true };
     }
     case "supabase_query": {
+      // Re-classify the audited arguments verbatim — the confirm endpoint
+      // replays the exact `arguments` row that was logged, never anything the
+      // LLM may have rewritten.
       const a = args as { sql: string; force?: boolean };
       const c = classifySql(a.sql);
       if (c.kind === "dangerous" && !a.force) {
@@ -340,7 +371,7 @@ export function buildTools(ctx: AuditCtx) {
         const cls = classifySql(args.sql);
         // Read-only: run immediately, no audit row.
         if (cls.kind === "read") {
-          const out = await runRawSql(args.sql);
+          const out = await runRawSql(args.sql, { limit: SQL_DRY_RUN_ROW_LIMIT });
           return { kind: "read", ...out };
         }
         // Write or dangerous → stage as pending; do not execute.
@@ -352,8 +383,12 @@ export function buildTools(ctx: AuditCtx) {
           };
         }
         const id = await logAction(ctx, "supabase_query", args, { status: "pending" });
-        // Provide a dry-run preview so the LLM can describe the change.
-        const preview = await runRawSql(`begin; ${args.sql}; rollback;`);
+        // Provide a dry-run preview so the LLM can describe the change. The
+        // wrapper rolls back so this is non-destructive, and we cap the
+        // returned rows to keep responses bounded.
+        const preview = await runRawSql(`begin; ${args.sql}; rollback;`, {
+          limit: SQL_DRY_RUN_ROW_LIMIT,
+        });
         return {
           kind: cls.kind,
           pending: true,

@@ -3,10 +3,13 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { NextResponse } from "next/server";
 import { currentMembership, currentUser } from "@/lib/supabase-auth";
 import { buildTools } from "@/lib/copilot/tools";
+import { rateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
+
+const COPILOT_RATE_LIMIT = Number(process.env.COPILOT_RATE_LIMIT_PER_MINUTE ?? 10);
 
 const SYSTEM = `Tu es le Copilote Super Admin d'Axon Voice Platform.
 Tu peux piloter directement la plateforme via les tools mis à ta disposition :
@@ -38,6 +41,18 @@ export async function POST(req: Request) {
   const m = await currentMembership();
   if (!m || m.role !== "super_admin") {
     return NextResponse.json({ error: "forbidden — super_admin only" }, { status: 403 });
+  }
+
+  // Per-user rate limit (copilot tools fan out to expensive backends).
+  const rl = rateLimit(`copilot-chat:user:${user.id}`, COPILOT_RATE_LIMIT);
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "rate_limited" },
+      {
+        status: 429,
+        headers: { "retry-after": Math.ceil((rl.resetAt - Date.now()) / 1000).toString() },
+      },
+    );
   }
 
   let body: { messages: UIMessage[] };

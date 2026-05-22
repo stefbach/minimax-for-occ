@@ -1,6 +1,7 @@
 import { hasSupabase, supabaseServer } from "@/lib/supabase";
 import { currentUser } from "@/lib/supabase-auth";
 import { OrgsAdminClient, type OrgRow } from "@/components/admin/OrgsAdminClient";
+import { HelpButton } from "@/components/help/HelpButton";
 
 export const dynamic = "force-dynamic";
 
@@ -67,6 +68,7 @@ export default async function SuperAdminOrgsPage() {
             Vue plateforme : toutes les organisations, leur effectif et leur activité récente.
           </div>
         </div>
+        <HelpButton contextKey="admin.orgs" />
       </div>
 
       {forbidden ? (

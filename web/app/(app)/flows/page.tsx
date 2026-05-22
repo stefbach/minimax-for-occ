@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { NewFlowButton } from "./NewFlowButton";
+import { HelpButton } from "@/components/help/HelpButton";
 
 export const dynamic = "force-dynamic";
 
-const DEFAULT_ORG_ID = "00000000-0000-0000-0000-000000000001";
+import { LEGACY_ORG_ID as DEFAULT_ORG_ID } from "@/lib/constants";
 
 type FlowRow = {
   id: string;
@@ -44,7 +45,10 @@ export default async function FlowsPage() {
             {flows.length} flow{flows.length === 1 ? "" : "s"} · constructeur visuel drag-drop
           </div>
         </div>
-        <NewFlowButton />
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <NewFlowButton />
+          <HelpButton contextKey="flows" />
+        </div>
       </div>
 
       {!hasSupabase() ? (

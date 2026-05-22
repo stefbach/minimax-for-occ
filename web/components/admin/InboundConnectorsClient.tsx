@@ -155,7 +155,29 @@ export function InboundConnectorsClient({
         {loading ? (
           <div className="subtitle">Chargement…</div>
         ) : rows.length === 0 ? (
-          <div className="subtitle">Aucun connecteur — créez-en un ci-dessus.</div>
+          <div style={{ display: "grid", gap: 10 }}>
+            <div className="subtitle" style={{ margin: 0 }}>
+              Aucun connecteur pour l&apos;instant.
+            </div>
+            <div className="subtitle" style={{ margin: 0, maxWidth: 560 }}>
+              Un connecteur génère un secret unique pour qu&apos;un workflow n8n
+              (Google Ads, Facebook Lead Ads, Google Sheets…) puisse pousser des
+              leads dans cette org.
+            </div>
+            <div>
+              <button
+                onClick={() => {
+                  const el = document.querySelector<HTMLInputElement>(
+                    "input[placeholder^=\"Nom\"]",
+                  );
+                  el?.focus();
+                  el?.scrollIntoView({ behavior: "smooth", block: "center" });
+                }}
+              >
+                + Créer un connecteur
+              </button>
+            </div>
+          </div>
         ) : (
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
