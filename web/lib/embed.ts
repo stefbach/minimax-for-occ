@@ -1,24 +1,25 @@
 import { cfg } from "./config";
 
 /**
- * Generate embeddings using OpenAI text-embedding-3-small (1536 dimensions).
+ * Generate embeddings using DeepSeek deepseek-embedding (1024 dimensions).
  * Used by RAG ingest path — server-side only.
  */
 export async function embedText(input: string | string[]): Promise<number[][]> {
-  const apiKey = cfg.openai.apiKey;
-  if (!apiKey) throw new Error("OPENAI_API_KEY missing");
+  const apiKey = cfg.deepseek.apiKey;
+  if (!apiKey) throw new Error("DEEPSEEK_API_KEY missing");
 
   const inputs = Array.isArray(input) ? input : [input];
-  const res = await fetch("https://api.openai.com/v1/embeddings", {
+  const baseUrl = cfg.deepseek.baseUrl.replace(/\/$/, "");
+  const res = await fetch(`${baseUrl}/embeddings`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
       authorization: `Bearer ${apiKey}`,
     },
-    body: JSON.stringify({ model: "text-embedding-3-small", input: inputs }),
+    body: JSON.stringify({ model: "deepseek-embedding", input: inputs }),
   });
   if (!res.ok) {
-    throw new Error(`OpenAI embeddings failed: ${res.status} ${await res.text()}`);
+    throw new Error(`DeepSeek embeddings failed: ${res.status} ${await res.text()}`);
   }
   const json = (await res.json()) as { data: { embedding: number[] }[] };
   return json.data.map((d) => d.embedding);

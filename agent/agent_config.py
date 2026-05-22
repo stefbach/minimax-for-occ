@@ -158,21 +158,22 @@ def load_agent(agent_id: str) -> Optional[AxonAgent]:
 
 
 def rag_search(agent_id: str, query: str, top_k: int = 4) -> list[dict[str, Any]]:
-    """Embed `query` via OpenAI and call the match_documents RPC for `agent_id`."""
+    """Embed `query` via DeepSeek and call the match_documents RPC for `agent_id`."""
     if not has_supabase():
         return []
-    api_key = os.getenv("OPENAI_API_KEY")
+    api_key = os.getenv("DEEPSEEK_API_KEY")
     if not api_key:
         return []
+    base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1").rstrip("/")
     try:
         with httpx.Client(timeout=httpx.Timeout(20.0)) as c:
             emb = c.post(
-                "https://api.openai.com/v1/embeddings",
+                f"{base_url}/embeddings",
                 headers={
                     "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json",
                 },
-                json={"model": "text-embedding-3-small", "input": query},
+                json={"model": "deepseek-embedding", "input": query},
             )
             emb.raise_for_status()
             embedding = emb.json()["data"][0]["embedding"]
