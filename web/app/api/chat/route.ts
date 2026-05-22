@@ -115,7 +115,15 @@ export async function POST(req: Request) {
     system,
     messages: await convertToModelMessages(messages),
     onError: ({ error }) => {
-      console.error("[api/chat] streamText error:", error);
+      const e = error as Record<string, unknown>;
+      console.error("[api/chat] streamText error", JSON.stringify({
+        name: e?.name,
+        message: e?.message,
+        statusCode: e?.statusCode,
+        url: e?.url,
+        responseBody: e?.responseBody,
+        cause: String(e?.cause ?? ""),
+      }));
     },
     onFinish: async ({ totalUsage }) => {
       try {
