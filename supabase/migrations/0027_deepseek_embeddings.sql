@@ -20,7 +20,10 @@ create index idx_documents_embedding_hnsw
   on public.documents
   using hnsw (embedding vector_cosine_ops);
 
--- 5. Replace the match_documents RPC to accept the new dimension.
+-- 5. Drop legacy overload (match_count DEFAULT 4, similarity_threshold real).
+drop function if exists public.match_documents(uuid, vector, integer, real);
+
+-- 6. Replace the match_documents RPC to accept the new dimension.
 create or replace function public.match_documents(
   agent           uuid,
   query_embedding vector(1024),
