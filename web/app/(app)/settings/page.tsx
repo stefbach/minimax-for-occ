@@ -24,7 +24,9 @@ export default function SettingsPage() {
     { name: "NEXT_PUBLIC_SUPABASE_ANON_KEY", ok: !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY, hint: "Clé anon Supabase. Sans elle, le middleware laisse passer sans login (failsafe dev).", level: "required", section: "Base & auth" },
 
     // ─── IA · LLM / TTS / STT ────────────────────────────────────────────
-    { name: "OPENAI_API_KEY", ok: !!process.env.OPENAI_API_KEY, hint: "Clé OpenAI — chat texte, embeddings (RAG), agents IA par défaut.", level: "required", section: "IA · LLM / TTS / STT" },
+    { name: "DEEPSEEK_API_KEY", ok: !!process.env.DEEPSEEK_API_KEY, hint: "Clé DeepSeek — chat texte, analyse d'appels, copilot, agents IA par défaut. sk-... sur https://platform.deepseek.com/api_keys.", level: "required", section: "IA · LLM / TTS / STT" },
+    { name: "DEEPSEEK_BASE_URL", ok: !!process.env.DEEPSEEK_BASE_URL, hint: "Optionnel — remplace l'URL DeepSeek (proxy ou déploiement on-prem). Par défaut: https://api.deepseek.com/v1.", level: "optional", section: "IA · LLM / TTS / STT" },
+    { name: "OPENAI_API_KEY", ok: !!process.env.OPENAI_API_KEY, hint: "Requis uniquement pour les embeddings RAG (text-embedding-3-small, 1536 dims). Changer de modèle nécessiterait de ré-indexer tous les vecteurs existants.", level: "optional", section: "IA · LLM / TTS / STT" },
     { name: "ANTHROPIC_API_KEY", ok: !!process.env.ANTHROPIC_API_KEY, hint: "Optionnel — uniquement si un agent utilise llm_provider = anthropic.", level: "optional", section: "IA · LLM / TTS / STT" },
     { name: "MINIMAX_API_KEY", ok: !!process.env.MINIMAX_API_KEY, hint: "MiniMax — TTS et clonage de voix.", level: "required", section: "IA · LLM / TTS / STT" },
     { name: "MINIMAX_BASE_URL", ok: !!process.env.MINIMAX_BASE_URL, hint: "Optionnel — bascule sur https://api.minimaxi.com/v1 pour les comptes Chine. Par défaut: api.minimax.io.", level: "optional", section: "IA · LLM / TTS / STT" },

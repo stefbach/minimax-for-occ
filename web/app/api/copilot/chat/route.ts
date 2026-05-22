@@ -31,8 +31,8 @@ Règles importantes :
    et montre les ids/slugs pour que l'utilisateur puisse copier-coller.`;
 
 export async function POST(req: Request) {
-  if (!process.env.OPENAI_API_KEY) {
-    return NextResponse.json({ error: "OPENAI_API_KEY missing" }, { status: 500 });
+  if (!process.env.DEEPSEEK_API_KEY) {
+    return NextResponse.json({ error: "DEEPSEEK_API_KEY missing" }, { status: 500 });
   }
 
   // ── auth: super_admin only ─────────────────────────────
@@ -62,11 +62,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "expected JSON body" }, { status: 400 });
   }
 
-  const openai = createOpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+  const deepseek = createOpenAI({
+    apiKey: process.env.DEEPSEEK_API_KEY!,
+    baseURL: process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com/v1",
+  });
   const tools = buildTools({ userId: user.id, orgId: m.org_id ?? null });
 
   const result = streamText({
-    model: openai("gpt-4o"),
+    model: deepseek("deepseek-chat"),
     system: SYSTEM,
     messages: await convertToModelMessages(body.messages),
     tools,

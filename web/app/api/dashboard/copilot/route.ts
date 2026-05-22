@@ -79,9 +79,9 @@ async function buildContextSummary(orgId: string): Promise<string> {
 }
 
 export async function POST(req: Request) {
-  if (!process.env.OPENAI_API_KEY) {
+  if (!process.env.DEEPSEEK_API_KEY) {
     return new Response(
-      JSON.stringify({ error: "OPENAI_API_KEY missing" }),
+      JSON.stringify({ error: "DEEPSEEK_API_KEY missing" }),
       { status: 500, headers: { "content-type": "application/json" } },
     );
   }
@@ -111,10 +111,13 @@ export async function POST(req: Request) {
     summary,
   ].join("\n");
 
-  const openai = createOpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+  const deepseek = createOpenAI({
+    apiKey: process.env.DEEPSEEK_API_KEY!,
+    baseURL: process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com/v1",
+  });
 
   const result = streamText({
-    model: openai("gpt-4o-mini"),
+    model: deepseek("deepseek-chat"),
     system,
     messages: await convertToModelMessages(messages),
   });
