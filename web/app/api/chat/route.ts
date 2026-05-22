@@ -114,6 +114,9 @@ export async function POST(req: Request) {
     model: deepseek(model),
     system,
     messages: await convertToModelMessages(messages),
+    onError: ({ error }) => {
+      console.error("[api/chat] streamText error:", error);
+    },
     onFinish: async ({ totalUsage }) => {
       try {
         const input = totalUsage?.inputTokens ?? 0;
