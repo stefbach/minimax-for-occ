@@ -1,42 +1,17 @@
-import { Queue, Worker, type Job } from "bullmq";
-import IORedis from "ioredis";
 import { supabase } from "./supabase.js";
 import { dialTarget, type DialJob } from "./dial.js";
 
-const QUEUE_NAME = "dial-queue";
 const POLL_INTERVAL_MS = Number(process.env.POLL_INTERVAL_MS ?? 30_000);
 const WORKER_CONCURRENCY = Number(process.env.WORKER_CONCURRENCY ?? 10);
 
-function redisUrl(): string {
-  const url = process.env.REDIS_URL;
-  if (!url) throw new Error("REDIS_URL env var required (e.g. redis://default:pwd@host:6379)");
-  return url;
-}
+// Active dial count tracked in-memory to respect concurrency without Redis.
+let activeDials = 0;
 
-function buildConnection() {
-  const url = redisUrl();
-  return new IORedis(url, {
-    maxRetriesPerRequest: null,
-    // Upstash requires explicit TLS options when using rediss:// protocol
-    ...(url.startsWith("rediss://") && { tls: {} }),
-  });
-}
-
-/**
- * Scheduler: every POLL_INTERVAL_MS, look at running campaigns and enqueue
- * any pending targets whose next_attempt_at <= now(), respecting each
- * campaign's max_concurrency vs. number already dialing.
- *
- * The schedule window (days + hours) is checked here so we don't dial outside
- * allowed hours.
- */
-async function scheduleTick(queue: Queue<DialJob>) {
+async function scheduleTick() {
   const sb = supabase();
   const { data: campaigns, error } = await sb
     .from("campaigns")
-    .select(
-      "id,state,max_concurrency,schedule",
-    )
+    .select("id,state,max_concurrency,schedule")
     .eq("state", "running");
   if (error) {
     console.error("[scheduler] failed to list running campaigns:", error.message);
@@ -48,13 +23,14 @@ async function scheduleTick(queue: Queue<DialJob>) {
   for (const c of campaigns) {
     if (!withinSchedule((c as any).schedule, now)) continue;
 
-    // Count currently 'dialing' targets to respect concurrency.
     const { count: dialingCount } = await sb
       .from("campaign_targets")
       .select("id", { count: "exact", head: true })
       .eq("campaign_id", c.id)
       .eq("status", "dialing");
-    const slots = Math.max(0, (c.max_concurrency ?? 5) - (dialingCount ?? 0));
+
+    const maxConcurrency = Math.min(c.max_concurrency ?? 5, WORKER_CONCURRENCY);
+    const slots = Math.max(0, maxConcurrency - (dialingCount ?? 0) - activeDials);
     if (slots === 0) continue;
 
     const { data: due } = await sb
@@ -67,15 +43,14 @@ async function scheduleTick(queue: Queue<DialJob>) {
       .limit(slots);
 
     for (const t of due ?? []) {
-      await queue.add(
-        "dial",
-        { target_id: t.id as string, campaign_id: t.campaign_id as string },
-        // jobId dedupes if the scheduler picks the same target twice.
-        { jobId: `target:${t.id}`, removeOnComplete: 100, removeOnFail: 500 },
-      );
+      const job: DialJob = { target_id: t.id as string, campaign_id: t.campaign_id as string };
+      activeDials++;
+      dialTarget(job)
+        .catch((err) => console.error(`[dialer] target ${t.id} failed:`, err?.message))
+        .finally(() => { activeDials--; });
     }
     if ((due ?? []).length > 0) {
-      console.log(`[scheduler] campaign=${c.id} enqueued=${(due ?? []).length}`);
+      console.log(`[scheduler] campaign=${c.id} dialing=${(due ?? []).length} active=${activeDials}`);
     }
   }
 }
@@ -102,39 +77,16 @@ function withinSchedule(schedule: Schedule | null | undefined, now: Date): boole
 }
 
 async function main() {
-  console.log("[dialer] starting…");
-  const connection = buildConnection();
-  const queue = new Queue<DialJob>(QUEUE_NAME, { connection });
+  console.log(`[dialer] starting — poll=${POLL_INTERVAL_MS}ms concurrency=${WORKER_CONCURRENCY}`);
 
-  const worker = new Worker<DialJob>(
-    QUEUE_NAME,
-    async (job: Job<DialJob>) => {
-      await dialTarget(job.data);
-    },
-    { connection: buildConnection(), concurrency: WORKER_CONCURRENCY },
-  );
-
-  worker.on("failed", (job, err) => {
-    console.error(`[worker] job ${job?.id} failed:`, err?.message);
-  });
-  worker.on("completed", (job) => {
-    console.log(`[worker] job ${job.id} done`);
-  });
-
-  console.log(`[dialer] worker ready (concurrency=${WORKER_CONCURRENCY}), polling every ${POLL_INTERVAL_MS}ms`);
-
-  // Run an initial tick on boot, then on interval.
-  await scheduleTick(queue).catch((e) => console.error("[scheduler] initial tick error:", e));
+  await scheduleTick().catch((e) => console.error("[scheduler] initial tick error:", e));
   const timer = setInterval(() => {
-    scheduleTick(queue).catch((e) => console.error("[scheduler] tick error:", e));
+    scheduleTick().catch((e) => console.error("[scheduler] tick error:", e));
   }, POLL_INTERVAL_MS);
 
-  // Graceful shutdown.
-  const shutdown = async (sig: string) => {
+  const shutdown = (sig: string) => {
     console.log(`[dialer] received ${sig}, shutting down…`);
     clearInterval(timer);
-    await worker.close();
-    await queue.close();
     process.exit(0);
   };
   process.on("SIGTERM", () => shutdown("SIGTERM"));
