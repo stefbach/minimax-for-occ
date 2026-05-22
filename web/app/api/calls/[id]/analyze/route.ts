@@ -13,8 +13,8 @@ export async function POST(
   if (!hasSupabase()) {
     return NextResponse.json({ error: "supabase_unavailable" }, { status: 503 });
   }
-  if (!process.env.OPENAI_API_KEY) {
-    return NextResponse.json({ error: "openai_not_configured" }, { status: 503 });
+  if (!process.env.DEEPSEEK_API_KEY) {
+    return NextResponse.json({ error: "deepseek_not_configured" }, { status: 503 });
   }
 
   let body: { policy_id?: string; transcript?: string } = {};

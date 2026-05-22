@@ -47,10 +47,20 @@ async function ragContext(agent: Agent, lastUserText: string): Promise<string> {
   }
 }
 
+/** Map legacy OpenAI/Anthropic model names stored in agent rows to DeepSeek equivalents. */
+function resolveDeepSeekModel(agentModel: string | undefined): string {
+  const m = agentModel ?? "";
+  if (m.startsWith("deepseek-")) return m;
+  // reasoning models → deepseek-reasoner
+  if (m === "o1" || m === "o1-mini" || m === "o3-mini") return "deepseek-reasoner";
+  // everything else → deepseek-chat
+  return "deepseek-chat";
+}
+
 export async function POST(req: Request) {
-  if (!process.env.OPENAI_API_KEY) {
+  if (!process.env.DEEPSEEK_API_KEY) {
     return new Response(
-      JSON.stringify({ error: "OPENAI_API_KEY missing" }),
+      JSON.stringify({ error: "DEEPSEEK_API_KEY missing" }),
       { status: 500, headers: { "content-type": "application/json" } },
     );
   }
@@ -86,8 +96,11 @@ export async function POST(req: Request) {
   const rag = agent ? await ragContext(agent, lastUserText) : "";
   const system = rag ? `${systemBase}\n\n${rag}` : systemBase;
 
-  const openai = createOpenAI({ apiKey: process.env.OPENAI_API_KEY! });
-  const model = agent?.llm_model || "gpt-4o-mini";
+  const deepseek = createOpenAI({
+    apiKey: process.env.DEEPSEEK_API_KEY!,
+    baseURL: process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com/v1",
+  });
+  const model = resolveDeepSeekModel(agent?.llm_model);
 
   // Resolve the org for billing up-front (cookies are still readable here).
   let billingOrgId: string | null = null;
@@ -98,7 +111,7 @@ export async function POST(req: Request) {
   }
 
   const result = streamText({
-    model: openai(model),
+    model: deepseek(model),
     system,
     messages: await convertToModelMessages(messages),
     onFinish: async ({ totalUsage }) => {

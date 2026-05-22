@@ -84,13 +84,10 @@ async function pickFromNumberForOrg(
  *   1. Load target + campaign + contact + phone_number.
  *   2. Mark target 'dialing', bump attempts, set last_attempt_at.
  *   3. Place the Twilio call. TwiML URL points back to the Next.js app so the
- *      voice flow logic stays in one place.
+ *      voice flow logic stays in one place. StatusCallback points back to
+ *      /api/twilio/status with campaign_id + target_id so the campaign_targets
+ *      state machine is driven from the same handler that drives calls.
  *   4. Save the resulting Twilio SID on the target's payload.
- *
- * TODO: implement /api/twilio-voice/campaign completion webhook to flip
- *       status to answered / no_answer / busy / failed based on the
- *       AsyncAmdStatusCallback + final StatusCallback. For now the worker
- *       just kicks off the call; the front updates statuses out-of-band.
  */
 export async function dialTarget(job: DialJob): Promise<void> {
   const sb = supabase();
@@ -209,14 +206,9 @@ export async function dialTarget(job: DialJob): Promise<void> {
   }
 
   const appUrl = process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "https://example.com";
-  const twimlUrl = `${appUrl.replace(/\/+$/, "")}/api/twilio-voice?campaign_id=${encodeURIComponent(
-    campaign.id,
-  )}&target_id=${encodeURIComponent(target.id)}`;
-  // TODO: wire a completion webhook (/api/twilio-voice/campaign-status) that
-  // updates campaign_targets.status from the StatusCallback payload.
-  const statusCallback = `${appUrl.replace(/\/+$/, "")}/api/twilio-voice/campaign-status?target_id=${encodeURIComponent(
-    target.id,
-  )}`;
+  const base = appUrl.replace(/\/+$/, "");
+  const twimlUrl = `${base}/api/twilio-voice?campaign_id=${encodeURIComponent(campaign.id)}&target_id=${encodeURIComponent(target.id)}`;
+  const statusCallback = `${base}/api/twilio/status?campaign_id=${encodeURIComponent(campaign.id)}&target_id=${encodeURIComponent(target.id)}`;
 
   try {
     const call = await createCall({

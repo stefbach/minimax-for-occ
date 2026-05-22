@@ -67,8 +67,8 @@ def _logger_for_call(call_id: Optional[str]) -> logging.LoggerAdapter:
 # ─── LLM factory ──────────────────────────────────────────────────────────
 def _llm_for(agent: Optional[AxonAgent]):
     """Build a LiveKit-Agents-compatible LLM from the agent's provider/model."""
-    provider = (agent.llm_provider if agent else os.getenv("LLM_PROVIDER", "openai")).lower()
-    model = (agent.llm_model if agent and agent.llm_model else os.getenv("OPENAI_MODEL", "gpt-4o-mini"))
+    provider = (agent.llm_provider if agent else os.getenv("LLM_PROVIDER", "deepseek")).lower()
+    model = (agent.llm_model if agent and agent.llm_model else os.getenv("DEEPSEEK_MODEL", "deepseek-chat"))
 
     if provider == "anthropic":
         try:
@@ -89,7 +89,16 @@ def _llm_for(agent: Optional[AxonAgent]):
             api_key=os.environ["MINIMAX_API_KEY"],
         )
 
-    return openai.LLM(model=model or "gpt-4o-mini", api_key=os.environ["OPENAI_API_KEY"])
+    if provider == "openai":
+        return openai.LLM(model=model or "gpt-4o-mini", api_key=os.environ["OPENAI_API_KEY"])
+
+    # Default: DeepSeek (OpenAI-compatible, cheaper, no censorship issues for FR/EN calls)
+    ds_model = model if (model and model.startswith("deepseek-")) else "deepseek-chat"
+    return openai.LLM(
+        model=ds_model,
+        base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"),
+        api_key=os.environ["DEEPSEEK_API_KEY"],
+    )
 
 
 def _tts_for(agent: Optional[AxonAgent]) -> minimax.TTS:
@@ -268,10 +277,7 @@ async def entrypoint(ctx: JobContext) -> None:
             # A session is still required to drive say()/STT during the flow.
             session = AgentSession(
                 stt=deepgram.STT(model="nova-3", language="multi"),
-                llm=openai.LLM(
-                    model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
-                    api_key=os.environ["OPENAI_API_KEY"],
-                ),
+                llm=_llm_for(None),
                 tts=_tts_for(None),
                 vad=silero.VAD.load(),
                 turn_detection=MultilingualModel(),

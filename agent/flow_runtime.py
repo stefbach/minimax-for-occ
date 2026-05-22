@@ -533,7 +533,7 @@ def _classify_intent(transcript: str, intents: list[dict[str, Any]]) -> Optional
     """
     if not transcript or not intents:
         return None
-    api_key = os.getenv("OPENAI_API_KEY")
+    api_key = os.getenv("DEEPSEEK_API_KEY")
     if not api_key:
         # Cheap fallback: substring match on hints/labels.
         low = transcript.lower()
@@ -543,6 +543,7 @@ def _classify_intent(transcript: str, intents: list[dict[str, Any]]) -> Optional
                     return str(it.get("label"))
         return None
 
+    base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1").rstrip("/")
     labels = [str(i.get("label")) for i in intents if i.get("label")]
     hints_blob = "\n".join(
         f"- {i.get('label')}: {i.get('hint') or ''}" for i in intents
@@ -550,13 +551,13 @@ def _classify_intent(transcript: str, intents: list[dict[str, Any]]) -> Optional
     try:
         with httpx.Client(timeout=httpx.Timeout(8.0)) as c:
             r = c.post(
-                "https://api.openai.com/v1/chat/completions",
+                f"{base_url}/chat/completions",
                 headers={
                     "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": os.getenv("FLOW_INTENT_MODEL", "gpt-4o-mini"),
+                    "model": os.getenv("FLOW_INTENT_MODEL", "deepseek-chat"),
                     "temperature": 0,
                     "messages": [
                         {

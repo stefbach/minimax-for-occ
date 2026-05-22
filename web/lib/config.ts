@@ -41,7 +41,13 @@ export interface AppConfig {
     readonly publicUrl: string | undefined;
   };
   openai: {
+    /** Used only for embeddings (RAG ingest). Switching embedding models requires re-vectorizing existing data. */
     readonly apiKey: string | undefined;
+  };
+  deepseek: {
+    /** Primary LLM key for all chat completions. OpenAI-compatible API at https://api.deepseek.com/v1. */
+    readonly apiKey: string | undefined;
+    readonly baseUrl: string;
   };
   twilio: {
     readonly sid: string | undefined;
@@ -87,6 +93,14 @@ export const cfg: AppConfig = {
   openai: {
     get apiKey() {
       return optEnv("OPENAI_API_KEY");
+    },
+  },
+  deepseek: {
+    get apiKey() {
+      return optEnv("DEEPSEEK_API_KEY");
+    },
+    get baseUrl() {
+      return optEnv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")!;
     },
   },
   twilio: {

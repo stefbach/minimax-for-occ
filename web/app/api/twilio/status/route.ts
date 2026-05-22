@@ -340,12 +340,10 @@ async function updateCampaignTarget(opts: {
   if (opts.CallStatus === "completed") {
     const ab = opts.AnsweredBy?.toLowerCase() ?? "";
     if (ab === "machine_start" || ab.startsWith("machine_end_")) {
-      // AMD reached voicemail — count as no-answer for retry semantics.
       nextStatus = "no_answer";
     } else if (ab === "fax") {
       nextStatus = "failed";
     } else {
-      // 'human', 'unknown', or unset → consider the contact reached.
       nextStatus = "done";
     }
   } else if (opts.CallStatus === "busy") {

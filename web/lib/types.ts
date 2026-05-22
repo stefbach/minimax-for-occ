@@ -1,4 +1,4 @@
-export type LlmProvider = "openai" | "anthropic" | "minimax";
+export type LlmProvider = "deepseek" | "openai" | "anthropic" | "minimax";
 
 export interface Agent {
   id: string;

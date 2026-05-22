@@ -40,7 +40,9 @@ export interface RunAnalysisOptions {
   policyId?: string;
 }
 
-const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
+const DEEPSEEK_CHAT_URL =
+  (process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com/v1").replace(/\/$/, "") +
+  "/chat/completions";
 
 function policyMatchesCall(p: AnalysisPolicy, call: CallContext): boolean {
   if (p.scope === "all" || !p.scope_id) return true;
@@ -69,14 +71,22 @@ interface LlmCallResult {
   tokensOutput: number | null;
 }
 
+/** Map legacy OpenAI model names stored in analysis_policies rows to DeepSeek equivalents. */
+function resolveAnalysisModel(stored: string | null): string {
+  const m = stored ?? "";
+  if (m.startsWith("deepseek-")) return m;
+  if (m === "o1" || m === "o1-mini" || m === "o3-mini") return "deepseek-reasoner";
+  return "deepseek-chat";
+}
+
 async function callOpenAi(
   model: string,
   prompt: string,
   schema: Record<string, unknown>,
   transcript: string,
 ): Promise<LlmCallResult> {
-  const key = process.env.OPENAI_API_KEY;
-  if (!key) throw new Error("OPENAI_API_KEY missing");
+  const key = process.env.DEEPSEEK_API_KEY;
+  if (!key) throw new Error("DEEPSEEK_API_KEY missing");
 
   const system = [
     "You analyse a phone call transcript and return structured JSON.",
@@ -92,7 +102,7 @@ async function callOpenAi(
     transcript || "(empty transcript)",
   ].join("\n");
 
-  const res = await fetch(OPENAI_URL, {
+  const res = await fetch(DEEPSEEK_CHAT_URL, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -110,7 +120,7 @@ async function callOpenAi(
   });
   if (!res.ok) {
     const txt = await res.text().catch(() => "");
-    throw new Error(`OpenAI HTTP ${res.status}: ${txt.slice(0, 240)}`);
+    throw new Error(`DeepSeek HTTP ${res.status}: ${txt.slice(0, 240)}`);
   }
   const data = (await res.json()) as {
     choices?: Array<{ message?: { content?: string } }>;
@@ -130,19 +140,13 @@ async function callOpenAi(
   };
 }
 
-/** Rough cost estimate for gpt-4o-mini in *cents* (input $0.15/M, output $0.60/M). */
+/** Rough cost estimate in *cents* (deepseek-chat: input $0.014/M cache-hit, output $0.28/M). */
 function estimateCostCents(model: string, ti: number | null, to: number | null): number | null {
   if (ti == null && to == null) return null;
   const lower = (model ?? "").toLowerCase();
-  let inPerM = 0.15;
-  let outPerM = 0.6;
-  if (lower.includes("gpt-4o") && !lower.includes("mini")) {
-    inPerM = 2.5;
-    outPerM = 10;
-  } else if (lower.includes("gpt-4.1") && !lower.includes("mini")) {
-    inPerM = 2;
-    outPerM = 8;
-  }
+  // deepseek-reasoner (R1) is priced differently
+  let inPerM = lower.includes("reasoner") ? 0.55 : 0.27;
+  let outPerM = lower.includes("reasoner") ? 2.19 : 1.10;
   const dollars = ((ti ?? 0) / 1_000_000) * inPerM + ((to ?? 0) / 1_000_000) * outPerM;
   return Math.max(0, Math.round(dollars * 100));
 }
@@ -197,15 +201,16 @@ export async function runAnalysisPolicies(
   const results: AnalysisRunResult[] = [];
   for (const policy of policies) {
     try {
+      const resolvedModel = resolveAnalysisModel(policy.model);
       const llm = await callOpenAi(
-        policy.model ?? "gpt-4o-mini",
+        resolvedModel,
         policy.prompt,
         policy.output_schema ?? {},
         transcriptText,
       );
 
       const costCents = estimateCostCents(
-        policy.model ?? "gpt-4o-mini",
+        resolvedModel,
         llm.tokensInput,
         llm.tokensOutput,
       );
@@ -270,17 +275,17 @@ export async function generateCallSummary(callId: string): Promise<string> {
       .eq("id", callId);
     return "(transcript indisponible)";
   }
-  const key = process.env.OPENAI_API_KEY;
-  if (!key) throw new Error("OPENAI_API_KEY missing");
+  const key = process.env.DEEPSEEK_API_KEY;
+  if (!key) throw new Error("DEEPSEEK_API_KEY missing");
 
-  const res = await fetch(OPENAI_URL, {
+  const res = await fetch(DEEPSEEK_CHAT_URL, {
     method: "POST",
     headers: {
       "content-type": "application/json",
       authorization: `Bearer ${key}`,
     },
     body: JSON.stringify({
-      model: "gpt-4o-mini",
+      model: "deepseek-chat",
       temperature: 0.2,
       messages: [
         {
@@ -294,7 +299,7 @@ export async function generateCallSummary(callId: string): Promise<string> {
   });
   if (!res.ok) {
     const txt = await res.text().catch(() => "");
-    throw new Error(`OpenAI HTTP ${res.status}: ${txt.slice(0, 240)}`);
+    throw new Error(`DeepSeek HTTP ${res.status}: ${txt.slice(0, 240)}`);
   }
   const data = (await res.json()) as {
     choices?: Array<{ message?: { content?: string } }>;

@@ -72,7 +72,7 @@ export function secondsToBillableMinutes(seconds: number): number {
 export const COST_RATES = {
   // Conservative blended estimates — refine once we have real invoices.
   call_minute_cents: 2,        // ~$0.02 / min Twilio outbound (FR/US mix)
-  llm_1k_tokens_cents: 1.5,    // gpt-4o-mini blended in/out
+  llm_1k_tokens_cents: 0.3,    // deepseek-chat blended in/out (~10x moins cher qu'OpenAI)
   tts_1k_chars_cents: 3,       // MiniMax speech-02
   stt_minute_cents: 1,         // Deepgram nova
 } as const;

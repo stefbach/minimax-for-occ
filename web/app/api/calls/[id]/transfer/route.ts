@@ -3,6 +3,7 @@ import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { supabaseSession } from "@/lib/supabase-auth";
 import { rateLimit, clientIp } from "@/lib/rate-limit";
 import { patchRoomMetadata } from "@/lib/livekit-room";
+import { updateCall, hasTwilio, TwilioApiError } from "@/lib/twilio";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -73,7 +74,7 @@ export async function POST(
 
   const { data: call, error: callErr } = await admin
     .from("calls")
-    .select("id, org_id, room_id, state, agent_handle_id")
+    .select("id, org_id, room_id, state, agent_handle_id, twilio_call_sid, from_e164")
     .eq("id", id)
     .maybeSingle();
   if (callErr) {
@@ -103,9 +104,30 @@ export async function POST(
     });
   }
 
-  // TODO: the Python worker / a dedicated webhook needs to perform the
-  // actual SIP REFER (or Twilio TwiML <Dial>) to bridge this call to the
-  // external number. v1: we only log the intent.
+  let transferSid: string | null = null;
+  let transferError: string | null = null;
+
+  const twilioCallSid = (call as any).twilio_call_sid as string | null;
+  if (twilioCallSid && hasTwilio()) {
+    const callerId = (call as any).from_e164 as string | null;
+    const callerIdAttr = callerId
+      ? ` callerId="${escapeXml(callerId)}"`
+      : "";
+    const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Dial${callerIdAttr} answerOnBridge="true"><Number>${escapeXml(e164)}</Number></Dial></Response>`;
+    try {
+      const updated = await updateCall({ sid: twilioCallSid, twiml });
+      transferSid = updated.sid;
+    } catch (err) {
+      transferError =
+        err instanceof TwilioApiError
+          ? `twilio_${err.status}: ${err.message}`
+          : err instanceof Error
+          ? err.message
+          : String(err);
+      console.error("[transfer] Twilio updateCall failed:", transferError);
+    }
+  }
+
   await admin.from("call_events").insert({
     call_id: call.id,
     kind: "transfer_pstn_requested",
@@ -114,9 +136,16 @@ export async function POST(
       to_e164: e164,
       reason,
       metadata_pushed: metadataPushed,
-      todo: "worker_must_perform_sip_transfer",
+      twilio_redirect: transferSid ? "ok" : transferError ?? "no_twilio_sid",
     },
   });
+
+  if (transferError) {
+    return NextResponse.json(
+      { error: "transfer_failed", detail: transferError },
+      { status: 502, headers: { "x-ratelimit-remaining": rl.remaining.toString() } },
+    );
+  }
 
   return NextResponse.json(
     {
@@ -127,4 +156,13 @@ export async function POST(
     },
     { headers: { "x-ratelimit-remaining": rl.remaining.toString() } },
   );
+}
+
+function escapeXml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
 }

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getPersona } from "@/lib/personas/loader";
 import { supabaseServer } from "@/lib/supabase";
 import { requestOrgId } from "@/lib/request-org";
+import type { LlmProvider } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -52,7 +53,7 @@ export async function POST(
   const language = typeof fm.language === "string" ? fm.language : "multi";
   const llmModel =
     body.llm_model ||
-    (typeof fm.llm_model === "string" ? fm.llm_model : "gpt-4o-mini");
+    (typeof fm.llm_model === "string" ? fm.llm_model : "deepseek-chat");
   const voiceId = body.voice_id ?? null;
   const llmProvider = inferProvider(llmModel);
 
@@ -97,11 +98,12 @@ export async function POST(
   );
 }
 
-function inferProvider(model: string): "openai" | "anthropic" | "minimax" {
+function inferProvider(model: string): LlmProvider {
   const m = model.toLowerCase();
   if (m.startsWith("claude")) return "anthropic";
   if (m.startsWith("minimax")) return "minimax";
-  return "openai";
+  if (m.startsWith("gpt-") || m.startsWith("o1") || m.startsWith("o3") || m.startsWith("o4")) return "openai";
+  return "deepseek";
 }
 
 function defaultGreeting(lang: string): string {
