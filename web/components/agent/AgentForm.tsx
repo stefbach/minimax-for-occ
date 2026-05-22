@@ -54,7 +54,11 @@ export function AgentForm({ initial }: { initial?: Agent }) {
   const [description, setDescription] = useState(initial?.description ?? "");
   const [language, setLanguage] = useState(initial?.language ?? "multi");
   const [provider, setProvider] = useState<LlmProvider>(initial?.llm_provider ?? "deepseek");
-  const [model, setModel] = useState(initial?.llm_model ?? "deepseek-chat");
+  const [model, setModel] = useState(() => {
+    const p: LlmProvider = initial?.llm_provider ?? "deepseek";
+    const m = initial?.llm_model ?? "deepseek-chat";
+    return PROVIDER_MODELS[p]?.includes(m) ? m : PROVIDER_MODELS[p]?.[0] ?? m;
+  });
   const [voice, setVoice] = useState(initial?.tts_voice_id ?? "");
   const [emotion, setEmotion] = useState(initial?.tts_emotion ?? "");
   const [speed, setSpeed] = useState(initial?.tts_speed ?? 1.0);
