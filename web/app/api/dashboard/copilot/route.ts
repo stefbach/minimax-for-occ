@@ -113,7 +113,7 @@ export async function POST(req: Request) {
 
   const deepseek = createOpenAI({
     apiKey: process.env.DEEPSEEK_API_KEY!,
-    baseURL: process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com/v1",
+    baseURL: process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com",
   });
 
   const result = streamText({
