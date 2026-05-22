@@ -14,7 +14,12 @@ function redisUrl(): string {
 }
 
 function buildConnection() {
-  return new IORedis(redisUrl(), { maxRetriesPerRequest: null });
+  const url = redisUrl();
+  return new IORedis(url, {
+    maxRetriesPerRequest: null,
+    // Upstash requires explicit TLS options when using rediss:// protocol
+    ...(url.startsWith("rediss://") && { tls: {} }),
+  });
 }
 
 /**
