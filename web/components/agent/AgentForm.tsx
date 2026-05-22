@@ -194,7 +194,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          voice_id: voice || "male-qn-qingse",
+          voice_id: voice || "Calm_Woman",
           text: greeting || "Bonjour, je suis votre assistant.",
           model: ttsModel || undefined,
           speed,
@@ -338,14 +338,22 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                 </optgroup>
               )}
               <optgroup label="Voix MiniMax intégrées">
-                <option value="French_Woman_yueyan">Femme française (yueyan)</option>
-                <option value="French_Man_Remy">Homme français (Remy)</option>
-                <option value="Boyan_new_hd">Homme neutre HD (Boyan)</option>
-                <option value="Ruoruo_new_hd">Femme neutre HD (Ruoruo)</option>
-                <option value="male-qn-qingse">Homme jeune (qingse)</option>
-                <option value="female-shaonv">Femme jeune (shaonv)</option>
+                <option value="Calm_Woman">Femme calme (Calm_Woman)</option>
+                <option value="Wise_Woman">Femme posée (Wise_Woman)</option>
+                <option value="Friendly_Person">Personne amicale (Friendly_Person)</option>
+                <option value="Lively_Girl">Femme dynamique (Lively_Girl)</option>
+                <option value="Inspirational_girl">Femme inspirante (Inspirational_girl)</option>
+                <option value="Lovely_Girl">Femme douce (Lovely_Girl)</option>
+                <option value="Sweet_Girl_2">Femme chaleureuse (Sweet_Girl_2)</option>
+                <option value="Exuberant_Girl">Femme enthousiaste (Exuberant_Girl)</option>
+                <option value="Patient_Man">Homme patient (Patient_Man)</option>
+                <option value="Casual_Guy">Homme décontracté (Casual_Guy)</option>
+                <option value="Decent_Boy">Homme professionnel (Decent_Boy)</option>
+                <option value="Determined_Man">Homme déterminé (Determined_Man)</option>
+                <option value="Deep_Voice_Man">Homme voix grave (Deep_Voice_Man)</option>
+                <option value="Elegant_Man">Homme élégant (Elegant_Man)</option>
               </optgroup>
-              {voice && !voices.some((v) => v.voice_id === voice) && !["French_Woman_yueyan","French_Man_Remy","Boyan_new_hd","Ruoruo_new_hd","male-qn-qingse","female-shaonv"].includes(voice) && (
+              {voice && !voices.some((v) => v.voice_id === voice) && !["Calm_Woman","Wise_Woman","Friendly_Person","Lively_Girl","Inspirational_girl","Lovely_Girl","Sweet_Girl_2","Exuberant_Girl","Patient_Man","Casual_Guy","Decent_Boy","Determined_Man","Deep_Voice_Man","Elegant_Man"].includes(voice) && (
                 <option value={voice}>{voice} (manuel)</option>
               )}
             </select>
