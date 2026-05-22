@@ -35,15 +35,6 @@ jobs:
           chmod +x /usr/local/bin/lk
           lk --version
 
-      - name: Show available lk commands
-        run: |
-          echo "=== lk --help ==="
-          lk --help 2>&1 || true
-          echo "=== lk cloud --help ==="
-          lk cloud --help 2>&1 || true
-          echo "=== lk agent --help ==="
-          lk agent --help 2>&1 || true
-
       - name: Deploy to LiveKit Cloud Agents
         run: lk agent deploy
         env:
