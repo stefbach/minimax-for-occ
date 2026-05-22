@@ -20,9 +20,19 @@ jobs:
 
       - name: Install LiveKit CLI
         run: |
-          LK_VERSION=$(curl -s https://api.github.com/repos/livekit/livekit-cli/releases/latest | grep '"tag_name"' | cut -d'"' -f4)
-          curl -sSL "https://github.com/livekit/livekit-cli/releases/download/${LK_VERSION}/lk_linux_amd64.tar.gz" \
-            | tar -xz -C /usr/local/bin lk
+          RELEASE=$(curl -sf https://api.github.com/repos/livekit/livekit-cli/releases/latest)
+          DOWNLOAD_URL=$(echo "$RELEASE" \
+            | grep '"browser_download_url"' \
+            | grep -i 'linux' \
+            | grep -iE 'amd64|x86_64' \
+            | grep '\.tar\.gz' \
+            | head -1 \
+            | cut -d'"' -f4)
+          echo "Downloading: $DOWNLOAD_URL"
+          curl -fSL -o /tmp/lk.tar.gz "$DOWNLOAD_URL"
+          tar -xzf /tmp/lk.tar.gz -C /tmp
+          find /tmp -maxdepth 2 -name 'lk' -type f | head -1 | xargs -I{} cp {} /usr/local/bin/lk
+          chmod +x /usr/local/bin/lk
           lk --version
 
       - name: Deploy to LiveKit Cloud Agents
