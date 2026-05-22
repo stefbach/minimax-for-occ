@@ -59,6 +59,11 @@ function buildMembershipsQuery() {
   return api;
 }
 
+// verifyOrgCookieEdge checks HMAC signatures — bypass in tests by returning the raw value.
+vi.mock("@/lib/org-cookie-edge", () => ({
+  verifyOrgCookieEdge: (raw: string | null) => Promise.resolve(raw || null),
+}));
+
 vi.mock("@supabase/ssr", () => ({
   createServerClient: () => ({
     auth: {
