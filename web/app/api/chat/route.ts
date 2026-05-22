@@ -1,5 +1,5 @@
 import { streamText, convertToModelMessages, type UIMessage } from "ai";
-import { createOpenAI } from "@ai-sdk/openai";
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { embedText } from "@/lib/embed";
 import type { Agent } from "@/lib/types";
@@ -96,10 +96,10 @@ export async function POST(req: Request) {
   const rag = agent ? await ragContext(agent, lastUserText) : "";
   const system = rag ? `${systemBase}\n\n${rag}` : systemBase;
 
-  const deepseek = createOpenAI({
+  const deepseek = createOpenAICompatible({
+    name: "deepseek",
     apiKey: process.env.DEEPSEEK_API_KEY!,
-    baseURL: (process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com/v1"),
-    compatibility: "compatible",
+    baseURL: process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com/v1",
   });
   const model = resolveDeepSeekModel(agent?.llm_model);
 

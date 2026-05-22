@@ -1,5 +1,5 @@
 import { streamText, convertToModelMessages, stepCountIs, type UIMessage } from "ai";
-import { createOpenAI } from "@ai-sdk/openai";
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { NextResponse } from "next/server";
 import { currentMembership, currentUser } from "@/lib/supabase-auth";
 import { buildTools } from "@/lib/copilot/tools";
@@ -62,10 +62,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "expected JSON body" }, { status: 400 });
   }
 
-  const deepseek = createOpenAI({
+  const deepseek = createOpenAICompatible({
+    name: "deepseek",
     apiKey: process.env.DEEPSEEK_API_KEY!,
-    baseURL: (process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com/v1"),
-    compatibility: "compatible",
+    baseURL: process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com/v1",
   });
   const tools = buildTools({ userId: user.id, orgId: m.org_id ?? null });
 
