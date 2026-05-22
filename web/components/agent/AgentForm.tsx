@@ -331,13 +331,21 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                 </optgroup>
               )}
               {presets.length > 0 && (
-                <optgroup label="Voix presets">
+                <optgroup label="Voix presets (Voice Studio)">
                   {presets.map((v) => (
                     <option key={v.id} value={v.voice_id}>{v.display_name}</option>
                   ))}
                 </optgroup>
               )}
-              {voice && !voices.some((v) => v.voice_id === voice) && (
+              <optgroup label="Voix MiniMax intégrées">
+                <option value="French_Woman_yueyan">Femme française (yueyan)</option>
+                <option value="French_Man_Remy">Homme français (Remy)</option>
+                <option value="Boyan_new_hd">Homme neutre HD (Boyan)</option>
+                <option value="Ruoruo_new_hd">Femme neutre HD (Ruoruo)</option>
+                <option value="male-qn-qingse">Homme jeune (qingse)</option>
+                <option value="female-shaonv">Femme jeune (shaonv)</option>
+              </optgroup>
+              {voice && !voices.some((v) => v.voice_id === voice) && !["French_Woman_yueyan","French_Man_Remy","Boyan_new_hd","Ruoruo_new_hd","male-qn-qingse","female-shaonv"].includes(voice) && (
                 <option value={voice}>{voice} (manuel)</option>
               )}
             </select>
