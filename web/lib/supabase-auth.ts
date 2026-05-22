@@ -90,6 +90,34 @@ export async function currentOrgFromCookie(): Promise<string | null> {
 }
 
 /**
+ * Resolve the org_id the current server component should operate on.
+ * Mirrors the Route-Handler-side `requestOrgId(req)`:
+ *   1. Signed `axon.org_id` cookie (set by /api/orgs/switch), if it points
+ *      to an org the user belongs to (or the user is super_admin).
+ *   2. The user's primary membership (first by created_at).
+ *   3. Legacy fallback for unauthenticated server-side rendering.
+ */
+export async function currentOrgIdForServer(): Promise<string> {
+  const { LEGACY_ORG_ID } = await import("./constants");
+  const sb = await supabaseSession();
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) return LEGACY_ORG_ID;
+
+  const { data: memberships } = await sb
+    .from("memberships")
+    .select("org_id, role")
+    .order("created_at", { ascending: true });
+  const rows = (memberships ?? []) as Array<{ org_id: string; role: string }>;
+  const isSuper = rows.some((m) => m.role === "super_admin");
+
+  const cookieOrg = await currentOrgFromCookie();
+  if (cookieOrg && (isSuper || rows.some((m) => m.org_id === cookieOrg))) {
+    return cookieOrg;
+  }
+  return rows[0]?.org_id ?? LEGACY_ORG_ID;
+}
+
+/**
  * Resolve the current user's role for a given org. Returns null when the
  * user has no membership in that org. The middleware uses this to enforce
  * role-based access for the org the user has actively switched to.

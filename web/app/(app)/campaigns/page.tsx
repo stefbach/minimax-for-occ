@@ -4,7 +4,7 @@ import { HelpButton } from "@/components/help/HelpButton";
 
 export const dynamic = "force-dynamic";
 
-import { LEGACY_ORG_ID as DEFAULT_ORG } from "@/lib/constants";
+import { currentOrgIdForServer } from "@/lib/supabase-auth";
 
 interface CampaignRow {
   id: string;
@@ -52,6 +52,7 @@ export default async function CampaignsPage() {
   if (hasSupabase()) {
     try {
       const sb = supabaseServer();
+      const DEFAULT_ORG = await currentOrgIdForServer();
       const { data } = await sb
         .from("campaigns")
         .select("id,name,description,state,agent_handle_id,created_at")
