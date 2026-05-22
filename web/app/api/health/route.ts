@@ -12,7 +12,7 @@
  *   {
  *     ok: boolean,
  *     version: "<git sha or 'dev'>",
- *     checks: { supabase, openai, twilio, livekit, n8n }   // "ok" | "fail" | "skipped"
+ *     checks: { supabase, deepseek, twilio, livekit, n8n }   // "ok" | "fail" | "skipped"
  *   }
  *
  * Status:
@@ -30,7 +30,7 @@ export const dynamic = "force-dynamic";
 type CheckResult = "ok" | "fail" | "skipped";
 type Checks = {
   supabase: CheckResult;
-  openai: CheckResult;
+  deepseek: CheckResult;
   twilio: CheckResult;
   livekit: CheckResult;
   n8n: CheckResult;
@@ -71,11 +71,12 @@ async function checkSupabase(): Promise<CheckResult> {
   return res && res.ok ? "ok" : "fail";
 }
 
-async function checkOpenai(): Promise<CheckResult> {
-  const key = process.env.OPENAI_API_KEY;
+async function checkDeepseek(): Promise<CheckResult> {
+  const key = process.env.DEEPSEEK_API_KEY;
   if (!key) return "skipped";
+  const base = (process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com/v1").replace(/\/$/, "");
   const res = await withTimeout(
-    fetch("https://api.openai.com/v1/models", {
+    fetch(`${base}/models`, {
       method: "GET",
       headers: { authorization: `Bearer ${key}` },
     }),
@@ -120,15 +121,15 @@ async function checkN8n(): Promise<CheckResult> {
 }
 
 export async function GET(): Promise<NextResponse> {
-  const [supabase, openai, twilio, livekit, n8n] = await Promise.all([
+  const [supabase, deepseek, twilio, livekit, n8n] = await Promise.all([
     checkSupabase().catch(() => "fail" as CheckResult),
-    checkOpenai().catch(() => "fail" as CheckResult),
+    checkDeepseek().catch(() => "fail" as CheckResult),
     checkTwilio().catch(() => "fail" as CheckResult),
     checkLivekit().catch(() => "fail" as CheckResult),
     checkN8n().catch(() => "fail" as CheckResult),
   ]);
 
-  const checks: Checks = { supabase, openai, twilio, livekit, n8n };
+  const checks: Checks = { supabase, deepseek, twilio, livekit, n8n };
   // Overall OK iff no check is "fail" (skipped is acceptable).
   const ok = Object.values(checks).every((v) => v !== "fail");
 

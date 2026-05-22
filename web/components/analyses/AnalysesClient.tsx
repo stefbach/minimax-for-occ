@@ -35,7 +35,7 @@ function emptyPolicy(): Partial<Policy> {
     scope: "all",
     scope_id: null,
     enabled: true,
-    model: "gpt-4o-mini",
+    model: "deepseek-chat",
   };
 }
 
@@ -238,7 +238,7 @@ export function AnalysesClient() {
                 <input
                   value={editing.model ?? ""}
                   onChange={(e) => setEditing({ ...editing, model: e.target.value })}
-                  placeholder="gpt-4o-mini"
+                  placeholder="deepseek-chat"
                   style={{ width: "100%" }}
                 />
               </label>
@@ -308,7 +308,7 @@ export function AnalysesClient() {
                       </span>
                     )}
                   </td>
-                  <td><span className="kbd">{p.model ?? "gpt-4o-mini"}</span></td>
+                  <td><span className="kbd">{p.model ?? "deepseek-chat"}</span></td>
                   <td>
                     <span className={p.enabled ? "tag good" : "tag"}>
                       {p.enabled ? "Oui" : "Non"}

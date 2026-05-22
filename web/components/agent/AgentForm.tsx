@@ -8,6 +8,7 @@ import { PromptEditor } from "@/components/agents/PromptEditor";
 import { parsePersona, serializePersona } from "@/lib/personas/parser";
 
 const PROVIDER_MODELS: Record<LlmProvider, string[]> = {
+  deepseek: ["deepseek-chat", "deepseek-reasoner"],
   openai: ["gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini", "o4-mini"],
   anthropic: ["claude-sonnet-4-5", "claude-opus-4-5", "claude-haiku-4-5"],
   minimax: ["MiniMax-M2", "MiniMax-M2-Stable"],
@@ -52,8 +53,8 @@ export function AgentForm({ initial }: { initial?: Agent }) {
   const [name, setName] = useState(initial?.name ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
   const [language, setLanguage] = useState(initial?.language ?? "multi");
-  const [provider, setProvider] = useState<LlmProvider>(initial?.llm_provider ?? "openai");
-  const [model, setModel] = useState(initial?.llm_model ?? "gpt-4o");
+  const [provider, setProvider] = useState<LlmProvider>(initial?.llm_provider ?? "deepseek");
+  const [model, setModel] = useState(initial?.llm_model ?? "deepseek-chat");
   const [voice, setVoice] = useState(initial?.tts_voice_id ?? "");
   const [emotion, setEmotion] = useState(initial?.tts_emotion ?? "");
   const [speed, setSpeed] = useState(initial?.tts_speed ?? 1.0);
@@ -94,7 +95,8 @@ export function AgentForm({ initial }: { initial?: Agent }) {
           const lower = m.toLowerCase();
           if (lower.startsWith("claude")) setProvider("anthropic");
           else if (lower.startsWith("minimax")) setProvider("minimax");
-          else setProvider("openai");
+          else if (lower.startsWith("deepseek")) setProvider("deepseek");
+          else setProvider("deepseek");
           setModel(m);
         }
         if (body) setSystemPrompt(body);
@@ -288,6 +290,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
               setProvider(p);
               setModel(PROVIDER_MODELS[p][0]);
             }}>
+              <option value="deepseek">DeepSeek</option>
               <option value="openai">OpenAI</option>
               <option value="anthropic">Anthropic</option>
               <option value="minimax">MiniMax</option>

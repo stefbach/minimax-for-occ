@@ -67,8 +67,8 @@ def _logger_for_call(call_id: Optional[str]) -> logging.LoggerAdapter:
 # ─── LLM factory ──────────────────────────────────────────────────────────
 def _llm_for(agent: Optional[AxonAgent]):
     """Build a LiveKit-Agents-compatible LLM from the agent's provider/model."""
-    provider = (agent.llm_provider if agent else os.getenv("LLM_PROVIDER", "openai")).lower()
-    model = (agent.llm_model if agent and agent.llm_model else os.getenv("OPENAI_MODEL", "gpt-4o-mini"))
+    provider = (agent.llm_provider if agent else os.getenv("LLM_PROVIDER", "deepseek")).lower()
+    model = (agent.llm_model if agent and agent.llm_model else os.getenv("DEEPSEEK_MODEL", "deepseek-chat"))
 
     if provider == "anthropic":
         try:

@@ -184,7 +184,7 @@ export default function SettingsPage() {
           Ces variables doivent aussi être présentes dans les Secrets du worker LiveKit (Cloud → Agents → votre agent) pour que le worker puisse charger la config et appeler les services :
           <span className="kbd" style={{ marginLeft: 6 }}>SUPABASE_URL</span>,{" "}
           <span className="kbd">SUPABASE_SERVICE_ROLE_KEY</span>,{" "}
-          <span className="kbd">OPENAI_API_KEY</span>,{" "}
+          <span className="kbd">DEEPSEEK_API_KEY</span>,{" "}
           <span className="kbd">DEEPGRAM_API_KEY</span>,{" "}
           <span className="kbd">MINIMAX_API_KEY</span>,{" "}
           <span className="kbd">N8N_BASE_URL</span>,{" "}
