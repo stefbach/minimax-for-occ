@@ -37,11 +37,6 @@ export async function PUT(req: Request, ctx: { params: Promise<{ id: string }> }
   ]) {
     if (k in body) patch[k] = body[k];
   }
-  // Ensure speech-02 is set whenever a MiniMax voice is chosen without explicit model.
-  if ("tts_voice_id" in patch && patch.tts_voice_id && !("tts_model" in patch)) {
-    const { data: current } = await sb.from("agents").select("tts_model").eq("id", id).single();
-    if (!current?.tts_model) patch.tts_model = "speech-02";
-  }
   const { data, error } = await sb
     .from("agents")
     .update(patch)
