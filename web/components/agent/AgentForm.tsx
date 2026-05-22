@@ -205,7 +205,8 @@ export function AgentForm({ initial }: { initial?: Agent }) {
         const j = await r.json().catch(() => ({}));
         throw new Error(j.error ?? `${r.status}`);
       }
-      const blob = await r.blob();
+      const buf = await r.arrayBuffer();
+      const blob = new Blob([buf], { type: "audio/mpeg" });
       if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
       const url = URL.createObjectURL(blob);
       objectUrlRef.current = url;
