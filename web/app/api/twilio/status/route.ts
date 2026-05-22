@@ -296,10 +296,10 @@ async function updateCampaignTarget(opts: {
   let nextAttemptAt: string | null = null;
 
   if (opts.CallStatus === "completed") {
-    if (opts.AnsweredBy === "machine_start") {
+    const ab = opts.AnsweredBy?.toLowerCase() ?? "";
+    if (ab.startsWith("machine_") || ab === "fax") {
       nextStatus = "no_answer";
     } else {
-      // 'human', unset, or machine_end_* (we already left a beep message)
       nextStatus = "done";
     }
   } else if (opts.CallStatus === "busy") {

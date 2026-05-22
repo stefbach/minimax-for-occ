@@ -183,14 +183,9 @@ export async function dialTarget(job: DialJob): Promise<void> {
   }
 
   const appUrl = process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "https://example.com";
-  const twimlUrl = `${appUrl.replace(/\/+$/, "")}/api/twilio-voice?campaign_id=${encodeURIComponent(
-    campaign.id,
-  )}&target_id=${encodeURIComponent(target.id)}`;
-  // TODO: wire a completion webhook (/api/twilio-voice/campaign-status) that
-  // updates campaign_targets.status from the StatusCallback payload.
-  const statusCallback = `${appUrl.replace(/\/+$/, "")}/api/twilio-voice/campaign-status?target_id=${encodeURIComponent(
-    target.id,
-  )}`;
+  const base = appUrl.replace(/\/+$/, "");
+  const twimlUrl = `${base}/api/twilio-voice?campaign_id=${encodeURIComponent(campaign.id)}&target_id=${encodeURIComponent(target.id)}`;
+  const statusCallback = `${base}/api/twilio/status?campaign_id=${encodeURIComponent(campaign.id)}&target_id=${encodeURIComponent(target.id)}`;
 
   try {
     const call = await createCall({
