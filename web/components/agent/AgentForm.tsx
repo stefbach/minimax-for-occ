@@ -11,8 +11,8 @@ type ModelOption = { id: string; label: string };
 
 const PROVIDER_MODELS: Record<LlmProvider, ModelOption[]> = {
   deepseek: [
-    { id: "deepseek-chat", label: "deepseek-chat — Conversation rapide (recommandé pour vocal)" },
-    { id: "deepseek-reasoner", label: "deepseek-reasoner — Raisonnement approfondi (plus lent, pour décisions complexes)" },
+    { id: "deepseek-chat", label: "deepseek-chat — Réponses immédiates (1-2s), pour conversations fluides en temps réel" },
+    { id: "deepseek-reasoner", label: "deepseek-reasoner — Réfléchit avant de répondre (5-30s), pour analyses, calculs ou décisions multi-étapes" },
   ],
   openai: [
     { id: "gpt-4o", label: "gpt-4o — Polyvalent haute qualité" },
@@ -316,7 +316,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
               setProvider(p);
               setModel(PROVIDER_MODELS[p][0].id);
             }}>
-              <option value="deepseek">DeepSeek (recommandé — économique et rapide)</option>
+              <option value="deepseek">DeepSeek</option>
               <option value="minimax">MiniMax</option>
             </select>
           </div>
