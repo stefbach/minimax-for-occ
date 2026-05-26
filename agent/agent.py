@@ -113,6 +113,10 @@ def _tts_for(agent: Optional[AxonAgent]) -> minimax.TTS:
     if agent and agent.tts_speed and agent.tts_speed != 1.0:
         kwargs["speed"] = float(agent.tts_speed)
     model = (agent.tts_model if agent and agent.tts_model else os.getenv("MINIMAX_TTS_MODEL"))
+    # MiniMax preset voices (Casual_Guy, Determined_Man, …) only exist on
+    # speech-02-hd. Without it the API silently falls back to a default voice.
+    if not model and voice:
+        model = "speech-02-hd"
     if model:
         kwargs["model"] = model
     return minimax.TTS(**kwargs)

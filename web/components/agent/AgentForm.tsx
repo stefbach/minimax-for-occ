@@ -15,9 +15,8 @@ const PROVIDER_MODELS: Record<LlmProvider, string[]> = {
 };
 
 const TTS_MODELS = [
-  { id: "", label: "— défaut (env / plugin) —" },
-  { id: "speech-2.5-hd-preview", label: "speech-2.5-hd (preview, qualité maximale)" },
   { id: "speech-02-hd", label: "speech-02-hd (HD multilingue, recommandé)" },
+  { id: "speech-2.5-hd-preview", label: "speech-2.5-hd (preview, qualité maximale)" },
   { id: "speech-02-turbo", label: "speech-02-turbo (rapide, multilingue)" },
   { id: "speech-01-turbo", label: "speech-01-turbo (rapide, économique)" },
   { id: "speech-01", label: "speech-01 (legacy)" },
@@ -62,7 +61,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
   const [voice, setVoice] = useState(initial?.tts_voice_id ?? "");
   const [emotion, setEmotion] = useState(initial?.tts_emotion ?? "");
   const [speed, setSpeed] = useState(initial?.tts_speed ?? 1.0);
-  const [ttsModel, setTtsModel] = useState(initial?.tts_model ?? "");
+  const [ttsModel, setTtsModel] = useState(initial?.tts_model ?? "speech-02-hd");
   const [systemPrompt, setSystemPrompt] = useState(initial?.system_prompt ?? "");
   const [greeting, setGreeting] = useState(initial?.greeting ?? "Bonjour, je vous écoute.");
   const [rag, setRag] = useState(initial?.rag_enabled ?? false);

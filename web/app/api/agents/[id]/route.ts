@@ -37,6 +37,12 @@ export async function PUT(req: Request, ctx: { params: Promise<{ id: string }> }
   ]) {
     if (k in body) patch[k] = body[k];
   }
+  // A MiniMax voice without an explicit model gets speech-02-hd (the only
+  // model whose voice catalog matches our UI presets like Casual_Guy).
+  if (patch.tts_voice_id && !patch.tts_model) {
+    const { data: current } = await sb.from("agents").select("tts_model").eq("id", id).single();
+    if (!current?.tts_model) patch.tts_model = "speech-02-hd";
+  }
   const { data, error } = await sb
     .from("agents")
     .update(patch)
