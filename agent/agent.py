@@ -28,7 +28,13 @@ from livekit.agents import Agent, AgentSession, JobContext, WorkerOptions, cli
 from livekit.plugins import deepgram, minimax, openai, silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
-from agent_config import AxonAgent, load_agent, rag_search, resolve_agent_id
+from agent_config import (
+    AxonAgent,
+    _agent_id_from_metadata,
+    load_agent,
+    rag_search,
+    resolve_agent_id,
+)
 from db_writes import append_transcript_turn, trigger_post_call_pipeline
 from flow_runtime import (
     FlowRuntime,
@@ -303,21 +309,46 @@ async def entrypoint(ctx: JobContext) -> None:
             return
 
     # Resolve which agent persona this room is for.
+    # Wait for the user to fully join so participant attributes/metadata are
+    # populated — without this, ctx.room.remote_participants is often still
+    # empty here (race condition) and we fall through to plugin defaults.
+    try:
+        participant = await ctx.wait_for_participant()
+    except Exception:
+        participant = None
+
+    p_attrs: dict = {}
+    p_meta: Optional[str] = None
+    if participant is not None:
+        p_attrs = dict(getattr(participant, "attributes", None) or {})
+        p_meta = getattr(participant, "metadata", None) or None
+
     agent_id = resolve_agent_id(
         room_metadata=ctx.room.metadata,
-        participant_attributes=None,
+        participant_attributes=p_attrs,
     )
+    if not agent_id and p_meta:
+        # Participant metadata also carries `{"agent_id": "..."}` (set by the
+        # /api/token route alongside attributes).
+        agent_id = _agent_id_from_metadata(p_meta)
     if not agent_id:
-        # Try to read from the first remote participant once they join.
+        # Last-ditch sweep of any other remote participants already in the room.
         for p in ctx.room.remote_participants.values():
             attrs = getattr(p, "attributes", None) or {}
             if attrs.get("agent_id"):
                 agent_id = str(attrs["agent_id"])
                 break
 
+    clog.info(
+        "resolved agent_id=%s (room_meta=%s, p_attrs_keys=%s, p_meta=%s)",
+        agent_id, bool(ctx.room.metadata), list(p_attrs.keys()), bool(p_meta),
+    )
     axon = load_agent(agent_id) if agent_id else None
     if axon:
-        clog.info("loaded agent %s (%s)", axon.id, axon.name)
+        clog.info(
+            "loaded agent %s (%s) voice=%s model=%s",
+            axon.id, axon.name, axon.tts_voice_id, axon.tts_model,
+        )
         if axon.hold_music_url:
             clog.info(
                 "org %s hold music wired: %s", axon.org_id, axon.hold_music_url
