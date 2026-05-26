@@ -2,7 +2,7 @@ FROM python:3.11-slim
 
 # Build label that bumps every time we need to bust LiveKit Cloud's image cache.
 # Increment this when a `lk agent update` skips the rebuild.
-LABEL build_id="2026-05-26-pcm-pin-1.2.9"
+LABEL build_id="2026-05-26-pcm-via-correct-package"
 
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
