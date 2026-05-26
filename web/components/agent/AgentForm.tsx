@@ -37,11 +37,9 @@ const PROVIDER_MODEL_IDS: Record<LlmProvider, string[]> = Object.fromEntries(
 ) as Record<LlmProvider, string[]>;
 
 const TTS_MODELS = [
-  { id: "speech-02-hd", label: "speech-02-hd (HD multilingue, recommandé)" },
-  { id: "speech-2.5-hd-preview", label: "speech-2.5-hd (preview, qualité maximale)" },
-  { id: "speech-02-turbo", label: "speech-02-turbo (rapide, multilingue)" },
-  { id: "speech-01-turbo", label: "speech-01-turbo (rapide, économique)" },
-  { id: "speech-01", label: "speech-01 (legacy)" },
+  { id: "speech-02-hd", label: "speech-02-hd — Qualité HD multilingue, latence standard" },
+  { id: "speech-02-turbo", label: "speech-02-turbo — Plus rapide, qualité standard" },
+  { id: "speech-2.5-hd-preview", label: "speech-2.5-hd (preview) — Qualité maximale (en bêta)" },
 ];
 
 function slugify(s: string): string {
