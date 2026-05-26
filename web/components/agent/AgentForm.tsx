@@ -7,12 +7,34 @@ import type { Agent, AgentInput, LlmProvider, Voice } from "@/lib/types";
 import { PromptEditor } from "@/components/agents/PromptEditor";
 import { parsePersona, serializePersona } from "@/lib/personas/parser";
 
-const PROVIDER_MODELS: Record<LlmProvider, string[]> = {
-  deepseek: ["deepseek-chat", "deepseek-reasoner"],
-  openai: ["gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini", "o4-mini"],
-  anthropic: ["claude-sonnet-4-5", "claude-opus-4-5", "claude-haiku-4-5"],
-  minimax: ["MiniMax-M2", "MiniMax-M2-Stable"],
+type ModelOption = { id: string; label: string };
+
+const PROVIDER_MODELS: Record<LlmProvider, ModelOption[]> = {
+  deepseek: [
+    { id: "deepseek-chat", label: "deepseek-chat — Conversation rapide (recommandé pour vocal)" },
+    { id: "deepseek-reasoner", label: "deepseek-reasoner — Raisonnement approfondi (plus lent, pour décisions complexes)" },
+  ],
+  openai: [
+    { id: "gpt-4o", label: "gpt-4o — Polyvalent haute qualité" },
+    { id: "gpt-4o-mini", label: "gpt-4o-mini — Rapide et économique" },
+    { id: "gpt-4.1", label: "gpt-4.1 — Dernière génération" },
+    { id: "gpt-4.1-mini", label: "gpt-4.1-mini — Dernière génération, économique" },
+    { id: "o4-mini", label: "o4-mini — Raisonnement avancé" },
+  ],
+  anthropic: [
+    { id: "claude-sonnet-4-5", label: "claude-sonnet-4-5 — Équilibre qualité/vitesse" },
+    { id: "claude-opus-4-5", label: "claude-opus-4-5 — Qualité maximale" },
+    { id: "claude-haiku-4-5", label: "claude-haiku-4-5 — Ultra rapide" },
+  ],
+  minimax: [
+    { id: "MiniMax-M2", label: "MiniMax-M2 — Standard" },
+    { id: "MiniMax-M2-Stable", label: "MiniMax-M2-Stable — Production stable" },
+  ],
 };
+
+const PROVIDER_MODEL_IDS: Record<LlmProvider, string[]> = Object.fromEntries(
+  Object.entries(PROVIDER_MODELS).map(([k, v]) => [k, v.map((m) => m.id)]),
+) as Record<LlmProvider, string[]>;
 
 const TTS_MODELS = [
   { id: "speech-02-hd", label: "speech-02-hd (HD multilingue, recommandé)" },
@@ -56,7 +78,8 @@ export function AgentForm({ initial }: { initial?: Agent }) {
   const [model, setModel] = useState(() => {
     const p: LlmProvider = initial?.llm_provider ?? "deepseek";
     const m = initial?.llm_model ?? "deepseek-chat";
-    return PROVIDER_MODELS[p]?.includes(m) ? m : PROVIDER_MODELS[p]?.[0] ?? m;
+    const ids = PROVIDER_MODEL_IDS[p] ?? [];
+    return ids.includes(m) ? m : (ids[0] ?? m);
   });
   const [voice, setVoice] = useState(initial?.tts_voice_id ?? "");
   const [emotion, setEmotion] = useState(initial?.tts_emotion ?? "");
@@ -291,17 +314,17 @@ export function AgentForm({ initial }: { initial?: Agent }) {
             <select value={provider} onChange={(e) => {
               const p = e.target.value as LlmProvider;
               setProvider(p);
-              setModel(PROVIDER_MODELS[p][0]);
+              setModel(PROVIDER_MODELS[p][0].id);
             }}>
-              <option value="deepseek">DeepSeek</option>
+              <option value="deepseek">DeepSeek (recommandé — économique et rapide)</option>
               <option value="minimax">MiniMax</option>
             </select>
           </div>
           <div>
             <label>Modèle</label>
             <select value={model} onChange={(e) => setModel(e.target.value)}>
-              {llmModels.map((m) => <option key={m} value={m}>{m}</option>)}
-              {!llmModels.includes(model) && <option value={model}>{model} (custom)</option>}
+              {llmModels.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+              {!llmModels.some((m) => m.id === model) && <option value={model}>{model} (personnalisé)</option>}
             </select>
           </div>
         </div>
