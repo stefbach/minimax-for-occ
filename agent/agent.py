@@ -215,6 +215,43 @@ async def _watch_handoff(ctx: JobContext, session: AgentSession) -> None:
     logger.debug("handoff watcher: no metadata_changed event on this LiveKit version")
 
 
+def _wire_debug_logs(session: AgentSession, clog) -> None:
+    """Log every STT transcript and every assistant turn — runs for ALL sessions,
+    not just calls with a call_id. Helps diagnose silent LLM/TTS failures."""
+
+    def _on_user(ev):
+        try:
+            text = getattr(ev, "transcript", None) or getattr(ev, "text", None) or ""
+            is_final = getattr(ev, "is_final", True)
+            clog.info("STT user (final=%s): %r", is_final, str(text)[:200])
+        except Exception:
+            clog.exception("debug STT hook failed")
+
+    def _on_item(ev):
+        try:
+            item = getattr(ev, "item", None)
+            role = getattr(item, "role", None) if item else None
+            text = getattr(item, "text_content", None) if item else None
+            if callable(text):
+                text = text()
+            clog.info("LLM/turn role=%s text=%r", role, str(text or "")[:300])
+        except Exception:
+            clog.exception("debug item hook failed")
+
+    def _on_error(ev):
+        clog.error("session error event: %r", ev)
+
+    for ev_name, fn in (
+        ("user_input_transcribed", _on_user),
+        ("conversation_item_added", _on_item),
+        ("error", _on_error),
+    ):
+        try:
+            session.on(ev_name, fn)
+        except Exception:
+            clog.debug("session.on(%s) unavailable", ev_name)
+
+
 def _wire_transcript_hooks(session: AgentSession, call_id: Optional[str]) -> None:
     """Subscribe to session events to push each turn into call_transcripts.
 
@@ -423,6 +460,7 @@ async def entrypoint(ctx: JobContext) -> None:
         ),
     )
     _wire_transcript_hooks(session, call_id)
+    _wire_debug_logs(session, clog)
 
     async def _on_shutdown():
         try:
