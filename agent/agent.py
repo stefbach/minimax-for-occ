@@ -371,10 +371,15 @@ async def entrypoint(ctx: JobContext) -> None:
     # Wait for the user to fully join so participant attributes/metadata are
     # populated — without this, ctx.room.remote_participants is often still
     # empty here (race condition) and we fall through to plugin defaults.
+    # 10 s timeout so we never block forever if something is off.
+    participant = None
     try:
-        participant = await ctx.wait_for_participant()
-    except Exception:
-        participant = None
+        participant = await asyncio.wait_for(ctx.wait_for_participant(), timeout=10.0)
+    except (asyncio.TimeoutError, Exception):
+        # Fall back to whatever participants are already in the room.
+        for p in ctx.room.remote_participants.values():
+            participant = p
+            break
 
     p_attrs: dict = {}
     p_meta: Optional[str] = None
