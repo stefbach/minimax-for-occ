@@ -136,7 +136,18 @@ def _tts_for(agent: Optional[AxonAgent]) -> minimax.TTS:
         model = "speech-02-hd"
     if model:
         kwargs["model"] = model
-    return minimax.TTS(**kwargs)
+    # Force PCM streaming instead of MP3. MiniMax streams MP3 as multiple
+    # chunks each with their own headers, which crashes livekit-agents'
+    # PyAV decoder with InvalidDataError 1094995529 (known bug, see
+    # livekit/livekit#3850 and livekit/agents#3863). Raw PCM has no
+    # per-chunk headers so the decoder handles concatenation fine.
+    # Requires livekit-plugins-minimax >= 1.3.0 (audio_format kwarg).
+    try:
+        return minimax.TTS(audio_format="pcm", **kwargs)
+    except TypeError:
+        # Older plugin without audio_format kwarg — fall back, audio may
+        # still glitch but at least the session starts.
+        return minimax.TTS(**kwargs)
 
 
 def _build_n8n_tools(agent: AxonAgent):
