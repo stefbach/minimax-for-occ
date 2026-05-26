@@ -36,11 +36,57 @@ const PROVIDER_MODEL_IDS: Record<LlmProvider, string[]> = Object.fromEntries(
   Object.entries(PROVIDER_MODELS).map(([k, v]) => [k, v.map((m) => m.id)]),
 ) as Record<LlmProvider, string[]>;
 
-const TTS_MODELS = [
-  { id: "speech-02-hd", label: "speech-02-hd — Qualité HD multilingue, latence standard" },
-  { id: "speech-02-turbo", label: "speech-02-turbo — Plus rapide, qualité standard" },
-  { id: "speech-2.5-hd-preview", label: "speech-2.5-hd (preview) — Qualité maximale (en bêta)" },
+type TTSFamily = "speech-02" | "speech-01";
+
+const TTS_MODELS: { id: string; label: string; family: TTSFamily }[] = [
+  { id: "speech-02-hd",          label: "speech-02-hd — Qualité HD multilingue, latence standard", family: "speech-02" },
+  { id: "speech-02-turbo",       label: "speech-02-turbo — Plus rapide, qualité standard",         family: "speech-02" },
+  { id: "speech-2.5-hd-preview", label: "speech-2.5-hd (preview) — Qualité maximale (en bêta)",     family: "speech-02" },
+  { id: "speech-01-turbo",       label: "speech-01-turbo — Économique, latence ultra-faible",       family: "speech-01" },
+  { id: "speech-01",             label: "speech-01 (legacy) — Compatibilité voix historiques",      family: "speech-01" },
 ];
+
+// Each MiniMax model family has its own voice catalog. Picking a voice
+// from the wrong catalog makes the API silently fall back to a default.
+type BuiltinVoice = { id: string; label: string; group: string };
+const BUILTIN_VOICES: Record<TTSFamily, BuiltinVoice[]> = {
+  "speech-02": [
+    { id: "Calm_Woman",         label: "Femme calme (Calm_Woman)",                       group: "Femmes adultes" },
+    { id: "Wise_Woman",         label: "Femme posée (Wise_Woman)",                       group: "Femmes adultes" },
+    { id: "Lively_Girl",        label: "Jeune femme dynamique (Lively_Girl)",            group: "Jeunes femmes / adolescentes" },
+    { id: "Inspirational_girl", label: "Jeune femme inspirante (Inspirational_girl)",    group: "Jeunes femmes / adolescentes" },
+    { id: "Lovely_Girl",        label: "Jeune femme douce (Lovely_Girl)",                group: "Jeunes femmes / adolescentes" },
+    { id: "Sweet_Girl_2",       label: "Jeune femme chaleureuse (Sweet_Girl_2)",         group: "Jeunes femmes / adolescentes" },
+    { id: "Exuberant_Girl",     label: "Jeune femme enthousiaste (Exuberant_Girl)",      group: "Jeunes femmes / adolescentes" },
+    { id: "Patient_Man",        label: "Homme patient (Patient_Man)",                    group: "Hommes adultes" },
+    { id: "Casual_Guy",         label: "Homme décontracté (Casual_Guy)",                 group: "Hommes adultes" },
+    { id: "Determined_Man",     label: "Homme déterminé (Determined_Man)",               group: "Hommes adultes" },
+    { id: "Deep_Voice_Man",     label: "Homme voix grave (Deep_Voice_Man)",              group: "Hommes adultes" },
+    { id: "Elegant_Man",        label: "Homme élégant (Elegant_Man)",                    group: "Hommes adultes" },
+    { id: "Decent_Boy",         label: "Jeune homme professionnel (Decent_Boy)",         group: "Jeune homme" },
+    { id: "Friendly_Person",    label: "Personne amicale (Friendly_Person)",             group: "Neutre" },
+  ],
+  "speech-01": [
+    { id: "female-chengshu",     label: "Femme adulte (female-chengshu)",                group: "Femmes adultes" },
+    { id: "female-yujie",        label: "Femme mature (female-yujie)",                   group: "Femmes adultes" },
+    { id: "female-tianmei",      label: "Femme douce (female-tianmei)",                  group: "Femmes adultes" },
+    { id: "female-shaonv",       label: "Jeune femme (female-shaonv)",                   group: "Jeunes femmes" },
+    { id: "male-qn-jingying",    label: "Homme professionnel (male-qn-jingying)",        group: "Hommes adultes" },
+    { id: "male-qn-qingse",      label: "Homme posé (male-qn-qingse)",                   group: "Hommes adultes" },
+    { id: "male-qn-badao",       label: "Homme autoritaire (male-qn-badao)",             group: "Hommes adultes" },
+    { id: "male-qn-daxuesheng",  label: "Jeune homme étudiant (male-qn-daxuesheng)",     group: "Jeune homme" },
+    { id: "presenter_female",    label: "Présentatrice (presenter_female)",              group: "Présentateurs" },
+    { id: "presenter_male",      label: "Présentateur (presenter_male)",                 group: "Présentateurs" },
+    { id: "audiobook_female_1",  label: "Narratrice 1 (audiobook_female_1)",             group: "Narrateurs audiobook" },
+    { id: "audiobook_female_2",  label: "Narratrice 2 (audiobook_female_2)",             group: "Narrateurs audiobook" },
+    { id: "audiobook_male_1",    label: "Narrateur 1 (audiobook_male_1)",                group: "Narrateurs audiobook" },
+    { id: "audiobook_male_2",    label: "Narrateur 2 (audiobook_male_2)",                group: "Narrateurs audiobook" },
+  ],
+};
+
+function ttsFamilyFor(modelId: string | null | undefined): TTSFamily {
+  return TTS_MODELS.find((m) => m.id === modelId)?.family ?? "speech-02";
+}
 
 function slugify(s: string): string {
   return s
@@ -245,8 +291,42 @@ export function AgentForm({ initial }: { initial?: Agent }) {
   }
 
   const llmModels = PROVIDER_MODELS[provider];
-  const cloned = voices.filter((v) => v.source === "cloned");
-  const presets = voices.filter((v) => v.source === "preset");
+
+  // ── TTS family → compatible voice catalog ──────────────────────────────
+  const ttsFamily = ttsFamilyFor(ttsModel);
+  const voiceFamilyOf = (v: Voice): TTSFamily => {
+    const m = (v.metadata as Record<string, unknown> | null)?.["model"];
+    const modelId = typeof m === "string" ? m : "speech-02-hd";
+    return ttsFamilyFor(modelId);
+  };
+  const customCloned = voices.filter((v) => v.source === "cloned" && voiceFamilyOf(v) === ttsFamily);
+  const customPresets = voices.filter((v) => v.source === "preset" && voiceFamilyOf(v) === ttsFamily);
+
+  const builtinForFamily = BUILTIN_VOICES[ttsFamily];
+  const builtinGroups: [string, BuiltinVoice[]][] = (() => {
+    const map = new Map<string, BuiltinVoice[]>();
+    for (const v of builtinForFamily) {
+      const list = map.get(v.group) ?? [];
+      list.push(v);
+      map.set(v.group, list);
+    }
+    return Array.from(map.entries());
+  })();
+
+  const knownVoiceIds = new Set<string>([
+    ...builtinForFamily.map((v) => v.id),
+    ...customCloned.map((v) => v.voice_id),
+    ...customPresets.map((v) => v.voice_id),
+  ]);
+
+  // If the user switches model family and the current voice is no longer
+  // available in the new family's catalog, fall back to "default MiniMax".
+  useEffect(() => {
+    if (voice && !knownVoiceIds.has(voice)) {
+      setVoice("");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ttsModel]);
 
   return (
     <form onSubmit={onSubmit} style={{ display: "grid", gap: 18 }}>
@@ -348,48 +428,34 @@ export function AgentForm({ initial }: { initial?: Agent }) {
             <label>Voix</label>
             <select value={voice} onChange={(e) => setVoice(e.target.value)}>
               <option value="">— défaut MiniMax —</option>
-              {cloned.length > 0 && (
+              {customCloned.length > 0 && (
                 <optgroup label="Mes voix clonées">
-                  {cloned.map((v) => (
+                  {customCloned.map((v) => (
                     <option key={v.id} value={v.voice_id}>{v.display_name}</option>
                   ))}
                 </optgroup>
               )}
-              {presets.length > 0 && (
+              {customPresets.length > 0 && (
                 <optgroup label="Voix presets (Voice Studio)">
-                  {presets.map((v) => (
+                  {customPresets.map((v) => (
                     <option key={v.id} value={v.voice_id}>{v.display_name}</option>
                   ))}
                 </optgroup>
               )}
-              <optgroup label="Voix MiniMax — Femmes adultes">
-                <option value="Calm_Woman">Femme calme (Calm_Woman)</option>
-                <option value="Wise_Woman">Femme posée (Wise_Woman)</option>
-              </optgroup>
-              <optgroup label="Voix MiniMax — Jeunes femmes / adolescentes">
-                <option value="Lively_Girl">Jeune femme dynamique (Lively_Girl)</option>
-                <option value="Inspirational_girl">Jeune femme inspirante (Inspirational_girl)</option>
-                <option value="Lovely_Girl">Jeune femme douce (Lovely_Girl)</option>
-                <option value="Sweet_Girl_2">Jeune femme chaleureuse (Sweet_Girl_2)</option>
-                <option value="Exuberant_Girl">Jeune femme enthousiaste (Exuberant_Girl)</option>
-              </optgroup>
-              <optgroup label="Voix MiniMax — Hommes adultes">
-                <option value="Patient_Man">Homme patient (Patient_Man)</option>
-                <option value="Casual_Guy">Homme décontracté (Casual_Guy)</option>
-                <option value="Determined_Man">Homme déterminé (Determined_Man)</option>
-                <option value="Deep_Voice_Man">Homme voix grave (Deep_Voice_Man)</option>
-                <option value="Elegant_Man">Homme élégant (Elegant_Man)</option>
-              </optgroup>
-              <optgroup label="Voix MiniMax — Jeune homme">
-                <option value="Decent_Boy">Jeune homme professionnel (Decent_Boy)</option>
-              </optgroup>
-              <optgroup label="Voix MiniMax — Neutre">
-                <option value="Friendly_Person">Personne amicale (Friendly_Person)</option>
-              </optgroup>
-              {voice && !voices.some((v) => v.voice_id === voice) && !["Calm_Woman","Wise_Woman","Friendly_Person","Lively_Girl","Inspirational_girl","Lovely_Girl","Sweet_Girl_2","Exuberant_Girl","Patient_Man","Casual_Guy","Decent_Boy","Determined_Man","Deep_Voice_Man","Elegant_Man"].includes(voice) && (
+              {builtinGroups.map(([groupName, options]) => (
+                <optgroup key={groupName} label={`Voix MiniMax — ${groupName}`}>
+                  {options.map((v) => (
+                    <option key={v.id} value={v.id}>{v.label}</option>
+                  ))}
+                </optgroup>
+              ))}
+              {voice && !knownVoiceIds.has(voice) && (
                 <option value={voice}>{voice} (manuel)</option>
               )}
             </select>
+            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
+              Catalogue lié au modèle TTS sélectionné ({ttsFamily} family).
+            </div>
           </div>
           <div>
             <label>Modèle TTS</label>
