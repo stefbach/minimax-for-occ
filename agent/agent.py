@@ -107,6 +107,17 @@ def _llm_for(agent: Optional[AxonAgent]):
     )
 
 
+def _stt_for(agent: Optional[AxonAgent]) -> deepgram.STT:
+    """Deepgram STT — honors the per-agent language stored in Supabase.
+    - 'multi' / unset → auto-detect (30+ languages, broadest coverage)
+    - 'fr', 'en', 'es', … → locked language for max accuracy on short turns
+    """
+    lang = (agent.language if agent and agent.language else "multi").lower()
+    if lang in ("multi", "auto", ""):
+        lang = "multi"
+    return deepgram.STT(model="nova-3", language=lang)
+
+
 def _tts_for(agent: Optional[AxonAgent]) -> minimax.TTS:
     kwargs: dict = {}
     voice = (agent.tts_voice_id if agent else None) or os.getenv("MINIMAX_VOICE_ID")
@@ -323,7 +334,7 @@ async def entrypoint(ctx: JobContext) -> None:
         else:
             # A session is still required to drive say()/STT during the flow.
             session = AgentSession(
-                stt=deepgram.STT(model="nova-3", language="multi"),
+                stt=_stt_for(None),
                 llm=_llm_for(None),
                 tts=_tts_for(None),
                 vad=silero.VAD.load(),
@@ -418,7 +429,7 @@ async def entrypoint(ctx: JobContext) -> None:
     )
 
     session = AgentSession(
-        stt=deepgram.STT(model="nova-3", language="multi"),
+        stt=_stt_for(axon),
         llm=_llm_for(axon),
         tts=_tts_for(axon),
         vad=silero.VAD.load(),
