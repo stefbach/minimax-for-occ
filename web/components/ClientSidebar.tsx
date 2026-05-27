@@ -1,4 +1,3 @@
-// @deprecated use AdminSidebar or ClientSidebar
 "use client";
 
 import Link from "next/link";
@@ -47,19 +46,14 @@ const NAV: NavItem[] = [
   { href: "/numbers",   label: "Numéros",           icon: "✆", group: "CRM", roles: ["super_admin","admin","manager"] },
   { href: "/numbers/health", label: "Santé numéros", icon: "♥", group: "CRM", roles: ["super_admin","admin","manager"] },
 
-  // ── Admin ──
-  { href: "/admin",          label: "Administration",       icon: "★", group: "Admin", roles: ["super_admin","admin"] },
-  { href: "/admin/copilot",  label: "Copilote Super Admin", icon: "✦", group: "Admin", roles: ["super_admin"] },
-  { href: "/admin/inbound",  label: "Connecteurs entrants", icon: "⇩", group: "Admin", roles: ["super_admin","admin"] },
-  { href: "/admin/billing",  label: "Facturation",          icon: "€", group: "Admin", roles: ["super_admin","admin"] },
-  { href: "/admin/compliance", label: "Conformité (DNC)",   icon: "⊘", group: "Admin", roles: ["super_admin","admin","manager"] },
-  { href: "/settings",       label: "Paramètres",           icon: "⚙", group: "Admin", roles: ["super_admin","admin","manager"] },
+  // ── Settings ──
+  { href: "/settings",       label: "Paramètres",           icon: "⚙", group: "Paramètres", roles: ["super_admin","admin","manager"] },
 
   // ── Help (accessible to everyone) ──
   { href: "/help",           label: "Guide",                icon: "?", group: "Aide" },
 ];
 
-export function Sidebar() {
+export function ClientSidebar() {
   const pathname = usePathname() ?? "/";
   const [role, setRole] = useState<Role | null>(null);
   const [loadedRole, setLoadedRole] = useState(false);
@@ -141,6 +135,17 @@ export function Sidebar() {
           </div>
         )}
         <OrgSwitcher />
+        {loadedRole && role === "super_admin" && (
+          <Link
+            href="/admin"
+            className="nav-link"
+            style={{ fontSize: 12, color: "var(--muted-2)" }}
+            aria-label="Mode admin Axon"
+          >
+            <span aria-hidden="true" style={{ width: 16, opacity: 0.7 }}>→</span>
+            <span>Mode admin Axon</span>
+          </Link>
+        )}
         <div style={{ padding: "10px 12px", color: "var(--muted-2)", fontSize: 11 }}>
           Axon Voice Platform · v2
         </div>
