@@ -59,7 +59,10 @@ export async function POST(req: Request) {
   const room = url.searchParams.get("room");
   const callId = url.searchParams.get("call_id");
   const agentHandleId = url.searchParams.get("agent_handle_id");
+  const agentId = url.searchParams.get("agent_id");
   const direction = url.searchParams.get("direction");
+  const campaignId = url.searchParams.get("campaign_id");
+  const targetId = url.searchParams.get("target_id");
 
   const auth =
     process.env.LIVEKIT_SIP_USERNAME && process.env.LIVEKIT_SIP_PASSWORD
@@ -74,7 +77,10 @@ export async function POST(req: Request) {
   if (room) sipParams.set("X-LK-Room", room);
   if (callId) sipParams.set("X-LK-Call-Id", callId);
   if (agentHandleId) sipParams.set("X-LK-Agent-Handle-Id", agentHandleId);
+  if (agentId) sipParams.set("X-LK-Agent-Id", agentId);
   if (direction) sipParams.set("X-LK-Direction", direction);
+  if (campaignId) sipParams.set("X-LK-Campaign-Id", campaignId);
+  if (targetId) sipParams.set("X-LK-Target-Id", targetId);
 
   const target = `${sipUri}?${sipParams.toString()}`;
 

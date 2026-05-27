@@ -115,7 +115,7 @@ export async function dialTarget(job: DialJob): Promise<void> {
   const { data: campaignRaw, error: cErr } = await sb
     .from("campaigns")
     .select(
-      "id,org_id,state,phone_number_id,caller_id_e164,amd_enabled,max_attempts,retry_delay_min",
+      "id,org_id,state,phone_number_id,caller_id_e164,amd_enabled,max_attempts,retry_delay_min,agent_handle_id",
     )
     .eq("id", job.campaign_id)
     .single();
@@ -129,6 +129,27 @@ export async function dialTarget(job: DialJob): Promise<void> {
   if (campaign.state !== "running") {
     dlog("info", ctx, `campaign state=${campaign.state}, skipping`);
     return;
+  }
+
+  // Resolve the underlying agents.id from the campaign's agent_handle.
+  // agent_handles wraps both AI and human agents; for AI handles, ai_agent_id
+  // points at agents.id which is what the LiveKit worker (agent/agent.py)
+  // needs to load persona, voice, model, etc. Without this, the worker falls
+  // back to env defaults and the user hears a generic voice instead of the
+  // cloned voice they picked for the campaign.
+  let aiAgentId: string | null = null;
+  const handleId = (campaignRaw as { agent_handle_id?: string | null })
+    .agent_handle_id ?? null;
+  if (handleId) {
+    const { data: handle } = await sb
+      .from("agent_handles")
+      .select("kind,ai_agent_id")
+      .eq("id", handleId)
+      .single();
+    const h = handle as { kind?: string; ai_agent_id?: string | null } | null;
+    if (h?.kind === "ai" && h.ai_agent_id) {
+      aiAgentId = h.ai_agent_id;
+    }
   }
 
   const contact = parseContact(target.contacts);
@@ -207,7 +228,14 @@ export async function dialTarget(job: DialJob): Promise<void> {
 
   const appUrl = process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "https://example.com";
   const base = appUrl.replace(/\/+$/, "");
-  const twimlUrl = `${base}/api/twilio-voice?campaign_id=${encodeURIComponent(campaign.id)}&target_id=${encodeURIComponent(target.id)}`;
+  const twimlParams = new URLSearchParams({
+    campaign_id: campaign.id,
+    target_id: target.id,
+    direction: "outbound",
+  });
+  if (aiAgentId) twimlParams.set("agent_id", aiAgentId);
+  if (handleId) twimlParams.set("agent_handle_id", handleId);
+  const twimlUrl = `${base}/api/twilio-voice?${twimlParams.toString()}`;
   const statusCallback = `${base}/api/twilio/status?campaign_id=${encodeURIComponent(campaign.id)}&target_id=${encodeURIComponent(target.id)}`;
 
   try {

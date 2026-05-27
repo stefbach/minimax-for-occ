@@ -397,10 +397,15 @@ async def entrypoint(ctx: JobContext) -> None:
         agent_id = _agent_id_from_metadata(p_meta)
     if not agent_id:
         # Last-ditch sweep of any other remote participants already in the room.
+        # Check both ``agent_id`` (browser/desk) and ``axon.agent_id`` (SIP).
         for p in ctx.room.remote_participants.values():
             attrs = getattr(p, "attributes", None) or {}
-            if attrs.get("agent_id"):
-                agent_id = str(attrs["agent_id"])
+            for key in ("agent_id", "axon.agent_id"):
+                val = attrs.get(key)
+                if val:
+                    agent_id = str(val)
+                    break
+            if agent_id:
                 break
 
     clog.info(

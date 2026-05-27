@@ -82,11 +82,20 @@ def _agent_id_from_metadata(raw: Optional[str]) -> Optional[str]:
 
 
 def resolve_agent_id(*, room_metadata: Optional[str], participant_attributes: Optional[dict]) -> Optional[str]:
-    """Try participant attributes first, fall back to room metadata."""
+    """Try participant attributes first, fall back to room metadata.
+
+    Attribute lookup order:
+      1. ``agent_id`` — set by /api/token for browser/desk sessions
+      2. ``axon.agent_id`` — set by the LiveKit SIP dispatch rule from the
+         ``X-LK-Agent-Id`` header forwarded by the Twilio→LiveKit bridge for
+         campaign outbound calls (see agent/sip/dispatch-rule.json and
+         web/app/api/twilio-voice/route.ts).
+    """
     if participant_attributes:
-        aid = participant_attributes.get("agent_id")
-        if aid:
-            return str(aid)
+        for key in ("agent_id", "axon.agent_id"):
+            aid = participant_attributes.get(key)
+            if aid:
+                return str(aid)
     return _agent_id_from_metadata(room_metadata)
 
 

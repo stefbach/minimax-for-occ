@@ -11,6 +11,9 @@
     "axon.room_hint": "X-LK-Room",
     "axon.call_id": "X-LK-Call-Id",
     "axon.agent_handle_id": "X-LK-Agent-Handle-Id",
-    "axon.direction": "X-LK-Direction"
+    "axon.agent_id": "X-LK-Agent-Id",
+    "axon.direction": "X-LK-Direction",
+    "axon.campaign_id": "X-LK-Campaign-Id",
+    "axon.target_id": "X-LK-Target-Id"
   }
 }
