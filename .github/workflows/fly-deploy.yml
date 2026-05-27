@@ -4,18 +4,31 @@ on:
   push:
     branches: [main]
     paths:
+      - 'agent/**'
       - 'dialer/**'
       - 'Dockerfile'
       - 'fly.toml'
+      - '.github/workflows/fly-deploy.yml'
   workflow_dispatch:
 
 jobs:
-  deploy:
+  deploy-agent:
     name: Deploy axon-agent
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: superfly/flyctl-actions/setup-flyctl@master
       - run: flyctl deploy --remote-only -a axon-agent
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+  deploy-dialer:
+    name: Deploy dialer (minimax-for-occ)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - run: flyctl deploy --remote-only --config fly.toml
+        working-directory: dialer
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
