@@ -45,7 +45,7 @@ function appendGroupId(url: string): string {
   return `${url}${sep}GroupId=${encodeURIComponent(groupId)}`;
 }
 
-export async function uploadVoiceCloneSample(file: File): Promise<{ file_id: string }> {
+export async function uploadVoiceCloneSample(file: File): Promise<{ file_id: number | string }> {
   const form = new FormData();
   form.set("purpose", "voice_clone");
   form.set("file", file);
@@ -65,8 +65,16 @@ export async function uploadVoiceCloneSample(file: File): Promise<{ file_id: str
   };
   ensureBaseRespOk(json, "files/upload");
   const fileId = json.file?.file_id ?? json.file_id;
-  if (!fileId) throw new Error(`MiniMax upload returned no file_id: ${JSON.stringify(json)}`);
-  return { file_id: String(fileId) };
+  if (fileId === undefined || fileId === null) {
+    throw new Error(`MiniMax upload returned no file_id: ${JSON.stringify(json)}`);
+  }
+  // Preserve the original type. MiniMax /v1/voice_clone strictly type-checks
+  // file_id as int64 — passing it back as a string ("12345" instead of 12345)
+  // causes status_code=2013 "invalid params". When MiniMax returns the id as
+  // a numeric string (legacy responses), parse it back to a number; otherwise
+  // pass the number through untouched.
+  const numeric = typeof fileId === "number" ? fileId : Number(fileId);
+  return { file_id: Number.isFinite(numeric) ? numeric : (fileId as unknown as number) };
 }
 
 /**
@@ -78,7 +86,7 @@ export async function uploadVoiceCloneSample(file: File): Promise<{ file_id: str
  *   speech-02 family.
  */
 export async function registerVoiceClone(opts: {
-  file_id: string;
+  file_id: number | string;
   voice_id: string;
   text?: string;
   model?: string;
