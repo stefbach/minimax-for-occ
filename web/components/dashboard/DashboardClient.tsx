@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import type { DashboardOverviewResponse } from "@/app/api/dashboard/overview/route";
 import { KpiGrid } from "./KpiGrid";
@@ -60,6 +61,22 @@ export function DashboardClient({ initial, initialError, orgId }: Props) {
             </button>
             <HelpButton contextKey="dashboard" />
           </div>
+        </div>
+
+        {/* Raccourcis — accès direct aux actions fréquentes */}
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <Link href="/agents/new" style={{ textDecoration: "none" }}>
+            <button>+ Nouvel agent</button>
+          </Link>
+          <Link href="/campaigns/new" style={{ textDecoration: "none" }}>
+            <button>+ Nouvelle campagne</button>
+          </Link>
+          <Link href="/calls" style={{ textDecoration: "none" }}>
+            <button className="ghost">☎ Voir les appels</button>
+          </Link>
+          <Link href="/contacts" style={{ textDecoration: "none" }}>
+            <button className="ghost">◐ Contacts</button>
+          </Link>
         </div>
 
         {error && (
