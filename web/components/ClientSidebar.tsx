@@ -160,30 +160,47 @@ export function ClientSidebar() {
 
       {/* ─── Avancé (collapsible) ─── */}
       {advanced.length > 0 && (
-        <div style={{ marginTop: 6 }}>
+        <div style={{ marginTop: 10, padding: "0 10px" }}>
           <button
             onClick={() => setAdvancedOpen((v) => !v)}
-            className="nav-link"
             style={{
               width: "100%",
-              background: "none",
-              border: "none",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 8,
               cursor: "pointer",
-              fontSize: 10,
-              color: "var(--muted-2)",
-              textTransform: "uppercase",
-              letterSpacing: 1,
-              padding: "10px 12px 4px",
+              fontSize: 13,
+              fontWeight: 500,
+              color: "var(--fg, #e5e5e5)",
+              background: "var(--surface-2, rgba(255,255,255,0.04))",
+              border: "1px solid var(--border, #2a2a2a)",
+              borderRadius: 8,
+              padding: "9px 12px",
               textAlign: "left",
             }}
             aria-expanded={advancedOpen}
           >
-            <span aria-hidden="true" style={{ width: 16, opacity: 0.7 }}>
-              {advancedOpen ? "▾" : "▸"}
+            <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span aria-hidden="true" style={{ fontSize: 12, opacity: 0.7 }}>⚙</span>
+              <span>Avancé</span>
+              <span
+                style={{
+                  fontSize: 11,
+                  color: "var(--muted-2)",
+                  background: "var(--surface-3, rgba(255,255,255,0.08))",
+                  borderRadius: 10,
+                  padding: "1px 7px",
+                }}
+              >
+                {advanced.length}
+              </span>
             </span>
-            <span>Avancé ({advanced.length})</span>
+            <span aria-hidden="true" style={{ fontSize: 14, opacity: 0.8, transition: "transform 0.15s", transform: advancedOpen ? "rotate(90deg)" : "none" }}>
+              ›
+            </span>
           </button>
-          {advancedOpen && advanced.map(renderLink)}
+          {advancedOpen && <div style={{ marginTop: 4 }}>{advanced.map(renderLink)}</div>}
         </div>
       )}
 
