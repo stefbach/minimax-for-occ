@@ -135,6 +135,51 @@ export function AgentForm({ initial }: { initial?: Agent }) {
   const [ragK, setRagK] = useState(initial?.rag_top_k ?? 4);
   const [previewing, setPreviewing] = useState(false);
 
+  // Tabbed layout — progressive disclosure so a non-technical user only
+  // touches Essentiel + Comportement and never the Avancé knobs.
+  const [tab, setTab] = useState<"essentiel" | "comportement" | "avance">("essentiel");
+
+  // Inline voice cloning (folds Voice Studio into the agent's Voix section).
+  const [showClone, setShowClone] = useState(false);
+  const [cloneFile, setCloneFile] = useState<File | null>(null);
+  const [cloneVoiceId, setCloneVoiceId] = useState("");
+  const [cloneName, setCloneName] = useState("");
+  const [cloning, setCloning] = useState(false);
+
+  async function doClone() {
+    if (!cloneFile || cloneVoiceId.trim().length < 8 || !cloneName.trim()) return;
+    if (!/^[A-Za-z][A-Za-z0-9_]{7,63}$/.test(cloneVoiceId.trim())) {
+      setError("voice_id : 8–64 caractères, commence par une lettre, A-Z / 0-9 / _ uniquement.");
+      return;
+    }
+    setCloning(true);
+    setError(null);
+    try {
+      const fd = new FormData();
+      fd.set("file", cloneFile);
+      fd.set("voice_id", cloneVoiceId.trim());
+      fd.set("display_name", cloneName.trim());
+      fd.set("language", language);
+      fd.set("model", ttsModel);
+      const r = await fetch("/api/voices", { method: "POST", body: fd, credentials: "same-origin" });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setError(body.error || `Échec du clonage (${r.status})`);
+        return;
+      }
+      // Refresh the catalog and auto-select the freshly cloned voice.
+      const list = await fetch("/api/voices").then((x) => (x.ok ? x.json() : []));
+      setVoices(Array.isArray(list) ? list : []);
+      setVoice(cloneVoiceId.trim());
+      setShowClone(false);
+      setCloneFile(null);
+      setCloneVoiceId("");
+      setCloneName("");
+    } finally {
+      setCloning(false);
+    }
+  }
+
   useEffect(() => {
     let cancelled = false;
     fetch("/api/voices")
@@ -364,166 +409,266 @@ export function AgentForm({ initial }: { initial?: Agent }) {
         </div>
       </div>
 
-      <div className="card" style={{ display: "grid", gap: 14 }}>
-        <h3 style={{ margin: 0 }}>Identité</h3>
-        <div className="form-row">
-          <div>
-            <label>Nom</label>
-            <input value={name} onChange={(e) => setName(e.target.value)} required placeholder="Réceptionniste Tibok" />
-          </div>
-          <div>
-            <label>Langue principale</label>
-            <select value={language} onChange={(e) => setLanguage(e.target.value)}>
-              {LANGUAGES.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
-            </select>
-          </div>
-        </div>
-        <div>
-          <label>Description</label>
-          <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="À quoi sert cet agent ?" />
-        </div>
+      {/* ─── Tab bar ─── */}
+      <div style={{ display: "flex", gap: 4 }}>
+        {([
+          { id: "essentiel", label: "Essentiel" },
+          { id: "comportement", label: "Comportement" },
+          { id: "avance", label: "Avancé" },
+        ] as const).map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setTab(t.id)}
+            style={{
+              padding: "8px 16px",
+              fontSize: 14,
+              fontWeight: tab === t.id ? 600 : 400,
+              background: tab === t.id ? "var(--surface-2, rgba(255,255,255,0.06))" : "transparent",
+              color: tab === t.id ? "var(--fg)" : "var(--muted)",
+              border: "none",
+              borderBottom: tab === t.id ? "2px solid var(--accent, #ff6b35)" : "2px solid transparent",
+              cursor: "pointer",
+            }}
+          >
+            {t.label}
+          </button>
+        ))}
       </div>
 
-      <div className="card" style={{ display: "grid", gap: 14 }}>
-        <h3 style={{ margin: 0 }}>Cerveau (LLM)</h3>
-        <div className="form-row">
-          <div>
-            <label>Fournisseur</label>
-            <select value={provider} onChange={(e) => {
-              const p = e.target.value as LlmProvider;
-              setProvider(p);
-              setModel(PROVIDER_MODELS[p][0].id);
-            }}>
-              <option value="deepseek">DeepSeek</option>
-              <option value="minimax">MiniMax</option>
-            </select>
-          </div>
-          <div>
-            <label>Modèle</label>
-            <select value={model} onChange={(e) => setModel(e.target.value)}>
-              {llmModels.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-              {!llmModels.some((m) => m.id === model) && <option value={model}>{model} (personnalisé)</option>}
-            </select>
-          </div>
-        </div>
-        <PromptEditor
-          agentId={initial?.id}
-          value={systemPrompt}
-          onChange={setSystemPrompt}
-          greeting={greeting}
-          onRestoreGreeting={setGreeting}
-          placeholder="Tu es un assistant vocal pour la pharmacie Tibok. Tu parles en français et en anglais. Tu peux..."
-        />
-      </div>
-
-      <div className="card" style={{ display: "grid", gap: 14 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <h3 style={{ margin: 0 }}>Voix (MiniMax TTS)</h3>
-          <Link href="/voices" style={{ fontSize: 12, color: "var(--muted)" }}>
-            Gérer dans Voice Studio →
-          </Link>
-        </div>
-        <div className="form-row">
-          <div>
-            <label>Voix</label>
-            <select value={voice} onChange={(e) => setVoice(e.target.value)}>
-              <option value="">— défaut MiniMax —</option>
-              {customCloned.length > 0 && (
-                <optgroup label="Mes voix clonées">
-                  {customCloned.map((v) => (
-                    <option key={v.id} value={v.voice_id}>{v.display_name}</option>
-                  ))}
-                </optgroup>
-              )}
-              {customPresets.length > 0 && (
-                <optgroup label="Voix presets (Voice Studio)">
-                  {customPresets.map((v) => (
-                    <option key={v.id} value={v.voice_id}>{v.display_name}</option>
-                  ))}
-                </optgroup>
-              )}
-              {builtinGroups.map(([groupName, options]) => (
-                <optgroup key={groupName} label={`Voix MiniMax — ${groupName}`}>
-                  {options.map((v) => (
-                    <option key={v.id} value={v.id}>{v.label}</option>
-                  ))}
-                </optgroup>
-              ))}
-              {voice && !knownVoiceIds.has(voice) && (
-                <option value={voice}>{voice} (manuel)</option>
-              )}
-            </select>
-            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
-              Catalogue lié au modèle TTS sélectionné ({ttsFamily} family).
+      {/* ═══ ESSENTIEL : identité + voix ═══ */}
+      {tab === "essentiel" && (
+        <>
+          <div className="card" style={{ display: "grid", gap: 14 }}>
+            <h3 style={{ margin: 0 }}>Identité</h3>
+            <div className="form-row">
+              <div>
+                <label>Nom</label>
+                <input value={name} onChange={(e) => setName(e.target.value)} required placeholder="Réceptionniste Tibok" />
+              </div>
+              <div>
+                <label>Langue principale</label>
+                <select value={language} onChange={(e) => setLanguage(e.target.value)}>
+                  {LANGUAGES.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
+                </select>
+              </div>
+            </div>
+            <div>
+              <label>Description</label>
+              <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="À quoi sert cet agent ?" />
             </div>
           </div>
-          <div>
-            <label>Modèle TTS</label>
-            <select value={ttsModel} onChange={(e) => setTtsModel(e.target.value)}>
-              {TTS_MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-            </select>
-          </div>
-        </div>
-        <div className="form-row">
-          <div>
-            <label>Émotion</label>
-            <select value={emotion} onChange={(e) => setEmotion(e.target.value)}>
-              <option value="">— défaut —</option>
-              <option value="neutral">neutral</option>
-              <option value="happy">happy</option>
-              <option value="sad">sad</option>
-              <option value="angry">angry</option>
-              <option value="fearful">fearful</option>
-              <option value="disgusted">disgusted</option>
-              <option value="surprised">surprised</option>
-            </select>
-          </div>
-          <div>
-            <label>Vitesse ({speed.toFixed(2)}×)</label>
-            <input
-              type="range" min="0.5" max="2" step="0.05"
-              value={speed} onChange={(e) => setSpeed(Number(e.target.value))}
-            />
-          </div>
-        </div>
-        <div>
-          <label>Salutation à l&apos;entrée en session</label>
-          <input value={greeting} onChange={(e) => setGreeting(e.target.value)} />
-        </div>
-        <div>
-          <button
-            type="button"
-            className="ghost"
-            disabled={previewing}
-            onClick={onPreviewVoice}
-          >
-            {previewing ? "Synthèse en cours…" : "▶ Écouter cette voix"}
-          </button>
-        </div>
-      </div>
 
-      <div className="card" style={{ display: "grid", gap: 14 }}>
-        <h3 style={{ margin: 0 }}>RAG (Supabase pgvector)</h3>
-        <div className="form-row">
-          <label style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 0 }}>
-            <input
-              type="checkbox"
-              style={{ width: 18 }}
-              checked={rag}
-              onChange={(e) => setRag(e.target.checked)}
-            />
-            Activer la recherche documentaire
-          </label>
-          <div>
-            <label>Top-K passages à injecter</label>
-            <input
-              type="number" min="1" max="12"
-              value={ragK} onChange={(e) => setRagK(Number(e.target.value))}
-              disabled={!rag}
-            />
+          <div className="card" style={{ display: "grid", gap: 14 }}>
+            <h3 style={{ margin: 0 }}>Voix</h3>
+            <div>
+              <label>Voix de l&apos;agent</label>
+              <select value={voice} onChange={(e) => setVoice(e.target.value)}>
+                <option value="">— défaut MiniMax —</option>
+                {customCloned.length > 0 && (
+                  <optgroup label="Mes voix clonées">
+                    {customCloned.map((v) => (
+                      <option key={v.id} value={v.voice_id}>{v.display_name}</option>
+                    ))}
+                  </optgroup>
+                )}
+                {customPresets.length > 0 && (
+                  <optgroup label="Voix presets">
+                    {customPresets.map((v) => (
+                      <option key={v.id} value={v.voice_id}>{v.display_name}</option>
+                    ))}
+                  </optgroup>
+                )}
+                {builtinGroups.map(([groupName, options]) => (
+                  <optgroup key={groupName} label={`Voix MiniMax — ${groupName}`}>
+                    {options.map((v) => (
+                      <option key={v.id} value={v.id}>{v.label}</option>
+                    ))}
+                  </optgroup>
+                ))}
+                {voice && !knownVoiceIds.has(voice) && (
+                  <option value={voice}>{voice} (manuel)</option>
+                )}
+              </select>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button type="button" className="ghost" disabled={previewing} onClick={onPreviewVoice}>
+                {previewing ? "Synthèse en cours…" : "▶ Écouter cette voix"}
+              </button>
+              <button type="button" className="ghost" onClick={() => setShowClone((v) => !v)}>
+                {showClone ? "Annuler le clonage" : "+ Cloner une nouvelle voix"}
+              </button>
+            </div>
+
+            {/* Inline voice cloning (folds Voice Studio in here). */}
+            {showClone && (
+              <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12, display: "grid", gap: 10 }}>
+                <div style={{ fontSize: 13, color: "var(--muted)" }}>
+                  Échantillon <strong>mp3 / wav / m4a</strong>, mono, 10 s à 5 min, ≤ 20 Mo.
+                  La voix sera clonée pour le modèle TTS <span className="kbd">{ttsModel}</span>.
+                </div>
+                <div className="form-row">
+                  <div>
+                    <label>Fichier audio</label>
+                    <input
+                      type="file"
+                      accept=".mp3,.wav,.m4a,audio/mpeg,audio/wav,audio/x-m4a,audio/mp4"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0] ?? null;
+                        if (f && !/\.(mp3|wav|m4a)$/i.test(f.name)) {
+                          setError(`Format non supporté : "${f.name}". Utilise mp3, wav ou m4a.`);
+                          e.target.value = "";
+                          setCloneFile(null);
+                          return;
+                        }
+                        setCloneFile(f);
+                      }}
+                    />
+                    {cloneFile && (
+                      <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
+                        {cloneFile.name} ({(cloneFile.size / 1024 / 1024).toFixed(2)} Mo)
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <label>Nom affiché</label>
+                    <input value={cloneName} onChange={(e) => setCloneName(e.target.value)} placeholder="Voix Dr Coste" />
+                  </div>
+                </div>
+                <div>
+                  <label>
+                    voice_id technique{" "}
+                    <span style={{ color: "var(--muted)", fontWeight: "normal", fontSize: 12 }}>
+                      (8–64 car., commence par une lettre, A-Z / 0-9 / _)
+                    </span>
+                  </label>
+                  <input
+                    value={cloneVoiceId}
+                    onChange={(e) => setCloneVoiceId(e.target.value)}
+                    placeholder="voix_dr_coste"
+                    pattern="[A-Za-z][A-Za-z0-9_]{7,63}"
+                  />
+                </div>
+                <div>
+                  <button
+                    type="button"
+                    onClick={doClone}
+                    disabled={cloning || !cloneFile || cloneVoiceId.trim().length < 8 || !cloneName.trim()}
+                  >
+                    {cloning ? "Clonage en cours…" : "Cloner et utiliser cette voix"}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
+        </>
+      )}
+
+      {/* ═══ COMPORTEMENT : greeting + prompt ═══ */}
+      {tab === "comportement" && (
+        <div className="card" style={{ display: "grid", gap: 14 }}>
+          <h3 style={{ margin: 0 }}>Comportement</h3>
+          <div>
+            <label>Salutation à l&apos;entrée en session</label>
+            <input value={greeting} onChange={(e) => setGreeting(e.target.value)} />
+          </div>
+          <PromptEditor
+            agentId={initial?.id}
+            value={systemPrompt}
+            onChange={setSystemPrompt}
+            greeting={greeting}
+            onRestoreGreeting={setGreeting}
+            placeholder="Tu es un assistant vocal pour la pharmacie Tibok. Tu parles en français et en anglais. Tu peux..."
+          />
         </div>
-      </div>
+      )}
+
+      {/* ═══ AVANCÉ : LLM + réglages TTS + RAG ═══ */}
+      {tab === "avance" && (
+        <>
+          <div className="card" style={{ display: "grid", gap: 14 }}>
+            <h3 style={{ margin: 0 }}>Cerveau (LLM)</h3>
+            <div className="form-row">
+              <div>
+                <label>Fournisseur</label>
+                <select value={provider} onChange={(e) => {
+                  const p = e.target.value as LlmProvider;
+                  setProvider(p);
+                  setModel(PROVIDER_MODELS[p][0].id);
+                }}>
+                  <option value="deepseek">DeepSeek</option>
+                  <option value="minimax">MiniMax</option>
+                </select>
+              </div>
+              <div>
+                <label>Modèle</label>
+                <select value={model} onChange={(e) => setModel(e.target.value)}>
+                  {llmModels.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+                  {!llmModels.some((m) => m.id === model) && <option value={model}>{model} (personnalisé)</option>}
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div className="card" style={{ display: "grid", gap: 14 }}>
+            <h3 style={{ margin: 0 }}>Réglages voix (TTS)</h3>
+            <div className="form-row">
+              <div>
+                <label>Modèle TTS</label>
+                <select value={ttsModel} onChange={(e) => setTtsModel(e.target.value)}>
+                  {TTS_MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+                </select>
+                <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
+                  Le catalogue de voix (onglet Essentiel) dépend de ce modèle ({ttsFamily} family).
+                </div>
+              </div>
+              <div>
+                <label>Émotion</label>
+                <select value={emotion} onChange={(e) => setEmotion(e.target.value)}>
+                  <option value="">— défaut —</option>
+                  <option value="neutral">neutral</option>
+                  <option value="happy">happy</option>
+                  <option value="sad">sad</option>
+                  <option value="angry">angry</option>
+                  <option value="fearful">fearful</option>
+                  <option value="disgusted">disgusted</option>
+                  <option value="surprised">surprised</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <label>Vitesse ({speed.toFixed(2)}×)</label>
+              <input
+                type="range" min="0.5" max="2" step="0.05"
+                value={speed} onChange={(e) => setSpeed(Number(e.target.value))}
+              />
+            </div>
+          </div>
+
+          <div className="card" style={{ display: "grid", gap: 14 }}>
+            <h3 style={{ margin: 0 }}>Base de connaissances (RAG)</h3>
+            <div className="form-row">
+              <label style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 0 }}>
+                <input
+                  type="checkbox"
+                  style={{ width: 18 }}
+                  checked={rag}
+                  onChange={(e) => setRag(e.target.checked)}
+                />
+                Activer la recherche documentaire
+              </label>
+              <div>
+                <label>Top-K passages à injecter</label>
+                <input
+                  type="number" min="1" max="12"
+                  value={ragK} onChange={(e) => setRagK(Number(e.target.value))}
+                  disabled={!rag}
+                />
+              </div>
+            </div>
+          </div>
+        </>
+      )}
 
       {error && <div className="card" style={{ borderColor: "var(--bad)", color: "var(--bad)" }}>{error}</div>}
 
