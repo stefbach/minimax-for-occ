@@ -7,7 +7,16 @@ import { Brand } from "./brand/Brand";
 import { OrgSwitcher } from "./OrgSwitcher";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
-type Role = "super_admin" | "admin" | "manager" | "supervisor" | "agent";
+type Role =
+  | "super_admin"
+  | "admin"
+  | "owner"
+  | "manager"
+  | "supervisor"
+  | "builder"
+  | "agent"
+  | "analyst"
+  | "viewer";
 
 interface NavItem {
   href: string;
@@ -16,47 +25,62 @@ interface NavItem {
   group: string;
   /** Which roles can see this entry. Empty/omitted = everyone. */
   roles?: Role[];
+  /** True = lives under the collapsible "Avancé" section (not yet folded into
+   *  its parent page). Removed from there as later phases relocate it. */
+  advanced?: boolean;
 }
 
+// Reusable role buckets.
+const MGMT: Role[] = ["super_admin", "admin", "owner", "manager"];
+const OPS: Role[] = ["super_admin", "admin", "owner", "manager", "supervisor", "analyst", "viewer"];
+
 const NAV: NavItem[] = [
-  // ── Overview ──
-  { href: "/dashboard", label: "Dashboard",         icon: "▣", group: "Overview", roles: ["super_admin","admin","manager","supervisor"] },
-  { href: "/analytics", label: "Analytics",         icon: "▤", group: "Overview", roles: ["super_admin","admin","manager","supervisor"] },
-  { href: "/desk",      label: "Mon poste",         icon: "⌂", group: "Overview" },
+  // ─── OVERVIEW ───
+  { href: "/dashboard", label: "Tableau de bord", icon: "▣", group: "Overview" },
+  { href: "/desk",      label: "Mon poste",       icon: "⌂", group: "Overview" }, // all roles — anyone may take a call
 
-  // ── Operations ──
-  { href: "/calls",     label: "Appels (live)",     icon: "☎", group: "Operations", roles: ["super_admin","admin","manager","supervisor"] },
-  { href: "/queues",    label: "Files d'attente",   icon: "≡", group: "Operations", roles: ["super_admin","admin","manager","supervisor"] },
-  { href: "/campaigns", label: "Campagnes",         icon: "⇈", group: "Operations", roles: ["super_admin","admin","manager"] },
-  { href: "/alerts",    label: "Alertes",           icon: "!", group: "Operations", roles: ["super_admin","admin","manager","supervisor"] },
+  // ─── CONFIGURATION ───
+  { href: "/agents",    label: "Agents",          icon: "◇", group: "Configuration", roles: MGMT },
+  { href: "/scripts",   label: "Scripts",         icon: "✎", group: "Configuration", roles: MGMT },
 
-  // ── Builder ──
-  { href: "/agents",    label: "Agents IA",         icon: "◇", group: "Builder", roles: ["super_admin","admin","manager"] },
-  { href: "/agents/library", label: "Bibliothèque persona", icon: "⊕", group: "Builder", roles: ["super_admin","admin","manager"] },
-  { href: "/teams",     label: "Teams IA",          icon: "⌬", group: "Builder", roles: ["super_admin","admin","manager"] },
-  { href: "/scripts",   label: "Scripts",           icon: "✎", group: "Builder", roles: ["super_admin","admin","manager"] },
-  { href: "/voices",    label: "Voice Studio",      icon: "♪", group: "Builder", roles: ["super_admin","admin","manager"] },
-  { href: "/flows",     label: "Flows / IVR",       icon: "❖", group: "Builder", roles: ["super_admin","admin","manager"] },
-  { href: "/workflows", label: "Workflows n8n",     icon: "⇄", group: "Builder", roles: ["super_admin","admin","manager"] },
-  { href: "/documents", label: "Documents (RAG)",   icon: "≣", group: "Builder", roles: ["super_admin","admin","manager"] },
-  { href: "/analyses",  label: "Analyses LLM",      icon: "∑", group: "Builder", roles: ["super_admin","admin","manager"] },
+  // ─── OPÉRATIONS ───
+  { href: "/campaigns", label: "Campagnes",       icon: "⇈", group: "Opérations", roles: MGMT },
+  { href: "/calls",     label: "Appels",          icon: "☎", group: "Opérations", roles: OPS },
 
-  // ── CRM ──
-  { href: "/contacts",  label: "Contacts",          icon: "◐", group: "CRM" },
-  { href: "/numbers",   label: "Numéros",           icon: "✆", group: "CRM", roles: ["super_admin","admin","manager"] },
-  { href: "/numbers/health", label: "Santé numéros", icon: "♥", group: "CRM", roles: ["super_admin","admin","manager"] },
+  // ─── DONNÉES ───
+  { href: "/contacts",  label: "CRM / Contacts",  icon: "◐", group: "Données" },
 
-  // ── Settings ──
-  { href: "/settings",       label: "Paramètres",           icon: "⚙", group: "Paramètres", roles: ["super_admin","admin","manager"] },
+  // ─── COMPTE ───
+  { href: "/settings",  label: "Paramètres",      icon: "⚙", group: "Compte", roles: MGMT },
+  { href: "/help",      label: "Guide",           icon: "?", group: "Compte" },
 
-  // ── Help (accessible to everyone) ──
-  { href: "/help",           label: "Guide",                icon: "?", group: "Aide" },
+  // ─── AVANCÉ (collapsible — pages not yet folded into their parent) ───
+  // Phase 2 → into Agents:
+  { href: "/voices",         label: "Voice Studio (→ Agents)",       icon: "♪", group: "Avancé", roles: MGMT, advanced: true },
+  { href: "/agents/library", label: "Bibliothèque persona (→ Agents)", icon: "⊕", group: "Avancé", roles: MGMT, advanced: true },
+  { href: "/documents",      label: "Documents RAG (→ Agents)",      icon: "≣", group: "Avancé", roles: MGMT, advanced: true },
+  // Phase 4 → into Appels:
+  { href: "/queues",         label: "Files d'attente (→ Appels)",    icon: "≡", group: "Avancé", roles: OPS,  advanced: true },
+  // Phase 5 → into Dashboard / Rapports:
+  { href: "/analytics",      label: "Analytics (→ Dashboard)",       icon: "▤", group: "Avancé", roles: OPS,  advanced: true },
+  { href: "/analyses",       label: "Analyses LLM (→ Rapports)",     icon: "∑", group: "Avancé", roles: MGMT, advanced: true },
+  { href: "/alerts",         label: "Alertes (→ Dashboard)",         icon: "!", group: "Avancé", roles: OPS,  advanced: true },
+  // Phase 6 → into Paramètres:
+  { href: "/numbers",        label: "Numéros (→ Paramètres)",        icon: "✆", group: "Avancé", roles: MGMT, advanced: true },
+  { href: "/numbers/health", label: "Santé numéros (→ Paramètres)",  icon: "♥", group: "Avancé", roles: MGMT, advanced: true },
+  { href: "/workflows",      label: "Workflows n8n (→ Paramètres)",  icon: "⇄", group: "Avancé", roles: MGMT, advanced: true },
+  { href: "/teams",          label: "Teams IA (→ Paramètres)",       icon: "⌬", group: "Avancé", roles: MGMT, advanced: true },
+  { href: "/flows",          label: "Flows / IVR (avancé)",          icon: "❖", group: "Avancé", roles: MGMT, advanced: true },
 ];
+
+// Render order for the primary (non-advanced) groups.
+const GROUP_ORDER = ["Overview", "Configuration", "Opérations", "Données", "Compte"];
 
 export function ClientSidebar() {
   const pathname = usePathname() ?? "/";
   const [role, setRole] = useState<Role | null>(null);
   const [loadedRole, setLoadedRole] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   useEffect(() => {
     const sb = supabaseBrowser();
@@ -77,16 +101,39 @@ export function ClientSidebar() {
     });
   }, []);
 
-  const visible = NAV.filter((n) => {
+  const canSee = (n: NavItem): boolean => {
     if (!loadedRole || !role) return true; // pre-load: show everything to avoid flicker
     if (!n.roles || n.roles.length === 0) return true;
     return n.roles.includes(role);
-  });
+  };
+
+  const visible = NAV.filter(canSee);
+  const primary = visible.filter((n) => !n.advanced);
+  const advanced = visible.filter((n) => n.advanced);
 
   const groups: Record<string, NavItem[]> = {};
-  for (const item of visible) {
+  for (const item of primary) {
     (groups[item.group] ??= []).push(item);
   }
+
+  const renderLink = (n: NavItem) => {
+    const active =
+      n.href === "/"
+        ? pathname === "/"
+        : pathname === n.href || pathname.startsWith(n.href + "/");
+    return (
+      <Link
+        key={n.href}
+        href={n.href}
+        className={`nav-link ${active ? "active" : ""}`}
+        aria-label={n.label}
+        aria-current={active ? "page" : undefined}
+      >
+        <span aria-hidden="true" style={{ width: 16, opacity: 0.7 }}>{n.icon}</span>
+        <span>{n.label}</span>
+      </Link>
+    );
+  };
 
   return (
     <nav className="sidebar">
@@ -94,7 +141,7 @@ export function ClientSidebar() {
         <Brand size={18} />
       </Link>
 
-      {Object.entries(groups).map(([group, items]) => (
+      {GROUP_ORDER.filter((g) => groups[g]?.length).map((group) => (
         <div key={group} style={{ marginTop: 6 }}>
           <div
             style={{
@@ -107,26 +154,38 @@ export function ClientSidebar() {
           >
             {group}
           </div>
-          {items.map((n) => {
-            const active =
-              n.href === "/"
-                ? pathname === "/"
-                : pathname === n.href || pathname.startsWith(n.href + "/");
-            return (
-              <Link
-                key={n.href}
-                href={n.href}
-                className={`nav-link ${active ? "active" : ""}`}
-                aria-label={n.label}
-                aria-current={active ? "page" : undefined}
-              >
-                <span aria-hidden="true" style={{ width: 16, opacity: 0.7 }}>{n.icon}</span>
-                <span>{n.label}</span>
-              </Link>
-            );
-          })}
+          {groups[group].map(renderLink)}
         </div>
       ))}
+
+      {/* ─── Avancé (collapsible) ─── */}
+      {advanced.length > 0 && (
+        <div style={{ marginTop: 6 }}>
+          <button
+            onClick={() => setAdvancedOpen((v) => !v)}
+            className="nav-link"
+            style={{
+              width: "100%",
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              fontSize: 10,
+              color: "var(--muted-2)",
+              textTransform: "uppercase",
+              letterSpacing: 1,
+              padding: "10px 12px 4px",
+              textAlign: "left",
+            }}
+            aria-expanded={advancedOpen}
+          >
+            <span aria-hidden="true" style={{ width: 16, opacity: 0.7 }}>
+              {advancedOpen ? "▾" : "▸"}
+            </span>
+            <span>Avancé ({advanced.length})</span>
+          </button>
+          {advancedOpen && advanced.map(renderLink)}
+        </div>
+      )}
 
       <div style={{ marginTop: "auto" }}>
         {loadedRole && role && (
@@ -147,7 +206,7 @@ export function ClientSidebar() {
           </Link>
         )}
         <div style={{ padding: "10px 12px", color: "var(--muted-2)", fontSize: 11 }}>
-          Axon Voice Platform · v2
+          Axon · v2
         </div>
       </div>
     </nav>
