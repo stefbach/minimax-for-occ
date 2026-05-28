@@ -23,6 +23,13 @@ export interface ContactOption {
   display_name: string | null;
 }
 
+export interface ScriptOption {
+  id: string;
+  name: string;
+  mission: string | null;
+  description: string | null;
+}
+
 interface Target {
   e164: string;
   name: string | null;
@@ -62,16 +69,19 @@ export function CampaignWizard({
   agents,
   numbers,
   contacts,
+  scripts = [],
 }: {
   agents: AgentHandleOption[];
   numbers: PhoneNumberOption[];
   contacts: ContactOption[];
+  scripts?: ScriptOption[];
 }) {
   const router = useRouter();
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [agentHandleId, setAgentHandleId] = useState(agents[0]?.id ?? "");
+  const [scriptId, setScriptId] = useState("");
   const [phoneNumberId, setPhoneNumberId] = useState(numbers[0]?.id ?? "");
   const [callerIdOverride, setCallerIdOverride] = useState("");
   const [csvText, setCsvText] = useState("");
@@ -176,6 +186,7 @@ export function CampaignWizard({
           name: name.trim(),
           description: description.trim() || null,
           agent_handle_id: agentHandleId,
+          script_id: scriptId || null,
           phone_number_id: phoneNumberId || null,
           caller_id_e164: callerIdOverride.trim() || null,
           schedule,
@@ -251,6 +262,29 @@ export function CampaignWizard({
                 Voix : <span className="kbd">{selectedAgent.tts_voice_id ?? "—"}</span>
               </div>
             )}
+
+            {/* Script réutilisable — l'agent garde sa voix/personnalité,
+                le script définit l'objectif de conversation pour CETTE campagne. */}
+            <div style={{ marginTop: 16 }}>
+              <label>Script (optionnel)</label>
+              <select value={scriptId} onChange={(e) => setScriptId(e.target.value)}>
+                <option value="">— Aucun (l&apos;agent suit son prompt par défaut) —</option>
+                {scripts.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}{s.mission ? ` — ${s.mission}` : ""}
+                  </option>
+                ))}
+              </select>
+              <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+                {scripts.length === 0 ? (
+                  <>Aucun script. Créez-en un depuis la page <span className="kbd">Scripts</span> pour réutiliser le même agent avec différents objectifs de conversation.</>
+                ) : scriptId ? (
+                  <>{scripts.find((s) => s.id === scriptId)?.description ?? "Ce script guidera la conversation de l'agent pour cette campagne."}</>
+                ) : (
+                  <>Le même agent (voix + personnalité) peut servir plusieurs campagnes ; le script définit l&apos;objectif propre à celle-ci.</>
+                )}
+              </div>
+            </div>
           </>
         )}
       </section>
