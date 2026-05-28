@@ -32,6 +32,7 @@ from agent_config import (
     AxonAgent,
     _agent_id_from_metadata,
     load_agent,
+    load_campaign_script,
     rag_search,
     resolve_agent_id,
 )
@@ -448,6 +449,20 @@ async def entrypoint(ctx: JobContext) -> None:
     greeting = axon.greeting if axon else (
         "Bonjour, je suis votre assistant vocal. Je vous écoute."
     )
+
+    # Campaign script (Option B): the agent supplies voice + personality,
+    # the campaign's reusable Script supplies the conversation goal/flow.
+    # Resolve the campaign_id forwarded as the axon.campaign_id participant
+    # attribute (set by the SIP dispatch rule from X-LK-Campaign-Id) and append
+    # the rendered script to the base personality prompt.
+    campaign_id = p_attrs.get("axon.campaign_id") or p_attrs.get("campaign_id")
+    if campaign_id:
+        script_text = load_campaign_script(str(campaign_id))
+        if script_text:
+            clog.info("campaign %s script injected (%d chars)", campaign_id, len(script_text))
+            instructions = f"{instructions}\n\n{script_text}"
+        else:
+            clog.info("campaign %s has no script — using agent base prompt", campaign_id)
 
     session = AgentSession(
         stt=_stt_for(axon),

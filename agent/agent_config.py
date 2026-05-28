@@ -166,6 +166,82 @@ def load_agent(agent_id: str) -> Optional[AxonAgent]:
     )
 
 
+def load_campaign_script(campaign_id: str) -> Optional[str]:
+    """For a campaign call, fetch its reusable Script and render it as a
+    prompt addendum the agent should follow during this conversation.
+
+    Chain: campaigns.script_id → latest script_versions.steps. Returns None
+    when the campaign has no script (agent just uses its base prompt), or on
+    any error (script guidance is best-effort and must never block the call).
+
+    The steps shape is [{step, title, content, branches?}] (see the Scripts
+    editor). We flatten it into a readable numbered playbook.
+    """
+    if not has_supabase() or not campaign_id:
+        return None
+    try:
+        with httpx.Client(timeout=httpx.Timeout(10.0), headers=_supabase_headers()) as c:
+            r = c.get(
+                _supabase_url(
+                    f"/rest/v1/campaigns?id=eq.{campaign_id}&select=script_id,name,scripts(name,mission)"
+                )
+            )
+            r.raise_for_status()
+            rows = r.json() or []
+            if not rows:
+                return None
+            campaign = rows[0]
+            script_id = campaign.get("script_id")
+            if not script_id:
+                return None
+
+            r2 = c.get(
+                _supabase_url(
+                    f"/rest/v1/script_versions?script_id=eq.{script_id}"
+                    "&order=version.desc&limit=1&select=steps,version"
+                )
+            )
+            r2.raise_for_status()
+            versions = r2.json() or []
+            if not versions:
+                return None
+            steps = versions[0].get("steps") or []
+            if not isinstance(steps, list) or not steps:
+                return None
+
+            script_meta = campaign.get("scripts") or {}
+            title = script_meta.get("name") or "Script"
+            mission = script_meta.get("mission")
+
+            lines: list[str] = []
+            header = f"## Script à suivre : {title}"
+            if mission:
+                header += f" (objectif : {mission})"
+            lines.append(header)
+            lines.append(
+                "Suis ce déroulé étape par étape pendant l'appel. Adapte-toi "
+                "naturellement aux réponses, mais garde l'objectif en tête."
+            )
+            for s in steps:
+                if not isinstance(s, dict):
+                    continue
+                num = s.get("step", "")
+                st_title = (s.get("title") or "").strip()
+                content = (s.get("content") or "").strip()
+                line = f"{num}. {st_title}".strip(". ")
+                if content:
+                    line += f" — {content}"
+                lines.append(line)
+                for b in s.get("branches") or []:
+                    if isinstance(b, dict) and b.get("label"):
+                        goto = b.get("goto")
+                        lines.append(f"   • Si « {b['label']} » → étape {goto}")
+            return "\n".join(lines)
+    except Exception:
+        logger.exception("failed to load campaign script for %s", campaign_id)
+        return None
+
+
 def rag_search(agent_id: str, query: str, top_k: int = 4) -> list[dict[str, Any]]:
     """Embed `query` via DeepSeek and call the match_documents RPC for `agent_id`."""
     if not has_supabase():
