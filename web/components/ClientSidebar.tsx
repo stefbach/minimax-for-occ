@@ -188,25 +188,50 @@ export function ClientSidebar() {
       )}
 
       <div style={{ marginTop: "auto" }}>
-        {loadedRole && role && (
-          <div style={{ padding: "6px 12px", fontSize: 10, color: "var(--muted-2)" }}>
-            rôle : <span className="kbd" style={{ fontSize: 10 }}>{role}</span>
+        {/* Super-admin: jump to the Axon admin app — made prominent */}
+        {loadedRole && role === "super_admin" && (
+          <div style={{ padding: "8px 10px 4px" }}>
+            <Link
+              href="/admin"
+              aria-label="Basculer en mode admin Axon"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "10px 12px",
+                fontSize: 13,
+                fontWeight: 600,
+                color: "var(--accent, #ff6b35)",
+                border: "1px solid var(--accent, #ff6b35)",
+                borderRadius: 8,
+                textDecoration: "none",
+                justifyContent: "center",
+              }}
+            >
+              <span aria-hidden="true">⚡</span>
+              <span>Mode admin Axon</span>
+            </Link>
           </div>
         )}
+
+        {/* Org switcher (renders its own "Organisation" label, email + Quitter). */}
         <OrgSwitcher />
-        {loadedRole && role === "super_admin" && (
-          <Link
-            href="/admin"
-            className="nav-link"
-            style={{ fontSize: 12, color: "var(--muted-2)" }}
-            aria-label="Mode admin Axon"
-          >
-            <span aria-hidden="true" style={{ width: 16, opacity: 0.7 }}>→</span>
-            <span>Mode admin Axon</span>
-          </Link>
-        )}
-        <div style={{ padding: "10px 12px", color: "var(--muted-2)", fontSize: 11 }}>
-          Axon · v2
+
+        {/* Role + version footer line. */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "8px 12px",
+          }}
+        >
+          {loadedRole && role ? (
+            <span className="kbd" style={{ fontSize: 11 }}>{role}</span>
+          ) : (
+            <span />
+          )}
+          <span style={{ fontSize: 11, color: "var(--muted-2)" }}>Axon · v2</span>
         </div>
       </div>
     </nav>
