@@ -135,9 +135,13 @@ export function AgentForm({ initial }: { initial?: Agent }) {
   const [ragK, setRagK] = useState(initial?.rag_top_k ?? 4);
   const [previewing, setPreviewing] = useState(false);
 
-  // Tabbed layout — progressive disclosure so a non-technical user only
-  // touches Essentiel + Comportement and never the Avancé knobs.
-  const [tab, setTab] = useState<"essentiel" | "comportement" | "avance">("essentiel");
+  // Tabbed layout grouped by CONCEPT (not by difficulty): each tab is a
+  // self-contained aspect of the agent — who it is, how it sounds, how it
+  // thinks. Technical knobs live in a collapsible "Réglages avancés" WITHIN
+  // the relevant tab so nothing is split across tabs.
+  const [tab, setTab] = useState<"identite" | "voix" | "cerveau">("identite");
+  const [showVoiceAdvanced, setShowVoiceAdvanced] = useState(false);
+  const [showBrainAdvanced, setShowBrainAdvanced] = useState(false);
 
   // Inline voice cloning (folds Voice Studio into the agent's Voix section).
   const [showClone, setShowClone] = useState(false);
@@ -409,12 +413,12 @@ export function AgentForm({ initial }: { initial?: Agent }) {
         </div>
       </div>
 
-      {/* ─── Tab bar ─── */}
+      {/* ─── Tab bar (grouped by concept) ─── */}
       <div style={{ display: "flex", gap: 4 }}>
         {([
-          { id: "essentiel", label: "Essentiel" },
-          { id: "comportement", label: "Comportement" },
-          { id: "avance", label: "Avancé" },
+          { id: "identite", label: "🪪 Identité" },
+          { id: "voix", label: "🎙️ Voix" },
+          { id: "cerveau", label: "🧠 Cerveau & comportement" },
         ] as const).map((t) => (
           <button
             key={t.id}
@@ -436,138 +440,190 @@ export function AgentForm({ initial }: { initial?: Agent }) {
         ))}
       </div>
 
-      {/* ═══ ESSENTIEL : identité + voix ═══ */}
-      {tab === "essentiel" && (
-        <>
-          <div className="card" style={{ display: "grid", gap: 14 }}>
-            <h3 style={{ margin: 0 }}>Identité</h3>
-            <div className="form-row">
-              <div>
-                <label>Nom</label>
-                <input value={name} onChange={(e) => setName(e.target.value)} required placeholder="Réceptionniste Tibok" />
-              </div>
-              <div>
-                <label>Langue principale</label>
-                <select value={language} onChange={(e) => setLanguage(e.target.value)}>
-                  {LANGUAGES.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
-                </select>
-              </div>
+      {/* ═══ IDENTITÉ : qui est l'agent ═══ */}
+      {tab === "identite" && (
+        <div className="card" style={{ display: "grid", gap: 14 }}>
+          <h3 style={{ margin: 0 }}>Identité</h3>
+          <div className="form-row">
+            <div>
+              <label>Nom</label>
+              <input value={name} onChange={(e) => setName(e.target.value)} required placeholder="Réceptionniste Tibok" />
             </div>
             <div>
-              <label>Description</label>
-              <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="À quoi sert cet agent ?" />
-            </div>
-          </div>
-
-          <div className="card" style={{ display: "grid", gap: 14 }}>
-            <h3 style={{ margin: 0 }}>Voix</h3>
-            <div>
-              <label>Voix de l&apos;agent</label>
-              <select value={voice} onChange={(e) => setVoice(e.target.value)}>
-                <option value="">— défaut MiniMax —</option>
-                {customCloned.length > 0 && (
-                  <optgroup label="Mes voix clonées">
-                    {customCloned.map((v) => (
-                      <option key={v.id} value={v.voice_id}>{v.display_name}</option>
-                    ))}
-                  </optgroup>
-                )}
-                {customPresets.length > 0 && (
-                  <optgroup label="Voix presets">
-                    {customPresets.map((v) => (
-                      <option key={v.id} value={v.voice_id}>{v.display_name}</option>
-                    ))}
-                  </optgroup>
-                )}
-                {builtinGroups.map(([groupName, options]) => (
-                  <optgroup key={groupName} label={`Voix MiniMax — ${groupName}`}>
-                    {options.map((v) => (
-                      <option key={v.id} value={v.id}>{v.label}</option>
-                    ))}
-                  </optgroup>
-                ))}
-                {voice && !knownVoiceIds.has(voice) && (
-                  <option value={voice}>{voice} (manuel)</option>
-                )}
+              <label>Langue principale</label>
+              <select value={language} onChange={(e) => setLanguage(e.target.value)}>
+                {LANGUAGES.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
               </select>
             </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button type="button" className="ghost" disabled={previewing} onClick={onPreviewVoice}>
-                {previewing ? "Synthèse en cours…" : "▶ Écouter cette voix"}
-              </button>
-              <button type="button" className="ghost" onClick={() => setShowClone((v) => !v)}>
-                {showClone ? "Annuler le clonage" : "+ Cloner une nouvelle voix"}
-              </button>
-            </div>
+          </div>
+          <div>
+            <label>Description</label>
+            <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="À quoi sert cet agent ?" />
+          </div>
+        </div>
+      )}
 
-            {/* Inline voice cloning (folds Voice Studio in here). */}
-            {showClone && (
-              <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12, display: "grid", gap: 10 }}>
-                <div style={{ fontSize: 13, color: "var(--muted)" }}>
-                  Échantillon <strong>mp3 / wav / m4a</strong>, mono, 10 s à 5 min, ≤ 20 Mo.
-                  La voix sera clonée pour le modèle TTS <span className="kbd">{ttsModel}</span>.
+      {/* ═══ VOIX : comment l'agent sonne (tout le voice ici) ═══ */}
+      {tab === "voix" && (
+        <div className="card" style={{ display: "grid", gap: 14 }}>
+          <h3 style={{ margin: 0 }}>Voix</h3>
+          <div>
+            <label>Voix de l&apos;agent</label>
+            <select value={voice} onChange={(e) => setVoice(e.target.value)}>
+              <option value="">— défaut MiniMax —</option>
+              {customCloned.length > 0 && (
+                <optgroup label="Mes voix clonées">
+                  {customCloned.map((v) => (
+                    <option key={v.id} value={v.voice_id}>{v.display_name}</option>
+                  ))}
+                </optgroup>
+              )}
+              {customPresets.length > 0 && (
+                <optgroup label="Voix presets">
+                  {customPresets.map((v) => (
+                    <option key={v.id} value={v.voice_id}>{v.display_name}</option>
+                  ))}
+                </optgroup>
+              )}
+              {builtinGroups.map(([groupName, options]) => (
+                <optgroup key={groupName} label={`Voix MiniMax — ${groupName}`}>
+                  {options.map((v) => (
+                    <option key={v.id} value={v.id}>{v.label}</option>
+                  ))}
+                </optgroup>
+              ))}
+              {voice && !knownVoiceIds.has(voice) && (
+                <option value={voice}>{voice} (manuel)</option>
+              )}
+            </select>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button type="button" className="ghost" disabled={previewing} onClick={onPreviewVoice}>
+              {previewing ? "Synthèse en cours…" : "▶ Écouter cette voix"}
+            </button>
+            <button type="button" className="ghost" onClick={() => setShowClone((v) => !v)}>
+              {showClone ? "Annuler le clonage" : "+ Cloner une nouvelle voix"}
+            </button>
+          </div>
+
+          {/* Inline voice cloning (folds Voice Studio in here). */}
+          {showClone && (
+            <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12, display: "grid", gap: 10 }}>
+              <div style={{ fontSize: 13, color: "var(--muted)" }}>
+                Échantillon <strong>mp3 / wav / m4a</strong>, mono, 10 s à 5 min, ≤ 20 Mo.
+                La voix sera clonée pour le modèle TTS <span className="kbd">{ttsModel}</span>.
+              </div>
+              <div className="form-row">
+                <div>
+                  <label>Fichier audio</label>
+                  <input
+                    type="file"
+                    accept=".mp3,.wav,.m4a,audio/mpeg,audio/wav,audio/x-m4a,audio/mp4"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0] ?? null;
+                      if (f && !/\.(mp3|wav|m4a)$/i.test(f.name)) {
+                        setError(`Format non supporté : "${f.name}". Utilise mp3, wav ou m4a.`);
+                        e.target.value = "";
+                        setCloneFile(null);
+                        return;
+                      }
+                      setCloneFile(f);
+                    }}
+                  />
+                  {cloneFile && (
+                    <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
+                      {cloneFile.name} ({(cloneFile.size / 1024 / 1024).toFixed(2)} Mo)
+                    </div>
+                  )}
                 </div>
+                <div>
+                  <label>Nom affiché</label>
+                  <input value={cloneName} onChange={(e) => setCloneName(e.target.value)} placeholder="Voix Dr Coste" />
+                </div>
+              </div>
+              <div>
+                <label>
+                  voice_id technique{" "}
+                  <span style={{ color: "var(--muted)", fontWeight: "normal", fontSize: 12 }}>
+                    (8–64 car., commence par une lettre, A-Z / 0-9 / _)
+                  </span>
+                </label>
+                <input
+                  value={cloneVoiceId}
+                  onChange={(e) => setCloneVoiceId(e.target.value)}
+                  placeholder="voix_dr_coste"
+                  pattern="[A-Za-z][A-Za-z0-9_]{7,63}"
+                />
+              </div>
+              <div>
+                <button
+                  type="button"
+                  onClick={doClone}
+                  disabled={cloning || !cloneFile || cloneVoiceId.trim().length < 8 || !cloneName.trim()}
+                >
+                  {cloning ? "Clonage en cours…" : "Cloner et utiliser cette voix"}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Réglages avancés voix — repliés par défaut */}
+          <div style={{ borderTop: "1px solid var(--border)", paddingTop: 8 }}>
+            <button
+              type="button"
+              onClick={() => setShowVoiceAdvanced((v) => !v)}
+              style={{
+                background: "none", border: "none", cursor: "pointer", padding: "4px 0",
+                fontSize: 13, color: "var(--muted)", display: "flex", alignItems: "center", gap: 6,
+              }}
+              aria-expanded={showVoiceAdvanced}
+            >
+              <span style={{ transition: "transform 0.15s", transform: showVoiceAdvanced ? "rotate(90deg)" : "none" }}>›</span>
+              ⚙ Réglages avancés (modèle TTS, émotion, vitesse)
+            </button>
+            {showVoiceAdvanced && (
+              <div style={{ display: "grid", gap: 14, marginTop: 12 }}>
                 <div className="form-row">
                   <div>
-                    <label>Fichier audio</label>
-                    <input
-                      type="file"
-                      accept=".mp3,.wav,.m4a,audio/mpeg,audio/wav,audio/x-m4a,audio/mp4"
-                      onChange={(e) => {
-                        const f = e.target.files?.[0] ?? null;
-                        if (f && !/\.(mp3|wav|m4a)$/i.test(f.name)) {
-                          setError(`Format non supporté : "${f.name}". Utilise mp3, wav ou m4a.`);
-                          e.target.value = "";
-                          setCloneFile(null);
-                          return;
-                        }
-                        setCloneFile(f);
-                      }}
-                    />
-                    {cloneFile && (
-                      <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
-                        {cloneFile.name} ({(cloneFile.size / 1024 / 1024).toFixed(2)} Mo)
-                      </div>
-                    )}
+                    <label>Modèle TTS</label>
+                    <select value={ttsModel} onChange={(e) => setTtsModel(e.target.value)}>
+                      {TTS_MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+                    </select>
+                    <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
+                      Le catalogue de voix ci-dessus dépend de ce modèle ({ttsFamily} family).
+                    </div>
                   </div>
                   <div>
-                    <label>Nom affiché</label>
-                    <input value={cloneName} onChange={(e) => setCloneName(e.target.value)} placeholder="Voix Dr Coste" />
+                    <label>Émotion</label>
+                    <select value={emotion} onChange={(e) => setEmotion(e.target.value)}>
+                      <option value="">— défaut —</option>
+                      <option value="neutral">neutral</option>
+                      <option value="happy">happy</option>
+                      <option value="sad">sad</option>
+                      <option value="angry">angry</option>
+                      <option value="fearful">fearful</option>
+                      <option value="disgusted">disgusted</option>
+                      <option value="surprised">surprised</option>
+                    </select>
                   </div>
                 </div>
                 <div>
-                  <label>
-                    voice_id technique{" "}
-                    <span style={{ color: "var(--muted)", fontWeight: "normal", fontSize: 12 }}>
-                      (8–64 car., commence par une lettre, A-Z / 0-9 / _)
-                    </span>
-                  </label>
+                  <label>Vitesse ({speed.toFixed(2)}×)</label>
                   <input
-                    value={cloneVoiceId}
-                    onChange={(e) => setCloneVoiceId(e.target.value)}
-                    placeholder="voix_dr_coste"
-                    pattern="[A-Za-z][A-Za-z0-9_]{7,63}"
+                    type="range" min="0.5" max="2" step="0.05"
+                    value={speed} onChange={(e) => setSpeed(Number(e.target.value))}
                   />
-                </div>
-                <div>
-                  <button
-                    type="button"
-                    onClick={doClone}
-                    disabled={cloning || !cloneFile || cloneVoiceId.trim().length < 8 || !cloneName.trim()}
-                  >
-                    {cloning ? "Clonage en cours…" : "Cloner et utiliser cette voix"}
-                  </button>
                 </div>
               </div>
             )}
           </div>
-        </>
+        </div>
       )}
 
-      {/* ═══ COMPORTEMENT : greeting + prompt ═══ */}
-      {tab === "comportement" && (
+      {/* ═══ CERVEAU & COMPORTEMENT : comment l'agent pense/parle ═══ */}
+      {tab === "cerveau" && (
         <div className="card" style={{ display: "grid", gap: 14 }}>
-          <h3 style={{ margin: 0 }}>Comportement</h3>
+          <h3 style={{ margin: 0 }}>Cerveau & comportement</h3>
           <div>
             <label>Salutation à l&apos;entrée en session</label>
             <input value={greeting} onChange={(e) => setGreeting(e.target.value)} />
@@ -580,94 +636,66 @@ export function AgentForm({ initial }: { initial?: Agent }) {
             onRestoreGreeting={setGreeting}
             placeholder="Tu es un assistant vocal pour la pharmacie Tibok. Tu parles en français et en anglais. Tu peux..."
           />
-        </div>
-      )}
 
-      {/* ═══ AVANCÉ : LLM + réglages TTS + RAG ═══ */}
-      {tab === "avance" && (
-        <>
-          <div className="card" style={{ display: "grid", gap: 14 }}>
-            <h3 style={{ margin: 0 }}>Cerveau (LLM)</h3>
-            <div className="form-row">
-              <div>
-                <label>Fournisseur</label>
-                <select value={provider} onChange={(e) => {
-                  const p = e.target.value as LlmProvider;
-                  setProvider(p);
-                  setModel(PROVIDER_MODELS[p][0].id);
-                }}>
-                  <option value="deepseek">DeepSeek</option>
-                  <option value="minimax">MiniMax</option>
-                </select>
-              </div>
-              <div>
-                <label>Modèle</label>
-                <select value={model} onChange={(e) => setModel(e.target.value)}>
-                  {llmModels.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-                  {!llmModels.some((m) => m.id === model) && <option value={model}>{model} (personnalisé)</option>}
-                </select>
-              </div>
-            </div>
-          </div>
-
-          <div className="card" style={{ display: "grid", gap: 14 }}>
-            <h3 style={{ margin: 0 }}>Réglages voix (TTS)</h3>
-            <div className="form-row">
-              <div>
-                <label>Modèle TTS</label>
-                <select value={ttsModel} onChange={(e) => setTtsModel(e.target.value)}>
-                  {TTS_MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-                </select>
-                <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
-                  Le catalogue de voix (onglet Essentiel) dépend de ce modèle ({ttsFamily} family).
+          {/* Réglages avancés cerveau — repliés par défaut */}
+          <div style={{ borderTop: "1px solid var(--border)", paddingTop: 8 }}>
+            <button
+              type="button"
+              onClick={() => setShowBrainAdvanced((v) => !v)}
+              style={{
+                background: "none", border: "none", cursor: "pointer", padding: "4px 0",
+                fontSize: 13, color: "var(--muted)", display: "flex", alignItems: "center", gap: 6,
+              }}
+              aria-expanded={showBrainAdvanced}
+            >
+              <span style={{ transition: "transform 0.15s", transform: showBrainAdvanced ? "rotate(90deg)" : "none" }}>›</span>
+              ⚙ Réglages avancés (modèle LLM, base de connaissances)
+            </button>
+            {showBrainAdvanced && (
+              <div style={{ display: "grid", gap: 14, marginTop: 12 }}>
+                <div className="form-row">
+                  <div>
+                    <label>Fournisseur LLM</label>
+                    <select value={provider} onChange={(e) => {
+                      const p = e.target.value as LlmProvider;
+                      setProvider(p);
+                      setModel(PROVIDER_MODELS[p][0].id);
+                    }}>
+                      <option value="deepseek">DeepSeek</option>
+                      <option value="minimax">MiniMax</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label>Modèle</label>
+                    <select value={model} onChange={(e) => setModel(e.target.value)}>
+                      {llmModels.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+                      {!llmModels.some((m) => m.id === model) && <option value={model}>{model} (personnalisé)</option>}
+                    </select>
+                  </div>
+                </div>
+                <div className="form-row">
+                  <label style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 0 }}>
+                    <input
+                      type="checkbox"
+                      style={{ width: 18 }}
+                      checked={rag}
+                      onChange={(e) => setRag(e.target.checked)}
+                    />
+                    Base de connaissances (RAG)
+                  </label>
+                  <div>
+                    <label>Top-K passages à injecter</label>
+                    <input
+                      type="number" min="1" max="12"
+                      value={ragK} onChange={(e) => setRagK(Number(e.target.value))}
+                      disabled={!rag}
+                    />
+                  </div>
                 </div>
               </div>
-              <div>
-                <label>Émotion</label>
-                <select value={emotion} onChange={(e) => setEmotion(e.target.value)}>
-                  <option value="">— défaut —</option>
-                  <option value="neutral">neutral</option>
-                  <option value="happy">happy</option>
-                  <option value="sad">sad</option>
-                  <option value="angry">angry</option>
-                  <option value="fearful">fearful</option>
-                  <option value="disgusted">disgusted</option>
-                  <option value="surprised">surprised</option>
-                </select>
-              </div>
-            </div>
-            <div>
-              <label>Vitesse ({speed.toFixed(2)}×)</label>
-              <input
-                type="range" min="0.5" max="2" step="0.05"
-                value={speed} onChange={(e) => setSpeed(Number(e.target.value))}
-              />
-            </div>
+            )}
           </div>
-
-          <div className="card" style={{ display: "grid", gap: 14 }}>
-            <h3 style={{ margin: 0 }}>Base de connaissances (RAG)</h3>
-            <div className="form-row">
-              <label style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 0 }}>
-                <input
-                  type="checkbox"
-                  style={{ width: 18 }}
-                  checked={rag}
-                  onChange={(e) => setRag(e.target.checked)}
-                />
-                Activer la recherche documentaire
-              </label>
-              <div>
-                <label>Top-K passages à injecter</label>
-                <input
-                  type="number" min="1" max="12"
-                  value={ragK} onChange={(e) => setRagK(Number(e.target.value))}
-                  disabled={!rag}
-                />
-              </div>
-            </div>
-          </div>
-        </>
+        </div>
       )}
 
       {error && <div className="card" style={{ borderColor: "var(--bad)", color: "var(--bad)" }}>{error}</div>}
