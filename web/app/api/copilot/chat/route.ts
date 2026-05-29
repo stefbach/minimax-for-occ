@@ -70,7 +70,7 @@ export async function POST(req: Request) {
   const tools = buildTools({ userId: user.id, orgId: m.org_id ?? null });
 
   const result = streamText({
-    model: deepseek("deepseek-chat"),
+    model: deepseek("deepseek-v4-flash"),
     system: SYSTEM,
     messages: await convertToModelMessages(body.messages),
     tools,

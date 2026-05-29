@@ -172,7 +172,7 @@ async function runWriteTool(name: string, args: Record<string, unknown>, _ctx: A
           name: a.name,
           system_prompt: a.system_prompt ?? "",
           tts_voice_id: a.voice_id ?? null,
-          llm_model: a.llm_model ?? "deepseek-chat",
+          llm_model: a.llm_model ?? "deepseek-v4-flash",
         })
         .select()
         .single();

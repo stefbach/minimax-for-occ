@@ -11,8 +11,9 @@ type ModelOption = { id: string; label: string };
 
 const PROVIDER_MODELS: Record<LlmProvider, ModelOption[]> = {
   deepseek: [
-    { id: "deepseek-chat", label: "deepseek-chat — Réponses immédiates (1-2s), pour conversations fluides en temps réel" },
-    { id: "deepseek-reasoner", label: "deepseek-reasoner — Réfléchit avant de répondre (5-30s), pour analyses, calculs ou décisions multi-étapes" },
+    { id: "deepseek-v4-flash", label: "deepseek-v4-flash — Réponses immédiates (1-2s) et 3× moins cher, idéal pour les appels en temps réel (recommandé)" },
+    { id: "deepseek-v4-pro", label: "deepseek-v4-pro — Plus puissant mais ~3× plus cher, pour analyses ou décisions complexes" },
+    { id: "deepseek-reasoner", label: "deepseek-reasoner — Réfléchit avant de répondre (5-30s), pour calculs ou décisions multi-étapes" },
   ],
   openai: [
     { id: "gpt-4o", label: "gpt-4o — Polyvalent haute qualité" },
@@ -121,7 +122,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
   const [provider, setProvider] = useState<LlmProvider>(initial?.llm_provider ?? "deepseek");
   const [model, setModel] = useState(() => {
     const p: LlmProvider = initial?.llm_provider ?? "deepseek";
-    const m = initial?.llm_model ?? "deepseek-chat";
+    const m = initial?.llm_model ?? "deepseek-v4-flash";
     const ids = PROVIDER_MODEL_IDS[p] ?? [];
     return ids.includes(m) ? m : (ids[0] ?? m);
   });

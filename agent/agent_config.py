@@ -157,7 +157,7 @@ def load_agent(agent_id: str) -> Optional[AxonAgent]:
         name=a.get("name", "Agent"),
         language=a.get("language") or "multi",
         llm_provider=a.get("llm_provider") or "deepseek",
-        llm_model=a.get("llm_model") or "deepseek-chat",
+        llm_model=a.get("llm_model") or "deepseek-v4-flash",
         tts_voice_id=a.get("tts_voice_id"),
         tts_emotion=a.get("tts_emotion"),
         tts_speed=float(a.get("tts_speed") or 1.0),

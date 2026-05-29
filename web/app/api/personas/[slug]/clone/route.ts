@@ -53,7 +53,7 @@ export async function POST(
   const language = typeof fm.language === "string" ? fm.language : "multi";
   const llmModel =
     body.llm_model ||
-    (typeof fm.llm_model === "string" ? fm.llm_model : "deepseek-chat");
+    (typeof fm.llm_model === "string" ? fm.llm_model : "deepseek-v4-flash");
   const voiceId = body.voice_id ?? null;
   const llmProvider = inferProvider(llmModel);
 

@@ -33,7 +33,7 @@ export async function POST(req: Request) {
       description: body.description ?? null,
       language: body.language ?? "multi",
       llm_provider: body.llm_provider ?? "deepseek",
-      llm_model: body.llm_model ?? "deepseek-chat",
+      llm_model: body.llm_model ?? "deepseek-v4-flash",
       tts_voice_id: body.tts_voice_id ?? null,
       tts_emotion: body.tts_emotion ?? null,
       tts_speed: body.tts_speed ?? 1.0,

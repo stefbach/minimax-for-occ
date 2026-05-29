@@ -118,7 +118,7 @@ export async function POST(req: Request) {
   });
 
   const result = streamText({
-    model: deepseek("deepseek-chat"),
+    model: deepseek("deepseek-v4-flash"),
     system,
     messages: await convertToModelMessages(messages),
   });

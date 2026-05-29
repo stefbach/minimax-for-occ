@@ -53,8 +53,8 @@ function resolveDeepSeekModel(agentModel: string | undefined): string {
   if (m.startsWith("deepseek-")) return m;
   // reasoning models → deepseek-reasoner
   if (m === "o1" || m === "o1-mini" || m === "o3-mini") return "deepseek-reasoner";
-  // everything else → deepseek-chat
-  return "deepseek-chat";
+  // everything else → flash tier (cheapest)
+  return "deepseek-v4-flash";
 }
 
 export async function POST(req: Request) {

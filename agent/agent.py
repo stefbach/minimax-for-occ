@@ -75,7 +75,7 @@ def _logger_for_call(call_id: Optional[str]) -> logging.LoggerAdapter:
 def _llm_for(agent: Optional[AxonAgent]):
     """Build a LiveKit-Agents-compatible LLM from the agent's provider/model."""
     provider = (agent.llm_provider if agent else os.getenv("LLM_PROVIDER", "deepseek")).lower()
-    model = (agent.llm_model if agent and agent.llm_model else os.getenv("DEEPSEEK_MODEL", "deepseek-chat"))
+    model = (agent.llm_model if agent and agent.llm_model else os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash"))
 
     if provider == "anthropic":
         try:
@@ -100,7 +100,7 @@ def _llm_for(agent: Optional[AxonAgent]):
         return openai.LLM(model=model or "gpt-4o-mini", api_key=os.environ["OPENAI_API_KEY"])
 
     # Default: DeepSeek (OpenAI-compatible, cheaper, no censorship issues for FR/EN calls)
-    ds_model = model if (model and model.startswith("deepseek-")) else "deepseek-chat"
+    ds_model = model if (model and model.startswith("deepseek-")) else "deepseek-v4-flash"
     return openai.LLM(
         model=ds_model,
         base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"),

@@ -622,7 +622,7 @@ Tous les leviers pour façonner précisément le comportement de votre agent.
 ## Comment l'utiliser
 1. **Prompt système** : décrivez QUI est l'agent, sa MISSION, son TON, ses LIMITES (ce qu'il ne fait pas).
 2. **Voix** : choisissez dans le catalogue. Bouton ▶ pour preview.
-3. **LLM** : \`deepseek-chat\` est le défaut (rapide + très bon marché). \`deepseek-reasoner\` pour les tâches complexes.
+3. **LLM** : \`deepseek-v4-flash\` est le défaut (rapide + ~3× moins cher que le tier pro). \`deepseek-v4-pro\` ou \`deepseek-reasoner\` pour les tâches complexes.
 4. **RAG** : cochez les documents à exposer. L'agent fera un retrieval avant chaque réponse longue.
 5. **Tools** : ajoutez les workflows n8n autorisés (transfer_human, reserver_rdv, etc.).
 6. **Greeting** : phrase d'accueil. Court (5-10 mots) marche mieux que long.

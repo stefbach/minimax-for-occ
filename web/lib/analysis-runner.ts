@@ -76,7 +76,7 @@ function resolveAnalysisModel(stored: string | null): string {
   const m = stored ?? "";
   if (m.startsWith("deepseek-")) return m;
   if (m === "o1" || m === "o1-mini" || m === "o3-mini") return "deepseek-reasoner";
-  return "deepseek-chat";
+  return "deepseek-v4-flash";
 }
 
 async function callOpenAi(
@@ -285,7 +285,7 @@ export async function generateCallSummary(callId: string): Promise<string> {
       authorization: `Bearer ${key}`,
     },
     body: JSON.stringify({
-      model: "deepseek-chat",
+      model: "deepseek-v4-flash",
       temperature: 0.2,
       messages: [
         {

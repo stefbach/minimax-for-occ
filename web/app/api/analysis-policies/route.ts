@@ -71,7 +71,7 @@ export async function POST(request: Request) {
       scope,
       scope_id: scope === "all" ? null : body.scope_id ?? null,
       enabled: body.enabled ?? true,
-      model: body.model ?? "deepseek-chat",
+      model: body.model ?? "deepseek-v4-flash",
     })
     .select("*")
     .single();

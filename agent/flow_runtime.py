@@ -557,7 +557,7 @@ def _classify_intent(transcript: str, intents: list[dict[str, Any]]) -> Optional
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": os.getenv("FLOW_INTENT_MODEL", "deepseek-chat"),
+                    "model": os.getenv("FLOW_INTENT_MODEL", "deepseek-v4-flash"),
                     "temperature": 0,
                     "messages": [
                         {
