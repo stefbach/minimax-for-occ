@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { ORG_COOKIE, supabaseSession } from "./supabase-auth";
 import { supabaseServer } from "./supabase";
+import { verifyOrgCookie } from "./org-cookie";
 import { LEGACY_ORG_ID } from "./constants";
 
 /**
@@ -42,9 +43,13 @@ export async function requestOrgId(req: Request): Promise<string> {
   const rows = (memberships ?? []) as Array<{ org_id: string; role: string }>;
   const isSuper = rows.some((m) => m.role === "super_admin");
 
-  // Cookie wins for the regular tenant-switching flow.
+  // Cookie wins for the regular tenant-switching flow. The cookie value is
+  // SIGNED (<uuid>.<timestamp>.<hmac>) — verifyOrgCookie checks the signature
+  // + freshness and returns the bare org uuid (or null). Using the raw cookie
+  // value here would inject "uuid.timestamp.sig" into uuid columns and blow up
+  // every insert (e.g. campaign creation: "invalid input syntax for type uuid").
   const store = await cookies();
-  const cookieOrg = store.get(ORG_COOKIE)?.value || null;
+  const cookieOrg = verifyOrgCookie(store.get(ORG_COOKIE)?.value);
   if (cookieOrg && (isSuper || rows.some((m) => m.org_id === cookieOrg))) {
     if (wanted && wanted !== cookieOrg && !isSuper) {
       console.warn(
