@@ -114,7 +114,7 @@ export function ScriptsClient() {
   );
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+    <div style={{ display: "grid", gridTemplateColumns: "minmax(280px, 340px) 1fr", gap: 16, alignItems: "start" }}>
       <div className="card">
         <h3>Nouveau script</h3>
         <div style={{ display: "grid", gap: 8 }}>

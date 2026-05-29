@@ -296,7 +296,7 @@ export function VisualScriptEditor({
       </div>
       <div
         style={{
-          height: 480,
+          height: "clamp(440px, 72vh, 760px)",
           border: "1px solid var(--border)",
           borderRadius: 10,
           overflow: "hidden",
@@ -311,6 +311,9 @@ export function VisualScriptEditor({
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
           fitView
+          fitViewOptions={{ maxZoom: 1, padding: 0.25 }}
+          minZoom={0.3}
+          maxZoom={1.5}
           proOptions={{ hideAttribution: true }}
         >
           <Background />
