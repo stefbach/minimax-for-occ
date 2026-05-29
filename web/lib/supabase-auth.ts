@@ -43,12 +43,22 @@ export async function currentUser() {
   return data.user ?? null;
 }
 
-/** Convenience: list the orgs the current user belongs to. */
+/** Convenience: list the orgs the current user belongs to.
+ *
+ * Explicitly scoped to the current user's id. RLS on memberships is
+ * permissive for super_admins (they can read every row), so without this
+ * filter the personal OrgSwitcher would list EVERY org on the platform —
+ * including orgs owned by other accounts (e.g. a stray Legacy membership) —
+ * which is confusing. Managing all client orgs is the /admin dashboard's job;
+ * the switcher should only ever show "my own" orgs. */
 export async function currentUserOrgs() {
   const sb = await supabaseSession();
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) return [];
   const { data } = await sb
     .from("memberships")
     .select("role, organizations(id, name, slug)")
+    .eq("user_id", user.id)
     .order("created_at", { ascending: true });
   return (data ?? []) as unknown as Array<{
     role: string;
