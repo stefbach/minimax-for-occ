@@ -85,16 +85,22 @@ def resolve_agent_id(*, room_metadata: Optional[str], participant_attributes: Op
     """Try participant attributes first, fall back to room metadata.
 
     Attribute lookup order:
-      1. ``agent_id`` — set by /api/token for browser/desk sessions
-      2. ``axon.agent_id`` — set by the LiveKit SIP dispatch rule from the
-         ``X-LK-Agent-Id`` header forwarded by the Twilio→LiveKit bridge for
-         campaign outbound calls (see agent/sip/dispatch-rule.json and
-         web/app/api/twilio-voice/route.ts).
+      1. ``agent_id`` — set by /api/token for browser/desk sessions.
+      2. ``sip.h.x-lk-agent-id`` — for SIP/telephony calls, LiveKit exposes
+         every forwarded SIP header as a participant attribute named
+         ``sip.h.<lowercased-header>``, with the header's real VALUE. This is
+         the reliable source of the agent UUID for campaign calls.
+      3. ``axon.agent_id`` — the dispatch-rule attribute mapping. NOTE: this
+         resolved to the literal header NAME "X-LK-Agent-Id" (not its value),
+         so it's effectively useless; kept last and guarded below.
+
+    Any value that still looks like a header name (starts with "X-LK-") is
+    skipped — that's the broken-mapping artifact, not a real id.
     """
     if participant_attributes:
-        for key in ("agent_id", "axon.agent_id"):
+        for key in ("agent_id", "sip.h.x-lk-agent-id", "axon.agent_id"):
             aid = participant_attributes.get(key)
-            if aid:
+            if aid and not str(aid).startswith("X-LK-"):
                 return str(aid)
     return _agent_id_from_metadata(room_metadata)
 

@@ -401,9 +401,9 @@ async def entrypoint(ctx: JobContext) -> None:
         # Check both ``agent_id`` (browser/desk) and ``axon.agent_id`` (SIP).
         for p in ctx.room.remote_participants.values():
             attrs = getattr(p, "attributes", None) or {}
-            for key in ("agent_id", "axon.agent_id"):
+            for key in ("agent_id", "sip.h.x-lk-agent-id", "axon.agent_id"):
                 val = attrs.get(key)
-                if val:
+                if val and not str(val).startswith("X-LK-"):
                     agent_id = str(val)
                     break
             if agent_id:
@@ -455,7 +455,16 @@ async def entrypoint(ctx: JobContext) -> None:
     # Resolve the campaign_id forwarded as the axon.campaign_id participant
     # attribute (set by the SIP dispatch rule from X-LK-Campaign-Id) and append
     # the rendered script to the base personality prompt.
-    campaign_id = p_attrs.get("axon.campaign_id") or p_attrs.get("campaign_id")
+    # Same gotcha as agent_id: the real value comes from the forwarded SIP
+    # header attribute `sip.h.x-lk-campaign-id`; `axon.campaign_id` is the
+    # broken dispatch-rule mapping that yields the literal "X-LK-Campaign-Id".
+    campaign_id = (
+        p_attrs.get("sip.h.x-lk-campaign-id")
+        or p_attrs.get("campaign_id")
+        or p_attrs.get("axon.campaign_id")
+    )
+    if campaign_id and str(campaign_id).startswith("X-LK-"):
+        campaign_id = None
     if campaign_id:
         script_text = load_campaign_script(str(campaign_id))
         if script_text:
