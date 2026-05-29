@@ -47,5 +47,24 @@ export async function POST(req: Request) {
     .select()
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Every AI agent needs a matching agent_handle (kind='ai') — that's what
+  // campaigns, queues and call routing select from. Without this the agent
+  // is invisible to the rest of the platform. Create it here so the UI flow
+  // (which only POSTs to /api/agents) stays one step.
+  const { error: handleErr } = await sb
+    .from("agent_handles")
+    .insert({
+      org_id: orgId,
+      kind: "ai",
+      ai_agent_id: data.id,
+      display_name: data.name,
+    });
+  if (handleErr) {
+    // Don't fail the whole creation — the agent row exists. Surface in logs;
+    // a backfill can reconcile. But log loudly since it breaks campaign use.
+    console.error("[agents] agent created but handle insert failed:", handleErr.message);
+  }
+
   return NextResponse.json(data, { status: 201 });
 }

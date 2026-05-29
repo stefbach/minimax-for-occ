@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ScriptEditor, type ScriptStep } from "./ScriptEditor";
+import { ScriptEditor, type ScriptGraph, emptyGraph, toGraph } from "./ScriptEditor";
 
 type ScriptRow = {
   id: string;
@@ -18,7 +18,7 @@ type ScriptDetail = ScriptRow & {
   latest_version: {
     id: string;
     version: number;
-    steps: ScriptStep[];
+    steps: unknown; // graph ({nodes,edges}) or legacy array — normalized via toGraph
     note: string | null;
     created_at: string;
     created_by: string | null;
@@ -69,7 +69,7 @@ export function ScriptsClient() {
           name: name.trim(),
           mission,
           description: description.trim() || null,
-          steps: [],
+          steps: emptyGraph(),
         }),
       });
       const data = await r.json();
@@ -146,18 +146,6 @@ export function ScriptsClient() {
               Un script définit la trame conversationnelle pour vos agents
               (qualification, closing, SAV…). Remplissez le formulaire ci-dessus
               pour créer votre premier script.
-            </div>
-            <div>
-              <button
-                onClick={() => {
-                  const el = document.querySelector<HTMLInputElement>(
-                    "input[placeholder^=\"Ex: Qualification\"]",
-                  );
-                  el?.focus();
-                }}
-              >
-                + Créer un script
-              </button>
             </div>
           </div>
         ) : (
@@ -252,7 +240,7 @@ function ScriptDetailView({
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [note, setNote] = useState("");
-  const [steps, setSteps] = useState<ScriptStep[]>([]);
+  const [graph, setGraph] = useState<ScriptGraph>(emptyGraph());
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -266,7 +254,7 @@ function ScriptDetailView({
         );
       }
       setDetail(data);
-      setSteps(data.latest_version?.steps ?? []);
+      setGraph(toGraph(data.latest_version?.steps));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -285,7 +273,7 @@ function ScriptDetailView({
       const r = await fetch(`/api/scripts/${id}/versions`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ steps, note: note || null }),
+        body: JSON.stringify({ steps: graph, note: note || null }),
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error ?? "save failed");
@@ -297,7 +285,7 @@ function ScriptDetailView({
     } finally {
       setSaving(false);
     }
-  }, [id, steps, note, load, onSaved]);
+  }, [id, graph, note, load, onSaved]);
 
   if (loading) return <p className="muted">Chargement…</p>;
   if (!detail) return <p className="muted">Script introuvable.</p>;
@@ -318,7 +306,7 @@ function ScriptDetailView({
       )}
 
       <div style={{ marginTop: 12 }}>
-        <ScriptEditor value={steps} onChange={setSteps} />
+        <ScriptEditor value={graph} onChange={setGraph} />
       </div>
 
       <div style={{ marginTop: 16, display: "grid", gap: 8 }}>

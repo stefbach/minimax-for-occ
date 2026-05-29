@@ -72,6 +72,7 @@ export async function POST(req: Request) {
     name?: string;
     description?: string | null;
     agent_handle_id?: string;
+    script_id?: string | null;
     phone_number_id?: string | null;
     caller_id_e164?: string | null;
     schedule?: Record<string, unknown>;
@@ -97,6 +98,7 @@ export async function POST(req: Request) {
       name: body.name,
       description: body.description ?? null,
       agent_handle_id: body.agent_handle_id,
+      script_id: body.script_id ?? null,
       phone_number_id: body.phone_number_id ?? null,
       caller_id_e164: body.caller_id_e164 ?? null,
       state: "draft",
