@@ -205,10 +205,7 @@ def load_campaign_script(campaign_id: str) -> Optional[str]:
             versions = r2.json() or []
             if not versions:
                 return None
-            steps = versions[0].get("steps") or []
-            if not isinstance(steps, list) or not steps:
-                return None
-
+            raw_steps = versions[0].get("steps")
             script_meta = campaign.get("scripts") or {}
             title = script_meta.get("name") or "Script"
             mission = script_meta.get("mission")
@@ -219,9 +216,42 @@ def load_campaign_script(campaign_id: str) -> Optional[str]:
                 header += f" (objectif : {mission})"
             lines.append(header)
             lines.append(
-                "Suis ce déroulé étape par étape pendant l'appel. Adapte-toi "
-                "naturellement aux réponses, mais garde l'objectif en tête."
+                "Suis ce déroulé pendant l'appel. Adapte-toi naturellement aux "
+                "réponses de l'interlocuteur ; les branches « Si … » indiquent "
+                "vers quelle étape enchaîner selon ce qu'il répond."
             )
+
+            # Two storage shapes: the new graph {nodes, edges} or the legacy
+            # array [{step,title,content,branches:[{label,goto}]}].
+            if isinstance(raw_steps, dict) and isinstance(raw_steps.get("nodes"), list):
+                nodes = raw_steps.get("nodes") or []
+                edges = raw_steps.get("edges") or []
+                if not nodes:
+                    return None
+                title_by_id = {
+                    n.get("id"): (n.get("title") or "").strip()
+                    for n in nodes if isinstance(n, dict)
+                }
+                for idx, n in enumerate(nodes, start=1):
+                    if not isinstance(n, dict):
+                        continue
+                    st_title = (n.get("title") or "").strip()
+                    content = (n.get("content") or "").strip()
+                    line = f"{idx}. {st_title}".strip(". ")
+                    if content:
+                        line += f" — {content}"
+                    lines.append(line)
+                    for e in edges:
+                        if isinstance(e, dict) and e.get("source") == n.get("id"):
+                            cond = (e.get("condition") or "").strip()
+                            tgt = title_by_id.get(e.get("target"), "?")
+                            if cond:
+                                lines.append(f"   • {cond} → « {tgt} »")
+                return "\n".join(lines)
+
+            steps = raw_steps if isinstance(raw_steps, list) else []
+            if not steps:
+                return None
             for s in steps:
                 if not isinstance(s, dict):
                     continue
