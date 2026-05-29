@@ -225,7 +225,11 @@ class AxonVoiceAgent(Agent):
     async def on_enter(self) -> None:
         # Pure TTS greeting — avoids an LLM call with an empty user message.
         if self._greeting:
+            import time as _t
+            _b = _t.monotonic()
+            logger.info("greeting: say() begin")
             await self.session.say(text=self._greeting, allow_interruptions=True)
+            logger.info("greeting: say() returned in %.2fs", _t.monotonic() - _b)
 
 
 async def _watch_handoff(ctx: JobContext, session: AgentSession) -> None:
@@ -558,11 +562,14 @@ async def entrypoint(ctx: JobContext) -> None:
             clog.info("RAG tool enabled (top-%d)", axon.rag_top_k)
         # Multi-agent swarm: add `transfer_to_specialist` if this agent
         # belongs to a team. Non-blocking: returns None when no team.
+        import time as _time
+        _t_swarm = _time.monotonic()
         try:
             swarm_tool = build_transfer_tool(axon.id, ctx.room)
         except Exception:
             clog.exception("swarm tool build failed; continuing without it")
             swarm_tool = None
+        clog.info("timing: swarm tool build took %.2fs", _time.monotonic() - _t_swarm)
         if swarm_tool is not None:
             tools.append(swarm_tool)
             clog.info("swarm: transfer_to_specialist tool enabled")
@@ -576,6 +583,9 @@ async def entrypoint(ctx: JobContext) -> None:
             except Exception:
                 clog.exception("n8n tools failed to load")
 
+    import time as _time2
+    _t_start = _time2.monotonic()
+    clog.info("timing: session.start() begin")
     await session.start(
         room=ctx.room,
         agent=AxonVoiceAgent(
@@ -584,6 +594,7 @@ async def entrypoint(ctx: JobContext) -> None:
             greeting=greeting,
         ),
     )
+    clog.info("timing: session.start() returned in %.2fs", _time2.monotonic() - _t_start)
     _wire_transcript_hooks(session, call_id)
     _wire_debug_logs(session, clog)
 
