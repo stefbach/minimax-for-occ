@@ -413,7 +413,30 @@ async def entrypoint(ctx: JobContext) -> None:
         "resolved agent_id=%s (room_meta=%s, p_attrs_keys=%s, p_meta=%s)",
         agent_id, bool(ctx.room.metadata), list(p_attrs.keys()), bool(p_meta),
     )
-    axon = load_agent(agent_id) if agent_id else None
+    # Resolve campaign_id now (same sip.h.* gotcha as agent_id: the real value
+    # is in the forwarded SIP header attribute; `axon.campaign_id` is the broken
+    # dispatch-rule mapping that yields the literal "X-LK-Campaign-Id").
+    campaign_id = (
+        p_attrs.get("sip.h.x-lk-campaign-id")
+        or p_attrs.get("campaign_id")
+        or p_attrs.get("axon.campaign_id")
+    )
+    if campaign_id and str(campaign_id).startswith("X-LK-"):
+        campaign_id = None
+
+    # Load the agent config and the campaign script CONCURRENTLY and off the
+    # asyncio event loop (both are blocking httpx calls to Supabase). Running
+    # them in parallel — instead of back-to-back, and without blocking the loop
+    # that drives the room/audio — cuts the dead-air the caller hears before
+    # the agent greets.
+    async def _load(fn, arg):
+        return await asyncio.to_thread(fn, str(arg)) if arg else None
+
+    axon, script_text = await asyncio.gather(
+        _load(load_agent, agent_id),
+        _load(load_campaign_script, campaign_id),
+    )
+
     if axon:
         clog.info(
             "loaded agent %s (%s) voice=%s model=%s",
@@ -450,34 +473,22 @@ async def entrypoint(ctx: JobContext) -> None:
         "Bonjour, je suis votre assistant vocal. Je vous écoute."
     )
 
-    # Campaign script (Option B): the agent supplies voice + personality,
-    # the campaign's reusable Script supplies the conversation goal/flow.
-    # Resolve the campaign_id forwarded as the axon.campaign_id participant
-    # attribute (set by the SIP dispatch rule from X-LK-Campaign-Id) and append
-    # the rendered script to the base personality prompt.
-    # Same gotcha as agent_id: the real value comes from the forwarded SIP
-    # header attribute `sip.h.x-lk-campaign-id`; `axon.campaign_id` is the
-    # broken dispatch-rule mapping that yields the literal "X-LK-Campaign-Id".
-    campaign_id = (
-        p_attrs.get("sip.h.x-lk-campaign-id")
-        or p_attrs.get("campaign_id")
-        or p_attrs.get("axon.campaign_id")
-    )
-    if campaign_id and str(campaign_id).startswith("X-LK-"):
-        campaign_id = None
-    if campaign_id:
-        script_text = load_campaign_script(str(campaign_id))
-        if script_text:
-            clog.info("campaign %s script injected (%d chars)", campaign_id, len(script_text))
-            instructions = f"{instructions}\n\n{script_text}"
-        else:
-            clog.info("campaign %s has no script — using agent base prompt", campaign_id)
+    if campaign_id and script_text:
+        clog.info("campaign %s script injected (%d chars)", campaign_id, len(script_text))
+        instructions = f"{instructions}\n\n{script_text}"
+    elif campaign_id:
+        clog.info("campaign %s has no script — using agent base prompt", campaign_id)
+
+    # Reuse the VAD loaded once at worker startup (prewarm) instead of paying
+    # the model-load cost on every single call — that load was part of the
+    # delay before the agent could start listening/speaking.
+    vad = (ctx.proc.userdata.get("vad") if getattr(ctx, "proc", None) else None) or silero.VAD.load()
 
     session = AgentSession(
         stt=_stt_for(axon),
         llm=_llm_for(axon),
         tts=_tts_for(axon),
-        vad=silero.VAD.load(),
+        vad=vad,
         turn_detection=MultilingualModel(),
     )
 
@@ -531,6 +542,17 @@ async def entrypoint(ctx: JobContext) -> None:
         clog.debug("ctx.add_shutdown_callback unavailable; skipping post-call hook")
 
 
+def prewarm(proc):
+    """Load heavy models ONCE when the worker process starts, not per call.
+    Silero VAD is reused across every job via proc.userdata — this removes a
+    chunk of the cold pre-greeting latency the caller would otherwise hear."""
+    try:
+        proc.userdata["vad"] = silero.VAD.load()
+    except Exception:
+        # Non-fatal: the entrypoint falls back to a per-call VAD.load().
+        pass
+
+
 if __name__ == "__main__":
     # agent_name MUST match the name the SIP dispatch rule dispatches
     # ("minimax-voice-agent"). Without it the worker registers anonymously
@@ -539,4 +561,4 @@ if __name__ == "__main__":
     # no agent ever joins (call rings out, 487 Request Terminated, room with 0
     # participants). Naming the worker makes the dispatch explicit and
     # deterministic.
-    cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint, agent_name="minimax-voice-agent"))
+    cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint, prewarm_fnc=prewarm, agent_name="minimax-voice-agent"))
