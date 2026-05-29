@@ -139,20 +139,17 @@ async function dialViaLiveKit(args: {
     direction: "out",
   });
 
-  // 2. Pre-create the room, dispatch the agent, place the call. If any of
-  //    these fail (e.g. Twilio 403 on the INVITE), mark the call failed so it
-  //    doesn't hang forever as "ringing", then re-throw to fall back to Twilio.
+  // 2. Pre-create the room, place the call, THEN dispatch the agent. Order
+  //    matters: we must NOT dispatch the agent before the call connects —
+  //    otherwise a failed INVITE (e.g. Twilio 403) leaves a "ghost" agent
+  //    alone in an empty room, which piles up and saturates the worker.
   let participant: { participantId?: string } | undefined;
   try {
     const rooms = new RoomServiceClient(lk.host, lk.key, lk.secret);
-    await rooms.createRoom({ name: roomName, metadata: roomMeta, emptyTimeout: 120, departureTimeout: 20 });
+    await rooms.createRoom({ name: roomName, metadata: roomMeta, emptyTimeout: 30, departureTimeout: 20 });
 
-    // 3. Dispatch the AI agent into the room (worker registers as this name).
-    const agentName = process.env.LIVEKIT_AGENT_NAME ?? "minimax-voice-agent";
-    const dispatch = new AgentDispatchClient(lk.host, lk.key, lk.secret);
-    await dispatch.createDispatch(roomName, agentName, { metadata: roomMeta });
-
-    // 4. Place the outbound call. The answered leg lands in the agent's room.
+    // 3. Place the outbound call FIRST. If it 403s / no-answers, this throws
+    //    before any agent is dispatched (no ghost agent).
     const sip = new SipClient(lk.host, lk.key, lk.secret);
     const sipOptions = {
       participantIdentity: `pstn-${callId}`,
@@ -166,7 +163,7 @@ async function dialViaLiveKit(args: {
       },
       // sipNumber sets the From on the INVITE; without it Twilio rejects with 403.
       sipNumber: fromE164 ?? undefined,
-      // Block until pickup/timeout so we can mark the target answered vs retry.
+      // Block until pickup/timeout so we only dispatch the agent on a real answer.
       waitUntilAnswered: true,
       ringingTimeout: 30,
     };
@@ -177,6 +174,11 @@ async function dialViaLiveKit(args: {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       sipOptions as any,
     );
+
+    // 4. Call answered → dispatch the AI agent into the room now.
+    const agentName = process.env.LIVEKIT_AGENT_NAME ?? "minimax-voice-agent";
+    const dispatch = new AgentDispatchClient(lk.host, lk.key, lk.secret);
+    await dispatch.createDispatch(roomName, agentName, { metadata: roomMeta });
   } catch (err) {
     await sb
       .from("calls")
