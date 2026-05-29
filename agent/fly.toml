@@ -1,0 +1,21 @@
+app = "axon-agent"
+primary_region = "cdg"
+
+# Build the Python LiveKit Agents worker from agent/Dockerfile, with the build
+# context = this agent/ directory (so its COPY requirements.txt / COPY *.py
+# resolve). Deployed via the fly-deploy workflow with working-directory: agent.
+[build]
+  dockerfile = "Dockerfile"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+
+# Pure outbound worker — connects to LiveKit Cloud and waits for room
+# dispatches. No [http_service]: nothing listens on an inbound port, and a
+# bogus http health-check is exactly what got this app suspended before.
+[processes]
+  worker = "python agent.py start"
+
+[deploy]
+  strategy = "rolling"
