@@ -1,5 +1,6 @@
 import { supabase } from "./supabase.js";
 import { dialTarget, type DialJob } from "./dial.js";
+import { ensureOutboundTrunkAuth } from "./livekit-trunk.js";
 
 const POLL_INTERVAL_MS = Number(process.env.POLL_INTERVAL_MS ?? 30_000);
 const WORKER_CONCURRENCY = Number(process.env.WORKER_CONCURRENCY ?? 10);
@@ -78,6 +79,12 @@ function withinSchedule(schedule: Schedule | null | undefined, now: Date): boole
 
 async function main() {
   console.log(`[dialer] starting — poll=${POLL_INTERVAL_MS}ms concurrency=${WORKER_CONCURRENCY}`);
+
+  // Log + (optionally) enforce the LiveKit outbound trunk SIP auth so the
+  // LiveKit→Twilio INVITE stops failing with 403 Forbidden.
+  await ensureOutboundTrunkAuth().catch((e) =>
+    console.error("[livekit-trunk] startup check error:", e?.message),
+  );
 
   await scheduleTick().catch((e) => console.error("[scheduler] initial tick error:", e));
   const timer = setInterval(() => {
