@@ -69,11 +69,11 @@ export async function POST(req: Request) {
       ? ` username="${escapeXml(process.env.LIVEKIT_SIP_USERNAME)}" password="${escapeXml(process.env.LIVEKIT_SIP_PASSWORD)}"`
       : "";
 
-  // Build the SIP URI parameters. Names prefixed with `X-` get relayed as
-  // SIP custom headers on the INVITE by Twilio, which LiveKit's dispatch
-  // rule can then read (either to route to a specific room, or just to
-  // expose them as participant attributes).
-  const sipParams = new URLSearchParams({ from, to });
+  // SIP custom headers relayed on the INVITE. ONLY `X-` prefixed names are
+  // allowed — Twilio rejects `to`/`from` as headers (error 32113), so we must
+  // NOT pass them here. LiveKit reads the caller/callee from the standard SIP
+  // From header (Twilio sets it) and the request-URI user part below.
+  const sipParams = new URLSearchParams();
   if (room) sipParams.set("X-LK-Room", room);
   if (callId) sipParams.set("X-LK-Call-Id", callId);
   if (agentHandleId) sipParams.set("X-LK-Agent-Handle-Id", agentHandleId);
@@ -82,7 +82,19 @@ export async function POST(req: Request) {
   if (campaignId) sipParams.set("X-LK-Campaign-Id", campaignId);
   if (targetId) sipParams.set("X-LK-Target-Id", targetId);
 
-  const target = `${sipUri}?${sipParams.toString()}`;
+  // Route to the LiveKit inbound trunk by putting the number in the user part:
+  //   sip:<number>@<project>.sip.livekit.cloud
+  // Without a user part LiveKit can't match any trunk and returns 404 Not
+  // Found (which is exactly what Twilio reported). The number must be one the
+  // inbound trunk accepts — we use the Twilio caller-id (From), which is the
+  // org's number configured on the trunk. Fall back to To if From is absent
+  // (e.g. inbound calls).
+  const sipHost = sipUri.replace(/^sips?:/i, "");
+  const userPart = (from || to || "").replace(/^sip:/i, "");
+  const qs = sipParams.toString();
+  const target = userPart
+    ? `sip:${userPart}@${sipHost}${qs ? `?${qs}` : ""}`
+    : `${sipUri}${qs ? `?${qs}` : ""}`;
 
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
