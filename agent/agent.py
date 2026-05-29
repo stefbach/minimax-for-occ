@@ -523,4 +523,11 @@ async def entrypoint(ctx: JobContext) -> None:
 
 
 if __name__ == "__main__":
-    cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))
+    # agent_name MUST match the name the SIP dispatch rule dispatches
+    # ("minimax-voice-agent"). Without it the worker registers anonymously
+    # (agent_name="") in automatic-dispatch mode, which does NOT match a rule
+    # that explicitly requests a named agent — so the SIP room gets created but
+    # no agent ever joins (call rings out, 487 Request Terminated, room with 0
+    # participants). Naming the worker makes the dispatch explicit and
+    # deterministic.
+    cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint, agent_name="minimax-voice-agent"))
