@@ -12,18 +12,18 @@ primary_region = 'cdg'
 [deploy]
   strategy = 'rolling'
 
-[env]
-  NODE_ENV = 'production'
-  POLL_INTERVAL_MS = '30000'
-  WORKER_CONCURRENCY = '10'
+# axon-agent is a LiveKit Agents WORKER, not a web service. It connects
+# OUTBOUND to LiveKit Cloud over a WebSocket and waits for room dispatches —
+# it never serves inbound HTTP. The previous [http_service] on :8080 made
+# Fly health-check a port nothing listens on; the checks failed and Fly
+# SUSPENDED the app, so no agent ever joined a call room → "call connects,
+# no voice, drops after ~5s". Removing it makes this a plain always-on
+# worker (same model as the dialer app, which has no http_service and runs
+# 24/7 fine). The machine stays running as long as `python agent.py start`
+# is alive.
 
-[http_service]
-  internal_port = 8080
-  force_https = true
-  auto_stop_machines = 'off'
-  auto_start_machines = false
-  min_machines_running = 1
-  processes = ['app']
+[processes]
+  worker = 'python agent.py start'
 
 [[vm]]
   size = 'shared-cpu-1x'
