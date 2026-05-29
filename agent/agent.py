@@ -154,6 +154,8 @@ def _tts_for(agent: Optional[AxonAgent]) -> minimax.TTS:
         "model": model,
         "emotion": emotion,
         "speed": float(agent.tts_speed) if agent and agent.tts_speed and agent.tts_speed != 1.0 else None,
+        "vol": float(agent.tts_volume) if agent and agent.tts_volume and agent.tts_volume != 1.0 else None,
+        "pitch": int(agent.tts_pitch) if agent and agent.tts_pitch else None,
         "language_boost": boost,
         # Force PCM streaming instead of MP3. MiniMax streams MP3 as multiple
         # chunks each with their own headers, which crashes livekit-agents'
@@ -499,6 +501,14 @@ async def entrypoint(ctx: JobContext) -> None:
         "Bonjour, je suis votre assistant vocal. Je vous écoute."
     )
 
+    # Tone/style directive (item 3): shape the LLM's register without changing
+    # the TTS voice. Complements the MiniMax emotion setting.
+    if axon and axon.voice_style:
+        instructions = (
+            f"{instructions}\n\nStyle et ton à adopter pendant tout l'appel : "
+            f"{axon.voice_style}. Reste naturel et conversationnel, adapté à la voix."
+        )
+
     if campaign_id and script_text:
         clog.info("campaign %s script injected (%d chars)", campaign_id, len(script_text))
         instructions = f"{instructions}\n\n{script_text}"
@@ -510,13 +520,35 @@ async def entrypoint(ctx: JobContext) -> None:
     # delay before the agent could start listening/speaking.
     vad = (ctx.proc.userdata.get("vad") if getattr(ctx, "proc", None) else None) or silero.VAD.load()
 
-    session = AgentSession(
+    import inspect as _inspect
+
+    session_kwargs: dict = dict(
         stt=_stt_for(axon),
         llm=_llm_for(axon),
         tts=_tts_for(axon),
         vad=vad,
         turn_detection=MultilingualModel(),
     )
+    # Latency & naturalness tuning (item 4). Pass only kwargs this
+    # livekit-agents version accepts — in newer versions these moved under
+    # turn_handling=TurnHandlingOptions(...), so signature-filter to stay safe.
+    #  • preemptive_generation: start the LLM reply before the caller fully
+    #    stops talking → noticeably snappier responses.
+    #  • min_endpointing_delay: shorter silence before the agent takes its turn.
+    #  • allow_interruptions: barge-in, the caller can cut the agent off.
+    _latency = {
+        "preemptive_generation": True,
+        "min_endpointing_delay": 0.4,
+        "allow_interruptions": True,
+    }
+    try:
+        _session_params = set(_inspect.signature(AgentSession.__init__).parameters)
+    except (ValueError, TypeError):
+        _session_params = set()
+    for _k, _v in _latency.items():
+        if _k in _session_params:
+            session_kwargs[_k] = _v
+    session = AgentSession(**session_kwargs)
 
     tools = []
     if axon:

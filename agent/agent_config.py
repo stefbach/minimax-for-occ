@@ -35,6 +35,12 @@ class AxonAgent:
     rag_top_k: int
     n8n_workflows: list[dict[str, Any]]
     org_id: Optional[str] = None
+    # MiniMax TTS fine-tuning (per agent). volume range (0,10], pitch [-12,12].
+    tts_volume: float = 1.0
+    tts_pitch: int = 0
+    # Free-text tone/style directive woven into the system prompt so the LLM
+    # phrases its replies in the desired register (e.g. "chaleureux, rassurant").
+    voice_style: Optional[str] = None
     # Custom hold music URL configured by the org (organizations.hold_music_url).
     # When set, the worker uses this URL instead of Twilio's default jingle while
     # the call is on hold. Resolved lazily from Supabase at session start.
@@ -168,6 +174,9 @@ def load_agent(agent_id: str) -> Optional[AxonAgent]:
         rag_top_k=int(a.get("rag_top_k") or 4),
         n8n_workflows=workflows,
         org_id=str(org_id) if org_id else None,
+        tts_volume=float(a.get("tts_volume") if a.get("tts_volume") is not None else 1.0),
+        tts_pitch=int(a.get("tts_pitch") or 0),
+        voice_style=(a.get("voice_style") or None),
         hold_music_url=hold_music_url,
     )
 

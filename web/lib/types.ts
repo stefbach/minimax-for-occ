@@ -10,7 +10,10 @@ export interface Agent {
   tts_voice_id: string | null;
   tts_emotion: string | null;
   tts_speed: number;
+  tts_volume: number;
+  tts_pitch: number;
   tts_model: string | null;
+  voice_style: string | null;
   system_prompt: string;
   greeting: string | null;
   rag_enabled: boolean;

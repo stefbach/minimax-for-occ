@@ -40,11 +40,14 @@ const PROVIDER_MODEL_IDS: Record<LlmProvider, string[]> = Object.fromEntries(
 type TTSFamily = "speech-02" | "speech-01";
 
 const TTS_MODELS: { id: string; label: string; family: TTSFamily }[] = [
-  { id: "speech-02-hd",          label: "speech-02-hd — Qualité HD multilingue, latence standard", family: "speech-02" },
-  { id: "speech-02-turbo",       label: "speech-02-turbo — Plus rapide, qualité standard",         family: "speech-02" },
-  { id: "speech-2.5-hd-preview", label: "speech-2.5-hd (preview) — Qualité maximale (en bêta)",     family: "speech-02" },
-  { id: "speech-01-turbo",       label: "speech-01-turbo — Économique, latence ultra-faible",       family: "speech-01" },
-  { id: "speech-01",             label: "speech-01 (legacy) — Compatibilité voix historiques",      family: "speech-01" },
+  { id: "speech-2.6-hd",         label: "speech-2.6-hd — Le plus naturel + émotion « fluent » (recommandé)", family: "speech-02" },
+  { id: "speech-2.8-hd",         label: "speech-2.8-hd — Dernière génération, très naturel",        family: "speech-02" },
+  { id: "speech-2.6-turbo",      label: "speech-2.6-turbo — Naturel, plus rapide",                  family: "speech-02" },
+  { id: "speech-02-hd",          label: "speech-02-hd — Qualité HD multilingue, latence standard",  family: "speech-02" },
+  { id: "speech-02-turbo",       label: "speech-02-turbo — Plus rapide, qualité standard",          family: "speech-02" },
+  { id: "speech-2.5-hd-preview", label: "speech-2.5-hd (preview) — Qualité maximale (en bêta)",      family: "speech-02" },
+  { id: "speech-01-turbo",       label: "speech-01-turbo — Économique, latence ultra-faible",        family: "speech-01" },
+  { id: "speech-01",             label: "speech-01 (legacy) — Compatibilité voix historiques",       family: "speech-01" },
 ];
 
 // Each MiniMax model family has its own voice catalog. Picking a voice
@@ -52,6 +55,11 @@ const TTS_MODELS: { id: string; label: string; family: TTSFamily }[] = [
 type BuiltinVoice = { id: string; label: string; group: string };
 const BUILTIN_VOICES: Record<TTSFamily, BuiltinVoice[]> = {
   "speech-02": [
+    { id: "French_CasualMan",          label: "Homme français décontracté (French_CasualMan)",   group: "Voix françaises & téléphonie" },
+    { id: "French_Female Journalist",  label: "Journaliste française (French_Female Journalist)", group: "Voix françaises & téléphonie" },
+    { id: "voice_agent_Male_Phone_1",  label: "Agent téléphonique homme 1 (voice_agent_Male_Phone_1)",   group: "Voix françaises & téléphonie" },
+    { id: "voice_agent_Male_Phone_2",  label: "Agent téléphonique homme 2 (voice_agent_Male_Phone_2)",   group: "Voix françaises & téléphonie" },
+    { id: "voice_agent_Female_Phone_4", label: "Agent téléphonique femme (voice_agent_Female_Phone_4)",  group: "Voix françaises & téléphonie" },
     { id: "Calm_Woman",         label: "Femme calme (Calm_Woman)",                       group: "Femmes adultes" },
     { id: "Wise_Woman",         label: "Femme posée (Wise_Woman)",                       group: "Femmes adultes" },
     { id: "Lively_Girl",        label: "Jeune femme dynamique (Lively_Girl)",            group: "Jeunes femmes / adolescentes" },
@@ -108,6 +116,16 @@ const LANGUAGES = [
   { id: "it", label: "Italien" },
 ];
 
+// Maps the agent's language to MiniMax's language_boost (cleaner prosody).
+// "multi"/unknown → "auto" so MiniMax auto-detects.
+const LANGUAGE_BOOST: Record<string, string> = {
+  fr: "French",
+  en: "English",
+  es: "Spanish",
+  de: "German",
+  it: "Italian",
+};
+
 export function AgentForm({ initial }: { initial?: Agent }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -129,7 +147,10 @@ export function AgentForm({ initial }: { initial?: Agent }) {
   const [voice, setVoice] = useState(initial?.tts_voice_id ?? "");
   const [emotion, setEmotion] = useState(initial?.tts_emotion ?? "");
   const [speed, setSpeed] = useState(initial?.tts_speed ?? 1.0);
-  const [ttsModel, setTtsModel] = useState(initial?.tts_model ?? "speech-02-hd");
+  const [volume, setVolume] = useState(initial?.tts_volume ?? 1.0);
+  const [pitch, setPitch] = useState(initial?.tts_pitch ?? 0);
+  const [ttsModel, setTtsModel] = useState(initial?.tts_model ?? "speech-2.6-hd");
+  const [voiceStyle, setVoiceStyle] = useState(initial?.voice_style ?? "");
   const [systemPrompt, setSystemPrompt] = useState(initial?.system_prompt ?? "");
   const [greeting, setGreeting] = useState(initial?.greeting ?? "Bonjour, je vous écoute.");
   const [rag, setRag] = useState(initial?.rag_enabled ?? false);
@@ -268,7 +289,10 @@ export function AgentForm({ initial }: { initial?: Agent }) {
       tts_voice_id: voice || null,
       tts_emotion: emotion || null,
       tts_speed: speed,
+      tts_volume: volume,
+      tts_pitch: pitch,
       tts_model: ttsModel || null,
+      voice_style: voiceStyle || null,
       system_prompt: systemPrompt,
       greeting,
       rag_enabled: rag,
@@ -318,7 +342,10 @@ export function AgentForm({ initial }: { initial?: Agent }) {
           text: greeting || "Bonjour, je suis votre assistant.",
           model: ttsModel || undefined,
           speed,
+          vol: volume,
+          pitch,
           emotion: emotion || undefined,
+          language_boost: LANGUAGE_BOOST[language] ?? "auto",
         }),
       });
       if (!r.ok) {
@@ -598,6 +625,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                     <label>Émotion</label>
                     <select value={emotion} onChange={(e) => setEmotion(e.target.value)}>
                       <option value="">— défaut —</option>
+                      <option value="fluent">fluent — naturel conversationnel (modèles speech-2.6)</option>
                       <option value="neutral">neutral</option>
                       <option value="happy">happy</option>
                       <option value="sad">sad</option>
@@ -606,14 +634,50 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                       <option value="disgusted">disgusted</option>
                       <option value="surprised">surprised</option>
                     </select>
+                    {emotion === "fluent" && !ttsModel.startsWith("speech-2.6") && (
+                      <div style={{ fontSize: 12, color: "var(--bad)", marginTop: 4 }}>
+                        L&apos;émotion « fluent » n&apos;existe que sur les modèles speech-2.6 — choisis speech-2.6-hd ci-contre.
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="form-row">
+                  <div>
+                    <label>Vitesse ({speed.toFixed(2)}×)</label>
+                    <input
+                      type="range" min="0.5" max="2" step="0.05"
+                      value={speed} onChange={(e) => setSpeed(Number(e.target.value))}
+                    />
+                  </div>
+                  <div>
+                    <label>Volume ({volume.toFixed(1)})</label>
+                    <input
+                      type="range" min="0.5" max="5" step="0.1"
+                      value={volume} onChange={(e) => setVolume(Number(e.target.value))}
+                    />
                   </div>
                 </div>
                 <div>
-                  <label>Vitesse ({speed.toFixed(2)}×)</label>
+                  <label>Tonalité / pitch ({pitch > 0 ? `+${pitch}` : pitch})</label>
                   <input
-                    type="range" min="0.5" max="2" step="0.05"
-                    value={speed} onChange={(e) => setSpeed(Number(e.target.value))}
+                    type="range" min="-12" max="12" step="1"
+                    value={pitch} onChange={(e) => setPitch(Number(e.target.value))}
                   />
+                  <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
+                    Négatif = voix plus grave, positif = plus aiguë. 0 = naturel.
+                  </div>
+                </div>
+                <div>
+                  <label>Style &amp; ton (consigne)</label>
+                  <textarea
+                    rows={2}
+                    value={voiceStyle}
+                    onChange={(e) => setVoiceStyle(e.target.value)}
+                    placeholder="Ex: chaleureux et rassurant, débit posé, sourire dans la voix, jamais pressé."
+                  />
+                  <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
+                    Injecté dans les instructions de l&apos;agent — guide la façon de formuler (complète l&apos;émotion TTS).
+                  </div>
                 </div>
               </div>
             )}

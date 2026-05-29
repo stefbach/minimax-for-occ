@@ -33,8 +33,11 @@ export async function POST(req: Request) {
     voice_id?: string;
     text?: string;
     speed?: number;
+    vol?: number;
+    pitch?: number;
     emotion?: string;
     model?: string;
+    language_boost?: string;
   };
   if (!body.voice_id) {
     return NextResponse.json({ error: "voice_id required" }, { status: 400 });
@@ -46,8 +49,11 @@ export async function POST(req: Request) {
       voice_id: body.voice_id,
       text,
       speed: body.speed,
+      vol: body.vol,
+      pitch: body.pitch,
       emotion: body.emotion,
       model: body.model,
+      language_boost: body.language_boost,
     });
 
     // Billing: record TTS chars (best-effort, never blocks the response).

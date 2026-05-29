@@ -118,19 +118,31 @@ export async function previewTTS(opts: {
   voice_id: string;
   text: string;
   speed?: number;
+  vol?: number;
+  pitch?: number;
   emotion?: string;
   model?: string;
+  language_boost?: string;
 }): Promise<{ audio: ArrayBuffer; format: string }> {
   const url = appendGroupId(`${minimaxBase()}/t2a_v2`);
 
+  // "fluent" emotion only exists on speech-2.6-* models — drop it otherwise
+  // so the preview matches what the worker will actually do.
+  const model = opts.model || "speech-02-hd";
+  const emotion =
+    opts.emotion && !(opts.emotion === "fluent" && !model.startsWith("speech-2.6"))
+      ? opts.emotion
+      : undefined;
+
   const body = {
-    model: opts.model || "speech-02-hd",
+    model,
     text: opts.text,
     voice_setting: {
       voice_id: opts.voice_id,
       speed: opts.speed ?? 1.0,
-      vol: 1.0,
-      ...(opts.emotion ? { emotion: opts.emotion } : {}),
+      vol: opts.vol ?? 1.0,
+      pitch: opts.pitch ?? 0,
+      ...(emotion ? { emotion } : {}),
     },
     audio_setting: {
       sample_rate: 24000,
@@ -138,6 +150,7 @@ export async function previewTTS(opts: {
       format: "mp3",
       channel: 1,
     },
+    ...(opts.language_boost ? { language_boost: opts.language_boost } : {}),
     output_format: "hex",
   };
 
