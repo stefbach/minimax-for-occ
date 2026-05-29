@@ -96,9 +96,13 @@ export async function POST(req: Request) {
     ? `sip:${userPart}@${sipHost}${qs ? `?${qs}` : ""}`
     : `${sipUri}${qs ? `?${qs}` : ""}`;
 
+  // NOTE: no answerOnBridge="true". With it, Twilio keeps playing ringback to
+  // the answered party until the SIP/LiveKit leg "answers" — that's the ringing
+  // tone heard right after pickup. Without it, the call is treated as connected
+  // immediately and the caller hears silence (then the agent) instead of a tone.
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Dial answerOnBridge="true">
+  <Dial>
     <Sip${auth}>${escapeXml(target)}</Sip>
   </Dial>
 </Response>`;
