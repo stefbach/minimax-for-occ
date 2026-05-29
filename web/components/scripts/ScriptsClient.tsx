@@ -1,7 +1,20 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import { ScriptEditor, type ScriptGraph, emptyGraph, toGraph } from "./ScriptEditor";
+
+// React Flow touches `window`/ResizeObserver, so load the visual editor only
+// in the browser (no SSR) to avoid hydration hiccups.
+const VisualScriptEditor = dynamic(
+  () => import("./VisualScriptEditor").then((m) => m.VisualScriptEditor),
+  {
+    ssr: false,
+    loading: () => <p className="muted">Chargement de l&apos;éditeur visuel…</p>,
+  },
+);
+
+type EditorMode = "list" | "visual";
 
 type ScriptRow = {
   id: string;
@@ -241,6 +254,7 @@ function ScriptDetailView({
   const [saving, setSaving] = useState(false);
   const [note, setNote] = useState("");
   const [graph, setGraph] = useState<ScriptGraph>(emptyGraph());
+  const [mode, setMode] = useState<EditorMode>("list");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -305,8 +319,52 @@ function ScriptDetailView({
         <p className="muted" style={{ fontSize: 13 }}>{detail.description}</p>
       )}
 
+      <div
+        style={{
+          marginTop: 12,
+          display: "flex",
+          gap: 4,
+          alignItems: "center",
+        }}
+      >
+        <div
+          role="tablist"
+          style={{
+            display: "inline-flex",
+            border: "1px solid var(--border)",
+            borderRadius: 8,
+            overflow: "hidden",
+          }}
+        >
+          {(["list", "visual"] as EditorMode[]).map((m) => (
+            <button
+              key={m}
+              role="tab"
+              aria-selected={mode === m}
+              onClick={() => setMode(m)}
+              className="ghost"
+              style={{
+                padding: "6px 14px",
+                fontSize: 13,
+                border: "none",
+                borderRadius: 0,
+                background: mode === m ? "var(--accent-soft)" : "transparent",
+                color: mode === m ? "var(--accent)" : "var(--text)",
+                fontWeight: mode === m ? 600 : 400,
+              }}
+            >
+              {m === "list" ? "Liste + branches" : "Schéma visuel"}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div style={{ marginTop: 12 }}>
-        <ScriptEditor value={graph} onChange={setGraph} />
+        {mode === "list" ? (
+          <ScriptEditor value={graph} onChange={setGraph} />
+        ) : (
+          <VisualScriptEditor value={graph} onChange={setGraph} />
+        )}
       </div>
 
       <div style={{ marginTop: 16, display: "grid", gap: 8 }}>
