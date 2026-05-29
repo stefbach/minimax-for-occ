@@ -1,11 +1,11 @@
-import { Sidebar } from "@/components/Sidebar";
+import { ClientSidebar } from "@/components/ClientSidebar";
 import { ToastProvider } from "@/components/ui/Toast";
 
-export default function AppLayout({ children }: { children: React.ReactNode }) {
+export default function ClientLayout({ children }: { children: React.ReactNode }) {
   return (
     <ToastProvider>
       <div className="app-shell">
-        <Sidebar />
+        <ClientSidebar />
         <main className="main">{children}</main>
       </div>
     </ToastProvider>

@@ -74,7 +74,7 @@ export async function POST(req: Request) {
   }
 
   // 1. upload sample to MiniMax, 2. register clone — both raise on real errors now.
-  let fileId: string;
+  let fileId: number | string;
   try {
     const up = await uploadVoiceCloneSample(file);
     fileId = up.file_id;

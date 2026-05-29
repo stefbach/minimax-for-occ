@@ -1,3 +1,4 @@
+// @deprecated use AdminSidebar or ClientSidebar
 "use client";
 
 import Link from "next/link";

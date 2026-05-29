@@ -43,12 +43,22 @@ export async function currentUser() {
   return data.user ?? null;
 }
 
-/** Convenience: list the orgs the current user belongs to. */
+/** Convenience: list the orgs the current user belongs to.
+ *
+ * Explicitly scoped to the current user's id. RLS on memberships is
+ * permissive for super_admins (they can read every row), so without this
+ * filter the personal OrgSwitcher would list EVERY org on the platform —
+ * including orgs owned by other accounts (e.g. a stray Legacy membership) —
+ * which is confusing. Managing all client orgs is the /admin dashboard's job;
+ * the switcher should only ever show "my own" orgs. */
 export async function currentUserOrgs() {
   const sb = await supabaseSession();
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) return [];
   const { data } = await sb
     .from("memberships")
     .select("role, organizations(id, name, slug)")
+    .eq("user_id", user.id)
     .order("created_at", { ascending: true });
   return (data ?? []) as unknown as Array<{
     role: string;
@@ -87,6 +97,34 @@ export async function currentOrgFromCookie(): Promise<string | null> {
   // Verify the signature + freshness of the cookie. verifyOrgCookie also
   // accepts the legacy unsigned UUID form for backwards compatibility.
   return verifyOrgCookie(c?.value);
+}
+
+/**
+ * Resolve the org_id the current server component should operate on.
+ * Mirrors the Route-Handler-side `requestOrgId(req)`:
+ *   1. Signed `axon.org_id` cookie (set by /api/orgs/switch), if it points
+ *      to an org the user belongs to (or the user is super_admin).
+ *   2. The user's primary membership (first by created_at).
+ *   3. Legacy fallback for unauthenticated server-side rendering.
+ */
+export async function currentOrgIdForServer(): Promise<string> {
+  const { LEGACY_ORG_ID } = await import("./constants");
+  const sb = await supabaseSession();
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) return LEGACY_ORG_ID;
+
+  const { data: memberships } = await sb
+    .from("memberships")
+    .select("org_id, role")
+    .order("created_at", { ascending: true });
+  const rows = (memberships ?? []) as Array<{ org_id: string; role: string }>;
+  const isSuper = rows.some((m) => m.role === "super_admin");
+
+  const cookieOrg = await currentOrgFromCookie();
+  if (cookieOrg && (isSuper || rows.some((m) => m.org_id === cookieOrg))) {
+    return cookieOrg;
+  }
+  return rows[0]?.org_id ?? LEGACY_ORG_ID;
 }
 
 /**

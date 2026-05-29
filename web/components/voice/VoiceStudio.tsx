@@ -172,8 +172,9 @@ export function VoiceStudio({ initial }: { initial: Voice[] }) {
       <div className="card">
         <h3 style={{ marginTop: 0 }}>Cloner une nouvelle voix</h3>
         <p className="muted" style={{ marginTop: 0 }}>
-          Échantillon attendu : <strong>10 s à 5 min</strong>, mono, sans musique, format mp3/wav/m4a, ≤ 20 Mo.
-          Le voice_id est interne (8 à 64 caractères, commence par une lettre, A-Z, 0-9, _).
+          Échantillon attendu : <strong>10 s à 5 min</strong>, mono, sans musique,
+          format <strong>mp3 / wav / m4a uniquement</strong> (.ogg / .flac non supportés),
+          ≤ 20 Mo.
         </p>
         <form onSubmit={onClone} style={{ display: "grid", gap: 12 }}>
           <div className="form-row">
@@ -181,19 +182,56 @@ export function VoiceStudio({ initial }: { initial: Voice[] }) {
               <label>Fichier audio</label>
               <input
                 type="file"
-                accept=".mp3,.wav,.m4a,audio/*"
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                accept=".mp3,.wav,.m4a,audio/mpeg,audio/wav,audio/x-m4a,audio/mp4"
+                onChange={(e) => {
+                  const f = e.target.files?.[0] ?? null;
+                  if (f) {
+                    const ok = /\.(mp3|wav|m4a)$/i.test(f.name);
+                    if (!ok) {
+                      alert(
+                        `Format non supporté : "${f.name}".\n\nMiniMax accepte uniquement mp3, wav ou m4a. Convertis ton fichier d'abord (par exemple avec ffmpeg : ffmpeg -i fichier.ogg fichier.mp3).`,
+                      );
+                      e.target.value = "";
+                      setFile(null);
+                      return;
+                    }
+                  }
+                  setFile(f);
+                }}
               />
+              {file && (
+                <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
+                  Fichier : <strong>{file.name}</strong> ({(file.size / 1024 / 1024).toFixed(2)} Mo)
+                </div>
+              )}
             </div>
             <div>
-              <label>voice_id (technique)</label>
+              <label>
+                voice_id (technique) — <span style={{ color: "var(--muted)", fontWeight: "normal" }}>
+                  8 à 64 caractères, commence par une lettre, A-Z / 0-9 / _ uniquement
+                </span>
+              </label>
               <input
                 value={voiceId}
                 onChange={(e) => setVoiceId(e.target.value)}
                 placeholder="tibok_pharma_dr_coste"
                 pattern="[A-Za-z][A-Za-z0-9_]{7,63}"
+                minLength={8}
+                maxLength={64}
                 required
+                title="8 à 64 caractères, commence par une lettre, puis lettres / chiffres / underscores uniquement"
               />
+              <div style={{
+                fontSize: 12,
+                color: voiceId && (voiceId.length < 8 || voiceId.length > 64) ? "#ff8080" : "var(--muted)",
+                marginTop: 4,
+              }}>
+                {voiceId.length === 0
+                  ? "Identifiant interne, non visible des utilisateurs finaux"
+                  : voiceId.length < 8
+                    ? `${voiceId.length}/8 caractères minimum — encore ${8 - voiceId.length} à taper`
+                    : `${voiceId.length}/64 caractères ✓`}
+              </div>
             </div>
           </div>
           <div className="form-row">
@@ -218,8 +256,12 @@ export function VoiceStudio({ initial }: { initial: Voice[] }) {
             <input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Voix posée, ton médical professionnel" />
           </div>
           <div>
-            <label>Phrase d&apos;écoute (servira au bouton ▶ Tester)</label>
-            <input value={sampleText} onChange={(e) => setSampleText(e.target.value)} />
+            <label>Phrase d&apos;écoute (optionnel — servira au bouton ▶ Tester)</label>
+            <input
+              value={sampleText}
+              onChange={(e) => setSampleText(e.target.value)}
+              placeholder="Bonjour, je suis votre assistant vocal."
+            />
           </div>
           <div>
             <button type="submit" disabled={busy || !file || !voiceId || !name}>

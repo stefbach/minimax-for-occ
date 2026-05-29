@@ -26,12 +26,21 @@ export default async function SuperAdminOrgsPage() {
       } else {
         const { data: orgs } = await sb
           .from("organizations")
-          .select("id, name, slug, created_at, active")
+          .select("id, name, slug, category, created_at, active, status, deletion_scheduled_at")
           .order("created_at", { ascending: true });
 
         const since = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
         rows = await Promise.all(
-          (orgs ?? []).map(async (o: { id: string; name: string; slug: string; created_at: string; active?: boolean }) => {
+          (orgs ?? []).map(async (o: {
+            id: string;
+            name: string;
+            slug: string;
+            category: string | null;
+            created_at: string;
+            active?: boolean;
+            status?: "active" | "suspended" | "archived" | "pending_deletion";
+            deletion_scheduled_at?: string | null;
+          }) => {
             const [mem, calls] = await Promise.all([
               sb.from("memberships").select("id", { count: "exact", head: true }).eq("org_id", o.id),
               sb
@@ -44,8 +53,11 @@ export default async function SuperAdminOrgsPage() {
               id: o.id,
               name: o.name,
               slug: o.slug,
+              category: o.category ?? null,
               created_at: o.created_at,
               active: o.active ?? true,
+              status: o.status ?? (o.active === false ? "suspended" : "active"),
+              deletion_scheduled_at: o.deletion_scheduled_at ?? null,
               members: mem.count ?? 0,
               calls_7d: calls.count ?? 0,
             };

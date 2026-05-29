@@ -1,18 +1,20 @@
 import { hasSupabase, supabaseServer } from "@/lib/supabase";
-import { CampaignWizard, type AgentHandleOption, type PhoneNumberOption, type ContactOption } from "@/components/campaigns/CampaignWizard";
+import { CampaignWizard, type AgentHandleOption, type PhoneNumberOption, type ContactOption, type ScriptOption } from "@/components/campaigns/CampaignWizard";
 import { HelpButton } from "@/components/help/HelpButton";
 
 export const dynamic = "force-dynamic";
 
-import { LEGACY_ORG_ID as DEFAULT_ORG } from "@/lib/constants";
+import { currentOrgIdForServer } from "@/lib/supabase-auth";
 
 export default async function NewCampaignPage() {
   let agents: AgentHandleOption[] = [];
   let numbers: PhoneNumberOption[] = [];
   let contacts: ContactOption[] = [];
+  let scripts: ScriptOption[] = [];
 
   if (hasSupabase()) {
     const sb = supabaseServer();
+    const DEFAULT_ORG = await currentOrgIdForServer();
     try {
       const { data } = await sb
         .from("agent_handles")
@@ -77,6 +79,17 @@ export default async function NewCampaignPage() {
     } catch {
       /* ignore */
     }
+    try {
+      const { data } = await sb
+        .from("scripts")
+        .select("id,name,mission,description")
+        .eq("org_id", DEFAULT_ORG)
+        .order("created_at", { ascending: false })
+        .limit(200);
+      scripts = (data ?? []) as ScriptOption[];
+    } catch {
+      /* ignore */
+    }
   }
 
   return (
@@ -88,7 +101,7 @@ export default async function NewCampaignPage() {
         </div>
         <HelpButton contextKey="campaigns" />
       </div>
-      <CampaignWizard agents={agents} numbers={numbers} contacts={contacts} />
+      <CampaignWizard agents={agents} numbers={numbers} contacts={contacts} scripts={scripts} />
     </>
   );
 }

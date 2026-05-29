@@ -1,4 +1,11 @@
 livekit-agents[minimax,deepgram,openai,silero,turn-detector,anthropic]~=1.5
+# Note: the [minimax] extra pulls `livekit-plugins-minimax-ai` (the
+# official MiniMax AI package, voice catalog: Casual_Guy / Determined_Man
+# / Wise_Woman / …) — NOT the community `livekit-plugins-minimax` which
+# uses the legacy Chinese voice IDs and a different `voice_id` kwarg.
+# audio_format defaults to "mp3" in this package and we override it to
+# "pcm" in agent.py to bypass the chunked-MP3 decoder bug
+# (livekit/livekit#3850, agents#3863).
 python-dotenv>=1.0.0
 supabase>=2.7.0
 httpx>=0.27.0

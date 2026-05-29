@@ -28,7 +28,14 @@ from livekit.agents import Agent, AgentSession, JobContext, WorkerOptions, cli
 from livekit.plugins import deepgram, minimax, openai, silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
-from agent_config import AxonAgent, load_agent, rag_search, resolve_agent_id
+from agent_config import (
+    AxonAgent,
+    _agent_id_from_metadata,
+    load_agent,
+    load_campaign_script,
+    rag_search,
+    resolve_agent_id,
+)
 from db_writes import append_transcript_turn, trigger_post_call_pipeline
 from flow_runtime import (
     FlowRuntime,
@@ -101,6 +108,17 @@ def _llm_for(agent: Optional[AxonAgent]):
     )
 
 
+def _stt_for(agent: Optional[AxonAgent]) -> deepgram.STT:
+    """Deepgram STT — honors the per-agent language stored in Supabase.
+    - 'multi' / unset → auto-detect (30+ languages, broadest coverage)
+    - 'fr', 'en', 'es', … → locked language for max accuracy on short turns
+    """
+    lang = (agent.language if agent and agent.language else "multi").lower()
+    if lang in ("multi", "auto", ""):
+        lang = "multi"
+    return deepgram.STT(model="nova-3", language=lang)
+
+
 def _tts_for(agent: Optional[AxonAgent]) -> minimax.TTS:
     kwargs: dict = {}
     voice = (agent.tts_voice_id if agent else None) or os.getenv("MINIMAX_VOICE_ID")
@@ -113,9 +131,24 @@ def _tts_for(agent: Optional[AxonAgent]) -> minimax.TTS:
     if agent and agent.tts_speed and agent.tts_speed != 1.0:
         kwargs["speed"] = float(agent.tts_speed)
     model = (agent.tts_model if agent and agent.tts_model else os.getenv("MINIMAX_TTS_MODEL"))
+    # MiniMax preset voices (Casual_Guy, Determined_Man, …) only exist on
+    # speech-02-hd. Without it the API silently falls back to a default voice.
+    if not model and voice:
+        model = "speech-02-hd"
     if model:
         kwargs["model"] = model
-    return minimax.TTS(**kwargs)
+    # Force PCM streaming instead of MP3. MiniMax streams MP3 as multiple
+    # chunks each with their own headers, which crashes livekit-agents'
+    # PyAV decoder with InvalidDataError 1094995529 (known bug, see
+    # livekit/livekit#3850 and livekit/agents#3863). Raw PCM has no
+    # per-chunk headers so the decoder handles concatenation fine.
+    # Requires livekit-plugins-minimax >= 1.3.0 (audio_format kwarg).
+    try:
+        return minimax.TTS(audio_format="pcm", **kwargs)
+    except TypeError:
+        # Older plugin without audio_format kwarg — fall back, audio may
+        # still glitch but at least the session starts.
+        return minimax.TTS(**kwargs)
 
 
 def _build_n8n_tools(agent: AxonAgent):
@@ -205,6 +238,43 @@ async def _watch_handoff(ctx: JobContext, session: AgentSession) -> None:
     logger.debug("handoff watcher: no metadata_changed event on this LiveKit version")
 
 
+def _wire_debug_logs(session: AgentSession, clog) -> None:
+    """Log every STT transcript and every assistant turn — runs for ALL sessions,
+    not just calls with a call_id. Helps diagnose silent LLM/TTS failures."""
+
+    def _on_user(ev):
+        try:
+            text = getattr(ev, "transcript", None) or getattr(ev, "text", None) or ""
+            is_final = getattr(ev, "is_final", True)
+            clog.info("STT user (final=%s): %r", is_final, str(text)[:200])
+        except Exception:
+            clog.exception("debug STT hook failed")
+
+    def _on_item(ev):
+        try:
+            item = getattr(ev, "item", None)
+            role = getattr(item, "role", None) if item else None
+            text = getattr(item, "text_content", None) if item else None
+            if callable(text):
+                text = text()
+            clog.info("LLM/turn role=%s text=%r", role, str(text or "")[:300])
+        except Exception:
+            clog.exception("debug item hook failed")
+
+    def _on_error(ev):
+        clog.error("session error event: %r", ev)
+
+    for ev_name, fn in (
+        ("user_input_transcribed", _on_user),
+        ("conversation_item_added", _on_item),
+        ("error", _on_error),
+    ):
+        try:
+            session.on(ev_name, fn)
+        except Exception:
+            clog.debug("session.on(%s) unavailable", ev_name)
+
+
 def _wire_transcript_hooks(session: AgentSession, call_id: Optional[str]) -> None:
     """Subscribe to session events to push each turn into call_transcripts.
 
@@ -276,7 +346,7 @@ async def entrypoint(ctx: JobContext) -> None:
         else:
             # A session is still required to drive say()/STT during the flow.
             session = AgentSession(
-                stt=deepgram.STT(model="nova-3", language="multi"),
+                stt=_stt_for(None),
                 llm=_llm_for(None),
                 tts=_tts_for(None),
                 vad=silero.VAD.load(),
@@ -299,21 +369,79 @@ async def entrypoint(ctx: JobContext) -> None:
             return
 
     # Resolve which agent persona this room is for.
+    # Wait for the user to fully join so participant attributes/metadata are
+    # populated — without this, ctx.room.remote_participants is often still
+    # empty here (race condition) and we fall through to plugin defaults.
+    # 10 s timeout so we never block forever if something is off.
+    participant = None
+    try:
+        participant = await asyncio.wait_for(ctx.wait_for_participant(), timeout=10.0)
+    except (asyncio.TimeoutError, Exception):
+        # Fall back to whatever participants are already in the room.
+        for p in ctx.room.remote_participants.values():
+            participant = p
+            break
+
+    p_attrs: dict = {}
+    p_meta: Optional[str] = None
+    if participant is not None:
+        p_attrs = dict(getattr(participant, "attributes", None) or {})
+        p_meta = getattr(participant, "metadata", None) or None
+
     agent_id = resolve_agent_id(
         room_metadata=ctx.room.metadata,
-        participant_attributes=None,
+        participant_attributes=p_attrs,
     )
+    if not agent_id and p_meta:
+        # Participant metadata also carries `{"agent_id": "..."}` (set by the
+        # /api/token route alongside attributes).
+        agent_id = _agent_id_from_metadata(p_meta)
     if not agent_id:
-        # Try to read from the first remote participant once they join.
+        # Last-ditch sweep of any other remote participants already in the room.
+        # Check both ``agent_id`` (browser/desk) and ``axon.agent_id`` (SIP).
         for p in ctx.room.remote_participants.values():
             attrs = getattr(p, "attributes", None) or {}
-            if attrs.get("agent_id"):
-                agent_id = str(attrs["agent_id"])
+            for key in ("agent_id", "sip.h.x-lk-agent-id", "axon.agent_id"):
+                val = attrs.get(key)
+                if val and not str(val).startswith("X-LK-"):
+                    agent_id = str(val)
+                    break
+            if agent_id:
                 break
 
-    axon = load_agent(agent_id) if agent_id else None
+    clog.info(
+        "resolved agent_id=%s (room_meta=%s, p_attrs_keys=%s, p_meta=%s)",
+        agent_id, bool(ctx.room.metadata), list(p_attrs.keys()), bool(p_meta),
+    )
+    # Resolve campaign_id now (same sip.h.* gotcha as agent_id: the real value
+    # is in the forwarded SIP header attribute; `axon.campaign_id` is the broken
+    # dispatch-rule mapping that yields the literal "X-LK-Campaign-Id").
+    campaign_id = (
+        p_attrs.get("sip.h.x-lk-campaign-id")
+        or p_attrs.get("campaign_id")
+        or p_attrs.get("axon.campaign_id")
+    )
+    if campaign_id and str(campaign_id).startswith("X-LK-"):
+        campaign_id = None
+
+    # Load the agent config and the campaign script CONCURRENTLY and off the
+    # asyncio event loop (both are blocking httpx calls to Supabase). Running
+    # them in parallel — instead of back-to-back, and without blocking the loop
+    # that drives the room/audio — cuts the dead-air the caller hears before
+    # the agent greets.
+    async def _load(fn, arg):
+        return await asyncio.to_thread(fn, str(arg)) if arg else None
+
+    axon, script_text = await asyncio.gather(
+        _load(load_agent, agent_id),
+        _load(load_campaign_script, campaign_id),
+    )
+
     if axon:
-        clog.info("loaded agent %s (%s)", axon.id, axon.name)
+        clog.info(
+            "loaded agent %s (%s) voice=%s model=%s",
+            axon.id, axon.name, axon.tts_voice_id, axon.tts_model,
+        )
         if axon.hold_music_url:
             clog.info(
                 "org %s hold music wired: %s", axon.org_id, axon.hold_music_url
@@ -345,11 +473,22 @@ async def entrypoint(ctx: JobContext) -> None:
         "Bonjour, je suis votre assistant vocal. Je vous écoute."
     )
 
+    if campaign_id and script_text:
+        clog.info("campaign %s script injected (%d chars)", campaign_id, len(script_text))
+        instructions = f"{instructions}\n\n{script_text}"
+    elif campaign_id:
+        clog.info("campaign %s has no script — using agent base prompt", campaign_id)
+
+    # Reuse the VAD loaded once at worker startup (prewarm) instead of paying
+    # the model-load cost on every single call — that load was part of the
+    # delay before the agent could start listening/speaking.
+    vad = (ctx.proc.userdata.get("vad") if getattr(ctx, "proc", None) else None) or silero.VAD.load()
+
     session = AgentSession(
-        stt=deepgram.STT(model="nova-3", language="multi"),
+        stt=_stt_for(axon),
         llm=_llm_for(axon),
         tts=_tts_for(axon),
-        vad=silero.VAD.load(),
+        vad=vad,
         turn_detection=MultilingualModel(),
     )
 
@@ -388,6 +527,7 @@ async def entrypoint(ctx: JobContext) -> None:
         ),
     )
     _wire_transcript_hooks(session, call_id)
+    _wire_debug_logs(session, clog)
 
     async def _on_shutdown():
         try:
@@ -402,5 +542,23 @@ async def entrypoint(ctx: JobContext) -> None:
         clog.debug("ctx.add_shutdown_callback unavailable; skipping post-call hook")
 
 
+def prewarm(proc):
+    """Load heavy models ONCE when the worker process starts, not per call.
+    Silero VAD is reused across every job via proc.userdata — this removes a
+    chunk of the cold pre-greeting latency the caller would otherwise hear."""
+    try:
+        proc.userdata["vad"] = silero.VAD.load()
+    except Exception:
+        # Non-fatal: the entrypoint falls back to a per-call VAD.load().
+        pass
+
+
 if __name__ == "__main__":
-    cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))
+    # agent_name MUST match the name the SIP dispatch rule dispatches
+    # ("minimax-voice-agent"). Without it the worker registers anonymously
+    # (agent_name="") in automatic-dispatch mode, which does NOT match a rule
+    # that explicitly requests a named agent — so the SIP room gets created but
+    # no agent ever joins (call rings out, 487 Request Terminated, room with 0
+    # participants). Naming the worker makes the dispatch explicit and
+    # deterministic.
+    cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint, prewarm_fnc=prewarm, agent_name="minimax-voice-agent"))

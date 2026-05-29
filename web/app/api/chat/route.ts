@@ -1,5 +1,5 @@
 import { streamText, convertToModelMessages, type UIMessage } from "ai";
-import { createOpenAI } from "@ai-sdk/openai";
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { embedText } from "@/lib/embed";
 import type { Agent } from "@/lib/types";
@@ -96,7 +96,8 @@ export async function POST(req: Request) {
   const rag = agent ? await ragContext(agent, lastUserText) : "";
   const system = rag ? `${systemBase}\n\n${rag}` : systemBase;
 
-  const deepseek = createOpenAI({
+  const deepseek = createOpenAICompatible({
+    name: "deepseek",
     apiKey: process.env.DEEPSEEK_API_KEY!,
     baseURL: process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com/v1",
   });
@@ -114,6 +115,17 @@ export async function POST(req: Request) {
     model: deepseek(model),
     system,
     messages: await convertToModelMessages(messages),
+    onError: ({ error }) => {
+      const e = error as Record<string, unknown>;
+      console.error("[api/chat] streamText error", JSON.stringify({
+        name: e?.name,
+        message: e?.message,
+        statusCode: e?.statusCode,
+        url: e?.url,
+        responseBody: e?.responseBody,
+        cause: String(e?.cause ?? ""),
+      }));
+    },
     onFinish: async ({ totalUsage }) => {
       try {
         const input = totalUsage?.inputTokens ?? 0;

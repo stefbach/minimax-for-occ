@@ -1,0 +1,43 @@
+name: Deploy Voice Agent (LiveKit Cloud)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'agent/**'
+      - '.github/workflows/livekit-deploy.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agent
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LiveKit CLI
+        run: |
+          RELEASE=$(curl -sf https://api.github.com/repos/livekit/livekit-cli/releases/latest)
+          DOWNLOAD_URL=$(echo "$RELEASE" \
+            | grep '"browser_download_url"' \
+            | grep -i 'linux' \
+            | grep -iE 'amd64|x86_64' \
+            | grep '\.tar\.gz' \
+            | head -1 \
+            | cut -d'"' -f4)
+          echo "Downloading: $DOWNLOAD_URL"
+          curl -fSL -o /tmp/lk.tar.gz "$DOWNLOAD_URL"
+          tar -xzf /tmp/lk.tar.gz -C /tmp
+          find /tmp -maxdepth 2 -name 'lk' -type f | head -1 | xargs -I{} cp {} /usr/local/bin/lk
+          chmod +x /usr/local/bin/lk
+          lk --version
+
+      - name: Deploy to LiveKit Cloud Agents
+        run: lk agent deploy
+        env:
+          LIVEKIT_URL: ${{ secrets.LIVEKIT_URL }}
+          LIVEKIT_API_KEY: ${{ secrets.LIVEKIT_API_KEY }}
+          LIVEKIT_API_SECRET: ${{ secrets.LIVEKIT_API_SECRET }}

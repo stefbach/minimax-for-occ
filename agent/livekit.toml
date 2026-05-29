@@ -5,7 +5,7 @@
   subdomain = "minimax-i107a5a3"
 
 [agent]
-  id        = "minimax-voice-agent"
+  id        = "CA_PFUfvaBhC8Wk"
 
 [build]
   dockerfile = "Dockerfile"
