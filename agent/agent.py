@@ -407,7 +407,11 @@ async def entrypoint(ctx: JobContext) -> None:
     # 10 s timeout so we never block forever if something is off.
     participant = None
     try:
-        participant = await asyncio.wait_for(ctx.wait_for_participant(), timeout=10.0)
+        # 40s (not 10s): for LiveKit-originated outbound calls the agent is
+        # dispatched before the callee answers, so we may wait the full ring
+        # duration for the SIP participant to join. wait_for_participant returns
+        # as soon as someone arrives, so this is harmless for inbound calls.
+        participant = await asyncio.wait_for(ctx.wait_for_participant(), timeout=40.0)
     except (asyncio.TimeoutError, Exception):
         # Fall back to whatever participants are already in the room.
         for p in ctx.room.remote_participants.values():

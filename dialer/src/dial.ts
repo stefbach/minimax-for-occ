@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { SipClient, RoomServiceClient, AgentDispatchClient } from "livekit-server-sdk";
 import { supabase } from "./supabase.js";
 import { createCall, TwilioError } from "./twilio.js";
 import { countryFromE164 } from "./_phone-utils.generated.js";
@@ -75,6 +76,127 @@ async function pickFromNumberForOrg(
     if (data && data.length > 0) return (data[0] as { e164: string }).e164 ?? null;
   }
   return null;
+}
+
+/**
+ * Preferred dial path: LiveKit-originated outbound, the way Retell-style
+ * platforms avoid the "ringing tone after pickup".
+ *
+ * Instead of Twilio calling the contact and then bridging a SECOND SIP leg to
+ * LiveKit (which rings audibly until the agent room is ready), LiveKit places
+ * the call itself: we create the room, dispatch the AI agent into it, then ask
+ * LiveKit to dial the contact through the outbound trunk. The answered PSTN leg
+ * drops straight into the room where the agent already lives — so the contact
+ * hears their phone ring normally and, on pickup, goes straight to the agent.
+ * No post-answer ringback.
+ *
+ * Also creates the `calls` row up front so the worker receives a real call_id
+ * (via room metadata) and persists transcripts / triggers the post-call
+ * summary — which the Twilio-bridge path never did.
+ *
+ * Returns true if it originated the call; throws on hard failure so the caller
+ * can fall back to the Twilio path.
+ */
+async function dialViaLiveKit(args: {
+  sb: SupabaseClient;
+  ctx: LogCtx;
+  orgId: string;
+  campaignId: string;
+  targetId: string;
+  toE164: string;
+  fromE164: string | null;
+  aiAgentId: string;
+  handleId: string | null;
+  lk: { trunk: string; host: string; key: string; secret: string };
+}): Promise<void> {
+  const { sb, ctx, orgId, campaignId, targetId, toE164, fromE164, aiAgentId, handleId, lk } = args;
+
+  // 1. Create the calls row first → gives the worker a call_id for transcripts.
+  const { data: call, error: callErr } = await sb
+    .from("calls")
+    .insert({
+      org_id: orgId,
+      direction: "out",
+      state: "ringing",
+      from_e164: fromE164,
+      to_e164: toE164,
+      agent_handle_id: handleId,
+      metadata: { campaign_id: campaignId, target_id: targetId },
+    })
+    .select()
+    .single();
+  if (callErr || !call) throw new Error(`calls insert failed: ${callErr?.message ?? "unknown"}`);
+  const callId = call.id as string;
+  const roomName = `campaign-${targetId}-${callId.slice(0, 8)}`;
+
+  // Routing metadata the worker resolves from (agent_id + call_id live in room
+  // metadata; campaign/target also pushed onto the SIP participant attributes).
+  const roomMeta = JSON.stringify({
+    agent_id: aiAgentId,
+    call_id: callId,
+    campaign_id: campaignId,
+    target_id: targetId,
+    direction: "out",
+  });
+
+  // 2. Pre-create the room so the agent can warm up while the phone rings.
+  const rooms = new RoomServiceClient(lk.host, lk.key, lk.secret);
+  await rooms.createRoom({ name: roomName, metadata: roomMeta, emptyTimeout: 120, departureTimeout: 20 });
+
+  // 3. Dispatch the AI agent into the room (worker registers as this name).
+  const agentName = process.env.LIVEKIT_AGENT_NAME ?? "minimax-voice-agent";
+  const dispatch = new AgentDispatchClient(lk.host, lk.key, lk.secret);
+  await dispatch.createDispatch(roomName, agentName, { metadata: roomMeta });
+
+  // 4. Place the outbound call. The answered leg lands in the agent's room.
+  const sip = new SipClient(lk.host, lk.key, lk.secret);
+  const sipOptions = {
+    participantIdentity: `pstn-${callId}`,
+    participantName: toE164,
+    participantAttributes: {
+      "axon.call_id": callId,
+      "axon.agent_id": aiAgentId,
+      "axon.campaign_id": campaignId,
+      "axon.target_id": targetId,
+      "axon.direction": "out",
+    },
+    // sipNumber sets the From on the INVITE; without it Twilio rejects with 403.
+    sipNumber: fromE164 ?? undefined,
+    // Block until pickup/timeout so we can mark the target answered vs retry.
+    waitUntilAnswered: true,
+    ringingTimeout: 30,
+  };
+  const participant = await sip.createSipParticipant(
+    lk.trunk,
+    toE164,
+    roomName,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    sipOptions as any,
+  );
+
+  await sb
+    .from("calls")
+    .update({
+      room_id: roomName,
+      state: "answered",
+      answered_at: new Date().toISOString(),
+      metadata: {
+        campaign_id: campaignId,
+        target_id: targetId,
+        livekit_participant_sid: participant.participantId ?? null,
+      },
+    })
+    .eq("id", callId);
+
+  await sb
+    .from("campaign_targets")
+    .update({
+      status: "answered",
+      payload: { via: "livekit", room: roomName, call_id: callId, dialed_at: new Date().toISOString() },
+    })
+    .eq("id", targetId);
+
+  dlog("info", { ...ctx, call_id: callId }, `LiveKit originate ok → room=${roomName}`);
 }
 
 /**
@@ -224,6 +346,37 @@ export async function dialTarget(job: DialJob): Promise<void> {
   if (uErr) {
     dlog("error", ctx, `failed to mark dialing: ${uErr.message}`);
     return;
+  }
+
+  // ─── Preferred path: LiveKit-originated outbound (no post-answer ringback) ──
+  // Activated only when the outbound trunk + LiveKit creds are configured AND
+  // this is an AI campaign. Falls back to the Twilio path on any failure, so
+  // an unconfigured/broken trunk never blocks dialing.
+  const lkTrunk = process.env.LIVEKIT_SIP_OUTBOUND_TRUNK_ID;
+  const lkUrlRaw = process.env.LIVEKIT_URL;
+  const lkKey = process.env.LIVEKIT_API_KEY;
+  const lkSecret = process.env.LIVEKIT_API_SECRET;
+  if (lkTrunk && lkUrlRaw && lkKey && lkSecret && aiAgentId && toE164) {
+    const lkHost = lkUrlRaw.replace(/^wss:/i, "https:").replace(/^ws:/i, "http:");
+    try {
+      await dialViaLiveKit({
+        sb,
+        ctx,
+        orgId: campaign.org_id,
+        campaignId: campaign.id,
+        targetId: target.id,
+        toE164,
+        fromE164,
+        aiAgentId,
+        handleId,
+        lk: { trunk: lkTrunk, host: lkHost, key: lkKey, secret: lkSecret },
+      });
+      return;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      dlog("error", ctx, `LiveKit originate failed, falling back to Twilio: ${msg}`);
+      // fall through to the Twilio path below
+    }
   }
 
   const appUrl = process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "https://example.com";
