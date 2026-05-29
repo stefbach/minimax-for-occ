@@ -7,9 +7,15 @@ primary_region = "cdg"
 [build]
   dockerfile = "Dockerfile"
 
+# Voice agents are memory- AND cpu-hungry: the LiveKit Agents worker spins up
+# an inference executor (Silero VAD, turn detector), decodes/encodes audio via
+# PyAV, and runs streaming STT/LLM/TTS concurrently. At 512MB the process was
+# OOM-killed during model load before it could even register with LiveKit
+# ("Out of memory: Killed process", worker id=unregistered) → no agent joined
+# the call → silence. Bump to 2 vCPU / 2GB for real-time headroom.
 [[vm]]
-  size = "shared-cpu-1x"
-  memory = "512mb"
+  size = "shared-cpu-2x"
+  memory = "2048mb"
 
 # Pure outbound worker — connects to LiveKit Cloud and waits for room
 # dispatches. No [http_service]: nothing listens on an inbound port, and a
