@@ -139,40 +139,51 @@ async function dialViaLiveKit(args: {
     direction: "out",
   });
 
-  // 2. Pre-create the room so the agent can warm up while the phone rings.
-  const rooms = new RoomServiceClient(lk.host, lk.key, lk.secret);
-  await rooms.createRoom({ name: roomName, metadata: roomMeta, emptyTimeout: 120, departureTimeout: 20 });
+  // 2. Pre-create the room, dispatch the agent, place the call. If any of
+  //    these fail (e.g. Twilio 403 on the INVITE), mark the call failed so it
+  //    doesn't hang forever as "ringing", then re-throw to fall back to Twilio.
+  let participant: { participantId?: string } | undefined;
+  try {
+    const rooms = new RoomServiceClient(lk.host, lk.key, lk.secret);
+    await rooms.createRoom({ name: roomName, metadata: roomMeta, emptyTimeout: 120, departureTimeout: 20 });
 
-  // 3. Dispatch the AI agent into the room (worker registers as this name).
-  const agentName = process.env.LIVEKIT_AGENT_NAME ?? "minimax-voice-agent";
-  const dispatch = new AgentDispatchClient(lk.host, lk.key, lk.secret);
-  await dispatch.createDispatch(roomName, agentName, { metadata: roomMeta });
+    // 3. Dispatch the AI agent into the room (worker registers as this name).
+    const agentName = process.env.LIVEKIT_AGENT_NAME ?? "minimax-voice-agent";
+    const dispatch = new AgentDispatchClient(lk.host, lk.key, lk.secret);
+    await dispatch.createDispatch(roomName, agentName, { metadata: roomMeta });
 
-  // 4. Place the outbound call. The answered leg lands in the agent's room.
-  const sip = new SipClient(lk.host, lk.key, lk.secret);
-  const sipOptions = {
-    participantIdentity: `pstn-${callId}`,
-    participantName: toE164,
-    participantAttributes: {
-      "axon.call_id": callId,
-      "axon.agent_id": aiAgentId,
-      "axon.campaign_id": campaignId,
-      "axon.target_id": targetId,
-      "axon.direction": "out",
-    },
-    // sipNumber sets the From on the INVITE; without it Twilio rejects with 403.
-    sipNumber: fromE164 ?? undefined,
-    // Block until pickup/timeout so we can mark the target answered vs retry.
-    waitUntilAnswered: true,
-    ringingTimeout: 30,
-  };
-  const participant = await sip.createSipParticipant(
-    lk.trunk,
-    toE164,
-    roomName,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    sipOptions as any,
-  );
+    // 4. Place the outbound call. The answered leg lands in the agent's room.
+    const sip = new SipClient(lk.host, lk.key, lk.secret);
+    const sipOptions = {
+      participantIdentity: `pstn-${callId}`,
+      participantName: toE164,
+      participantAttributes: {
+        "axon.call_id": callId,
+        "axon.agent_id": aiAgentId,
+        "axon.campaign_id": campaignId,
+        "axon.target_id": targetId,
+        "axon.direction": "out",
+      },
+      // sipNumber sets the From on the INVITE; without it Twilio rejects with 403.
+      sipNumber: fromE164 ?? undefined,
+      // Block until pickup/timeout so we can mark the target answered vs retry.
+      waitUntilAnswered: true,
+      ringingTimeout: 30,
+    };
+    participant = await sip.createSipParticipant(
+      lk.trunk,
+      toE164,
+      roomName,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      sipOptions as any,
+    );
+  } catch (err) {
+    await sb
+      .from("calls")
+      .update({ state: "failed", ended_at: new Date().toISOString() })
+      .eq("id", callId);
+    throw err;
+  }
 
   await sb
     .from("calls")
