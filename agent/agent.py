@@ -120,34 +120,60 @@ def _stt_for(agent: Optional[AxonAgent]) -> deepgram.STT:
 
 
 def _tts_for(agent: Optional[AxonAgent]) -> minimax.TTS:
-    kwargs: dict = {}
+    import inspect
+
     voice = (agent.tts_voice_id if agent else None) or os.getenv("MINIMAX_VOICE_ID")
-    if voice:
-        kwargs["voice"] = voice
-    if agent and agent.tts_emotion:
-        kwargs["emotion"] = agent.tts_emotion
-    elif emotion := os.getenv("MINIMAX_TTS_EMOTION"):
-        kwargs["emotion"] = emotion
-    if agent and agent.tts_speed and agent.tts_speed != 1.0:
-        kwargs["speed"] = float(agent.tts_speed)
     model = (agent.tts_model if agent and agent.tts_model else os.getenv("MINIMAX_TTS_MODEL"))
-    # MiniMax preset voices (Casual_Guy, Determined_Man, …) only exist on
-    # speech-02-hd. Without it the API silently falls back to a default voice.
+    # MiniMax preset voices (Casual_Guy, Determined_Man, …) only exist on the
+    # *-hd models. Without one the API silently falls back to a default voice.
     if not model and voice:
         model = "speech-02-hd"
-    if model:
-        kwargs["model"] = model
-    # Force PCM streaming instead of MP3. MiniMax streams MP3 as multiple
-    # chunks each with their own headers, which crashes livekit-agents'
-    # PyAV decoder with InvalidDataError 1094995529 (known bug, see
-    # livekit/livekit#3850 and livekit/agents#3863). Raw PCM has no
-    # per-chunk headers so the decoder handles concatenation fine.
-    # Requires livekit-plugins-minimax >= 1.3.0 (audio_format kwarg).
+
+    emotion = (agent.tts_emotion if agent and agent.tts_emotion else os.getenv("MINIMAX_TTS_EMOTION")) or None
+    # The "fluent" emotion only exists on speech-2.6-* models; drop it otherwise
+    # so we never hit the plugin's ValueError mid-call.
+    if emotion == "fluent" and not (model or "").startswith("speech-2.6"):
+        emotion = None
+
+    # Lock language_boost to the agent's configured language for cleaner
+    # prosody/pronunciation; "multi"/unknown → "auto" (let MiniMax detect).
+    lang = (agent.language if agent and agent.language else "multi").lower()
+    boost = {
+        "fr": "French",
+        "en": "English",
+        "es": "Spanish",
+        "de": "German",
+        "it": "Italian",
+        "pt": "Portuguese",
+        "nl": "Dutch",
+        "ar": "Arabic",
+    }.get(lang) or os.getenv("MINIMAX_LANGUAGE_BOOST", "auto")
+
+    candidate: dict = {
+        "voice": voice,
+        "model": model,
+        "emotion": emotion,
+        "speed": float(agent.tts_speed) if agent and agent.tts_speed and agent.tts_speed != 1.0 else None,
+        "language_boost": boost,
+        # Force PCM streaming instead of MP3. MiniMax streams MP3 as multiple
+        # chunks each with their own headers, which crashes livekit-agents'
+        # PyAV decoder with InvalidDataError 1094995529 (livekit/livekit#3850,
+        # agents#3863). Raw PCM has no per-chunk headers so concatenation works.
+        "audio_format": "pcm",
+    }
+
+    # Only pass kwargs that (a) have a value and (b) the installed plugin
+    # actually accepts — robust across plugin versions, no more TypeErrors.
     try:
-        return minimax.TTS(audio_format="pcm", **kwargs)
+        supported = set(inspect.signature(minimax.TTS.__init__).parameters)
+    except (ValueError, TypeError):
+        supported = set(candidate)
+    kwargs = {k: v for k, v in candidate.items() if v is not None and k in supported}
+
+    try:
+        return minimax.TTS(**kwargs)
     except TypeError:
-        # Older plugin without audio_format kwarg — fall back, audio may
-        # still glitch but at least the session starts.
+        kwargs.pop("audio_format", None)
         return minimax.TTS(**kwargs)
 
 
