@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { AccessToken } from "livekit-server-sdk";
+import { AccessToken, RoomConfiguration, RoomAgentDispatch } from "livekit-server-sdk";
 import { rateLimit, clientIp } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
@@ -71,6 +71,20 @@ export async function GET(request: Request) {
     at.attributes = { agent_id: agentId };
     at.metadata = JSON.stringify({ agent_id: agentId });
   }
+
+  // Explicitly dispatch the agent into this room. The worker registers with
+  // agent_name "minimax-voice-agent" (needed for SIP dispatch), which DISABLES
+  // automatic dispatch — so frontend voice rooms must request the agent here,
+  // otherwise no agent ever joins and the session can't start.
+  const agentName = process.env.LIVEKIT_AGENT_NAME ?? "minimax-voice-agent";
+  at.roomConfig = new RoomConfiguration({
+    agents: [
+      new RoomAgentDispatch({
+        agentName,
+        metadata: agentId ? JSON.stringify({ agent_id: agentId }) : "",
+      }),
+    ],
+  });
 
   const token = await at.toJwt();
   return NextResponse.json(
