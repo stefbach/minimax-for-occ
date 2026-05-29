@@ -262,31 +262,32 @@ export function CampaignWizard({
                 Voix : <span className="kbd">{selectedAgent.tts_voice_id ?? "—"}</span>
               </div>
             )}
-
-            {/* Script réutilisable — l'agent garde sa voix/personnalité,
-                le script définit l'objectif de conversation pour CETTE campagne. */}
-            <div style={{ marginTop: 16 }}>
-              <label>Script (optionnel)</label>
-              <select value={scriptId} onChange={(e) => setScriptId(e.target.value)}>
-                <option value="">— Aucun (l&apos;agent suit son prompt par défaut) —</option>
-                {scripts.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}{s.mission ? ` — ${s.mission}` : ""}
-                  </option>
-                ))}
-              </select>
-              <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-                {scripts.length === 0 ? (
-                  <>Aucun script. Créez-en un depuis la page <span className="kbd">Scripts</span> pour réutiliser le même agent avec différents objectifs de conversation.</>
-                ) : scriptId ? (
-                  <>{scripts.find((s) => s.id === scriptId)?.description ?? "Ce script guidera la conversation de l'agent pour cette campagne."}</>
-                ) : (
-                  <>Le même agent (voix + personnalité) peut servir plusieurs campagnes ; le script définit l&apos;objectif propre à celle-ci.</>
-                )}
-              </div>
-            </div>
           </>
         )}
+
+        {/* Script réutilisable — rendu indépendamment de la présence d'agents :
+            l'agent garde sa voix/personnalité, le script définit l'objectif de
+            conversation pour CETTE campagne. */}
+        <div style={{ marginTop: 16 }}>
+          <label>Script (optionnel)</label>
+          <select value={scriptId} onChange={(e) => setScriptId(e.target.value)}>
+            <option value="">— Aucun (l&apos;agent suit son prompt par défaut) —</option>
+            {scripts.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}{s.mission ? ` — ${s.mission}` : ""}
+              </option>
+            ))}
+          </select>
+          <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+            {scripts.length === 0 ? (
+              <>Aucun script. Créez-en un depuis la page <span className="kbd">Scripts</span> pour réutiliser le même agent avec différents objectifs de conversation.</>
+            ) : scriptId ? (
+              <>{scripts.find((s) => s.id === scriptId)?.description ?? "Ce script guidera la conversation de l'agent pour cette campagne."}</>
+            ) : (
+              <>Le même agent (voix + personnalité) peut servir plusieurs campagnes ; le script définit l&apos;objectif propre à celle-ci.</>
+            )}
+          </div>
+        </div>
       </section>
 
       {/* 3. Numéro émetteur */}
