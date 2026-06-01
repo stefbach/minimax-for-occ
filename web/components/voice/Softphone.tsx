@@ -420,11 +420,14 @@ export function Softphone() {
     };
   }, [handle, refreshCalls]);
 
-  const connect = useCallback(async () => {
+  const connect = useCallback(async (callId?: string) => {
     setConnecting(true);
     setConnError(null);
     try {
-      const r = await fetch("/api/desk/token");
+      const url = callId
+        ? `/api/desk/token?call_id=${encodeURIComponent(callId)}`
+        : "/api/desk/token";
+      const r = await fetch(url);
       const data = await r.json();
       if (!r.ok) throw new Error(data.error ?? "token error");
       setConn({
@@ -439,6 +442,17 @@ export function Softphone() {
       setConnecting(false);
     }
   }, []);
+
+  // When the IA worker reassigns a campaign call to this desk (presence-aware
+  // handoff), the realtime sub flips `activeCall.room_id` to the IA's room.
+  // Auto-join that room over WebRTC so the human hears the PSTN caller — the
+  // whole point of "transfer interne" without going through PSTN REFER.
+  useEffect(() => {
+    if (!activeCall?.room_id) return;
+    if (status === "offline") return;
+    if (conn && conn.room === activeCall.room_id) return;
+    void connect(activeCall.id);
+  }, [activeCall?.id, activeCall?.room_id, status, conn, connect]);
 
   const disconnect = useCallback(() => {
     setConn(null);
@@ -644,7 +658,7 @@ export function Softphone() {
                 vers ce poste.
               </p>
               <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-                <button onClick={connect} disabled={connecting}>
+                <button onClick={() => void connect()} disabled={connecting}>
                   {connecting ? "Connexion…" : "Se connecter à la salle"}
                 </button>
               </div>

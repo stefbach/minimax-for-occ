@@ -75,9 +75,33 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "LiveKit env vars missing" }, { status: 500 });
   }
 
-  // Derive room name from the human's agent_handle id so callers can be
-  // routed deterministically by the queue dispatcher.
-  const room = `desk-${handle.id}`;
+  // Default room is the human's personal "ready to take calls" room, derived
+  // from their handle id. The caller can pass `?call_id=<uuid>` to instead
+  // mint a token for the actual room of a call already assigned to them —
+  // used when the IA worker hands an in-progress campaign call off to the
+  // desk via the presence-aware path.
+  let room = `desk-${handle.id}`;
+  const callIdParam = new URL(request.url).searchParams.get("call_id");
+  if (callIdParam) {
+    const { data: call, error: callErr } = await admin
+      .from("calls")
+      .select("id, org_id, room_id, agent_handle_id")
+      .eq("id", callIdParam)
+      .maybeSingle();
+    if (callErr) {
+      return NextResponse.json({ error: callErr.message }, { status: 500 });
+    }
+    if (!call || call.org_id !== handle.org_id) {
+      return NextResponse.json({ error: "call_not_found" }, { status: 404 });
+    }
+    if (call.agent_handle_id !== handle.id) {
+      return NextResponse.json({ error: "call_not_assigned_to_you" }, { status: 403 });
+    }
+    if (!call.room_id) {
+      return NextResponse.json({ error: "call_has_no_room" }, { status: 409 });
+    }
+    room = call.room_id;
+  }
   const identity = `human-${user.id}`;
 
   const at = new AccessToken(apiKey, apiSecret, { identity, ttl: 60 * 15 });
