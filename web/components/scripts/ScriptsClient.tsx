@@ -2,7 +2,10 @@
 
 import { useCallback, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
-import { ScriptEditor, type ScriptGraph, emptyGraph, toGraph } from "./ScriptEditor";
+import { ScriptEditor, type ScriptGraph, type AgentHandleLite, emptyGraph, toGraph } from "./ScriptEditor";
+
+// Public type re-export so the page can import it from one place.
+export type AgentHandleOption = AgentHandleLite;
 
 // React Flow touches `window`/ResizeObserver, so load the visual editor only
 // in the browser (no SSR) to avoid hydration hiccups.
@@ -40,7 +43,7 @@ type ScriptDetail = ScriptRow & {
 
 const MISSIONS = ["qualification", "closing", "rappel", "sav", "autre"];
 
-export function ScriptsClient() {
+export function ScriptsClient({ handles = [] }: { handles?: AgentHandleLite[] }) {
   const [scripts, setScripts] = useState<ScriptRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -227,7 +230,7 @@ export function ScriptsClient() {
 
       <div className="card">
         {selectedId ? (
-          <ScriptDetailView id={selectedId} onSaved={() => void refresh()} />
+          <ScriptDetailView id={selectedId} handles={handles} onSaved={() => void refresh()} />
         ) : (
           <>
             <h3>Éditer un script</h3>
@@ -243,9 +246,11 @@ export function ScriptsClient() {
 
 function ScriptDetailView({
   id,
+  handles,
   onSaved,
 }: {
   id: string;
+  handles: AgentHandleLite[];
   onSaved: () => void;
 }) {
   const [detail, setDetail] = useState<ScriptDetail | null>(null);
@@ -361,9 +366,9 @@ function ScriptDetailView({
 
       <div style={{ marginTop: 12 }}>
         {mode === "list" ? (
-          <ScriptEditor value={graph} onChange={setGraph} />
+          <ScriptEditor value={graph} onChange={setGraph} handles={handles} />
         ) : (
-          <VisualScriptEditor value={graph} onChange={setGraph} />
+          <VisualScriptEditor value={graph} onChange={setGraph} handles={handles} />
         )}
       </div>
 

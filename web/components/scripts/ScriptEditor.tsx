@@ -12,8 +12,37 @@ export type ScriptNode = {
   id: string;
   title: string;
   content: string;
+  /** Optional override: when set, this step is owned by this agent_handle.
+   *  null/undefined = inherit the campaign's primary agent. The worker uses
+   *  this to trigger a handoff (AI persona swap or SIP transfer to human). */
+  agent_handle_id?: string | null;
   position?: { x: number; y: number };
 };
+
+export type AgentHandleLite = {
+  id: string;
+  display_name: string;
+  kind: "ai" | "human";
+  ai_agent_id?: string | null;
+};
+
+/** Deterministic color per agent_handle id, so the same agent always gets the
+ *  same badge color across both editors and the recap. djb2 hash → HSL hue. */
+export function agentColor(handleId: string | null | undefined): {
+  bg: string; fg: string; border: string;
+} {
+  if (!handleId) {
+    return { bg: "transparent", fg: "var(--muted)", border: "var(--border)" };
+  }
+  let h = 5381;
+  for (let i = 0; i < handleId.length; i++) h = ((h << 5) + h) + handleId.charCodeAt(i);
+  const hue = Math.abs(h) % 360;
+  return {
+    bg: `hsl(${hue} 55% 22%)`,
+    fg: `hsl(${hue} 85% 82%)`,
+    border: `hsl(${hue} 65% 50%)`,
+  };
+}
 export type ScriptEdge = {
   id: string;
   source: string; // node id
@@ -73,11 +102,16 @@ export function toGraph(raw: unknown): ScriptGraph {
 export function ScriptEditor({
   value,
   onChange,
+  handles = [],
 }: {
   value: ScriptGraph;
   onChange: (next: ScriptGraph) => void;
+  handles?: AgentHandleLite[];
 }) {
   const { nodes, edges } = value;
+  const handleById = new Map(handles.map((h) => [h.id, h]));
+  const aiHandles = handles.filter((h) => h.kind === "ai");
+  const humanHandles = handles.filter((h) => h.kind === "human");
 
   const updateNode = useCallback(
     (id: string, patch: Partial<ScriptNode>) => {
@@ -156,7 +190,25 @@ export function ScriptEditor({
             }}
           >
             <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
-              <strong style={{ fontSize: 13 }}>Étape {i + 1}</strong>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <strong style={{ fontSize: 13 }}>Étape {i + 1}</strong>
+                {node.agent_handle_id && (() => {
+                  const c = agentColor(node.agent_handle_id);
+                  const h = handleById.get(node.agent_handle_id);
+                  return (
+                    <span
+                      title={`${h?.kind === "human" ? "Humain" : "IA"} — ${h?.display_name ?? node.agent_handle_id}`}
+                      style={{
+                        display: "inline-flex", alignItems: "center", gap: 4,
+                        padding: "2px 8px", borderRadius: 999, fontSize: 11, fontWeight: 600,
+                        background: c.bg, color: c.fg, border: `1px solid ${c.border}`,
+                      }}
+                    >
+                      {h?.kind === "human" ? "👤" : "🤖"} {h?.display_name ?? "Agent supprimé"}
+                    </span>
+                  );
+                })()}
+              </div>
               <button
                 className="ghost"
                 onClick={() => removeNode(node.id)}
@@ -179,6 +231,32 @@ export function ScriptEditor({
               placeholder="Ce que l'agent doit dire / faire à cette étape…"
               style={{ fontSize: 13 }}
             />
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span className="muted" style={{ fontSize: 11 }}>Agent à cette étape :</span>
+              <select
+                value={node.agent_handle_id ?? ""}
+                onChange={(e) =>
+                  updateNode(node.id, { agent_handle_id: e.target.value || null })
+                }
+                style={{ fontSize: 12, flex: 1 }}
+              >
+                <option value="">Hériter (agent de la campagne)</option>
+                {aiHandles.length > 0 && (
+                  <optgroup label="🤖 Agents IA">
+                    {aiHandles.map((h) => (
+                      <option key={h.id} value={h.id}>{h.display_name}</option>
+                    ))}
+                  </optgroup>
+                )}
+                {humanHandles.length > 0 && (
+                  <optgroup label="👤 Agents humains">
+                    {humanHandles.map((h) => (
+                      <option key={h.id} value={h.id}>{h.display_name}</option>
+                    ))}
+                  </optgroup>
+                )}
+              </select>
+            </div>
 
             {outgoing.length > 0 && (
               <div style={{ display: "grid", gap: 6, marginTop: 4 }}>

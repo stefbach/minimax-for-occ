@@ -21,7 +21,8 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
-import type { ScriptGraph, ScriptNode } from "./ScriptEditor";
+import type { ScriptGraph, ScriptNode, AgentHandleLite } from "./ScriptEditor";
+import { agentColor } from "./ScriptEditor";
 
 function uid(prefix: string): string {
   return `${prefix}${Math.random().toString(36).slice(2, 9)}`;
@@ -34,6 +35,12 @@ function uid(prefix: string): string {
 type StepData = {
   title: string;
   content: string;
+  agent_handle_id: string | null;
+  // Resolved on every render from the handles list, so the node renders the
+  // current agent name + kind without having to look them up itself.
+  agent_label: string | null;
+  agent_kind: "ai" | "human" | null;
+  handles: AgentHandleLite[];
   onChange: (id: string, patch: Partial<ScriptNode>) => void;
   onDelete: (id: string) => void;
   [key: string]: unknown;
@@ -50,12 +57,19 @@ const HANDLE_STYLE = { width: 10, height: 10, background: "var(--accent)" } as c
 
 function StepNode({ id, data, selected }: NodeProps) {
   const d = data as StepData;
+  const color = agentColor(d.agent_handle_id);
+  const aiHandles = d.handles.filter((h) => h.kind === "ai");
+  const humanHandles = d.handles.filter((h) => h.kind === "human");
   return (
     <div
       style={{
-        width: 230,
-        border: "1px solid",
-        borderColor: selected ? "var(--accent)" : "var(--border)",
+        width: 240,
+        border: "2px solid",
+        borderColor: d.agent_handle_id
+          ? color.border
+          : selected
+            ? "var(--accent)"
+            : "var(--border)",
         borderRadius: 10,
         background: "var(--bg-2)",
         padding: 8,
@@ -65,6 +79,20 @@ function StepNode({ id, data, selected }: NodeProps) {
       }}
     >
       <Handle type="target" position={Position.Top} style={HANDLE_STYLE} />
+      {d.agent_handle_id && (
+        <div
+          title={`${d.agent_kind === "human" ? "Humain" : "IA"} — ${d.agent_label}`}
+          style={{
+            display: "inline-flex", alignItems: "center", gap: 4,
+            padding: "2px 8px", borderRadius: 999, fontSize: 11, fontWeight: 600,
+            background: color.bg, color: color.fg, border: `1px solid ${color.border}`,
+            alignSelf: "start", maxWidth: "100%", overflow: "hidden",
+            whiteSpace: "nowrap", textOverflow: "ellipsis",
+          }}
+        >
+          {d.agent_kind === "human" ? "👤" : "🤖"} {d.agent_label}
+        </div>
+      )}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6 }}>
         <input
           className="nodrag"
@@ -90,6 +118,29 @@ function StepNode({ id, data, selected }: NodeProps) {
         placeholder="Ce que l'agent dit / fait…"
         style={{ fontSize: 12, resize: "none" }}
       />
+      <select
+        className="nodrag"
+        value={d.agent_handle_id ?? ""}
+        onChange={(e) => d.onChange(id, { agent_handle_id: e.target.value || null })}
+        style={{ fontSize: 11 }}
+        title="Agent qui prend cette étape (null = celui de la campagne)"
+      >
+        <option value="">⤴ Hériter de la campagne</option>
+        {aiHandles.length > 0 && (
+          <optgroup label="🤖 IA">
+            {aiHandles.map((h) => (
+              <option key={h.id} value={h.id}>{h.display_name}</option>
+            ))}
+          </optgroup>
+        )}
+        {humanHandles.length > 0 && (
+          <optgroup label="👤 Humains">
+            {humanHandles.map((h) => (
+              <option key={h.id} value={h.id}>{h.display_name}</option>
+            ))}
+          </optgroup>
+        )}
+      </select>
       <Handle type="source" position={Position.Bottom} style={HANDLE_STYLE} />
     </div>
   );
@@ -165,23 +216,49 @@ function BranchEdge({
 export function VisualScriptEditor({
   value,
   onChange,
+  handles = [],
 }: {
   value: ScriptGraph;
   onChange: (next: ScriptGraph) => void;
+  handles?: AgentHandleLite[];
 }) {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<StepData>>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge<BranchData>>([]);
 
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  const handlesRef = useRef(handles);
+  handlesRef.current = handles;
+  // Resolve handle id → display name + kind, used when building node data.
+  const resolveHandle = useCallback((hid: string | null | undefined) => {
+    if (!hid) return { label: null, kind: null };
+    const h = handlesRef.current.find((x) => x.id === hid);
+    return {
+      label: h?.display_name ?? "Agent supprimé",
+      kind: (h?.kind ?? null) as "ai" | "human" | null,
+    };
+  }, []);
 
   const patchNode = useCallback(
     (id: string, patch: Partial<ScriptNode>) => {
       setNodes((ns) =>
-        ns.map((n) => (n.id === id ? { ...n, data: { ...(n.data as StepData), ...patch } } : n)),
+        ns.map((n) => {
+          if (n.id !== id) return n;
+          const cur = n.data as StepData;
+          // When agent_handle_id changes, re-resolve label/kind so the badge
+          // updates without waiting for the next mount.
+          const next: StepData = { ...cur, ...patch };
+          if ("agent_handle_id" in patch) {
+            const ag = resolveHandle(patch.agent_handle_id);
+            next.agent_handle_id = patch.agent_handle_id ?? null;
+            next.agent_label = ag.label;
+            next.agent_kind = ag.kind;
+          }
+          return { ...n, data: next };
+        }),
       );
     },
-    [setNodes],
+    [setNodes, resolveHandle],
   );
 
   const deleteNode = useCallback(
@@ -211,12 +288,24 @@ export function VisualScriptEditor({
   // Initialize from `value` once, on mount.
   useEffect(() => {
     setNodes(
-      value.nodes.map((n, i) => ({
-        id: n.id,
-        type: "step",
-        position: n.position ?? { x: (i % 3) * 270, y: Math.floor(i / 3) * 200 },
-        data: { title: n.title, content: n.content, onChange: patchNode, onDelete: deleteNode },
-      })),
+      value.nodes.map((n, i) => {
+        const ag = resolveHandle(n.agent_handle_id);
+        return {
+          id: n.id,
+          type: "step",
+          position: n.position ?? { x: (i % 3) * 270, y: Math.floor(i / 3) * 200 },
+          data: {
+            title: n.title,
+            content: n.content,
+            agent_handle_id: n.agent_handle_id ?? null,
+            agent_label: ag.label,
+            agent_kind: ag.kind,
+            handles: handlesRef.current,
+            onChange: patchNode,
+            onDelete: deleteNode,
+          },
+        };
+      }),
     );
     setEdges(
       value.edges.map((e) => ({
@@ -237,6 +326,7 @@ export function VisualScriptEditor({
         id: n.id,
         title: (n.data as StepData).title,
         content: (n.data as StepData).content,
+        agent_handle_id: (n.data as StepData).agent_handle_id ?? null,
         position: n.position,
       })),
       edges: edges.map((e) => ({
@@ -275,7 +365,16 @@ export function VisualScriptEditor({
           id: uid("n"),
           type: "step",
           position: { x: (i % 3) * 270, y: Math.floor(i / 3) * 200 },
-          data: { title: `Étape ${i + 1}`, content: "", onChange: patchNode, onDelete: deleteNode },
+          data: {
+            title: `Étape ${i + 1}`,
+            content: "",
+            agent_handle_id: null,
+            agent_label: null,
+            agent_kind: null,
+            handles: handlesRef.current,
+            onChange: patchNode,
+            onDelete: deleteNode,
+          },
         },
       ];
     });
