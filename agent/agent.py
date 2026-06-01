@@ -209,8 +209,14 @@ def _stt_for(agent: Optional[AxonAgent]) -> deepgram.STT:
     candidate: dict = {
         "model": "nova-3",
         "language": lang,
-        "endpointing_ms": int(os.getenv("DEEPGRAM_ENDPOINTING_MS", "300")),
-        "utterance_end_ms": int(os.getenv("DEEPGRAM_UTTERANCE_END_MS", "700")),
+        # Aggressive endpointing for PSTN. Real-world tests showed Deepgram
+        # `transcription_delay` ranging 763-1974ms with utterance_end_ms=700.
+        # Drop further to claw back perceived latency; trade-off is more
+        # mid-sentence cut-offs on hesitant speakers — mitigated by the
+        # quick-ack trick in the system prompt (start of replies = short
+        # filler word, so even if we mis-fire the user hears something).
+        "endpointing_ms": int(os.getenv("DEEPGRAM_ENDPOINTING_MS", "250")),
+        "utterance_end_ms": int(os.getenv("DEEPGRAM_UTTERANCE_END_MS", "600")),
         "interim_results": True,
     }
     try:
@@ -752,6 +758,24 @@ async def entrypoint(ctx: JobContext) -> None:
         instructions = f"{instructions}\n\n{script_text}"
     elif campaign_id:
         clog.info("campaign %s has no script — using agent base prompt", campaign_id)
+
+    # Perceived-latency trick used by Retell / Vapi / ElevenLabs Conversational:
+    # force the LLM to ALWAYS start its replies with a 1-2 word acknowledgement
+    # ("D'accord,", "Oui,", "Hmm,", "Voyons,", "Bien sûr,"…). The TTS receives
+    # these first tokens almost instantly and starts streaming audio while the
+    # LLM is still generating the rest of the reply. To the caller it sounds
+    # like the agent reacts in ~300ms even when LLM-TTFT is 800-1000ms.
+    # Can be disabled per-deploy with QUICK_ACK=false if it ever clashes with
+    # an agent's expected register (e.g. very formal scripts).
+    if os.getenv("QUICK_ACK", "true").lower() not in ("false", "0", "no"):
+        instructions = (
+            f"{instructions}\n\n"
+            "RÉACTIVITÉ : commence systématiquement chaque réponse par un mot "
+            "ou une expression courte d'acquiescement (« D'accord », « Oui », "
+            "« Bien sûr », « Hmm », « Voyons », « Très bien », « Effectivement »…) "
+            "suivie d'une virgule, AVANT la vraie réponse. C'est important pour "
+            "que la conversation paraisse fluide au téléphone."
+        )
 
     # Reuse the VAD loaded once at worker startup (prewarm) instead of paying
     # the model-load cost on every single call — that load was part of the
