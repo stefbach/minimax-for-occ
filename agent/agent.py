@@ -77,6 +77,11 @@ def _llm_for(agent: Optional[AxonAgent]):
     provider = (agent.llm_provider if agent else os.getenv("LLM_PROVIDER", "deepseek")).lower()
     model = (agent.llm_model if agent and agent.llm_model else os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash"))
 
+    # Cap the response length so a chatty model can't blow our per-turn budget.
+    # 220 tokens ≈ 160 words ≈ ~40s of TTS audio — plenty for conversational
+    # replies, and bounds the worst-case TTFT→last-chunk latency. Tunable via env.
+    max_tokens = int(os.getenv("LLM_MAX_COMPLETION_TOKENS", "220"))
+
     if provider == "anthropic":
         try:
             from livekit.plugins import anthropic
@@ -84,28 +89,59 @@ def _llm_for(agent: Optional[AxonAgent]):
             raise RuntimeError(
                 "Anthropic plugin not installed. Add it to requirements (livekit-agents[anthropic])."
             ) from e
-        return anthropic.LLM(
+        return _build_llm_with_max_tokens(
+            anthropic.LLM,
+            max_tokens,
             model=model or "claude-sonnet-4-5",
             api_key=os.environ["ANTHROPIC_API_KEY"],
         )
 
     if provider == "minimax":
-        return openai.LLM(
+        return _build_llm_with_max_tokens(
+            openai.LLM,
+            max_tokens,
             model=model or "MiniMax-M2",
             base_url=os.getenv("MINIMAX_BASE_URL", "https://api.minimax.io/v1"),
             api_key=os.environ["MINIMAX_API_KEY"],
         )
 
     if provider == "openai":
-        return openai.LLM(model=model or "gpt-4o-mini", api_key=os.environ["OPENAI_API_KEY"])
+        return _build_llm_with_max_tokens(
+            openai.LLM,
+            max_tokens,
+            model=model or "gpt-4o-mini",
+            api_key=os.environ["OPENAI_API_KEY"],
+        )
 
     # Default: DeepSeek (OpenAI-compatible, cheaper, no censorship issues for FR/EN calls)
     ds_model = model if (model and model.startswith("deepseek-")) else "deepseek-v4-flash"
-    return openai.LLM(
+    return _build_llm_with_max_tokens(
+        openai.LLM,
+        max_tokens,
         model=ds_model,
         base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"),
         api_key=os.environ["DEEPSEEK_API_KEY"],
     )
+
+
+def _build_llm_with_max_tokens(cls, max_tokens: int, **kwargs):
+    """Instantiate an LLM plugin and try to pass a per-completion token cap.
+    Different plugin versions name the kwarg differently (max_tokens,
+    max_completion_tokens) — signature-filter so we don't crash on the version
+    that doesn't accept it. Falls back to the bare constructor as a last resort.
+    """
+    import inspect
+    try:
+        supported = set(inspect.signature(cls.__init__).parameters)
+    except (ValueError, TypeError):
+        supported = set()
+    for name in ("max_completion_tokens", "max_tokens"):
+        if name in supported:
+            try:
+                return cls(**{**kwargs, name: max_tokens})
+            except TypeError:
+                continue
+    return cls(**kwargs)
 
 
 def _stt_for(agent: Optional[AxonAgent]) -> deepgram.STT:
@@ -311,6 +347,77 @@ def _wire_debug_logs(session: AgentSession, clog) -> None:
             clog.debug("session.on(%s) unavailable", ev_name)
 
 
+def _wire_latency_metrics(session: AgentSession, clog: logging.LoggerAdapter) -> None:
+    """Log per-turn LLM / TTS / EOU latency. livekit-agents emits a
+    `metrics_collected` event with typed payloads (LLMMetrics, TTSMetrics,
+    EOUMetrics, …) that include `ttft` and `duration` fields. We aggregate
+    one tidy line per turn instead of one log per stage.
+
+    Also surfaces DeepSeek prompt-cache hits when present in the LLM usage
+    (DeepSeek auto-caches matching prefixes — 10× cheaper + lower TTFT — and
+    reports `prompt_cache_hit_tokens` / `prompt_cache_miss_tokens` in
+    `LLMMetrics.usage` or as raw keys on the chunk).
+    """
+    state: dict = {"llm_ttft": None, "llm_total": None, "tts_ttft": None,
+                   "eou_delay": None, "cache_hit": None, "cache_miss": None}
+
+    def _flush_if_ready():
+        if state["llm_ttft"] is None and state["tts_ttft"] is None:
+            return
+        parts = []
+        if state["eou_delay"] is not None:
+            parts.append(f"EOU={int(state['eou_delay']*1000)}ms")
+        if state["llm_ttft"] is not None:
+            parts.append(f"LLM-TTFT={int(state['llm_ttft']*1000)}ms")
+        if state["llm_total"] is not None:
+            parts.append(f"LLM-total={int(state['llm_total']*1000)}ms")
+        if state["tts_ttft"] is not None:
+            parts.append(f"TTS-TTFT={int(state['tts_ttft']*1000)}ms")
+        if state["cache_hit"] is not None:
+            parts.append(f"cache_hit={state['cache_hit']}/miss={state['cache_miss']}")
+        clog.info("turn latency: %s", " · ".join(parts))
+        for k in state:
+            state[k] = None
+
+    def _on_metrics(ev):
+        try:
+            metrics = getattr(ev, "metrics", None) or ev
+            cls = type(metrics).__name__
+            if cls == "LLMMetrics":
+                state["llm_ttft"] = getattr(metrics, "ttft", None)
+                state["llm_total"] = getattr(metrics, "duration", None)
+                usage = getattr(metrics, "usage", None) or {}
+                # DeepSeek exposes these on the chat-completion response; the
+                # plugin may forward them under .usage as a dict OR as object
+                # attributes depending on version.
+                def _get(name):
+                    if isinstance(usage, dict):
+                        return usage.get(name)
+                    return getattr(usage, name, None)
+                hit = _get("prompt_cache_hit_tokens")
+                miss = _get("prompt_cache_miss_tokens")
+                if hit is not None or miss is not None:
+                    state["cache_hit"] = hit
+                    state["cache_miss"] = miss
+            elif cls == "TTSMetrics":
+                state["tts_ttft"] = getattr(metrics, "ttft", None)
+                # TTS metric arrives last in a turn → flush here.
+                _flush_if_ready()
+            elif cls == "EOUMetrics":
+                # End-of-utterance: how long after the user stopped before we
+                # considered the turn complete. Combines VAD + endpointing.
+                state["eou_delay"] = getattr(metrics, "end_of_utterance_delay", None)
+        except Exception:
+            clog.exception("latency metrics hook failed")
+
+    for ev_name in ("metrics_collected", "metrics"):
+        try:
+            session.on(ev_name, _on_metrics)
+            break
+        except Exception:
+            clog.debug("session.on(%s) unavailable", ev_name)
+
+
 def _wire_transcript_hooks(session: AgentSession, call_id: Optional[str]) -> None:
     """Subscribe to session events to push each turn into call_transcripts.
 
@@ -397,6 +504,7 @@ async def entrypoint(ctx: JobContext) -> None:
                 ),
             )
             _wire_transcript_hooks(session, call_id)
+            _wire_latency_metrics(session, clog)
             await _watch_handoff(ctx, session)
             try:
                 await runtime.execute(session, ctx)
@@ -550,7 +658,9 @@ async def entrypoint(ctx: JobContext) -> None:
     #  • allow_interruptions: barge-in, the caller can cut the agent off.
     _latency = {
         "preemptive_generation": True,
-        "min_endpointing_delay": 0.4,
+        # 0.30s = aggressive but safe: noticeable speed-up vs. the 0.5s default
+        # without cutting off natural hesitation pauses (those tend to be 0.4s+).
+        "min_endpointing_delay": float(os.getenv("MIN_ENDPOINTING_DELAY", "0.30")),
         "allow_interruptions": True,
     }
     try:
@@ -615,6 +725,7 @@ async def entrypoint(ctx: JobContext) -> None:
     )
     clog.info("timing: session.start() returned in %.2fs", _time2.monotonic() - _t_start)
     _wire_transcript_hooks(session, call_id)
+    _wire_latency_metrics(session, clog)
     _wire_debug_logs(session, clog)
 
     async def _on_shutdown():
