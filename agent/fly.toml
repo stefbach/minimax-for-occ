@@ -1,11 +1,14 @@
 app = "axon-agent"
-# Region: SIN (Singapore) — chosen because the two slowest legs of our voice
-# pipeline (DeepSeek LLM + MiniMax TTS) are both in China. From SIN the RTT
-# to those services is ~150ms vs ~600ms from CDG (Paris) → saves 500-700ms
-# on every per-turn response. Audio path to Twilio UK trunk gets ~150ms
-# longer but that's offset many times over. Switch back to "cdg" if PSTN
-# audio quality degrades noticeably.
-primary_region = "sin"
+# Region: CDG (Paris).
+# Tried SIN (Singapore) on the assumption that DeepSeek (LLM) and MiniMax
+# (TTS) being "in China" would respond faster from SIN — they didn't:
+#   • LLM-TTFT 982ms (CDG, cache hit) → 1390ms (SIN, cache hit) = +408ms
+#   • Deepgram (STT) US/EU edge gets further away from SIN → +350ms
+#   • LiveKit cloud routed the worker to "India South" → audio path
+#     Twilio UK ↔ India added ~150ms one-way
+# Net regression of ~500ms per turn. Reverted. Don't re-try SIN without
+# first confirming DeepSeek and Deepgram have low-latency Asia POPs.
+primary_region = "cdg"
 
 # Build the Python LiveKit Agents worker from agent/Dockerfile, with the build
 # context = this agent/ directory (so its COPY requirements.txt / COPY *.py
