@@ -72,6 +72,37 @@ def _logger_for_call(call_id: Optional[str]) -> logging.LoggerAdapter:
 
 
 # ─── LLM factory ──────────────────────────────────────────────────────────
+# Cache of openai.AsyncOpenAI clients, keyed by (base_url, api_key prefix).
+# Sharing a client across all agent sessions in this worker process means we
+# reuse the underlying httpx connection pool — so the TCP+TLS handshake to
+# DeepSeek/OpenAI/MiniMax (200-800ms RTT to China for DeepSeek/MiniMax) is
+# paid ONCE per worker boot instead of on every single call's first turn.
+_OPENAI_CLIENTS: dict[str, object] = {}
+
+
+def _shared_openai_client(base_url: str, api_key: str):
+    """Return a process-wide shared AsyncOpenAI for (base_url, api_key).
+    Returns None if the openai SDK isn't importable (older plugin versions),
+    in which case the caller should fall back to letting the plugin create
+    its own per-instance client."""
+    if not base_url or not api_key:
+        return None
+    cache_key = f"{base_url}|{api_key[:8]}"
+    cached = _OPENAI_CLIENTS.get(cache_key)
+    if cached is not None:
+        return cached
+    try:
+        from openai import AsyncOpenAI  # provided transitively by openai plugin
+    except Exception:
+        return None
+    try:
+        client = AsyncOpenAI(base_url=base_url, api_key=api_key)
+    except Exception:
+        return None
+    _OPENAI_CLIENTS[cache_key] = client
+    return client
+
+
 def _llm_for(agent: Optional[AxonAgent]):
     """Build a LiveKit-Agents-compatible LLM from the agent's provider/model."""
     provider = (agent.llm_provider if agent else os.getenv("LLM_PROVIDER", "deepseek")).lower()
@@ -97,30 +128,38 @@ def _llm_for(agent: Optional[AxonAgent]):
         )
 
     if provider == "minimax":
+        base_url = os.getenv("MINIMAX_BASE_URL", "https://api.minimax.io/v1")
+        api_key = os.environ["MINIMAX_API_KEY"]
         return _build_llm_with_max_tokens(
             openai.LLM,
             max_tokens,
             model=model or "MiniMax-M2",
-            base_url=os.getenv("MINIMAX_BASE_URL", "https://api.minimax.io/v1"),
-            api_key=os.environ["MINIMAX_API_KEY"],
+            base_url=base_url,
+            api_key=api_key,
+            client=_shared_openai_client(base_url, api_key),
         )
 
     if provider == "openai":
+        api_key = os.environ["OPENAI_API_KEY"]
         return _build_llm_with_max_tokens(
             openai.LLM,
             max_tokens,
             model=model or "gpt-4o-mini",
-            api_key=os.environ["OPENAI_API_KEY"],
+            api_key=api_key,
+            client=_shared_openai_client("https://api.openai.com/v1", api_key),
         )
 
     # Default: DeepSeek (OpenAI-compatible, cheaper, no censorship issues for FR/EN calls)
     ds_model = model if (model and model.startswith("deepseek-")) else "deepseek-v4-flash"
+    base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
+    api_key = os.environ["DEEPSEEK_API_KEY"]
     return _build_llm_with_max_tokens(
         openai.LLM,
         max_tokens,
         model=ds_model,
-        base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"),
-        api_key=os.environ["DEEPSEEK_API_KEY"],
+        base_url=base_url,
+        api_key=api_key,
+        client=_shared_openai_client(base_url, api_key),
     )
 
 
@@ -128,13 +167,17 @@ def _build_llm_with_max_tokens(cls, max_tokens: int, **kwargs):
     """Instantiate an LLM plugin and try to pass a per-completion token cap.
     Different plugin versions name the kwarg differently (max_tokens,
     max_completion_tokens) — signature-filter so we don't crash on the version
-    that doesn't accept it. Falls back to the bare constructor as a last resort.
+    that doesn't accept it. Also drops `client=None` and `client=...` for
+    plugin versions that don't accept a pre-built client.
     """
     import inspect
     try:
         supported = set(inspect.signature(cls.__init__).parameters)
     except (ValueError, TypeError):
         supported = set()
+    # Drop `client` kwarg if (a) None or (b) not supported by this plugin version.
+    if "client" in kwargs and (kwargs["client"] is None or "client" not in supported):
+        kwargs.pop("client", None)
     for name in ("max_completion_tokens", "max_tokens"):
         if name in supported:
             try:
@@ -284,10 +327,6 @@ class AxonVoiceAgent(Agent):
     async def on_enter(self) -> None:
         # Pure TTS greeting — avoids an LLM call with an empty user message.
         if self._greeting:
-            # PSTN audio path takes ~1-2s to fully establish after pickup; wait
-            # so the callee doesn't miss the first words of the greeting (used
-            # to hear only "…fonctionne correctement" instead of the full line).
-            await asyncio.sleep(2.0)
             import time as _t
             _b = _t.monotonic()
             logger.info("greeting: say() begin")
@@ -383,9 +422,15 @@ def _wire_latency_metrics(session: AgentSession, clog: logging.LoggerAdapter) ->
     """
     state: dict = {"llm_ttft": None, "llm_total": None, "tts_ttft": None,
                    "eou_delay": None, "cache_hit": None, "cache_miss": None}
+    # Flush is debounced: each metric arrival schedules a flush 600ms later,
+    # cancelling any pending one. After 600ms of metric quiet we log whatever
+    # has accumulated, then reset. This sidesteps the "what arrives last?"
+    # ordering problem (EOU vs LLM vs TTS isn't stable across modes — esp.
+    # with preemptive_generation, where TTS can start BEFORE LLM finishes).
+    pending: dict = {"task": None}
 
-    def _flush_if_ready():
-        if state["llm_ttft"] is None and state["tts_ttft"] is None:
+    def _flush_now():
+        if all(state[k] is None for k in state):
             return
         parts = []
         if state["eou_delay"] is not None:
@@ -401,6 +446,24 @@ def _wire_latency_metrics(session: AgentSession, clog: logging.LoggerAdapter) ->
         clog.info("turn latency: %s", " · ".join(parts))
         for k in state:
             state[k] = None
+
+    def _schedule_flush():
+        prev = pending["task"]
+        if prev is not None and not prev.done():
+            prev.cancel()
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            return
+
+        async def _delayed():
+            try:
+                await asyncio.sleep(0.6)
+                _flush_now()
+            except asyncio.CancelledError:
+                pass
+
+        pending["task"] = loop.create_task(_delayed())
 
     def _on_metrics(ev):
         try:
@@ -424,12 +487,13 @@ def _wire_latency_metrics(session: AgentSession, clog: logging.LoggerAdapter) ->
                     state["cache_miss"] = miss
             elif cls == "TTSMetrics":
                 state["tts_ttft"] = getattr(metrics, "ttft", None)
-                # TTS metric arrives last in a turn → flush here.
-                _flush_if_ready()
             elif cls == "EOUMetrics":
                 # End-of-utterance: how long after the user stopped before we
                 # considered the turn complete. Combines VAD + endpointing.
                 state["eou_delay"] = getattr(metrics, "end_of_utterance_delay", None)
+            else:
+                return  # unknown metric type — don't bother flushing
+            _schedule_flush()
         except Exception:
             clog.exception("latency metrics hook failed")
 
@@ -821,12 +885,36 @@ async def entrypoint(ctx: JobContext) -> None:
 def prewarm(proc):
     """Load heavy models ONCE when the worker process starts, not per call.
     Silero VAD is reused across every job via proc.userdata — this removes a
-    chunk of the cold pre-greeting latency the caller would otherwise hear."""
+    chunk of the cold pre-greeting latency the caller would otherwise hear.
+
+    Also warm DNS + TCP+TLS to the LLM provider so the first user turn of the
+    first call doesn't pay a 600-1000ms handshake to DeepSeek/MiniMax in China.
+    Best-effort: failures are silent (we'll just pay the cold cost on demand)."""
     try:
         proc.userdata["vad"] = silero.VAD.load()
     except Exception:
         # Non-fatal: the entrypoint falls back to a per-call VAD.load().
         pass
+
+    # Resolve which provider's endpoint to warm. Mirrors _llm_for's defaults.
+    provider = os.getenv("LLM_PROVIDER", "deepseek").lower()
+    if provider == "deepseek":
+        url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
+    elif provider == "minimax":
+        url = os.getenv("MINIMAX_BASE_URL", "https://api.minimax.io/v1")
+    elif provider == "openai":
+        url = "https://api.openai.com/v1"
+    else:
+        url = None
+    if url:
+        try:
+            import httpx as _httpx
+            # /models is cheap, doesn't require auth on most providers, and
+            # forces the full DNS + TCP + TLS path to complete. Even a 401 is
+            # fine — the network round-trip is what we wanted.
+            _httpx.get(f"{url.rstrip('/')}/models", timeout=3.0)
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
