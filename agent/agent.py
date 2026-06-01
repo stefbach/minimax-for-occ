@@ -327,6 +327,13 @@ class AxonVoiceAgent(Agent):
     async def on_enter(self) -> None:
         # Pure TTS greeting — avoids an LLM call with an empty user message.
         if self._greeting:
+            # Brief pre-roll so the first words don't get clipped on slower
+            # PSTN setups (UK Twilio trunk takes ~2s to fully establish the
+            # audio path after pickup; Mauritius is faster). Configurable via
+            # env so we can A/B without redeploying.
+            preroll = float(os.getenv("GREETING_PREROLL_SECONDS", "1.0"))
+            if preroll > 0:
+                await asyncio.sleep(preroll)
             import time as _t
             _b = _t.monotonic()
             logger.info("greeting: say() begin")
@@ -420,18 +427,15 @@ def _wire_latency_metrics(session: AgentSession, clog: logging.LoggerAdapter) ->
     reports `prompt_cache_hit_tokens` / `prompt_cache_miss_tokens` in
     `LLMMetrics.usage` or as raw keys on the chunk).
     """
-    state: dict = {"llm_ttft": None, "llm_total": None, "tts_ttft": None,
-                   "eou_delay": None, "cache_hit": None, "cache_miss": None,
-                   "prompt_tokens": None, "completion_tokens": None}
+    state: dict = {"llm_ttft": None, "llm_total": None, "tts_ttfb": None,
+                   "eou_delay": None, "transcription_delay": None,
+                   "user_turn_delay": None, "cached_tokens": None,
+                   "prompt_tokens": None, "completion_tokens": None,
+                   "tokens_per_sec": None}
     # Flush is debounced. Why 2500ms (not 600): EOU and LLM-TTFT can arrive
     # 1.5s+ apart on cold turns (DeepSeek China RTT). With a tight window each
     # metric flushed in its own line — we want one consolidated line per turn.
     pending: dict = {"task": None}
-    # One-shot debug: dump the raw class name + dir() of each metric type the
-    # FIRST time we see it, so we know what fields are actually available on
-    # this livekit-agents version (we discovered TTSMetrics/cache_hit weren't
-    # surfacing — this lets us see why without re-deploying).
-    seen_classes: set = set()
 
     def _flush_now():
         if all(state[k] is None for k in state):
@@ -439,20 +443,27 @@ def _wire_latency_metrics(session: AgentSession, clog: logging.LoggerAdapter) ->
         parts = []
         if state["eou_delay"] is not None:
             parts.append(f"EOU={int(state['eou_delay']*1000)}ms")
+        if state["transcription_delay"] is not None:
+            parts.append(f"STT-delay={int(state['transcription_delay']*1000)}ms")
+        if state["user_turn_delay"] is not None:
+            parts.append(f"turn-complete={int(state['user_turn_delay']*1000)}ms")
         if state["llm_ttft"] is not None:
             parts.append(f"LLM-TTFT={int(state['llm_ttft']*1000)}ms")
         if state["llm_total"] is not None:
             parts.append(f"LLM-total={int(state['llm_total']*1000)}ms")
-        if state["tts_ttft"] is not None:
-            parts.append(f"TTS-TTFT={int(state['tts_ttft']*1000)}ms")
-        if state["cache_hit"] is not None or state["cache_miss"] is not None:
+        if state["tts_ttfb"] is not None:
+            parts.append(f"TTS-TTFB={int(state['tts_ttfb']*1000)}ms")
+        if state["cached_tokens"] is not None and state["prompt_tokens"]:
+            ratio = int(100 * state["cached_tokens"] / state["prompt_tokens"])
             parts.append(
-                f"cache_hit={state['cache_hit'] or 0}/miss={state['cache_miss'] or 0}"
+                f"cache={state['cached_tokens']}/{state['prompt_tokens']}({ratio}%)"
             )
         if state["prompt_tokens"] is not None:
             parts.append(
                 f"tokens={state['prompt_tokens']}→{state['completion_tokens']}"
             )
+        if state["tokens_per_sec"] is not None:
+            parts.append(f"{state['tokens_per_sec']:.0f}tok/s")
         clog.info("turn latency: %s", " · ".join(parts))
         for k in state:
             state[k] = None
@@ -479,56 +490,35 @@ def _wire_latency_metrics(session: AgentSession, clog: logging.LoggerAdapter) ->
         try:
             metrics = getattr(ev, "metrics", None) or ev
             cls = type(metrics).__name__
-            # One-shot debug dump: show fields for each new metric class so we
-            # learn the API surface without guessing. Removed once we've seen
-            # everything that fires.
-            if cls not in seen_classes:
-                seen_classes.add(cls)
-                try:
-                    fields = [a for a in dir(metrics) if not a.startswith("_")]
-                except Exception:
-                    fields = []
-                usage_dump = ""
-                u = getattr(metrics, "usage", None)
-                if u is not None:
-                    try:
-                        if isinstance(u, dict):
-                            usage_dump = f" usage_keys={list(u.keys())}"
-                        else:
-                            usage_dump = f" usage_attrs={[a for a in dir(u) if not a.startswith('_')]}"
-                    except Exception:
-                        pass
-                clog.info("metric class discovered: %s fields=%s%s", cls, fields, usage_dump)
-
             if cls == "LLMMetrics":
+                # Field names confirmed from the discovered-fields log:
+                # LLMMetrics exposes prompt_tokens / completion_tokens /
+                # prompt_cached_tokens / ttft / duration / tokens_per_second
+                # directly as attributes (no nested .usage object).
                 state["llm_ttft"] = getattr(metrics, "ttft", None)
                 state["llm_total"] = getattr(metrics, "duration", None)
-                usage = getattr(metrics, "usage", None)
-                # Try common shapes: dict, pydantic model, plain attrs.
-                def _u(name):
-                    if usage is None:
-                        return None
-                    if isinstance(usage, dict):
-                        return usage.get(name)
-                    return getattr(usage, name, None)
-                state["prompt_tokens"] = _u("prompt_tokens")
-                state["completion_tokens"] = _u("completion_tokens")
-                # DeepSeek auto-caching: these arrive in raw API response.usage
-                # but the plugin may strip them when normalizing into its own
-                # Usage type. We'll see in the discovered-fields log whether
-                # they make it through.
-                hit = _u("prompt_cache_hit_tokens")
-                miss = _u("prompt_cache_miss_tokens")
-                if hit is not None:
-                    state["cache_hit"] = hit
-                if miss is not None:
-                    state["cache_miss"] = miss
+                state["prompt_tokens"] = getattr(metrics, "prompt_tokens", None)
+                state["completion_tokens"] = getattr(metrics, "completion_tokens", None)
+                state["cached_tokens"] = getattr(metrics, "prompt_cached_tokens", None)
+                state["tokens_per_sec"] = getattr(metrics, "tokens_per_second", None)
             elif cls == "TTSMetrics":
-                state["tts_ttft"] = getattr(metrics, "ttft", None)
+                # TTSMetrics uses `ttfb` (time-to-first-byte), NOT `ttft`. The
+                # previous version of this hook looked for ttft and silently
+                # missed every TTS metric — explains the missing TTS line in
+                # earlier turn-latency logs.
+                state["tts_ttfb"] = getattr(metrics, "ttfb", None)
             elif cls == "EOUMetrics":
-                # End-of-utterance: how long after the user stopped before we
-                # considered the turn complete. Combines VAD + endpointing.
+                # End-of-utterance: three distinct delays surfaced by the
+                # plugin. We log all so we can see exactly which stage adds
+                # the time:
+                #  - end_of_utterance_delay: VAD + endpointing decision
+                #  - transcription_delay: Deepgram between final speech & final text
+                #  - on_user_turn_completed_delay: total handoff to LLM
                 state["eou_delay"] = getattr(metrics, "end_of_utterance_delay", None)
+                state["transcription_delay"] = getattr(metrics, "transcription_delay", None)
+                state["user_turn_delay"] = getattr(
+                    metrics, "on_user_turn_completed_delay", None
+                )
             else:
                 return  # unknown metric type — don't bother flushing
             _schedule_flush()
