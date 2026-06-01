@@ -47,15 +47,47 @@ const DAYS = [
 
 const STORAGE_KEY = "axon.campaign.wizard.draft";
 
-// Schedule hours are stored and interpreted in UTC by the dialer. OCC's team
-// works in Mauritius (UTC+4), so the wizard shows the local equivalent live
-// below each field — that way users can pick UTC times without doing the
-// math in their head, and the displayed schedule never silently drifts from
-// what the dialer actually does.
-function utcToMauritius(utcTime: string): string {
-  const [h, m] = (utcTime || "00:00").split(":").map((x) => Number(x) || 0);
-  const muH = (h + 4) % 24;
-  return `${String(muH).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+// Timezone-aware schedule: the dialer compares with UTC, but users think in
+// local time. The wizard lets them pick a timezone, enter HH:MM in that local
+// time, and converts to UTC on submit. Common options cover OCC's markets.
+const TIMEZONES: { id: string; label: string }[] = [
+  { id: "Indian/Mauritius",  label: "Maurice (UTC+4)" },
+  { id: "Europe/Paris",      label: "France / Europe de l'Ouest (UTC+1/+2)" },
+  { id: "Europe/London",     label: "Royaume-Uni (UTC+0/+1)" },
+  { id: "Europe/Brussels",   label: "Belgique / Luxembourg (UTC+1/+2)" },
+  { id: "Africa/Casablanca", label: "Maroc (UTC+1)" },
+  { id: "America/New_York",  label: "Côte Est US (UTC-5/-4)" },
+  { id: "America/Los_Angeles", label: "Côte Ouest US (UTC-8/-7)" },
+  { id: "UTC",               label: "UTC (pas de conversion)" },
+];
+
+// Offset in minutes from UTC for `tz` at `date`. Positive = east of UTC.
+// Handles DST automatically thanks to Intl.DateTimeFormat.
+function tzOffsetMinutes(tz: string, date: Date = new Date()): number {
+  if (tz === "UTC") return 0;
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    hourCycle: "h23",
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+  }).formatToParts(date).reduce<Record<string, string>>((acc, p) => {
+    if (p.type !== "literal") acc[p.type] = p.value;
+    return acc;
+  }, {});
+  const asIfUtc = Date.UTC(
+    Number(parts.year), Number(parts.month) - 1, Number(parts.day),
+    Number(parts.hour), Number(parts.minute), Number(parts.second),
+  );
+  return Math.round((asIfUtc - date.getTime()) / 60000);
+}
+
+// Convert HH:MM in `tz` → HH:MM UTC.
+function localToUtc(localTime: string, tz: string): string {
+  const offset = tzOffsetMinutes(tz);
+  const [h, m] = (localTime || "00:00").split(":").map((x) => Number(x) || 0);
+  let utcMin = h * 60 + m - offset;
+  utcMin = ((utcMin % 1440) + 1440) % 1440;
+  return `${String(Math.floor(utcMin / 60)).padStart(2, "0")}:${String(utcMin % 60).padStart(2, "0")}`;
 }
 
 function parseCsv(text: string): Target[] {
@@ -103,6 +135,9 @@ export function CampaignWizard({
   const [retryDelayMin, setRetryDelayMin] = useState(60);
   const [amdEnabled, setAmdEnabled] = useState(true);
   const [days, setDays] = useState<number[]>([1, 2, 3, 4, 5]);
+  // Timezone in which hourStart/hourEnd are expressed. Default = Mauritius
+  // (OCC's market); the wizard converts to UTC before sending to the API.
+  const [timezone, setTimezone] = useState("Indian/Mauritius");
   const [hourStart, setHourStart] = useState("09:00");
   const [hourEnd, setHourEnd] = useState("18:00");
   const [submitting, setSubmitting] = useState(false);
@@ -185,9 +220,14 @@ export function CampaignWizard({
     setSubmitting(true);
     persistDraft();
 
+    // Convert hours from the user-chosen timezone to UTC before sending —
+    // the dialer compares with UTC time when deciding which campaigns to run.
     const schedule = {
       days,
-      hours: { start: hourStart, end: hourEnd },
+      hours: {
+        start: localToUtc(hourStart, timezone),
+        end: localToUtc(hourEnd, timezone),
+      },
     };
     try {
       const res = await fetch("/api/campaigns", {
@@ -474,30 +514,37 @@ export function CampaignWizard({
             })}
           </div>
         </div>
+        <div style={{ marginTop: 12 }}>
+          <label>Fuseau horaire</label>
+          <select value={timezone} onChange={(e) => setTimezone(e.target.value)}>
+            {TIMEZONES.map((tz) => (
+              <option key={tz.id} value={tz.id}>{tz.label}</option>
+            ))}
+          </select>
+        </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
           <div>
-            <label>Heure début (UTC)</label>
+            <label>Heure début</label>
             <input
               type="time"
               value={hourStart}
               onChange={(e) => setHourStart(e.target.value)}
             />
             <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
-              ≈ {utcToMauritius(hourStart)} heure Maurice (UTC+4)
+              = {localToUtc(hourStart, timezone)} UTC
             </div>
           </div>
           <div>
-            <label>Heure fin (UTC)</label>
+            <label>Heure fin</label>
             <input type="time" value={hourEnd} onChange={(e) => setHourEnd(e.target.value)} />
             <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
-              ≈ {utcToMauritius(hourEnd)} heure Maurice (UTC+4)
+              = {localToUtc(hourEnd, timezone)} UTC
             </div>
           </div>
         </div>
         <div className="muted" style={{ fontSize: 11, marginTop: 10, lineHeight: 1.5 }}>
-          ℹ️ Les heures sont en <strong>UTC</strong> (le serveur d&apos;appels tourne en UTC).
-          Saisis l&apos;heure UTC voulue ; l&apos;équivalent heure de Maurice est affiché en dessous
-          pour t&apos;aider.
+          ℹ️ Saisis les heures dans le fuseau horaire choisi (heure locale). On les convertit
+          en UTC pour le serveur d&apos;appels — l&apos;équivalent UTC est affiché sous chaque champ.
         </div>
       </section>
 
@@ -519,7 +566,7 @@ export function CampaignWizard({
             {amdEnabled ? "on" : "off"}
           </li>
           <li>
-            Fenêtre (UTC) : {days.map((d) => DAYS.find((x) => x.id === d)?.label).join(", ")} · {hourStart}–{hourEnd} <span className="muted">(≈ {utcToMauritius(hourStart)}–{utcToMauritius(hourEnd)} Maurice)</span>
+            Fenêtre : {days.map((d) => DAYS.find((x) => x.id === d)?.label).join(", ")} · {hourStart}–{hourEnd} ({TIMEZONES.find((t) => t.id === timezone)?.label ?? timezone}) <span className="muted">→ {localToUtc(hourStart, timezone)}–{localToUtc(hourEnd, timezone)} UTC</span>
           </li>
         </ul>
         {error && (
