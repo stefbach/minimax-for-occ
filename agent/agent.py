@@ -421,13 +421,17 @@ def _wire_latency_metrics(session: AgentSession, clog: logging.LoggerAdapter) ->
     `LLMMetrics.usage` or as raw keys on the chunk).
     """
     state: dict = {"llm_ttft": None, "llm_total": None, "tts_ttft": None,
-                   "eou_delay": None, "cache_hit": None, "cache_miss": None}
-    # Flush is debounced: each metric arrival schedules a flush 600ms later,
-    # cancelling any pending one. After 600ms of metric quiet we log whatever
-    # has accumulated, then reset. This sidesteps the "what arrives last?"
-    # ordering problem (EOU vs LLM vs TTS isn't stable across modes — esp.
-    # with preemptive_generation, where TTS can start BEFORE LLM finishes).
+                   "eou_delay": None, "cache_hit": None, "cache_miss": None,
+                   "prompt_tokens": None, "completion_tokens": None}
+    # Flush is debounced. Why 2500ms (not 600): EOU and LLM-TTFT can arrive
+    # 1.5s+ apart on cold turns (DeepSeek China RTT). With a tight window each
+    # metric flushed in its own line — we want one consolidated line per turn.
     pending: dict = {"task": None}
+    # One-shot debug: dump the raw class name + dir() of each metric type the
+    # FIRST time we see it, so we know what fields are actually available on
+    # this livekit-agents version (we discovered TTSMetrics/cache_hit weren't
+    # surfacing — this lets us see why without re-deploying).
+    seen_classes: set = set()
 
     def _flush_now():
         if all(state[k] is None for k in state):
@@ -441,8 +445,14 @@ def _wire_latency_metrics(session: AgentSession, clog: logging.LoggerAdapter) ->
             parts.append(f"LLM-total={int(state['llm_total']*1000)}ms")
         if state["tts_ttft"] is not None:
             parts.append(f"TTS-TTFT={int(state['tts_ttft']*1000)}ms")
-        if state["cache_hit"] is not None:
-            parts.append(f"cache_hit={state['cache_hit']}/miss={state['cache_miss']}")
+        if state["cache_hit"] is not None or state["cache_miss"] is not None:
+            parts.append(
+                f"cache_hit={state['cache_hit'] or 0}/miss={state['cache_miss'] or 0}"
+            )
+        if state["prompt_tokens"] is not None:
+            parts.append(
+                f"tokens={state['prompt_tokens']}→{state['completion_tokens']}"
+            )
         clog.info("turn latency: %s", " · ".join(parts))
         for k in state:
             state[k] = None
@@ -458,7 +468,7 @@ def _wire_latency_metrics(session: AgentSession, clog: logging.LoggerAdapter) ->
 
         async def _delayed():
             try:
-                await asyncio.sleep(0.6)
+                await asyncio.sleep(2.5)
                 _flush_now()
             except asyncio.CancelledError:
                 pass
@@ -469,21 +479,49 @@ def _wire_latency_metrics(session: AgentSession, clog: logging.LoggerAdapter) ->
         try:
             metrics = getattr(ev, "metrics", None) or ev
             cls = type(metrics).__name__
+            # One-shot debug dump: show fields for each new metric class so we
+            # learn the API surface without guessing. Removed once we've seen
+            # everything that fires.
+            if cls not in seen_classes:
+                seen_classes.add(cls)
+                try:
+                    fields = [a for a in dir(metrics) if not a.startswith("_")]
+                except Exception:
+                    fields = []
+                usage_dump = ""
+                u = getattr(metrics, "usage", None)
+                if u is not None:
+                    try:
+                        if isinstance(u, dict):
+                            usage_dump = f" usage_keys={list(u.keys())}"
+                        else:
+                            usage_dump = f" usage_attrs={[a for a in dir(u) if not a.startswith('_')]}"
+                    except Exception:
+                        pass
+                clog.info("metric class discovered: %s fields=%s%s", cls, fields, usage_dump)
+
             if cls == "LLMMetrics":
                 state["llm_ttft"] = getattr(metrics, "ttft", None)
                 state["llm_total"] = getattr(metrics, "duration", None)
-                usage = getattr(metrics, "usage", None) or {}
-                # DeepSeek exposes these on the chat-completion response; the
-                # plugin may forward them under .usage as a dict OR as object
-                # attributes depending on version.
-                def _get(name):
+                usage = getattr(metrics, "usage", None)
+                # Try common shapes: dict, pydantic model, plain attrs.
+                def _u(name):
+                    if usage is None:
+                        return None
                     if isinstance(usage, dict):
                         return usage.get(name)
                     return getattr(usage, name, None)
-                hit = _get("prompt_cache_hit_tokens")
-                miss = _get("prompt_cache_miss_tokens")
-                if hit is not None or miss is not None:
+                state["prompt_tokens"] = _u("prompt_tokens")
+                state["completion_tokens"] = _u("completion_tokens")
+                # DeepSeek auto-caching: these arrive in raw API response.usage
+                # but the plugin may strip them when normalizing into its own
+                # Usage type. We'll see in the discovered-fields log whether
+                # they make it through.
+                hit = _u("prompt_cache_hit_tokens")
+                miss = _u("prompt_cache_miss_tokens")
+                if hit is not None:
                     state["cache_hit"] = hit
+                if miss is not None:
                     state["cache_miss"] = miss
             elif cls == "TTSMetrics":
                 state["tts_ttft"] = getattr(metrics, "ttft", None)
