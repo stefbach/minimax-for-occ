@@ -47,6 +47,17 @@ const DAYS = [
 
 const STORAGE_KEY = "axon.campaign.wizard.draft";
 
+// Schedule hours are stored and interpreted in UTC by the dialer. OCC's team
+// works in Mauritius (UTC+4), so the wizard shows the local equivalent live
+// below each field — that way users can pick UTC times without doing the
+// math in their head, and the displayed schedule never silently drifts from
+// what the dialer actually does.
+function utcToMauritius(utcTime: string): string {
+  const [h, m] = (utcTime || "00:00").split(":").map((x) => Number(x) || 0);
+  const muH = (h + 4) % 24;
+  return `${String(muH).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
 function parseCsv(text: string): Target[] {
   const out: Target[] = [];
   for (const raw of text.split(/\r?\n/)) {
@@ -465,17 +476,28 @@ export function CampaignWizard({
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
           <div>
-            <label>Heure début</label>
+            <label>Heure début (UTC)</label>
             <input
               type="time"
               value={hourStart}
               onChange={(e) => setHourStart(e.target.value)}
             />
+            <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+              ≈ {utcToMauritius(hourStart)} heure Maurice (UTC+4)
+            </div>
           </div>
           <div>
-            <label>Heure fin</label>
+            <label>Heure fin (UTC)</label>
             <input type="time" value={hourEnd} onChange={(e) => setHourEnd(e.target.value)} />
+            <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+              ≈ {utcToMauritius(hourEnd)} heure Maurice (UTC+4)
+            </div>
           </div>
+        </div>
+        <div className="muted" style={{ fontSize: 11, marginTop: 10, lineHeight: 1.5 }}>
+          ℹ️ Les heures sont en <strong>UTC</strong> (le serveur d&apos;appels tourne en UTC).
+          Saisis l&apos;heure UTC voulue ; l&apos;équivalent heure de Maurice est affiché en dessous
+          pour t&apos;aider.
         </div>
       </section>
 
@@ -497,7 +519,7 @@ export function CampaignWizard({
             {amdEnabled ? "on" : "off"}
           </li>
           <li>
-            Fenêtre : {days.map((d) => DAYS.find((x) => x.id === d)?.label).join(", ")} · {hourStart}–{hourEnd}
+            Fenêtre (UTC) : {days.map((d) => DAYS.find((x) => x.id === d)?.label).join(", ")} · {hourStart}–{hourEnd} <span className="muted">(≈ {utcToMauritius(hourStart)}–{utcToMauritius(hourEnd)} Maurice)</span>
           </li>
         </ul>
         {error && (

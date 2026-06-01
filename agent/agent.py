@@ -225,6 +225,10 @@ class AxonVoiceAgent(Agent):
     async def on_enter(self) -> None:
         # Pure TTS greeting — avoids an LLM call with an empty user message.
         if self._greeting:
+            # PSTN audio path takes ~1-2s to fully establish after pickup; wait
+            # so the callee doesn't miss the first words of the greeting (used
+            # to hear only "…fonctionne correctement" instead of the full line).
+            await asyncio.sleep(2.0)
             import time as _t
             _b = _t.monotonic()
             logger.info("greeting: say() begin")
