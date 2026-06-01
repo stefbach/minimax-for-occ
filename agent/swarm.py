@@ -149,6 +149,40 @@ def _patch_room_metadata(room, new_agent_id: str):
     return None
 
 
+def _patch_room_metadata_handoff_target(
+    room, *, target_handle_id: str, target_user_id: str, target_kind: str
+):
+    """Patch room metadata for a HUMAN handoff (desk path). Mirrors the keys
+    written by /api/calls/[id]/handoff so the desk + worker can react. May
+    return a coroutine — caller should await if so."""
+    try:
+        raw = getattr(room, "metadata", None) or "{}"
+        try:
+            data = json.loads(raw) if raw else {}
+        except json.JSONDecodeError:
+            data = {}
+        if not isinstance(data, dict):
+            data = {}
+        data["handoff_to"] = target_handle_id
+        data["handoff_to_kind"] = target_kind
+        data["handoff_to_user_id"] = target_user_id
+        new_raw = json.dumps(data)
+        local = getattr(room, "local_participant", None)
+        for owner in (local, room):
+            for fn_name in ("update_metadata", "set_metadata"):
+                fn = getattr(owner, fn_name, None) if owner is not None else None
+                if callable(fn):
+                    try:
+                        return fn(new_raw)
+                    except Exception:
+                        logger.exception(
+                            "patching room metadata via %s failed", fn_name
+                        )
+    except Exception:
+        logger.exception("_patch_room_metadata_handoff_target failed")
+    return None
+
+
 async def emit_handoff(room, new_agent_id: str, *, reason: Optional[str] = None) -> None:
     """Publish a structured data message + flip room metadata so listeners
     (the JS front-end, the worker's metadata watcher) all converge on the
@@ -260,7 +294,7 @@ def _fetch_handle(handle_id: str) -> Optional[dict]:
         with httpx.Client(timeout=httpx.Timeout(5.0), headers=_supabase_headers()) as c:
             r = c.get(_supabase_url(
                 f"/rest/v1/agent_handles?id=eq.{handle_id}"
-                "&select=id,kind,ai_agent_id,display_name,transfer_e164,active"
+                "&select=id,kind,ai_agent_id,display_name,transfer_e164,active,user_id,org_id"
             ))
             r.raise_for_status()
             rows = r.json() or []
@@ -268,6 +302,49 @@ def _fetch_handle(handle_id: str) -> Optional[dict]:
     except Exception:
         logger.exception("_fetch_handle failed for %s", handle_id)
         return None
+
+
+def _human_is_available(user_id: str, org_id: str) -> bool:
+    """Check `human_presence` to see if a human agent is currently logged in
+    on the desk and marked `available`. Used to choose between WebRTC handoff
+    (route the call to their open desk session) and PSTN REFER fallback."""
+    if not has_supabase() or not user_id:
+        return False
+    try:
+        with httpx.Client(timeout=httpx.Timeout(3.0), headers=_supabase_headers()) as c:
+            r = c.get(_supabase_url(
+                f"/rest/v1/human_presence?user_id=eq.{user_id}"
+                f"&org_id=eq.{org_id}&select=status,last_seen&limit=1"
+            ))
+            r.raise_for_status()
+            rows = r.json() or []
+            if not rows:
+                return False
+            return (rows[0].get("status") or "").lower() == "available"
+    except Exception:
+        logger.exception("_human_is_available failed for %s", user_id)
+        return False
+
+
+def _assign_call_to_handle(room_name: str, handle_id: str) -> bool:
+    """Reassign `calls.agent_handle_id` for the call currently in `room_name`
+    so the desk's realtime subscription notifies the targeted human. Returns
+    True on success. Best-effort: failure is logged but never thrown."""
+    if not has_supabase() or not room_name or not handle_id:
+        return False
+    try:
+        with httpx.Client(timeout=httpx.Timeout(5.0), headers=_supabase_headers()) as c:
+            r = c.patch(
+                _supabase_url(f"/rest/v1/calls?room_id=eq.{room_name}"),
+                headers={**_supabase_headers(), "Content-Type": "application/json",
+                         "Prefer": "return=minimal"},
+                json={"agent_handle_id": handle_id},
+            )
+            r.raise_for_status()
+            return True
+    except Exception:
+        logger.exception("_assign_call_to_handle failed for room=%s", room_name)
+        return False
 
 
 def _find_sip_participant_identity(room) -> Optional[str]:
@@ -335,16 +412,51 @@ def build_handoff_to_handle_tool(room, *, current_handle_id: Optional[str] = Non
                 return f"Échec du passage à {name}: {e}"
 
         if kind == "human":
+            room_name = getattr(room, "name", "") or ""
+            user_id = h.get("user_id")
+            org_id = h.get("org_id")
+
+            # Preferred path: the human is logged in on the desk → reassign the
+            # call to their handle so their browser softphone is notified via
+            # the existing realtime subscription on `calls`. The desk then
+            # joins this very room over WebRTC — no PSTN REFER, no extra fees,
+            # and the IA can stay until the human is connected.
+            if user_id and org_id and _human_is_available(str(user_id), str(org_id)):
+                assigned = _assign_call_to_handle(room_name, str(h.get("id") or handle_id))
+                try:
+                    # Also flip room metadata so any in-room listener (the
+                    # worker's handoff watcher, the desk UI) sees the target.
+                    res = _patch_room_metadata_handoff_target(
+                        room,
+                        target_handle_id=str(h.get("id") or handle_id),
+                        target_user_id=str(user_id),
+                        target_kind="human",
+                    )
+                    if hasattr(res, "__await__"):
+                        await res  # type: ignore[func-returns-value]
+                except Exception:
+                    logger.exception("room metadata patch (human handoff) failed")
+                logger.info(
+                    "handoff_to_handle → HUMAN (desk) %s (user_id=%s, assigned=%s)",
+                    name, user_id, assigned,
+                )
+                return (
+                    f"« {name} » est en ligne sur son poste — appel routé vers "
+                    "son navigateur. Annonce-le brièvement puis raccroche ton "
+                    "tour de parole pour la laisser prendre le relais."
+                )
+
+            # Fallback: PSTN transfer via SIP REFER → rings their mobile.
             phone = (h.get("transfer_e164") or "").strip()
             if not phone:
                 return (
-                    f"L'agent humain « {name} » n'a pas de numéro de transfert "
-                    "(transfer_e164) configuré. Demande à un admin de l'ajouter."
+                    f"« {name} » n'est pas connecté(e) sur son poste et n'a pas "
+                    "de numéro de transfert configuré. Impossible de la joindre "
+                    "pour l'instant — continue toi-même ou propose un rappel."
                 )
             sip_identity = _find_sip_participant_identity(room)
             if not sip_identity:
                 return "Aucun participant SIP dans la salle à transférer."
-            room_name = getattr(room, "name", "") or ""
             try:
                 from livekit import api as lkapi_pkg  # type: ignore
                 lkapi = lkapi_pkg.LiveKitAPI(
