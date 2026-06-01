@@ -43,7 +43,7 @@ from flow_runtime import (
     flow_id_from_metadata,
     handoff_target_from_metadata,
 )
-from swarm import build_transfer_tool
+from swarm import build_transfer_tool, build_handoff_to_handle_tool
 
 load_dotenv()
 
@@ -581,6 +581,17 @@ async def entrypoint(ctx: JobContext) -> None:
         if swarm_tool is not None:
             tools.append(swarm_tool)
             clog.info("swarm: transfer_to_specialist tool enabled")
+        # Script-driven handoff: lets the LLM jump to a specific agent_handle
+        # (AI persona swap OR SIP transfer to a human number) as the script
+        # graph dictates per node.
+        try:
+            handoff_tool = build_handoff_to_handle_tool(ctx.room)
+        except Exception:
+            clog.exception("handoff_to_handle tool build failed")
+            handoff_tool = None
+        if handoff_tool is not None:
+            tools.append(handoff_tool)
+            clog.info("swarm: handoff_to_handle tool enabled")
     else:
         # legacy path: env-only n8n tools
         if os.getenv("N8N_BASE_URL") and os.getenv("N8N_API_KEY"):
