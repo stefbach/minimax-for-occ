@@ -167,7 +167,7 @@ def _stt_for(agent: Optional[AxonAgent]) -> deepgram.STT:
         "model": "nova-3",
         "language": lang,
         "endpointing_ms": int(os.getenv("DEEPGRAM_ENDPOINTING_MS", "300")),
-        "utterance_end_ms": int(os.getenv("DEEPGRAM_UTTERANCE_END_MS", "1000")),
+        "utterance_end_ms": int(os.getenv("DEEPGRAM_UTTERANCE_END_MS", "700")),
         "interim_results": True,
     }
     try:
@@ -511,12 +511,15 @@ async def entrypoint(ctx: JobContext) -> None:
             clog.exception("failed to load flow %s — falling back to single-agent mode", flow_id)
         else:
             # A session is still required to drive say()/STT during the flow.
+            _td_mode = os.getenv("TURN_DETECTOR", "vad").lower()
             session = AgentSession(
                 stt=_stt_for(None),
                 llm=_llm_for(None),
                 tts=_tts_for(None),
                 vad=silero.VAD.load(),
-                turn_detection=MultilingualModel(),
+                turn_detection=(
+                    MultilingualModel() if _td_mode == "multilingual" else "vad"
+                ),
             )
             await session.start(
                 room=ctx.room,
@@ -665,34 +668,85 @@ async def entrypoint(ctx: JobContext) -> None:
 
     import inspect as _inspect
 
+    # Turn detector choice — the single biggest knob for per-turn EOU latency:
+    #  • "vad"  → VAD-only endpointing. Fastest (~600-900ms EOU) but can cut
+    #             off speakers who pause mid-sentence.
+    #  • "multilingual" → transformer model that reads the transcript to decide
+    #             if the user actually finished. Smarter but adds 1-2s per turn
+    #             and saturates the CPU (silero throws "slower than realtime").
+    # Default is now "vad" because real-world tests on Fly cdg showed EOU=2.5s+
+    # with the multilingual model. Override via TURN_DETECTOR=multilingual.
+    turn_detector_mode = os.getenv("TURN_DETECTOR", "vad").lower()
+    if turn_detector_mode == "multilingual":
+        chosen_turn_detector: object = MultilingualModel()
+    else:
+        chosen_turn_detector = "vad"
+
     session_kwargs: dict = dict(
         stt=_stt_for(axon),
         llm=_llm_for(axon),
         tts=_tts_for(axon),
         vad=vad,
-        turn_detection=MultilingualModel(),
     )
-    # Latency & naturalness tuning (item 4). Pass only kwargs this
-    # livekit-agents version accepts — in newer versions these moved under
-    # turn_handling=TurnHandlingOptions(...), so signature-filter to stay safe.
-    #  • preemptive_generation: start the LLM reply before the caller fully
-    #    stops talking → noticeably snappier responses.
-    #  • min_endpointing_delay: shorter silence before the agent takes its turn.
-    #  • allow_interruptions: barge-in, the caller can cut the agent off.
-    _latency = {
-        "preemptive_generation": True,
-        # 0.30s = aggressive but safe: noticeable speed-up vs. the 0.5s default
-        # without cutting off natural hesitation pauses (those tend to be 0.4s+).
-        "min_endpointing_delay": float(os.getenv("MIN_ENDPOINTING_DELAY", "0.30")),
-        "allow_interruptions": True,
-    }
+
+    # Latency & naturalness tuning. The API moved between livekit-agents
+    # versions: the old top-level kwargs (min_endpointing_delay,
+    # preemptive_generation, allow_interruptions, turn_detection) were
+    # deprecated and silently ignored in newer builds — they live under
+    # `turn_handling=TurnHandlingOptions(...)` now. We try the new API first
+    # and fall back to the old kwargs otherwise. Either way, signature-filter
+    # so unknown kwargs are dropped instead of crashing.
+    min_endp = float(os.getenv("MIN_ENDPOINTING_DELAY", "0.30"))
+
+    new_api_applied = False
     try:
-        _session_params = set(_inspect.signature(AgentSession.__init__).parameters)
-    except (ValueError, TypeError):
-        _session_params = set()
-    for _k, _v in _latency.items():
-        if _k in _session_params:
-            session_kwargs[_k] = _v
+        from livekit.agents import TurnHandlingOptions  # type: ignore
+        try:
+            tho_params = set(_inspect.signature(TurnHandlingOptions.__init__).parameters)
+        except (ValueError, TypeError):
+            tho_params = set()
+        tho_candidate = {
+            "preemptive_generation": True,
+            "min_endpointing_delay": min_endp,
+            "allow_interruptions": True,
+            "turn_detection": chosen_turn_detector,
+        }
+        tho_kwargs = {k: v for k, v in tho_candidate.items() if k in tho_params}
+        if tho_kwargs:
+            try:
+                _session_params = set(_inspect.signature(AgentSession.__init__).parameters)
+            except (ValueError, TypeError):
+                _session_params = set()
+            if "turn_handling" in _session_params:
+                session_kwargs["turn_handling"] = TurnHandlingOptions(**tho_kwargs)
+                new_api_applied = True
+                clog.info(
+                    "turn_handling: TurnHandlingOptions(turn_detection=%s, min_endpointing_delay=%.2f)",
+                    turn_detector_mode, min_endp,
+                )
+    except ImportError:
+        pass
+
+    if not new_api_applied:
+        # Old API path. Pass only what this version's AgentSession accepts.
+        legacy = {
+            "preemptive_generation": True,
+            "min_endpointing_delay": min_endp,
+            "allow_interruptions": True,
+            "turn_detection": chosen_turn_detector,
+        }
+        try:
+            _session_params = set(_inspect.signature(AgentSession.__init__).parameters)
+        except (ValueError, TypeError):
+            _session_params = set()
+        for _k, _v in legacy.items():
+            if _k in _session_params:
+                session_kwargs[_k] = _v
+        clog.info(
+            "turn handling (legacy kwargs): turn_detection=%s, min_endpointing_delay=%.2f",
+            turn_detector_mode, min_endp,
+        )
+
     session = AgentSession(**session_kwargs)
 
     tools = []
