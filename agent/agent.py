@@ -148,11 +148,34 @@ def _stt_for(agent: Optional[AxonAgent]) -> deepgram.STT:
     """Deepgram STT — honors the per-agent language stored in Supabase.
     - 'multi' / unset → auto-detect (30+ languages, broadest coverage)
     - 'fr', 'en', 'es', … → locked language for max accuracy on short turns
+
+    Telephony-specific tuning: on 8kHz G.711 PSTN audio Deepgram defaults to a
+    conservative endpointing (~500ms+ silence before finalizing) which adds a
+    very perceptible 500-700ms to every conversational turn vs. the same agent
+    in a clean Opus browser session. We push `endpointing_ms` lower and keep
+    `utterance_end_ms` as a safety net for long sentences. Both are
+    signature-filtered so older plugin versions that don't accept the kwargs
+    silently drop them instead of crashing.
     """
+    import inspect
+
     lang = (agent.language if agent and agent.language else "multi").lower()
     if lang in ("multi", "auto", ""):
         lang = "multi"
-    return deepgram.STT(model="nova-3", language=lang)
+
+    candidate: dict = {
+        "model": "nova-3",
+        "language": lang,
+        "endpointing_ms": int(os.getenv("DEEPGRAM_ENDPOINTING_MS", "300")),
+        "utterance_end_ms": int(os.getenv("DEEPGRAM_UTTERANCE_END_MS", "1000")),
+        "interim_results": True,
+    }
+    try:
+        supported = set(inspect.signature(deepgram.STT.__init__).parameters)
+    except (ValueError, TypeError):
+        supported = {"model", "language"}
+    kwargs = {k: v for k, v in candidate.items() if k in supported}
+    return deepgram.STT(**kwargs)
 
 
 def _tts_for(agent: Optional[AxonAgent]) -> minimax.TTS:
