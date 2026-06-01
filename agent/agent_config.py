@@ -247,12 +247,58 @@ def load_campaign_script(campaign_id: str) -> Optional[str]:
                     n.get("id"): (n.get("title") or "").strip()
                     for n in nodes if isinstance(n, dict)
                 }
+                # Resolve agent_handle_id → (display_name, kind) for nodes that
+                # override the campaign agent. Best-effort: one batched query.
+                handle_ids = sorted({
+                    n.get("agent_handle_id") for n in nodes
+                    if isinstance(n, dict) and n.get("agent_handle_id")
+                })
+                handles_by_id: dict[str, dict] = {}
+                if handle_ids:
+                    try:
+                        ids_csv = ",".join(handle_ids)
+                        rh = c.get(_supabase_url(
+                            f"/rest/v1/agent_handles?id=in.({ids_csv})"
+                            "&select=id,kind,display_name"
+                        ))
+                        rh.raise_for_status()
+                        for row in rh.json() or []:
+                            handles_by_id[str(row.get("id"))] = row
+                    except Exception:
+                        logger.exception("failed to fetch agent_handles for script")
+
+                if handles_by_id:
+                    lines.append("")
+                    lines.append("### Agents impliqués dans ce script")
+                    for hid in handle_ids:
+                        h = handles_by_id.get(hid)
+                        if not h:
+                            continue
+                        icon = "👤" if h.get("kind") == "human" else "🤖"
+                        lines.append(
+                            f"  • {icon} {h.get('display_name') or hid}  (handle_id={hid})"
+                        )
+                    lines.append(
+                        "Quand une étape mentionne un agent différent de celui qui "
+                        "parle actuellement, appelle l'outil "
+                        "`handoff_to_handle(handle_id=\"…\", reason=\"…\")` avec "
+                        "le handle_id de l'agent indiqué. Pour un agent IA, la "
+                        "persona change automatiquement ; pour un agent humain, "
+                        "l'appel est transféré vers son numéro."
+                    )
+
+                lines.append("")
                 for idx, n in enumerate(nodes, start=1):
                     if not isinstance(n, dict):
                         continue
                     st_title = (n.get("title") or "").strip()
                     content = (n.get("content") or "").strip()
                     line = f"{idx}. {st_title}".strip(". ")
+                    hid = n.get("agent_handle_id")
+                    if hid and hid in handles_by_id:
+                        h = handles_by_id[hid]
+                        icon = "👤" if h.get("kind") == "human" else "🤖"
+                        line += f"  [Agent: {icon} {h.get('display_name') or hid} — handle_id={hid}]"
                     if content:
                         line += f" — {content}"
                     lines.append(line)

@@ -249,3 +249,129 @@ def build_transfer_tool(agent_id: Optional[str], room):
         transfer_to_specialist.__doc__ = transfer_to_specialist.__doc__.replace("{roster}", roster)
 
     return transfer_to_specialist
+
+
+# ─── Script-driven handoff: AI persona swap OR SIP transfer to a human ────
+def _fetch_handle(handle_id: str) -> Optional[dict]:
+    """Best-effort fetch of one agent_handle row by id."""
+    if not has_supabase():
+        return None
+    try:
+        with httpx.Client(timeout=httpx.Timeout(5.0), headers=_supabase_headers()) as c:
+            r = c.get(_supabase_url(
+                f"/rest/v1/agent_handles?id=eq.{handle_id}"
+                "&select=id,kind,ai_agent_id,display_name,transfer_e164,active"
+            ))
+            r.raise_for_status()
+            rows = r.json() or []
+            return rows[0] if rows else None
+    except Exception:
+        logger.exception("_fetch_handle failed for %s", handle_id)
+        return None
+
+
+def _find_sip_participant_identity(room) -> Optional[str]:
+    """Return the identity of the room's SIP participant (the PSTN callee),
+    or None if no SIP party is connected. Used to target SIP transfers."""
+    try:
+        for p in (getattr(room, "remote_participants", {}) or {}).values():
+            ident = getattr(p, "identity", "") or ""
+            if ident.startswith("pstn-") or ident.startswith("sip_"):
+                return ident
+    except Exception:
+        logger.exception("_find_sip_participant_identity failed")
+    return None
+
+
+def build_handoff_to_handle_tool(room, *, current_handle_id: Optional[str] = None):
+    """LiveKit function_tool: `handoff_to_handle(handle_id, reason)`.
+
+    Lets the LLM hand the active call to another agent_handle as the script
+    flow dictates:
+      • kind=ai  → publish swarm_handoff + flip room metadata `handoff_to`
+                   → existing watcher in agent.py hot-swaps the persona.
+      • kind=human → call LiveKit `TransferSIPParticipant` with the handle's
+                     `transfer_e164` → the PSTN leg is REFERed to the human's
+                     phone, the human picks up as if it were a normal call.
+
+    Returns None if Supabase isn't configured — never blocks the call.
+    """
+    if not has_supabase():
+        return None
+
+    from livekit.agents import function_tool
+
+    @function_tool
+    async def handoff_to_handle(handle_id: str, reason: str = "") -> str:
+        """Pass the active call to another agent (AI persona swap OR SIP
+        transfer to a human). Use this when the script's current step is
+        owned by a different agent_handle than the one currently speaking.
+
+        Args:
+            handle_id: The agent_handle UUID listed on the script step.
+            reason: Short reason for the transfer (logged, shown in metadata).
+        """
+        if not handle_id:
+            return "Erreur: handle_id manquant."
+        if current_handle_id and handle_id == current_handle_id:
+            return "Tu es déjà cet agent — pas besoin de transférer."
+
+        h = _fetch_handle(handle_id)
+        if not h:
+            return f"Agent handle {handle_id} introuvable."
+        kind = h.get("kind")
+        name = h.get("display_name") or handle_id
+
+        if kind == "ai":
+            ai_agent_id = h.get("ai_agent_id")
+            if not ai_agent_id:
+                return f"Agent IA « {name} » mal configuré (pas d'ai_agent_id)."
+            try:
+                await emit_handoff(room, str(ai_agent_id), reason=reason or None)
+                logger.info("handoff_to_handle → AI %s (%s)", name, ai_agent_id)
+                return f"Passage à l'agent IA « {name} » effectué."
+            except Exception as e:
+                logger.exception("AI handoff failed")
+                return f"Échec du passage à {name}: {e}"
+
+        if kind == "human":
+            phone = (h.get("transfer_e164") or "").strip()
+            if not phone:
+                return (
+                    f"L'agent humain « {name} » n'a pas de numéro de transfert "
+                    "(transfer_e164) configuré. Demande à un admin de l'ajouter."
+                )
+            sip_identity = _find_sip_participant_identity(room)
+            if not sip_identity:
+                return "Aucun participant SIP dans la salle à transférer."
+            room_name = getattr(room, "name", "") or ""
+            try:
+                from livekit import api as lkapi_pkg  # type: ignore
+                lkapi = lkapi_pkg.LiveKitAPI(
+                    os.environ["LIVEKIT_URL"],
+                    os.environ["LIVEKIT_API_KEY"],
+                    os.environ["LIVEKIT_API_SECRET"],
+                )
+                try:
+                    await lkapi.sip.transfer_sip_participant(
+                        lkapi_pkg.TransferSIPParticipantRequest(
+                            participant_identity=sip_identity,
+                            room_name=room_name,
+                            transfer_to=f"tel:{phone}",
+                            play_dialtone=False,
+                        )
+                    )
+                finally:
+                    try:
+                        await lkapi.aclose()
+                    except Exception:
+                        pass
+                logger.info("handoff_to_handle → HUMAN %s (%s)", name, phone)
+                return f"Appel transféré à {name} ({phone})."
+            except Exception as e:
+                logger.exception("SIP transfer failed")
+                return f"Échec du transfert SIP vers {name}: {e}"
+
+        return f"Type d'agent inconnu pour « {name} »: {kind}"
+
+    return handoff_to_handle
