@@ -761,20 +761,14 @@ async def entrypoint(ctx: JobContext) -> None:
 
     # Perceived-latency trick used by Retell / Vapi / ElevenLabs Conversational:
     # force the LLM to ALWAYS start its replies with a 1-2 word acknowledgement
-    # ("D'accord,", "Oui,", "Hmm,", "Voyons,", "Bien sûr,"…). The TTS receives
-    # these first tokens almost instantly and starts streaming audio while the
-    # LLM is still generating the rest of the reply. To the caller it sounds
-    # like the agent reacts in ~300ms even when LLM-TTFT is 800-1000ms.
-    # Can be disabled per-deploy with QUICK_ACK=false if it ever clashes with
-    # an agent's expected register (e.g. very formal scripts).
+    # so TTS streaming begins on the very first token. Kept as short as
+    # possible (~15 tokens) so it doesn't bloat the system prompt and trash
+    # the DeepSeek prefix cache (every byte change = miss).
     if os.getenv("QUICK_ACK", "true").lower() not in ("false", "0", "no"):
         instructions = (
-            f"{instructions}\n\n"
-            "RÉACTIVITÉ : commence systématiquement chaque réponse par un mot "
-            "ou une expression courte d'acquiescement (« D'accord », « Oui », "
-            "« Bien sûr », « Hmm », « Voyons », « Très bien », « Effectivement »…) "
-            "suivie d'une virgule, AVANT la vraie réponse. C'est important pour "
-            "que la conversation paraisse fluide au téléphone."
+            f"{instructions}\n"
+            "Commence chaque réponse par un mot court (Oui, D'accord, "
+            "Bien sûr, Hmm), puis la réponse."
         )
 
     # Reuse the VAD loaded once at worker startup (prewarm) instead of paying
