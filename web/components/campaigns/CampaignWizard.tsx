@@ -49,17 +49,118 @@ const STORAGE_KEY = "axon.campaign.wizard.draft";
 
 // Timezone-aware schedule: the dialer compares with UTC, but users think in
 // local time. The wizard lets them pick a timezone, enter HH:MM in that local
-// time, and converts to UTC on submit. Common options cover OCC's markets.
-const TIMEZONES: { id: string; label: string }[] = [
-  { id: "Indian/Mauritius",  label: "Maurice (UTC+4)" },
-  { id: "Europe/Paris",      label: "France / Europe de l'Ouest (UTC+1/+2)" },
-  { id: "Europe/London",     label: "Royaume-Uni (UTC+0/+1)" },
-  { id: "Europe/Brussels",   label: "Belgique / Luxembourg (UTC+1/+2)" },
-  { id: "Africa/Casablanca", label: "Maroc (UTC+1)" },
-  { id: "America/New_York",  label: "Côte Est US (UTC-5/-4)" },
-  { id: "America/Los_Angeles", label: "Côte Ouest US (UTC-8/-7)" },
-  { id: "UTC",               label: "UTC (pas de conversion)" },
+// time, and converts to UTC on submit. Grouped by region for fast lookup.
+type TimezoneItem = { id: string; label: string };
+const TIMEZONE_GROUPS: { group: string; items: TimezoneItem[] }[] = [
+  {
+    group: "Afrique & Océan Indien",
+    items: [
+      { id: "Indian/Mauritius",    label: "Maurice (UTC+4)" },
+      { id: "Indian/Reunion",      label: "La Réunion (UTC+4)" },
+      { id: "Indian/Mayotte",      label: "Mayotte (UTC+3)" },
+      { id: "Indian/Antananarivo", label: "Madagascar (UTC+3)" },
+      { id: "Africa/Casablanca",   label: "Maroc (UTC+1)" },
+      { id: "Africa/Tunis",        label: "Tunisie (UTC+1)" },
+      { id: "Africa/Algiers",      label: "Algérie (UTC+1)" },
+      { id: "Africa/Cairo",        label: "Égypte (UTC+2)" },
+      { id: "Africa/Dakar",        label: "Sénégal (UTC+0)" },
+      { id: "Africa/Abidjan",      label: "Côte d'Ivoire (UTC+0)" },
+      { id: "Africa/Lagos",        label: "Nigéria (UTC+1)" },
+      { id: "Africa/Johannesburg", label: "Afrique du Sud (UTC+2)" },
+      { id: "Africa/Nairobi",      label: "Kenya (UTC+3)" },
+    ],
+  },
+  {
+    group: "Europe",
+    items: [
+      { id: "Europe/Paris",     label: "France (UTC+1/+2)" },
+      { id: "Europe/Brussels",  label: "Belgique (UTC+1/+2)" },
+      { id: "Europe/Luxembourg",label: "Luxembourg (UTC+1/+2)" },
+      { id: "Europe/Zurich",    label: "Suisse (UTC+1/+2)" },
+      { id: "Europe/London",    label: "Royaume-Uni (UTC+0/+1)" },
+      { id: "Europe/Dublin",    label: "Irlande (UTC+0/+1)" },
+      { id: "Europe/Lisbon",    label: "Portugal (UTC+0/+1)" },
+      { id: "Europe/Madrid",    label: "Espagne (UTC+1/+2)" },
+      { id: "Europe/Berlin",    label: "Allemagne (UTC+1/+2)" },
+      { id: "Europe/Amsterdam", label: "Pays-Bas (UTC+1/+2)" },
+      { id: "Europe/Rome",      label: "Italie (UTC+1/+2)" },
+      { id: "Europe/Vienna",    label: "Autriche (UTC+1/+2)" },
+      { id: "Europe/Warsaw",    label: "Pologne (UTC+1/+2)" },
+      { id: "Europe/Stockholm", label: "Suède (UTC+1/+2)" },
+      { id: "Europe/Helsinki",  label: "Finlande (UTC+2/+3)" },
+      { id: "Europe/Athens",    label: "Grèce (UTC+2/+3)" },
+      { id: "Europe/Istanbul",  label: "Turquie (UTC+3)" },
+      { id: "Europe/Moscow",    label: "Russie — Moscou (UTC+3)" },
+    ],
+  },
+  {
+    group: "Amériques",
+    items: [
+      { id: "America/St_Johns",      label: "Terre-Neuve (UTC-3:30/-2:30)" },
+      { id: "America/Halifax",       label: "Halifax (UTC-4/-3)" },
+      { id: "America/Toronto",       label: "Toronto / Montréal (UTC-5/-4)" },
+      { id: "America/New_York",      label: "New York (UTC-5/-4)" },
+      { id: "America/Chicago",       label: "Chicago (UTC-6/-5)" },
+      { id: "America/Denver",        label: "Denver (UTC-7/-6)" },
+      { id: "America/Phoenix",       label: "Phoenix (UTC-7)" },
+      { id: "America/Los_Angeles",   label: "Los Angeles (UTC-8/-7)" },
+      { id: "America/Anchorage",     label: "Alaska (UTC-9/-8)" },
+      { id: "Pacific/Honolulu",      label: "Hawaï (UTC-10)" },
+      { id: "America/Mexico_City",   label: "Mexique (UTC-6/-5)" },
+      { id: "America/Bogota",        label: "Colombie (UTC-5)" },
+      { id: "America/Lima",          label: "Pérou (UTC-5)" },
+      { id: "America/Caracas",       label: "Venezuela (UTC-4)" },
+      { id: "America/Santiago",      label: "Chili (UTC-4/-3)" },
+      { id: "America/Argentina/Buenos_Aires", label: "Argentine (UTC-3)" },
+      { id: "America/Sao_Paulo",     label: "Brésil — São Paulo (UTC-3)" },
+    ],
+  },
+  {
+    group: "Asie & Moyen-Orient",
+    items: [
+      { id: "Asia/Jerusalem",  label: "Israël (UTC+2/+3)" },
+      { id: "Asia/Beirut",     label: "Liban (UTC+2/+3)" },
+      { id: "Asia/Riyadh",     label: "Arabie Saoudite (UTC+3)" },
+      { id: "Asia/Dubai",      label: "Dubaï / Émirats (UTC+4)" },
+      { id: "Asia/Tehran",     label: "Iran (UTC+3:30)" },
+      { id: "Asia/Karachi",    label: "Pakistan (UTC+5)" },
+      { id: "Asia/Kolkata",    label: "Inde (UTC+5:30)" },
+      { id: "Asia/Dhaka",      label: "Bangladesh (UTC+6)" },
+      { id: "Asia/Bangkok",    label: "Thaïlande (UTC+7)" },
+      { id: "Asia/Ho_Chi_Minh",label: "Vietnam (UTC+7)" },
+      { id: "Asia/Jakarta",    label: "Indonésie — Jakarta (UTC+7)" },
+      { id: "Asia/Singapore",  label: "Singapour (UTC+8)" },
+      { id: "Asia/Hong_Kong",  label: "Hong Kong (UTC+8)" },
+      { id: "Asia/Shanghai",   label: "Chine (UTC+8)" },
+      { id: "Asia/Manila",     label: "Philippines (UTC+8)" },
+      { id: "Asia/Taipei",     label: "Taïwan (UTC+8)" },
+      { id: "Asia/Seoul",      label: "Corée du Sud (UTC+9)" },
+      { id: "Asia/Tokyo",      label: "Japon (UTC+9)" },
+    ],
+  },
+  {
+    group: "Océanie",
+    items: [
+      { id: "Australia/Perth",   label: "Perth (UTC+8)" },
+      { id: "Australia/Adelaide",label: "Adélaïde (UTC+9:30/+10:30)" },
+      { id: "Australia/Sydney",  label: "Sydney / Melbourne (UTC+10/+11)" },
+      { id: "Pacific/Noumea",    label: "Nouvelle-Calédonie (UTC+11)" },
+      { id: "Pacific/Auckland",  label: "Nouvelle-Zélande (UTC+12/+13)" },
+      { id: "Pacific/Tahiti",    label: "Tahiti (UTC-10)" },
+    ],
+  },
+  {
+    group: "Référence",
+    items: [
+      { id: "UTC", label: "UTC (aucune conversion)" },
+    ],
+  },
 ];
+
+// Flat lookup: id -> label, for showing the chosen TZ in the recap.
+const TZ_LABEL_BY_ID: Record<string, string> = Object.fromEntries(
+  TIMEZONE_GROUPS.flatMap((g) => g.items.map((t) => [t.id, t.label] as const)),
+);
 
 // Offset in minutes from UTC for `tz` at `date`. Positive = east of UTC.
 // Handles DST automatically thanks to Intl.DateTimeFormat.
@@ -517,8 +618,12 @@ export function CampaignWizard({
         <div style={{ marginTop: 12 }}>
           <label>Fuseau horaire</label>
           <select value={timezone} onChange={(e) => setTimezone(e.target.value)}>
-            {TIMEZONES.map((tz) => (
-              <option key={tz.id} value={tz.id}>{tz.label}</option>
+            {TIMEZONE_GROUPS.map((group) => (
+              <optgroup key={group.group} label={group.group}>
+                {group.items.map((tz) => (
+                  <option key={tz.id} value={tz.id}>{tz.label}</option>
+                ))}
+              </optgroup>
             ))}
           </select>
         </div>
@@ -566,7 +671,7 @@ export function CampaignWizard({
             {amdEnabled ? "on" : "off"}
           </li>
           <li>
-            Fenêtre : {days.map((d) => DAYS.find((x) => x.id === d)?.label).join(", ")} · {hourStart}–{hourEnd} ({TIMEZONES.find((t) => t.id === timezone)?.label ?? timezone}) <span className="muted">→ {localToUtc(hourStart, timezone)}–{localToUtc(hourEnd, timezone)} UTC</span>
+            Fenêtre : {days.map((d) => DAYS.find((x) => x.id === d)?.label).join(", ")} · {hourStart}–{hourEnd} ({TZ_LABEL_BY_ID[timezone] ?? timezone}) <span className="muted">→ {localToUtc(hourStart, timezone)}–{localToUtc(hourEnd, timezone)} UTC</span>
           </li>
         </ul>
         {error && (
