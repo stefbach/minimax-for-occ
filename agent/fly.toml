@@ -9,15 +9,18 @@ primary_region = "cdg"
 
 # Voice agents are memory- AND cpu-hungry: the LiveKit Agents worker spins up
 # an inference executor (Silero VAD, turn detector), decodes/encodes audio via
-# PyAV, and runs streaming STT/LLM/TTS concurrently. shared-cpu-2x worked but
-# silero VAD logged "inference is slower than realtime, delay: 700-800ms" —
-# the shared host throttled us and added hidden latency to every per-turn
-# endpointing decision. Bumped to performance-2x (2 dedicated vCPU, 4GB) so
-# silero runs strictly real-time. Costs ~$35/mo more but eliminates the last
-# bottleneck we couldn't fix in software.
+# PyAV, and runs streaming STT/LLM/TTS concurrently. At 512MB the process was
+# OOM-killed during model load before it could even register with LiveKit
+# ("Out of memory: Killed process", worker id=unregistered) → no agent joined
+# the call → silence. Bump to 2 vCPU / 2GB for real-time headroom.
+#
+# Note: silero VAD occasionally logs "inference is slower than realtime,
+# delay: 700ms" on this plan, but the practical per-turn impact (visible in
+# the EOU metric) seems modest (~100-300ms). performance-2x ($35/mo extra)
+# would eliminate it — kept off until/unless we run out of software knobs.
 [[vm]]
-  size = "performance-2x"
-  memory = "4096mb"
+  size = "shared-cpu-2x"
+  memory = "2048mb"
 
 # Pure outbound worker — connects to LiveKit Cloud and waits for room
 # dispatches. No [http_service]: nothing listens on an inbound port, and a
