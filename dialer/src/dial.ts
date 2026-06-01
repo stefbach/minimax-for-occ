@@ -161,7 +161,14 @@ async function dialViaLiveKit(args: {
         "axon.target_id": targetId,
         "axon.direction": "out",
       },
-      // sipNumber sets the From on the INVITE; without it Twilio rejects with 403.
+      // SDK field for the From: `fromNumber` (livekit-server-sdk ≥ 2.15).
+      // The old `sipNumber` name is silently ignored, so LiveKit falls back to
+      // its own default egress number — which Twilio rejects with 403 because
+      // it's not authorised on the trunk. Setting `fromNumber` makes LiveKit
+      // present the trunk's own number (+447700162160) as the From, which IS
+      // authorised. We keep `sipNumber` as a belt-and-braces alias for older
+      // SDK versions.
+      fromNumber: fromE164 ?? undefined,
       sipNumber: fromE164 ?? undefined,
       // Block until pickup/timeout so we only dispatch the agent on a real answer.
       waitUntilAnswered: true,
