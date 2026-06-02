@@ -151,7 +151,11 @@ export function AgentForm({ initial }: { initial?: Agent }) {
   const [emotion, setEmotion] = useState(initial?.tts_emotion ?? "");
   const [speed, setSpeed] = useState(initial?.tts_speed ?? 1.0);
   const [volume, setVolume] = useState(initial?.tts_volume ?? 1.0);
-  const [ttsModel, setTtsModel] = useState(initial?.tts_model ?? "sonic-3.5");
+  const [ttsModel, setTtsModel] = useState(() => {
+    const valid = TTS_MODELS.map((m) => m.id);
+    const stored = initial?.tts_model ?? "";
+    return valid.includes(stored) ? stored : "sonic-3.5";
+  });
   const [voiceStyle, setVoiceStyle] = useState(initial?.voice_style ?? "");
   const [systemPrompt, setSystemPrompt] = useState(initial?.system_prompt ?? "");
   const [greeting, setGreeting] = useState(initial?.greeting ?? "Bonjour, je vous écoute.");
