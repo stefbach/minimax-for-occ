@@ -260,6 +260,13 @@ def _stt_for(agent: Optional[AxonAgent]) -> assemblyai.STT:
 
     candidate: dict = {
         "model": model,
+        # The LiveKit Cloud agent runs in eu-central. AssemblyAI's default
+        # endpoint is US — route to their EU streaming endpoint to cut
+        # ~100-200ms of cross-Atlantic RTT off every transcription.
+        # Override via ASSEMBLYAI_BASE_URL if a different geo is needed.
+        "base_url": os.getenv(
+            "ASSEMBLYAI_BASE_URL", "wss://streaming.eu.assemblyai.com"
+        ),
         "end_of_turn_confidence_threshold": float(
             os.getenv("ASSEMBLYAI_EOT_THRESHOLD", "0.3")
         ),
