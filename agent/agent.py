@@ -153,6 +153,11 @@ def _llm_for(agent: Optional[AxonAgent]):
                 "Anthropic selected but neither ANTHROPIC_API_KEY nor "
                 "CLAUDE_API_KEY is set on the worker."
             )
+        key_src = "ANTHROPIC_API_KEY" if os.getenv("ANTHROPIC_API_KEY") else "CLAUDE_API_KEY"
+        logger.info(
+            "LLM=anthropic model=%s key_src=%s key_len=%d key_prefix=%s max_tokens=%d",
+            anth_model, key_src, len(anth_key), anth_key[:14], max_tokens,
+        )
         return _build_llm_with_max_tokens(
             anthropic.LLM,
             max_tokens,
