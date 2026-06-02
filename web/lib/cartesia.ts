@@ -116,7 +116,7 @@ export async function previewCartesiaTTS(opts: {
   });
   if (!r.ok) {
     const msg = await r.text().catch(() => "unknown");
-    throw new Error(`Cartesia TTS failed: HTTP ${r.status} — ${msg}`);
+    throw new Error(`Cartesia TTS failed: HTTP ${r.status} — model=${model} voice_id=${opts.voice_id} — ${msg}`);
   }
   return { audio: await r.arrayBuffer(), format: "audio/mpeg" };
 }
