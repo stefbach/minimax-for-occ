@@ -50,8 +50,22 @@ interface CartesiaVoiceCatalog {
   name: string;
   language: string | null;
   gender: string | null;
+  country: string | null;
   is_public: boolean;
 }
+
+const LANG_NAMES: Record<string, string> = {
+  fr: "Français", en: "Anglais", es: "Espagnol", de: "Allemand",
+  it: "Italien", pt: "Portugais", zh: "Mandarin", ja: "Japonais",
+  ko: "Coréen", nl: "Néerlandais", pl: "Polonais", ar: "Arabe",
+};
+const GENDER_LABELS: Record<string, string> = {
+  feminine: "Féminine", masculine: "Masculine", neutral: "Neutre",
+};
+const COUNTRY_LABELS: Record<string, string> = {
+  FR: "France", CA: "Canada", US: "États-Unis", GB: "Grande-Bretagne",
+  AU: "Australie", BE: "Belgique", CH: "Suisse", MX: "Mexique", NG: "Nigeria",
+};
 
 function slugify(s: string): string {
   return s
@@ -120,6 +134,11 @@ export function AgentForm({ initial }: { initial?: Agent }) {
   const [tab, setTab] = useState<"identite" | "voix" | "cerveau">("identite");
   const [showVoiceAdvanced, setShowVoiceAdvanced] = useState(false);
   const [showBrainAdvanced, setShowBrainAdvanced] = useState(false);
+
+  // Voice catalog filters
+  const [filterLang, setFilterLang] = useState("");
+  const [filterGender, setFilterGender] = useState("");
+  const [filterCountry, setFilterCountry] = useState("");
 
   // Inline voice cloning (Cartesia /voices/clone).
   const [showClone, setShowClone] = useState(false);
@@ -318,28 +337,39 @@ export function AgentForm({ initial }: { initial?: Agent }) {
 
   const llmModels = PROVIDER_MODELS[provider];
 
-  // ── Cartesia voice catalog (from API + cloned in Supabase) ─────────────
+  // ── Voice catalog (from API + cloned in Supabase) ──────────────────────
   const customCloned = voices.filter((v) => v.source === "cloned");
   const customPresets = voices.filter((v) => v.source === "preset");
 
-  // Group Cartesia catalog voices by language for a cleaner dropdown.
-  const cartesiaGroups: [string, CartesiaVoiceCatalog[]][] = (() => {
+  // Derive filter options from catalog data.
+  const catalogLangs = [...new Set(cartesiaVoices.map((v) => v.language).filter(Boolean) as string[])].sort();
+  const catalogGenders = [...new Set(cartesiaVoices.map((v) => v.gender).filter(Boolean) as string[])].sort();
+  const catalogCountries = [...new Set(cartesiaVoices.map((v) => v.country).filter(Boolean) as string[])].sort();
+
+  // Apply active filters.
+  const filteredCatalog = cartesiaVoices.filter((v) => {
+    if (filterLang && v.language !== filterLang) return false;
+    if (filterGender && v.gender !== filterGender) return false;
+    if (filterCountry && v.country !== filterCountry) return false;
+    return true;
+  });
+
+  // Group filtered catalog by language.
+  const catalogGroups: [string, CartesiaVoiceCatalog[]][] = (() => {
     const map = new Map<string, CartesiaVoiceCatalog[]>();
-    for (const v of cartesiaVoices) {
+    for (const v of filteredCatalog) {
       const lang = v.language ?? "other";
       const list = map.get(lang) ?? [];
       list.push(v);
       map.set(lang, list);
     }
-    // Sort: fr first, en second, then the rest alphabetically.
-    const sorted = Array.from(map.entries()).sort(([a], [b]) => {
+    return Array.from(map.entries()).sort(([a], [b]) => {
       if (a === "fr") return -1;
       if (b === "fr") return 1;
       if (a === "en") return -1;
       if (b === "en") return 1;
       return a.localeCompare(b);
     });
-    return sorted;
   })();
 
   const knownVoiceIds = new Set<string>([
@@ -437,11 +467,62 @@ export function AgentForm({ initial }: { initial?: Agent }) {
       {/* ═══ VOIX : comment l'agent sonne (tout le voice ici) ═══ */}
       {tab === "voix" && (
         <div className="card" style={{ display: "grid", gap: 14 }}>
-          <h3 style={{ margin: 0 }}>Voix (Cartesia Sonic)</h3>
+          <h3 style={{ margin: 0 }}>Voix</h3>
+
+          {/* Filters */}
+          {cartesiaVoices.length > 0 && (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+              <span style={{ fontSize: 12, color: "var(--muted)" }}>Filtrer :</span>
+              <select
+                value={filterLang}
+                onChange={(e) => setFilterLang(e.target.value)}
+                style={{ fontSize: 12, padding: "3px 8px", minWidth: 120 }}
+              >
+                <option value="">Toutes les langues</option>
+                {catalogLangs.map((l) => (
+                  <option key={l} value={l}>{LANG_NAMES[l] ?? l.toUpperCase()}</option>
+                ))}
+              </select>
+              <select
+                value={filterGender}
+                onChange={(e) => setFilterGender(e.target.value)}
+                style={{ fontSize: 12, padding: "3px 8px", minWidth: 110 }}
+              >
+                <option value="">Tous les genres</option>
+                {catalogGenders.map((g) => (
+                  <option key={g} value={g}>{GENDER_LABELS[g] ?? g}</option>
+                ))}
+              </select>
+              <select
+                value={filterCountry}
+                onChange={(e) => setFilterCountry(e.target.value)}
+                style={{ fontSize: 12, padding: "3px 8px", minWidth: 120 }}
+              >
+                <option value="">Tous les accents</option>
+                {catalogCountries.map((c) => (
+                  <option key={c} value={c}>{COUNTRY_LABELS[c] ?? c}</option>
+                ))}
+              </select>
+              {(filterLang || filterGender || filterCountry) && (
+                <button
+                  type="button"
+                  className="ghost"
+                  style={{ fontSize: 11, padding: "2px 8px" }}
+                  onClick={() => { setFilterLang(""); setFilterGender(""); setFilterCountry(""); }}
+                >
+                  ✕ Réinitialiser
+                </button>
+              )}
+              <span style={{ fontSize: 12, color: "var(--muted)", marginLeft: "auto" }}>
+                {filteredCatalog.length} voix
+              </span>
+            </div>
+          )}
+
           <div>
             <label>Voix de l&apos;agent</label>
             <select value={voice} onChange={(e) => setVoice(e.target.value)}>
-              <option value="">— défaut Cartesia —</option>
+              <option value="">— voix par défaut —</option>
               {customCloned.length > 0 && (
                 <optgroup label="Mes voix clonées">
                   {customCloned.map((v) => (
@@ -456,37 +537,36 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                   ))}
                 </optgroup>
               )}
-              {cartesiaGroups.map(([lang, options]) => (
-                <optgroup key={lang} label={`Cartesia — ${lang.toUpperCase()}`}>
+              {catalogGroups.map(([lang, options]) => (
+                <optgroup key={lang} label={LANG_NAMES[lang] ?? lang.toUpperCase()}>
                   {options.map((v) => (
                     <option key={v.id} value={v.id}>
-                      {v.name}{v.gender ? ` (${v.gender})` : ""}
+                      {v.name}{v.gender ? ` (${GENDER_LABELS[v.gender] ?? v.gender})` : ""}
                     </option>
                   ))}
                 </optgroup>
               ))}
               {cartesiaVoices.length === 0 && (
-                <option value="" disabled>Configurez CARTESIA_API_KEY pour voir le catalogue</option>
+                <option value="" disabled>Catalogue vocal non disponible (clé API manquante)</option>
               )}
               {voice && !knownVoiceIds.has(voice) && (
                 <option value={voice}>{voice} (ID manuel)</option>
               )}
             </select>
-            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
-              Parcourez le catalogue complet sur{" "}
-              <a href="https://play.cartesia.ai" target="_blank" rel="noopener noreferrer">play.cartesia.ai</a>
-              , puis collez l&apos;ID UUID ci-dessous (champ ID manuel).
-            </div>
           </div>
-          {/* Manual UUID entry for voices found on play.cartesia.ai */}
+
+          {/* Manual UUID entry */}
           <div>
-            <label>Entrer un ID de voix Cartesia manuellement</label>
+            <label>ID de voix manuel (UUID)</label>
             <input
               value={voice}
               onChange={(e) => setVoice(e.target.value)}
               placeholder="ex: a0e99841-438c-4a64-b679-ae501e7d6091"
               style={{ fontFamily: "monospace", fontSize: 13 }}
             />
+            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
+              Collez ici l&apos;identifiant UUID d&apos;une voix spécifique.
+            </div>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
             <button type="button" className="ghost" disabled={previewing} onClick={onPreviewVoice}>
@@ -501,7 +581,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
           {showClone && (
             <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12, display: "grid", gap: 10 }}>
               <div style={{ fontSize: 13, color: "var(--muted)" }}>
-                Clonage instantané par Cartesia. Échantillon <strong>mp3 / wav / m4a</strong>,
+                Clonage vocal instantané. Échantillon <strong>mp3 / wav / m4a</strong>,
                 voix unique, 5 s à 5 min, ≤ 20 Mo. La voix sera disponible immédiatement dans le catalogue.
               </div>
               <div className="form-row">
@@ -562,7 +642,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
               <div style={{ display: "grid", gap: 14, marginTop: 12 }}>
                 <div className="form-row">
                   <div>
-                    <label>Modèle TTS Cartesia</label>
+                    <label>Modèle TTS</label>
                     <select value={ttsModel} onChange={(e) => setTtsModel(e.target.value)}>
                       {TTS_MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
                     </select>
@@ -576,7 +656,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                       ))}
                     </select>
                     <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
-                      Coloration émotionnelle appliquée par Cartesia sur chaque réponse TTS.
+                      Coloration émotionnelle appliquée sur chaque réponse vocale.
                     </div>
                   </div>
                 </div>
