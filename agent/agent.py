@@ -244,9 +244,9 @@ def _stt_for(agent: Optional[AxonAgent]) -> assemblyai.STT:
     candidate: dict = {
         "model": model,
         "end_of_turn_confidence_threshold": float(
-            os.getenv("ASSEMBLYAI_EOT_THRESHOLD", "0.7")
+            os.getenv("ASSEMBLYAI_EOT_THRESHOLD", "0.4")
         ),
-        "min_turn_silence": int(os.getenv("ASSEMBLYAI_MIN_TURN_SILENCE", "250")),
+        "min_turn_silence": int(os.getenv("ASSEMBLYAI_MIN_TURN_SILENCE", "150")),
     }
     # continuous_partials / interruption_delay are ONLY accepted by the
     # 'u3-rt-pro' model — the plugin raises ValueError if passed with the
@@ -923,7 +923,7 @@ async def entrypoint(ctx: JobContext) -> None:
     # `turn_handling=TurnHandlingOptions(...)` now. We try the new API first
     # and fall back to the old kwargs otherwise. Either way, signature-filter
     # so unknown kwargs are dropped instead of crashing.
-    min_endp = float(os.getenv("MIN_ENDPOINTING_DELAY", "0.30"))
+    min_endp = float(os.getenv("MIN_ENDPOINTING_DELAY", "0.10"))
 
     new_api_applied = False
     try:
