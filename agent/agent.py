@@ -252,11 +252,10 @@ def _stt_for(agent: Optional[AxonAgent]) -> assemblyai.STT:
     import inspect
 
     lang = (agent.language if agent and agent.language else "multi").lower()
-    model = (
-        "universal-streaming-english"
-        if lang == "en"
-        else "universal-streaming-multilingual"
-    )
+    # Default: u3-rt-pro is AssemblyAI's lowest-latency real-time model and
+    # supports multilingual + continuous_partials + interruption_delay.
+    # universal-streaming-* models are still selectable via env override.
+    model = "u3-rt-pro"
     model = os.getenv("ASSEMBLYAI_MODEL", model)
 
     candidate: dict = {
@@ -275,11 +274,11 @@ def _stt_for(agent: Optional[AxonAgent]) -> assemblyai.STT:
         # even when it isn't fully confident. Bounds worst-case STT-delay.
         "max_turn_silence": int(os.getenv("ASSEMBLYAI_MAX_TURN_SILENCE", "400")),
     }
-    # continuous_partials / interruption_delay are ONLY accepted by the
-    # 'u3-rt-pro' model — the plugin raises ValueError if passed with the
-    # universal-streaming models. Gate them on the model to avoid crashing.
+    # u3-rt-pro exclusives: continuous_partials + interruption_delay improve
+    # responsiveness (faster commit on short answers + lower barge-in cost).
     if model == "u3-rt-pro":
         candidate["continuous_partials"] = True
+        candidate["interruption_delay"] = int(os.getenv("ASSEMBLYAI_INTERRUPTION_DELAY", "200"))
     api_key = os.getenv("ASSEMBLYAI_API_KEY")
     if api_key:
         candidate["api_key"] = api_key
