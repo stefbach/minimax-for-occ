@@ -27,9 +27,25 @@ export async function GET() {
       },
     });
     if (r.ok) {
-      const voices = await r.json().catch(() => []);
-      const count = Array.isArray(voices) ? voices.length : "?";
-      checks.push({ name: "Cartesia /voices", ok: true, detail: `OK — ${count} voix disponibles` });
+      const raw = await r.json().catch(() => null);
+      let voices: unknown[] = [];
+      let shape = "array";
+      if (Array.isArray(raw)) {
+        voices = raw;
+      } else if (raw && typeof raw === "object") {
+        shape = `object{${Object.keys(raw as object).join(",")}}`;
+        for (const key of ["voices", "items", "data", "results"]) {
+          if (Array.isArray((raw as Record<string, unknown>)[key])) {
+            voices = (raw as Record<string, unknown>)[key] as unknown[];
+            break;
+          }
+        }
+      }
+      checks.push({
+        name: "Cartesia /voices",
+        ok: true,
+        detail: `OK — ${voices.length} voix disponibles (shape: ${shape})`,
+      });
     } else {
       checks.push({
         name: "Cartesia /voices",

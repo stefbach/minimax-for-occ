@@ -51,8 +51,12 @@ export async function listCartesiaVoices(): Promise<CartesiaVoice[]> {
   });
   if (!r.ok) throw new Error(`Cartesia /voices failed: HTTP ${r.status}`);
   const data = await r.json();
-  // API returns the array directly (or wrapped in { voices: [...] }).
-  return Array.isArray(data) ? data : (data.voices ?? []);
+  if (Array.isArray(data)) return data;
+  // API may wrap voices under different keys depending on version.
+  for (const key of ["voices", "items", "data", "results"]) {
+    if (Array.isArray(data[key])) return data[key];
+  }
+  return [];
 }
 
 /**
