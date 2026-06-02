@@ -247,6 +247,15 @@ def _stt_for(agent: Optional[AxonAgent]) -> assemblyai.STT:
             os.getenv("ASSEMBLYAI_EOT_THRESHOLD", "0.4")
         ),
         "min_turn_silence": int(os.getenv("ASSEMBLYAI_MIN_TURN_SILENCE", "150")),
+        # Skip the formatted-final pass (punctuation/casing). It adds ~1s of
+        # end-of-turn latency for zero benefit — the LLM reads raw text fine.
+        # Override with ASSEMBLYAI_FORMAT_TURNS=true if a clean transcript is
+        # needed for CRM/recording.
+        "format_turns": os.getenv("ASSEMBLYAI_FORMAT_TURNS", "false").lower()
+        in ("1", "true", "yes"),
+        # Hard cap on how long AssemblyAI may wait before forcing a turn end,
+        # even when it isn't fully confident. Bounds worst-case STT-delay.
+        "max_turn_silence": int(os.getenv("ASSEMBLYAI_MAX_TURN_SILENCE", "400")),
     }
     # continuous_partials / interruption_delay are ONLY accepted by the
     # 'u3-rt-pro' model — the plugin raises ValueError if passed with the
