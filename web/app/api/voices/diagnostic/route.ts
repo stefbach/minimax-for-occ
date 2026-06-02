@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { listCartesiaVoices } from "@/lib/cartesia";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,42 +21,24 @@ export async function GET() {
   }
 
   try {
-    const r = await fetch(`${base}/voices`, {
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Cartesia-Version": "2025-04-16",
-      },
-    });
-    if (r.ok) {
-      const raw = await r.json().catch(() => null);
-      let voices: unknown[] = [];
-      let shape = "array";
-      if (Array.isArray(raw)) {
-        voices = raw;
-      } else if (raw && typeof raw === "object") {
-        shape = `object{${Object.keys(raw as object).join(",")}}`;
-        for (const key of ["voices", "items", "data", "results"]) {
-          if (Array.isArray((raw as Record<string, unknown>)[key])) {
-            voices = (raw as Record<string, unknown>)[key] as unknown[];
-            break;
-          }
-        }
-      }
-      checks.push({
-        name: "Cartesia /voices",
-        ok: true,
-        detail: `OK — ${voices.length} voix disponibles (shape: ${shape})`,
-      });
-    } else {
-      checks.push({
-        name: "Cartesia /voices",
-        ok: false,
-        detail: `HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`,
-      });
+    const all = await listCartesiaVoices();
+    const byLang = new Map<string, number>();
+    for (const v of all) {
+      const lang = v.language ?? "?";
+      byLang.set(lang, (byLang.get(lang) ?? 0) + 1);
     }
+    const breakdown = Array.from(byLang.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([l, n]) => `${l}:${n}`)
+      .join(", ");
+    checks.push({
+      name: "Cartesia /voices (paginé)",
+      ok: true,
+      detail: `${all.length} voix uniques — ${breakdown || "aucune"}`,
+    });
   } catch (e) {
     checks.push({
-      name: "Cartesia /voices",
+      name: "Cartesia /voices (paginé)",
       ok: false,
       detail: e instanceof Error ? e.message : String(e),
     });

@@ -47,13 +47,15 @@ export interface CartesiaVoice {
 /** GET /voices — returns every voice the API key can access, following pagination. */
 export async function listCartesiaVoices(): Promise<CartesiaVoice[]> {
   const base = cartesiaBase();
+  const seen = new Set<string>();
   const all: CartesiaVoice[] = [];
   let cursor: string | null = null;
   const MAX_PAGES = 20;
 
   for (let page = 0; page < MAX_PAGES; page++) {
-    const url = cursor ? `${base}/voices?page_cursor=${encodeURIComponent(cursor)}` : `${base}/voices`;
-    const r = await fetch(url, { headers: authHeaders() });
+    const params = new URLSearchParams({ limit: "100" });
+    if (cursor) params.set("starting_after", cursor);
+    const r = await fetch(`${base}/voices?${params.toString()}`, { headers: authHeaders() });
     if (!r.ok) throw new Error(`Cartesia /voices failed: HTTP ${r.status}`);
     const data = await r.json();
 
@@ -63,10 +65,22 @@ export async function listCartesiaVoices(): Promise<CartesiaVoice[]> {
     } else {
       voices = (data.data ?? data.voices ?? data.items ?? data.results ?? []) as CartesiaVoice[];
     }
-    all.push(...voices);
 
-    if (!data.has_more || !data.next_page) break;
-    cursor = data.next_page as string;
+    let added = 0;
+    for (const v of voices) {
+      if (v?.id && !seen.has(v.id)) {
+        seen.add(v.id);
+        all.push(v);
+        added++;
+      }
+    }
+
+    // Stop if no progress (cursor not working) or API signals end.
+    if (added === 0) break;
+    if (!data.has_more) break;
+    const next = data.next_page ?? data.next_cursor ?? null;
+    if (!next || next === cursor) break;
+    cursor = next as string;
   }
 
   return all;
