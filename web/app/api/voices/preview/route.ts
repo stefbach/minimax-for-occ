@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { previewTTS } from "@/lib/minimax";
+import { previewCartesiaTTS } from "@/lib/cartesia";
 import { requestOrgId } from "@/lib/request-org";
 import { recordUsage, estimateCostCents } from "@/lib/billing";
 import { rateLimit, clientIp } from "@/lib/rate-limit";
@@ -13,8 +13,9 @@ const VOICES_PREVIEW_RATE_LIMIT = Number(
 );
 
 /**
- * POST /api/voices/preview  body: { voice_id, text?, speed?, emotion? }
+ * POST /api/voices/preview  body: { voice_id, text?, speed?, emotion?, model?, language? }
  * Returns audio/mpeg bytes the browser can play directly.
+ * Now uses Cartesia Sonic instead of MiniMax.
  */
 export async function POST(req: Request) {
   const ip = clientIp(req);
@@ -33,11 +34,9 @@ export async function POST(req: Request) {
     voice_id?: string;
     text?: string;
     speed?: number;
-    vol?: number;
-    pitch?: number;
     emotion?: string;
     model?: string;
-    language_boost?: string;
+    language?: string;
   };
   if (!body.voice_id) {
     return NextResponse.json({ error: "voice_id required" }, { status: 400 });
@@ -45,15 +44,13 @@ export async function POST(req: Request) {
   try {
     const text =
       body.text || "Bonjour, je suis votre nouvel assistant vocal. Comment puis-je vous aider ?";
-    const { audio, format } = await previewTTS({
+    const { audio, format } = await previewCartesiaTTS({
       voice_id: body.voice_id,
       text,
       speed: body.speed,
-      vol: body.vol,
-      pitch: body.pitch,
       emotion: body.emotion,
       model: body.model,
-      language_boost: body.language_boost,
+      language: body.language,
     });
 
     // Billing: record TTS chars (best-effort, never blocks the response).

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
-import { registerVoiceClone, uploadVoiceCloneSample } from "@/lib/minimax";
+import { cloneCartesiaVoice } from "@/lib/cartesia";
 import { requestOrgId } from "@/lib/request-org";
 
 export const runtime = "nodejs";
@@ -21,21 +21,15 @@ export async function GET(req: Request) {
   return NextResponse.json(data ?? []);
 }
 
-const VOICE_ID_RE = /^[A-Za-z][A-Za-z0-9_]{7,63}$/;
-
 /**
  * POST /api/voices  (multipart/form-data)
- *   file:           audio sample (wav/mp3/m4a, 10s–5min, ≤20MB, single speaker)
- *   voice_id:       8–64 chars, [A-Za-z][A-Za-z0-9_]+
- *   display_name:   human label
- *   language:       'multi' | 'fr' | 'en' | ...
+ *   file:           audio sample (wav/mp3/m4a, ≤20MB, single speaker)
+ *   display_name:   human label shown in the UI
+ *   language:       'multi' | 'fr' | 'en' | …
  *   description?:   optional notes
- *   sample_text?:   default text used for previews
- *   model?:         MiniMax speech model the clone is registered for (default speech-02-hd)
  *
- * Critically: we only persist the row in `voices` AFTER MiniMax confirms
- * the clone. If voice_clone returns a non-zero base_resp.status_code, we
- * surface the error and write nothing.
+ * Clones the voice via Cartesia's /voices/clone endpoint, then stores the
+ * resulting Cartesia voice UUID in Supabase so the agent dropdown picks it up.
  */
 export async function POST(req: Request) {
   if (!hasSupabase()) {
@@ -50,21 +44,12 @@ export async function POST(req: Request) {
   }
 
   const file = form.get("file");
-  const voiceId = String(form.get("voice_id") ?? "").trim();
   const displayName = String(form.get("display_name") ?? "").trim();
   const language = String(form.get("language") ?? "multi").trim() || "multi";
   const description = (form.get("description") as string | null)?.toString() || null;
-  const sampleText = (form.get("sample_text") as string | null)?.toString() || undefined;
-  const model = (form.get("model") as string | null)?.toString() || undefined;
 
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "audio file required" }, { status: 400 });
-  }
-  if (!VOICE_ID_RE.test(voiceId)) {
-    return NextResponse.json(
-      { error: "voice_id must be 8–64 chars, start with a letter, [A-Za-z0-9_] only" },
-      { status: 400 },
-    );
   }
   if (!displayName) {
     return NextResponse.json({ error: "display_name required" }, { status: 400 });
@@ -73,12 +58,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "file too small/large (max 20MB)" }, { status: 400 });
   }
 
-  // 1. upload sample to MiniMax, 2. register clone — both raise on real errors now.
-  let fileId: number | string;
+  // Clone via Cartesia — returns the new voice UUID.
+  let clonedId: string;
   try {
-    const up = await uploadVoiceCloneSample(file);
-    fileId = up.file_id;
-    await registerVoiceClone({ file_id: fileId, voice_id: voiceId, model });
+    const result = await cloneCartesiaVoice({
+      file,
+      name: displayName,
+      description: description ?? undefined,
+      language,
+    });
+    clonedId = result.id;
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : String(e) },
@@ -86,20 +75,19 @@ export async function POST(req: Request) {
     );
   }
 
-  // 3. only NOW record in Supabase so the dropdown picks it up
+  // Persist in Supabase so the agent form dropdown sees it.
   const sb = supabaseServer();
   const { data, error } = await sb
     .from("voices")
     .upsert(
       {
         org_id: orgId,
-        voice_id: voiceId,
+        voice_id: clonedId,
         display_name: displayName,
         language,
         source: "cloned",
         description,
-        sample_text: sampleText ?? undefined,
-        metadata: { minimax_file_id: fileId, original_filename: file.name, model: model ?? "speech-02-hd" },
+        metadata: { provider: "cartesia", original_filename: file.name },
       },
       { onConflict: "voice_id" },
     )

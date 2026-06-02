@@ -30,7 +30,7 @@ from livekit.agents.voice.background_audio import (
     BackgroundAudioPlayer,
     BuiltinAudioClip,
 )
-from livekit.plugins import deepgram, minimax, openai, silero
+from livekit.plugins import assemblyai, cartesia, openai, silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
 from agent_config import (
@@ -80,8 +80,8 @@ def _logger_for_call(call_id: Optional[str]) -> logging.LoggerAdapter:
 # Cache of openai.AsyncOpenAI clients, keyed by (base_url, api_key prefix).
 # Sharing a client across all agent sessions in this worker process means we
 # reuse the underlying httpx connection pool — so the TCP+TLS handshake to
-# DeepSeek/OpenAI/MiniMax (200-800ms RTT to China for DeepSeek/MiniMax) is
-# paid ONCE per worker boot instead of on every single call's first turn.
+# DeepSeek/OpenAI (200-600ms RTT from CDG) is paid ONCE per worker boot
+# instead of on every single call's first turn.
 _OPENAI_CLIENTS: dict[str, object] = {}
 
 
@@ -113,9 +113,8 @@ def _llm_for(agent: Optional[AxonAgent]):
 
     Worker-wide A/B knobs (env): set these to swap LLM provider/model for
     EVERY call without touching any agent row in DB. Unset to return to the
-    per-agent config. Useful for testing Anthropic / Groq / OpenAI alongside
-    the DeepSeek default.
-      • LLM_PROVIDER_FORCE = "anthropic" | "openai" | "minimax" | "deepseek"
+    per-agent config. Useful for testing Anthropic / OpenAI alongside DeepSeek.
+      • LLM_PROVIDER_FORCE = "anthropic" | "openai" | "deepseek"
       • LLM_MODEL_FORCE    = e.g. "claude-haiku-4-5-20251001"
     """
     forced_provider = os.getenv("LLM_PROVIDER_FORCE", "").strip().lower()
@@ -215,121 +214,123 @@ def _build_llm_with_max_tokens(cls, max_tokens: int, **kwargs):
     return cls(**kwargs)
 
 
-def _stt_for(agent: Optional[AxonAgent]) -> deepgram.STT:
-    """Deepgram STT — honors the per-agent language stored in Supabase.
-    - 'multi' / unset → auto-detect (30+ languages, broadest coverage)
-    - 'fr', 'en', 'es', … → locked language for max accuracy on short turns
+def _stt_for(agent: Optional[AxonAgent]) -> assemblyai.STT:
+    """AssemblyAI Universal Streaming STT — honors the per-agent language.
 
-    Telephony-specific tuning: on 8kHz G.711 PSTN audio Deepgram defaults to a
-    conservative endpointing (~500ms+ silence before finalizing) which adds a
-    very perceptible 500-700ms to every conversational turn vs. the same agent
-    in a clean Opus browser session. We push `endpointing_ms` lower and keep
-    `utterance_end_ms` as a safety net for long sentences. Both are
-    signature-filtered so older plugin versions that don't accept the kwargs
-    silently drop them instead of crashing.
+    Replaced Deepgram nova-3: AssemblyAI Universal Streaming targets
+    sub-300ms transcription delay vs Deepgram's 700-1400ms on 8kHz PSTN.
+
+    Model selection:
+      - 'en' only agent → universal-streaming-english (fastest English path)
+      - anything else   → universal-streaming-multilingual (FR/EN/ES/DE/…)
+    Override via ASSEMBLYAI_MODEL env for global A/B across all sessions.
+
+    Latency tuning (all signature-filtered for version safety):
+      - end_of_turn_confidence_threshold: lower → faster EOU detection, higher
+        risk of mid-sentence cut-offs. 0.7 is a balanced starting point.
+      - min_turn_silence: minimum ms of silence before declaring turn end.
+        250ms is aggressive but paired with quick-ack prompt trick.
     """
     import inspect
 
     lang = (agent.language if agent and agent.language else "multi").lower()
-    if lang in ("multi", "auto", ""):
-        lang = "multi"
+    model = (
+        "universal-streaming-english"
+        if lang == "en"
+        else "universal-streaming-multilingual"
+    )
+    model = os.getenv("ASSEMBLYAI_MODEL", model)
 
     candidate: dict = {
-        "model": os.getenv("DEEPGRAM_MODEL", "nova-3"),
-        "language": lang,
-        # Aggressive endpointing for PSTN. Real-world tests showed Deepgram
-        # `transcription_delay` ranging 763-1974ms with utterance_end_ms=700.
-        # Drop further to claw back perceived latency; trade-off is more
-        # mid-sentence cut-offs on hesitant speakers — mitigated by the
-        # quick-ack trick in the system prompt (start of replies = short
-        # filler word, so even if we mis-fire the user hears something).
-        "endpointing_ms": int(os.getenv("DEEPGRAM_ENDPOINTING_MS", "150")),
-        "utterance_end_ms": int(os.getenv("DEEPGRAM_UTTERANCE_END_MS", "400")),
-        "interim_results": True,
-        # Phase 1A extra latency knobs — all best-effort, signature-filtered
-        # below so older plugin versions silently drop the unknown kwargs.
-        #  • no_delay: skip the post-processing buffer Deepgram adds for nicer
-        #    transcripts (we don't need punctuation perfection on phone audio).
-        #  • mip_opt_out: opt out of Deepgram's Model Improvement Program
-        #    post-processing → strictly faster, just no training contribution.
-        #  • vad_events: emit explicit VAD events so livekit-agents can act on
-        #    speech-end earlier (needed for filler audio in Phase 1B).
-        #  • punctuate / smart_format / numerals / filler_words: all post-
-        #    processing passes we can disable — saves ~50-150ms per turn.
-        "no_delay": True,
-        "mip_opt_out": True,
-        "vad_events": True,
-        "punctuate": False,
-        "smart_format": False,
-        "numerals": False,
-        "filler_words": False,
+        "model": model,
+        "end_of_turn_confidence_threshold": float(
+            os.getenv("ASSEMBLYAI_EOT_THRESHOLD", "0.7")
+        ),
+        "min_turn_silence": int(os.getenv("ASSEMBLYAI_MIN_TURN_SILENCE", "250")),
+        "continuous_partials": True,
     }
+    api_key = os.getenv("ASSEMBLYAI_API_KEY")
+    if api_key:
+        candidate["api_key"] = api_key
+
     try:
-        supported = set(inspect.signature(deepgram.STT.__init__).parameters)
+        supported = set(inspect.signature(assemblyai.STT.__init__).parameters)
     except (ValueError, TypeError):
-        supported = {"model", "language"}
+        supported = {"model"}
     kwargs = {k: v for k, v in candidate.items() if k in supported}
-    return deepgram.STT(**kwargs)
+    return assemblyai.STT(**kwargs)
 
 
-def _tts_for(agent: Optional[AxonAgent]) -> minimax.TTS:
+def _tts_for(agent: Optional[AxonAgent]) -> cartesia.TTS:
+    """Cartesia Sonic TTS — honors the per-agent voice/language/speed.
+
+    Replaced MiniMax for lower TTFB: Cartesia Sonic targets ~90ms
+    time-to-first-byte vs MiniMax's 400-800ms over the China RTT.
+
+    Voice IDs are Cartesia UUIDs (browse at play.cartesia.ai or via the
+    Axon admin UI which fetches the live catalog from Cartesia's API).
+    The per-agent tts_voice_id is stored in Supabase; if unset, Cartesia's
+    default voice is used. Override globally via CARTESIA_VOICE_ID.
+
+    Cartesia does not have a pitch control — the tts_pitch field in the DB
+    is ignored. Speed and volume are supported.
+    """
     import inspect
 
-    voice = (agent.tts_voice_id if agent else None) or os.getenv("MINIMAX_VOICE_ID")
-    model = (agent.tts_model if agent and agent.tts_model else os.getenv("MINIMAX_TTS_MODEL"))
-    # MiniMax preset voices (Casual_Guy, Determined_Man, …) only exist on the
-    # *-hd models. Without one the API silently falls back to a default voice.
-    if not model and voice:
-        model = "speech-02-hd"
-
-    emotion = (agent.tts_emotion if agent and agent.tts_emotion else os.getenv("MINIMAX_TTS_EMOTION")) or None
-    # The "fluent" emotion only exists on speech-2.6-* models; drop it otherwise
-    # so we never hit the plugin's ValueError mid-call.
-    if emotion == "fluent" and not (model or "").startswith("speech-2.6"):
-        emotion = None
-
-    # Lock language_boost to the agent's configured language for cleaner
-    # prosody/pronunciation; "multi"/unknown → "auto" (let MiniMax detect).
     lang = (agent.language if agent and agent.language else "multi").lower()
-    boost = {
-        "fr": "French",
-        "en": "English",
-        "es": "Spanish",
-        "de": "German",
-        "it": "Italian",
-        "pt": "Portuguese",
-        "nl": "Dutch",
-        "ar": "Arabic",
-    }.get(lang) or os.getenv("MINIMAX_LANGUAGE_BOOST", "auto")
+    # Cartesia language codes: ISO 639-1. "multi"/unset → None → Cartesia
+    # infers from the text. Override via env for global A/B testing.
+    cartesia_lang = os.getenv(
+        "CARTESIA_LANGUAGE",
+        None if lang in ("multi", "auto", "") else lang,
+    )
+
+    model = (
+        (agent.tts_model if agent and agent.tts_model else None)
+        or os.getenv("CARTESIA_MODEL", "sonic-3")
+    )
+
+    voice = (
+        (agent.tts_voice_id if agent and agent.tts_voice_id else None)
+        or os.getenv("CARTESIA_VOICE_ID")
+    )
+
+    speed = (
+        float(agent.tts_speed)
+        if agent and agent.tts_speed and agent.tts_speed != 1.0
+        else None
+    )
+
+    volume = (
+        float(agent.tts_volume)
+        if agent and agent.tts_volume and agent.tts_volume != 1.0
+        else None
+    )
+
+    # Cartesia emotion is a list of strings (TTSVoiceEmotion literals).
+    # tts_emotion stores one emotion string; wrap in list for the plugin.
+    emotion_raw = (agent.tts_emotion if agent and agent.tts_emotion else None)
+    emotion: Optional[list] = [emotion_raw] if emotion_raw else None
 
     candidate: dict = {
-        "voice": voice,
         "model": model,
+        "language": cartesia_lang,
+        "speed": speed,
         "emotion": emotion,
-        "speed": float(agent.tts_speed) if agent and agent.tts_speed and agent.tts_speed != 1.0 else None,
-        "vol": float(agent.tts_volume) if agent and agent.tts_volume and agent.tts_volume != 1.0 else None,
-        "pitch": int(agent.tts_pitch) if agent and agent.tts_pitch else None,
-        "language_boost": boost,
-        # Force PCM streaming instead of MP3. MiniMax streams MP3 as multiple
-        # chunks each with their own headers, which crashes livekit-agents'
-        # PyAV decoder with InvalidDataError 1094995529 (livekit/livekit#3850,
-        # agents#3863). Raw PCM has no per-chunk headers so concatenation works.
-        "audio_format": "pcm",
+        "volume": volume,
     }
+    if voice:
+        candidate["voice"] = voice
+    api_key = os.getenv("CARTESIA_API_KEY")
+    if api_key:
+        candidate["api_key"] = api_key
 
-    # Only pass kwargs that (a) have a value and (b) the installed plugin
-    # actually accepts — robust across plugin versions, no more TypeErrors.
     try:
-        supported = set(inspect.signature(minimax.TTS.__init__).parameters)
+        supported = set(inspect.signature(cartesia.TTS.__init__).parameters)
     except (ValueError, TypeError):
         supported = set(candidate)
     kwargs = {k: v for k, v in candidate.items() if v is not None and k in supported}
-
-    try:
-        return minimax.TTS(**kwargs)
-    except TypeError:
-        kwargs.pop("audio_format", None)
-        return minimax.TTS(**kwargs)
+    return cartesia.TTS(**kwargs)
 
 
 def _build_n8n_tools(agent: AxonAgent):
@@ -1029,8 +1030,8 @@ def prewarm(proc):
     Silero VAD is reused across every job via proc.userdata — this removes a
     chunk of the cold pre-greeting latency the caller would otherwise hear.
 
-    Also warm DNS + TCP+TLS to the LLM provider so the first user turn of the
-    first call doesn't pay a 600-1000ms handshake to DeepSeek/MiniMax in China.
+    Also warm DNS + TCP+TLS to the LLM and TTS providers so the first user
+    turn of the first call doesn't pay a cold handshake.
     Best-effort: failures are silent (we'll just pay the cold cost on demand)."""
     try:
         proc.userdata["vad"] = silero.VAD.load()
@@ -1038,17 +1039,23 @@ def prewarm(proc):
         # Non-fatal: the entrypoint falls back to a per-call VAD.load().
         pass
 
-    # Resolve which provider's endpoint to warm. Mirrors _llm_for's defaults,
-    # honoring the LLM_PROVIDER_FORCE override so an A/B test on Anthropic
-    # warms the Anthropic edge instead of DeepSeek's.
+    # Warm Cartesia TTS endpoint (EU edge, latency-sensitive for each turn).
+    try:
+        import httpx as _httpx
+        cartesia_url = os.getenv("CARTESIA_BASE_URL", "https://api.cartesia.ai")
+        _httpx.get(f"{cartesia_url.rstrip('/')}/voices", timeout=3.0,
+                   headers={"Authorization": f"Bearer {os.getenv('CARTESIA_API_KEY', 'x')}"})
+    except Exception:
+        pass
+
+    # Resolve which LLM provider's endpoint to warm. Mirrors _llm_for's
+    # defaults, honoring LLM_PROVIDER_FORCE for active A/B overrides.
     provider = (
         os.getenv("LLM_PROVIDER_FORCE", "").strip().lower()
         or os.getenv("LLM_PROVIDER", "deepseek").lower()
     )
     if provider == "deepseek":
         url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
-    elif provider == "minimax":
-        url = os.getenv("MINIMAX_BASE_URL", "https://api.minimax.io/v1")
     elif provider == "openai":
         url = "https://api.openai.com/v1"
     elif provider == "anthropic":

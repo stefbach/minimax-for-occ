@@ -35,38 +35,42 @@ async function fetchWithTimeout(url: string, init: RequestInit = {}): Promise<Re
   }
 }
 
-async function checkMinimax(apiKey: string | undefined): Promise<CheckResult> {
+async function checkCartesia(apiKey: string | undefined): Promise<CheckResult> {
   if (!apiKey) {
-    return { service: "MiniMax", status: "fail", message: "MINIMAX_API_KEY manquante côté serveur" };
+    return { service: "Cartesia TTS", status: "fail", message: "CARTESIA_API_KEY manquante côté serveur" };
   }
   try {
-    // Minimal TTS call — 1 char, surfaces credit/auth errors immediately.
-    const r = await fetchWithTimeout("https://api.minimax.io/v1/t2a_v2", {
-      method: "POST",
+    const r = await fetchWithTimeout("https://api.cartesia.ai/voices", {
       headers: {
         Authorization: `Bearer ${apiKey}`,
-        "content-type": "application/json",
+        "Cartesia-Version": "2025-04-16",
       },
-      body: JSON.stringify({
-        model: "speech-02-hd",
-        text: ".",
-        voice_setting: { voice_id: "Calm_Woman", speed: 1, vol: 1 },
-        audio_setting: { sample_rate: 24000, format: "mp3", channel: 1 },
-      }),
     });
-    const json = (await r.json().catch(() => ({}))) as { base_resp?: { status_code?: number; status_msg?: string } };
-    const code = json.base_resp?.status_code;
-    const msg = json.base_resp?.status_msg ?? "";
-    if (code === 0) return { service: "MiniMax", status: "ok", message: "API joignable, crédit disponible" };
-    if (/balance|insufficient|quota/i.test(msg)) {
-      return { service: "MiniMax", status: "fail", message: "Crédit MiniMax épuisé", detail: msg };
+    if (r.ok) return { service: "Cartesia TTS", status: "ok", message: "API joignable, clé valide" };
+    if (r.status === 401 || r.status === 403) {
+      return { service: "Cartesia TTS", status: "fail", message: "Clé API Cartesia invalide" };
     }
-    if (/auth|token|key/i.test(msg)) {
-      return { service: "MiniMax", status: "fail", message: "Clé API MiniMax invalide", detail: msg };
-    }
-    return { service: "MiniMax", status: "fail", message: msg || `Erreur ${code}`, detail: JSON.stringify(json) };
+    return { service: "Cartesia TTS", status: "fail", message: `HTTP ${r.status}`, detail: await r.text().catch(() => "") };
   } catch (e) {
-    return { service: "MiniMax", status: "fail", message: "Service injoignable", detail: String(e) };
+    return { service: "Cartesia TTS", status: "fail", message: "Service injoignable", detail: String(e) };
+  }
+}
+
+async function checkAssemblyAI(apiKey: string | undefined): Promise<CheckResult> {
+  if (!apiKey) {
+    return { service: "AssemblyAI STT", status: "fail", message: "ASSEMBLYAI_API_KEY manquante (Fly secret uniquement)" };
+  }
+  try {
+    const r = await fetchWithTimeout("https://api.assemblyai.com/v2/account", {
+      headers: { Authorization: apiKey },
+    });
+    if (r.ok) return { service: "AssemblyAI STT", status: "ok", message: "API joignable, clé valide" };
+    if (r.status === 401 || r.status === 403) {
+      return { service: "AssemblyAI STT", status: "fail", message: "Clé API AssemblyAI invalide" };
+    }
+    return { service: "AssemblyAI STT", status: "fail", message: `HTTP ${r.status}` };
+  } catch (e) {
+    return { service: "AssemblyAI STT", status: "fail", message: "Service injoignable", detail: String(e) };
   }
 }
 
@@ -75,7 +79,6 @@ async function checkDeepseek(apiKey: string | undefined): Promise<CheckResult> {
     return { service: "DeepSeek", status: "fail", message: "DEEPSEEK_API_KEY manquante côté serveur" };
   }
   try {
-    // /models is the cheapest auth-checking endpoint.
     const r = await fetchWithTimeout("https://api.deepseek.com/v1/models", {
       headers: { Authorization: `Bearer ${apiKey}` },
     });
@@ -92,24 +95,6 @@ async function checkDeepseek(apiKey: string | undefined): Promise<CheckResult> {
   }
 }
 
-async function checkDeepgram(apiKey: string | undefined): Promise<CheckResult> {
-  if (!apiKey) {
-    return { service: "Deepgram", status: "fail", message: "DEEPGRAM_API_KEY manquante côté serveur" };
-  }
-  try {
-    const r = await fetchWithTimeout("https://api.deepgram.com/v1/projects", {
-      headers: { Authorization: `Token ${apiKey}` },
-    });
-    if (r.ok) return { service: "Deepgram", status: "ok", message: "API joignable, clé valide" };
-    if (r.status === 401 || r.status === 403) {
-      return { service: "Deepgram", status: "fail", message: "Clé API Deepgram invalide" };
-    }
-    return { service: "Deepgram", status: "fail", message: `HTTP ${r.status}` };
-  } catch (e) {
-    return { service: "Deepgram", status: "fail", message: "Service injoignable", detail: String(e) };
-  }
-}
-
 async function checkLivekit(): Promise<CheckResult> {
   const url = process.env.NEXT_PUBLIC_LIVEKIT_URL;
   const key = process.env.LIVEKIT_API_KEY;
@@ -121,12 +106,9 @@ async function checkLivekit(): Promise<CheckResult> {
       message: "Variables d'environnement LiveKit manquantes",
     };
   }
-  // We can't easily hit LiveKit Cloud HTTPS without the server SDK round-trip;
-  // a healthy DNS + TLS handshake is a strong signal. Use the project subdomain.
   try {
     const httpsUrl = url.replace(/^wss?:/, "https:");
     const r = await fetchWithTimeout(httpsUrl, { method: "HEAD" });
-    // LiveKit Cloud always responds 200/404 to a HEAD on the subdomain.
     if (r.status < 500) return { service: "LiveKit", status: "ok", message: "Endpoint joignable" };
     return { service: "LiveKit", status: "fail", message: `LiveKit Cloud en erreur (HTTP ${r.status})` };
   } catch (e) {
@@ -146,8 +128,7 @@ interface AgentConfig {
 
 function checkAgentConfig(agent: AgentConfig): CheckResult {
   const issues: string[] = [];
-  if (!agent.tts_voice_id) issues.push("aucune voix TTS définie");
-  if (agent.tts_voice_id && !agent.tts_model) issues.push("voix définie mais aucun modèle TTS");
+  if (!agent.tts_voice_id) issues.push("aucune voix Cartesia définie (UUID requis)");
   if (!agent.llm_provider) issues.push("aucun fournisseur LLM");
   if (!agent.llm_model) issues.push("aucun modèle LLM");
   if (issues.length === 0) {
@@ -172,15 +153,15 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     );
   }
 
-  const [minimax, deepseek, deepgram, livekit] = await Promise.all([
-    checkMinimax(process.env.MINIMAX_API_KEY),
+  const [cartesia, assemblyai, deepseek, livekit] = await Promise.all([
+    checkCartesia(process.env.CARTESIA_API_KEY),
+    checkAssemblyAI(process.env.ASSEMBLYAI_API_KEY),
     checkDeepseek(process.env.DEEPSEEK_API_KEY),
-    checkDeepgram(process.env.DEEPGRAM_API_KEY),
     checkLivekit(),
   ]);
   const config = checkAgentConfig(agent as AgentConfig);
 
-  const checks = [config, livekit, deepgram, deepseek, minimax];
+  const checks = [config, livekit, assemblyai, deepseek, cartesia];
   const ok = checks.every((c) => c.status === "ok");
   return NextResponse.json({
     ok,

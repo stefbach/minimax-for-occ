@@ -11,25 +11,20 @@ type ModelOption = { id: string; label: string };
 
 const PROVIDER_MODELS: Record<LlmProvider, ModelOption[]> = {
   deepseek: [
-    { id: "deepseek-v4-flash", label: "deepseek-v4-flash — Réponses immédiates (1-2s) et 3× moins cher, idéal pour les appels en temps réel (recommandé)" },
-    { id: "deepseek-v4-pro", label: "deepseek-v4-pro — Plus puissant mais ~3× plus cher, pour analyses ou décisions complexes" },
-    { id: "deepseek-reasoner", label: "deepseek-reasoner — Réfléchit avant de répondre (5-30s), pour calculs ou décisions multi-étapes" },
+    { id: "deepseek-v4-flash", label: "deepseek-v4-flash — Ultra rapide (1-2s), cache prefix, 3× moins cher (recommandé appels vocaux)" },
   ],
   openai: [
+    { id: "gpt-4o-mini", label: "gpt-4o-mini — Rapide et économique (recommandé appels vocaux)" },
     { id: "gpt-4o", label: "gpt-4o — Polyvalent haute qualité" },
-    { id: "gpt-4o-mini", label: "gpt-4o-mini — Rapide et économique" },
-    { id: "gpt-4.1", label: "gpt-4.1 — Dernière génération" },
     { id: "gpt-4.1-mini", label: "gpt-4.1-mini — Dernière génération, économique" },
-    { id: "o4-mini", label: "o4-mini — Raisonnement avancé" },
+    { id: "gpt-4.1", label: "gpt-4.1 — Dernière génération" },
   ],
   anthropic: [
-    { id: "claude-sonnet-4-5", label: "claude-sonnet-4-5 — Équilibre qualité/vitesse" },
-    { id: "claude-opus-4-5", label: "claude-opus-4-5 — Qualité maximale" },
-    { id: "claude-haiku-4-5", label: "claude-haiku-4-5 — Ultra rapide" },
+    { id: "claude-haiku-4-5-20251001", label: "claude-haiku-4-5 — Ultra rapide, multilingue (recommandé appels vocaux)" },
+    { id: "claude-sonnet-4-6", label: "claude-sonnet-4-6 — Équilibre qualité/vitesse" },
   ],
   minimax: [
     { id: "MiniMax-M2", label: "MiniMax-M2 — Standard" },
-    { id: "MiniMax-M2-Stable", label: "MiniMax-M2-Stable — Production stable" },
   ],
 };
 
@@ -37,64 +32,25 @@ const PROVIDER_MODEL_IDS: Record<LlmProvider, string[]> = Object.fromEntries(
   Object.entries(PROVIDER_MODELS).map(([k, v]) => [k, v.map((m) => m.id)]),
 ) as Record<LlmProvider, string[]>;
 
-type TTSFamily = "speech-02" | "speech-01";
-
-const TTS_MODELS: { id: string; label: string; family: TTSFamily }[] = [
-  { id: "speech-2.6-hd",         label: "speech-2.6-hd — Le plus naturel + émotion « fluent » (recommandé)", family: "speech-02" },
-  { id: "speech-2.8-hd",         label: "speech-2.8-hd — Dernière génération, très naturel",        family: "speech-02" },
-  { id: "speech-2.6-turbo",      label: "speech-2.6-turbo — Naturel, plus rapide",                  family: "speech-02" },
-  { id: "speech-02-hd",          label: "speech-02-hd — Qualité HD multilingue, latence standard",  family: "speech-02" },
-  { id: "speech-02-turbo",       label: "speech-02-turbo — Plus rapide, qualité standard",          family: "speech-02" },
-  { id: "speech-2.5-hd-preview", label: "speech-2.5-hd (preview) — Qualité maximale (en bêta)",      family: "speech-02" },
-  { id: "speech-01-turbo",       label: "speech-01-turbo — Économique, latence ultra-faible",        family: "speech-01" },
-  { id: "speech-01",             label: "speech-01 (legacy) — Compatibilité voix historiques",       family: "speech-01" },
+const TTS_MODELS: { id: string; label: string }[] = [
+  { id: "sonic-3",     label: "sonic-3 — Dernière génération, latence ultra-faible (recommandé)" },
+  { id: "sonic-2",     label: "sonic-2 — Stable, grande qualité" },
+  { id: "sonic-turbo", label: "sonic-turbo — Le plus rapide, qualité bonne" },
 ];
 
-// Each MiniMax model family has its own voice catalog. Picking a voice
-// from the wrong catalog makes the API silently fall back to a default.
-type BuiltinVoice = { id: string; label: string; group: string };
-const BUILTIN_VOICES: Record<TTSFamily, BuiltinVoice[]> = {
-  "speech-02": [
-    { id: "French_CasualMan",          label: "Homme français décontracté (French_CasualMan)",   group: "Voix françaises & téléphonie" },
-    { id: "French_Female Journalist",  label: "Journaliste française (French_Female Journalist)", group: "Voix françaises & téléphonie" },
-    { id: "voice_agent_Male_Phone_1",  label: "Agent téléphonique homme 1 (voice_agent_Male_Phone_1)",   group: "Voix françaises & téléphonie" },
-    { id: "voice_agent_Male_Phone_2",  label: "Agent téléphonique homme 2 (voice_agent_Male_Phone_2)",   group: "Voix françaises & téléphonie" },
-    { id: "voice_agent_Female_Phone_4", label: "Agent téléphonique femme (voice_agent_Female_Phone_4)",  group: "Voix françaises & téléphonie" },
-    { id: "Calm_Woman",         label: "Femme calme (Calm_Woman)",                       group: "Femmes adultes" },
-    { id: "Wise_Woman",         label: "Femme posée (Wise_Woman)",                       group: "Femmes adultes" },
-    { id: "Lively_Girl",        label: "Jeune femme dynamique (Lively_Girl)",            group: "Jeunes femmes / adolescentes" },
-    { id: "Inspirational_girl", label: "Jeune femme inspirante (Inspirational_girl)",    group: "Jeunes femmes / adolescentes" },
-    { id: "Lovely_Girl",        label: "Jeune femme douce (Lovely_Girl)",                group: "Jeunes femmes / adolescentes" },
-    { id: "Sweet_Girl_2",       label: "Jeune femme chaleureuse (Sweet_Girl_2)",         group: "Jeunes femmes / adolescentes" },
-    { id: "Exuberant_Girl",     label: "Jeune femme enthousiaste (Exuberant_Girl)",      group: "Jeunes femmes / adolescentes" },
-    { id: "Patient_Man",        label: "Homme patient (Patient_Man)",                    group: "Hommes adultes" },
-    { id: "Casual_Guy",         label: "Homme décontracté (Casual_Guy)",                 group: "Hommes adultes" },
-    { id: "Determined_Man",     label: "Homme déterminé (Determined_Man)",               group: "Hommes adultes" },
-    { id: "Deep_Voice_Man",     label: "Homme voix grave (Deep_Voice_Man)",              group: "Hommes adultes" },
-    { id: "Elegant_Man",        label: "Homme élégant (Elegant_Man)",                    group: "Hommes adultes" },
-    { id: "Decent_Boy",         label: "Jeune homme professionnel (Decent_Boy)",         group: "Jeune homme" },
-    { id: "Friendly_Person",    label: "Personne amicale (Friendly_Person)",             group: "Neutre" },
-  ],
-  "speech-01": [
-    { id: "female-chengshu",     label: "Femme adulte (female-chengshu)",                group: "Femmes adultes" },
-    { id: "female-yujie",        label: "Femme mature (female-yujie)",                   group: "Femmes adultes" },
-    { id: "female-tianmei",      label: "Femme douce (female-tianmei)",                  group: "Femmes adultes" },
-    { id: "female-shaonv",       label: "Jeune femme (female-shaonv)",                   group: "Jeunes femmes" },
-    { id: "male-qn-jingying",    label: "Homme professionnel (male-qn-jingying)",        group: "Hommes adultes" },
-    { id: "male-qn-qingse",      label: "Homme posé (male-qn-qingse)",                   group: "Hommes adultes" },
-    { id: "male-qn-badao",       label: "Homme autoritaire (male-qn-badao)",             group: "Hommes adultes" },
-    { id: "male-qn-daxuesheng",  label: "Jeune homme étudiant (male-qn-daxuesheng)",     group: "Jeune homme" },
-    { id: "presenter_female",    label: "Présentatrice (presenter_female)",              group: "Présentateurs" },
-    { id: "presenter_male",      label: "Présentateur (presenter_male)",                 group: "Présentateurs" },
-    { id: "audiobook_female_1",  label: "Narratrice 1 (audiobook_female_1)",             group: "Narrateurs audiobook" },
-    { id: "audiobook_female_2",  label: "Narratrice 2 (audiobook_female_2)",             group: "Narrateurs audiobook" },
-    { id: "audiobook_male_1",    label: "Narrateur 1 (audiobook_male_1)",                group: "Narrateurs audiobook" },
-    { id: "audiobook_male_2",    label: "Narrateur 2 (audiobook_male_2)",                group: "Narrateurs audiobook" },
-  ],
-};
+// Cartesia emotions (subset of TTSVoiceEmotion — most useful for voice calls)
+const CARTESIA_EMOTIONS = [
+  "Neutral", "Calm", "Serene", "Content", "Happy", "Curious",
+  "Confident", "Determined", "Proud", "Sympathetic", "Apologetic",
+  "Enthusiastic", "Warm", "Contemplative", "Grateful",
+] as const;
 
-function ttsFamilyFor(modelId: string | null | undefined): TTSFamily {
-  return TTS_MODELS.find((m) => m.id === modelId)?.family ?? "speech-02";
+interface CartesiaVoiceCatalog {
+  id: string;
+  name: string;
+  language: string | null;
+  gender: string | null;
+  is_public: boolean;
 }
 
 function slugify(s: string): string {
@@ -116,14 +72,14 @@ const LANGUAGES = [
   { id: "it", label: "Italien" },
 ];
 
-// Maps the agent's language to MiniMax's language_boost (cleaner prosody).
-// "multi"/unknown → "auto" so MiniMax auto-detects.
-const LANGUAGE_BOOST: Record<string, string> = {
-  fr: "French",
-  en: "English",
-  es: "Spanish",
-  de: "German",
-  it: "Italian",
+// Maps agent language to ISO 639-1 for Cartesia preview.
+// "multi"/unknown → undefined (Cartesia auto-detects from text).
+const CARTESIA_LANGUAGE: Record<string, string> = {
+  fr: "fr",
+  en: "en",
+  es: "es",
+  de: "de",
+  it: "it",
 };
 
 export function AgentForm({ initial }: { initial?: Agent }) {
@@ -131,6 +87,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [voices, setVoices] = useState<Voice[]>([]);
+  const [cartesiaVoices, setCartesiaVoices] = useState<CartesiaVoiceCatalog[]>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const objectUrlRef = useRef<string | null>(null);
 
@@ -148,8 +105,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
   const [emotion, setEmotion] = useState(initial?.tts_emotion ?? "");
   const [speed, setSpeed] = useState(initial?.tts_speed ?? 1.0);
   const [volume, setVolume] = useState(initial?.tts_volume ?? 1.0);
-  const [pitch, setPitch] = useState(initial?.tts_pitch ?? 0);
-  const [ttsModel, setTtsModel] = useState(initial?.tts_model ?? "speech-2.6-hd");
+  const [ttsModel, setTtsModel] = useState(initial?.tts_model ?? "sonic-3");
   const [voiceStyle, setVoiceStyle] = useState(initial?.voice_style ?? "");
   const [systemPrompt, setSystemPrompt] = useState(initial?.system_prompt ?? "");
   const [greeting, setGreeting] = useState(initial?.greeting ?? "Bonjour, je vous écoute.");
@@ -165,28 +121,21 @@ export function AgentForm({ initial }: { initial?: Agent }) {
   const [showVoiceAdvanced, setShowVoiceAdvanced] = useState(false);
   const [showBrainAdvanced, setShowBrainAdvanced] = useState(false);
 
-  // Inline voice cloning (folds Voice Studio into the agent's Voix section).
+  // Inline voice cloning (Cartesia /voices/clone).
   const [showClone, setShowClone] = useState(false);
   const [cloneFile, setCloneFile] = useState<File | null>(null);
-  const [cloneVoiceId, setCloneVoiceId] = useState("");
   const [cloneName, setCloneName] = useState("");
   const [cloning, setCloning] = useState(false);
 
   async function doClone() {
-    if (!cloneFile || cloneVoiceId.trim().length < 8 || !cloneName.trim()) return;
-    if (!/^[A-Za-z][A-Za-z0-9_]{7,63}$/.test(cloneVoiceId.trim())) {
-      setError("voice_id : 8–64 caractères, commence par une lettre, A-Z / 0-9 / _ uniquement.");
-      return;
-    }
+    if (!cloneFile || !cloneName.trim()) return;
     setCloning(true);
     setError(null);
     try {
       const fd = new FormData();
       fd.set("file", cloneFile);
-      fd.set("voice_id", cloneVoiceId.trim());
       fd.set("display_name", cloneName.trim());
       fd.set("language", language);
-      fd.set("model", ttsModel);
       const r = await fetch("/api/voices", { method: "POST", body: fd, credentials: "same-origin" });
       const body = await r.json().catch(() => ({}));
       if (!r.ok) {
@@ -196,10 +145,9 @@ export function AgentForm({ initial }: { initial?: Agent }) {
       // Refresh the catalog and auto-select the freshly cloned voice.
       const list = await fetch("/api/voices").then((x) => (x.ok ? x.json() : []));
       setVoices(Array.isArray(list) ? list : []);
-      setVoice(cloneVoiceId.trim());
+      setVoice(body.voice_id ?? "");
       setShowClone(false);
       setCloneFile(null);
-      setCloneVoiceId("");
       setCloneName("");
     } finally {
       setCloning(false);
@@ -208,11 +156,15 @@ export function AgentForm({ initial }: { initial?: Agent }) {
 
   useEffect(() => {
     let cancelled = false;
+    // Load cloned voices from Supabase.
     fetch("/api/voices")
       .then((r) => (r.ok ? r.json() : []))
-      .then((data) => {
-        if (!cancelled) setVoices(Array.isArray(data) ? data : []);
-      })
+      .then((data) => { if (!cancelled) setVoices(Array.isArray(data) ? data : []); })
+      .catch(() => {});
+    // Load Cartesia catalog voices (returns [] when API key not configured).
+    fetch("/api/voices/cartesia")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) => { if (!cancelled) setCartesiaVoices(Array.isArray(data) ? data : []); })
       .catch(() => {});
     return () => {
       cancelled = true;
@@ -232,10 +184,9 @@ export function AgentForm({ initial }: { initial?: Agent }) {
         if (typeof frontmatter.language === "string") setLanguage(frontmatter.language);
         if (typeof frontmatter.llm_model === "string") {
           const m = frontmatter.llm_model;
-          // try to infer provider from model name
           const lower = m.toLowerCase();
           if (lower.startsWith("claude")) setProvider("anthropic");
-          else if (lower.startsWith("minimax")) setProvider("minimax");
+          else if (lower.startsWith("gpt") || lower.startsWith("o4") || lower.startsWith("o3")) setProvider("openai");
           else if (lower.startsWith("deepseek")) setProvider("deepseek");
           else setProvider("deepseek");
           setModel(m);
@@ -290,7 +241,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
       tts_emotion: emotion || null,
       tts_speed: speed,
       tts_volume: volume,
-      tts_pitch: pitch,
+      tts_pitch: 0,
       tts_model: ttsModel || null,
       voice_style: voiceStyle || null,
       system_prompt: systemPrompt,
@@ -338,14 +289,12 @@ export function AgentForm({ initial }: { initial?: Agent }) {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          voice_id: voice || "Calm_Woman",
+          voice_id: voice || "f786b574-daa5-4673-aa0c-cbe3e8534c02",
           text: greeting || "Bonjour, je suis votre assistant.",
-          model: ttsModel || undefined,
-          speed,
-          vol: volume,
-          pitch,
+          model: ttsModel || "sonic-3",
+          speed: speed !== 1.0 ? speed : undefined,
           emotion: emotion || undefined,
-          language_boost: LANGUAGE_BOOST[language] ?? "auto",
+          language: CARTESIA_LANGUAGE[language] ?? undefined,
         }),
       });
       if (!r.ok) {
@@ -369,41 +318,35 @@ export function AgentForm({ initial }: { initial?: Agent }) {
 
   const llmModels = PROVIDER_MODELS[provider];
 
-  // ── TTS family → compatible voice catalog ──────────────────────────────
-  const ttsFamily = ttsFamilyFor(ttsModel);
-  const voiceFamilyOf = (v: Voice): TTSFamily => {
-    const m = (v.metadata as Record<string, unknown> | null)?.["model"];
-    const modelId = typeof m === "string" ? m : "speech-02-hd";
-    return ttsFamilyFor(modelId);
-  };
-  const customCloned = voices.filter((v) => v.source === "cloned" && voiceFamilyOf(v) === ttsFamily);
-  const customPresets = voices.filter((v) => v.source === "preset" && voiceFamilyOf(v) === ttsFamily);
+  // ── Cartesia voice catalog (from API + cloned in Supabase) ─────────────
+  const customCloned = voices.filter((v) => v.source === "cloned");
+  const customPresets = voices.filter((v) => v.source === "preset");
 
-  const builtinForFamily = BUILTIN_VOICES[ttsFamily];
-  const builtinGroups: [string, BuiltinVoice[]][] = (() => {
-    const map = new Map<string, BuiltinVoice[]>();
-    for (const v of builtinForFamily) {
-      const list = map.get(v.group) ?? [];
+  // Group Cartesia catalog voices by language for a cleaner dropdown.
+  const cartesiaGroups: [string, CartesiaVoiceCatalog[]][] = (() => {
+    const map = new Map<string, CartesiaVoiceCatalog[]>();
+    for (const v of cartesiaVoices) {
+      const lang = v.language ?? "other";
+      const list = map.get(lang) ?? [];
       list.push(v);
-      map.set(v.group, list);
+      map.set(lang, list);
     }
-    return Array.from(map.entries());
+    // Sort: fr first, en second, then the rest alphabetically.
+    const sorted = Array.from(map.entries()).sort(([a], [b]) => {
+      if (a === "fr") return -1;
+      if (b === "fr") return 1;
+      if (a === "en") return -1;
+      if (b === "en") return 1;
+      return a.localeCompare(b);
+    });
+    return sorted;
   })();
 
   const knownVoiceIds = new Set<string>([
-    ...builtinForFamily.map((v) => v.id),
+    ...cartesiaVoices.map((v) => v.id),
     ...customCloned.map((v) => v.voice_id),
     ...customPresets.map((v) => v.voice_id),
   ]);
-
-  // If the user switches model family and the current voice is no longer
-  // available in the new family's catalog, fall back to "default MiniMax".
-  useEffect(() => {
-    if (voice && !knownVoiceIds.has(voice)) {
-      setVoice("");
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ttsModel]);
 
   return (
     <form onSubmit={onSubmit} style={{ display: "grid", gap: 18 }}>
@@ -494,11 +437,11 @@ export function AgentForm({ initial }: { initial?: Agent }) {
       {/* ═══ VOIX : comment l'agent sonne (tout le voice ici) ═══ */}
       {tab === "voix" && (
         <div className="card" style={{ display: "grid", gap: 14 }}>
-          <h3 style={{ margin: 0 }}>Voix</h3>
+          <h3 style={{ margin: 0 }}>Voix (Cartesia Sonic)</h3>
           <div>
             <label>Voix de l&apos;agent</label>
             <select value={voice} onChange={(e) => setVoice(e.target.value)}>
-              <option value="">— défaut MiniMax —</option>
+              <option value="">— défaut Cartesia —</option>
               {customCloned.length > 0 && (
                 <optgroup label="Mes voix clonées">
                   {customCloned.map((v) => (
@@ -513,17 +456,37 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                   ))}
                 </optgroup>
               )}
-              {builtinGroups.map(([groupName, options]) => (
-                <optgroup key={groupName} label={`Voix MiniMax — ${groupName}`}>
+              {cartesiaGroups.map(([lang, options]) => (
+                <optgroup key={lang} label={`Cartesia — ${lang.toUpperCase()}`}>
                   {options.map((v) => (
-                    <option key={v.id} value={v.id}>{v.label}</option>
+                    <option key={v.id} value={v.id}>
+                      {v.name}{v.gender ? ` (${v.gender})` : ""}
+                    </option>
                   ))}
                 </optgroup>
               ))}
+              {cartesiaVoices.length === 0 && (
+                <option value="" disabled>Configurez CARTESIA_API_KEY pour voir le catalogue</option>
+              )}
               {voice && !knownVoiceIds.has(voice) && (
-                <option value={voice}>{voice} (manuel)</option>
+                <option value={voice}>{voice} (ID manuel)</option>
               )}
             </select>
+            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
+              Parcourez le catalogue complet sur{" "}
+              <a href="https://play.cartesia.ai" target="_blank" rel="noopener noreferrer">play.cartesia.ai</a>
+              , puis collez l&apos;ID UUID ci-dessous (champ ID manuel).
+            </div>
+          </div>
+          {/* Manual UUID entry for voices found on play.cartesia.ai */}
+          <div>
+            <label>Entrer un ID de voix Cartesia manuellement</label>
+            <input
+              value={voice}
+              onChange={(e) => setVoice(e.target.value)}
+              placeholder="ex: a0e99841-438c-4a64-b679-ae501e7d6091"
+              style={{ fontFamily: "monospace", fontSize: 13 }}
+            />
           </div>
           <div style={{ display: "flex", gap: 8 }}>
             <button type="button" className="ghost" disabled={previewing} onClick={onPreviewVoice}>
@@ -534,12 +497,12 @@ export function AgentForm({ initial }: { initial?: Agent }) {
             </button>
           </div>
 
-          {/* Inline voice cloning (folds Voice Studio in here). */}
+          {/* Inline voice cloning via Cartesia /voices/clone. */}
           {showClone && (
             <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12, display: "grid", gap: 10 }}>
               <div style={{ fontSize: 13, color: "var(--muted)" }}>
-                Échantillon <strong>mp3 / wav / m4a</strong>, mono, 10 s à 5 min, ≤ 20 Mo.
-                La voix sera clonée pour le modèle TTS <span className="kbd">{ttsModel}</span>.
+                Clonage instantané par Cartesia. Échantillon <strong>mp3 / wav / m4a</strong>,
+                voix unique, 5 s à 5 min, ≤ 20 Mo. La voix sera disponible immédiatement dans le catalogue.
               </div>
               <div className="form-row">
                 <div>
@@ -570,24 +533,10 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                 </div>
               </div>
               <div>
-                <label>
-                  voice_id technique{" "}
-                  <span style={{ color: "var(--muted)", fontWeight: "normal", fontSize: 12 }}>
-                    (8–64 car., commence par une lettre, A-Z / 0-9 / _)
-                  </span>
-                </label>
-                <input
-                  value={cloneVoiceId}
-                  onChange={(e) => setCloneVoiceId(e.target.value)}
-                  placeholder="voix_dr_coste"
-                  pattern="[A-Za-z][A-Za-z0-9_]{7,63}"
-                />
-              </div>
-              <div>
                 <button
                   type="button"
                   onClick={doClone}
-                  disabled={cloning || !cloneFile || cloneVoiceId.trim().length < 8 || !cloneName.trim()}
+                  disabled={cloning || !cloneFile || !cloneName.trim()}
                 >
                   {cloning ? "Clonage en cours…" : "Cloner et utiliser cette voix"}
                 </button>
@@ -613,32 +562,22 @@ export function AgentForm({ initial }: { initial?: Agent }) {
               <div style={{ display: "grid", gap: 14, marginTop: 12 }}>
                 <div className="form-row">
                   <div>
-                    <label>Modèle TTS</label>
+                    <label>Modèle TTS Cartesia</label>
                     <select value={ttsModel} onChange={(e) => setTtsModel(e.target.value)}>
                       {TTS_MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
                     </select>
-                    <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
-                      Le catalogue de voix ci-dessus dépend de ce modèle ({ttsFamily} family).
-                    </div>
                   </div>
                   <div>
-                    <label>Émotion</label>
+                    <label>Émotion vocale</label>
                     <select value={emotion} onChange={(e) => setEmotion(e.target.value)}>
-                      <option value="">— défaut —</option>
-                      <option value="fluent">fluent — naturel conversationnel (modèles speech-2.6)</option>
-                      <option value="neutral">neutral</option>
-                      <option value="happy">happy</option>
-                      <option value="sad">sad</option>
-                      <option value="angry">angry</option>
-                      <option value="fearful">fearful</option>
-                      <option value="disgusted">disgusted</option>
-                      <option value="surprised">surprised</option>
+                      <option value="">— aucune —</option>
+                      {CARTESIA_EMOTIONS.map((e) => (
+                        <option key={e} value={e}>{e}</option>
+                      ))}
                     </select>
-                    {emotion === "fluent" && !ttsModel.startsWith("speech-2.6") && (
-                      <div style={{ fontSize: 12, color: "var(--bad)", marginTop: 4 }}>
-                        L&apos;émotion « fluent » n&apos;existe que sur les modèles speech-2.6 — choisis speech-2.6-hd ci-contre.
-                      </div>
-                    )}
+                    <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
+                      Coloration émotionnelle appliquée par Cartesia sur chaque réponse TTS.
+                    </div>
                   </div>
                 </div>
                 <div className="form-row">
@@ -652,23 +591,13 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                   <div>
                     <label>Volume ({volume.toFixed(1)})</label>
                     <input
-                      type="range" min="0.5" max="5" step="0.1"
+                      type="range" min="0.1" max="2" step="0.1"
                       value={volume} onChange={(e) => setVolume(Number(e.target.value))}
                     />
                   </div>
                 </div>
                 <div>
-                  <label>Tonalité / pitch ({pitch > 0 ? `+${pitch}` : pitch})</label>
-                  <input
-                    type="range" min="-12" max="12" step="1"
-                    value={pitch} onChange={(e) => setPitch(Number(e.target.value))}
-                  />
-                  <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
-                    Négatif = voix plus grave, positif = plus aiguë. 0 = naturel.
-                  </div>
-                </div>
-                <div>
-                  <label>Style &amp; ton (consigne)</label>
+                  <label>Style &amp; ton (consigne LLM)</label>
                   <textarea
                     rows={2}
                     value={voiceStyle}
@@ -726,8 +655,9 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                       setProvider(p);
                       setModel(PROVIDER_MODELS[p][0].id);
                     }}>
-                      <option value="deepseek">DeepSeek</option>
-                      <option value="minimax">MiniMax</option>
+                      <option value="deepseek">DeepSeek (recommandé)</option>
+                      <option value="openai">OpenAI</option>
+                      <option value="anthropic">Anthropic Claude</option>
                     </select>
                   </div>
                   <div>

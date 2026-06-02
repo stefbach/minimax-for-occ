@@ -16,7 +16,9 @@
  *   - optEnv()   → returns string | undefined
  *
  * Add a new var here whenever you reach for `process.env.XYZ` in two places.
- * See docs/ENV_VARS.md for the full inventory.
+ *
+ * TTS: Cartesia Sonic (CARTESIA_API_KEY)
+ * STT: AssemblyAI Universal Streaming (ASSEMBLYAI_API_KEY — Fly secret only)
  */
 
 function mustEnv(key: string): string {
@@ -58,10 +60,8 @@ export interface AppConfig {
     readonly apiKey: string | undefined;
     readonly apiSecret: string | undefined;
   };
-  minimax: {
+  cartesia: {
     readonly apiKey: string | undefined;
-    readonly groupId: string | undefined;
-    /** Optional with a sensible default. */
     readonly baseUrl: string;
   };
   app: {
@@ -122,16 +122,12 @@ export const cfg: AppConfig = {
       return optEnv("LIVEKIT_API_SECRET");
     },
   },
-  minimax: {
+  cartesia: {
     get apiKey() {
-      return optEnv("MINIMAX_API_KEY");
-    },
-    get groupId() {
-      return optEnv("MINIMAX_GROUP_ID");
+      return optEnv("CARTESIA_API_KEY");
     },
     get baseUrl() {
-      // Historical default in web/lib/minimax.ts; keep the /v1 suffix.
-      return optEnv("MINIMAX_BASE_URL", "https://api.minimax.io/v1")!;
+      return optEnv("CARTESIA_BASE_URL", "https://api.cartesia.ai")!;
     },
   },
   app: {

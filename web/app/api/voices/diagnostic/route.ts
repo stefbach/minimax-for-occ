@@ -4,58 +4,42 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * Smoke-test MiniMax credentials and the TTS endpoint without trying to
- * synthesize real audio. Calls /v1/get_voice (a free metadata endpoint
- * that just lists your account's available voices).
+ * Smoke-test Cartesia credentials and list available voices.
+ * Safe to call — GET /voices is a free metadata endpoint.
  */
 export async function GET() {
-  const apiKey = process.env.MINIMAX_API_KEY;
-  const base = (process.env.MINIMAX_BASE_URL ?? "https://api.minimax.io/v1").replace(/\/$/, "");
-  const groupId = process.env.MINIMAX_GROUP_ID;
+  const apiKey = process.env.CARTESIA_API_KEY;
+  const base = (process.env.CARTESIA_BASE_URL ?? "https://api.cartesia.ai").replace(/\/$/, "");
 
   const checks: Array<{ name: string; ok: boolean; detail: string }> = [];
-  checks.push({ name: "MINIMAX_API_KEY", ok: !!apiKey, detail: apiKey ? "défini" : "manquant" });
-  checks.push({ name: "MINIMAX_BASE_URL", ok: true, detail: base });
-  checks.push({
-    name: "MINIMAX_GROUP_ID",
-    ok: true,
-    detail: groupId ? "défini (utilisé pour /t2a_v2)" : "non défini (OK pour la plupart des comptes)",
-  });
+  checks.push({ name: "CARTESIA_API_KEY", ok: !!apiKey, detail: apiKey ? "défini" : "manquant" });
+  checks.push({ name: "CARTESIA_BASE_URL", ok: true, detail: base });
 
   if (!apiKey) {
     return NextResponse.json({ ok: false, checks });
   }
 
-  // Test 1 — /get_voice endpoint
   try {
-    const url = groupId
-      ? `${base}/get_voice?GroupId=${encodeURIComponent(groupId)}`
-      : `${base}/get_voice`;
-    const r = await fetch(url, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
-      body: JSON.stringify({ voice_type: "all" }),
+    const r = await fetch(`${base}/voices`, {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Cartesia-Version": "2025-04-16",
+      },
     });
     if (r.ok) {
-      const j = (await r.json()) as { base_resp?: { status_code?: number; status_msg?: string } };
-      const code = j.base_resp?.status_code;
-      checks.push({
-        name: "MiniMax /get_voice",
-        ok: code === 0 || code === undefined,
-        detail: code === 0 || code === undefined
-          ? "OK"
-          : `code ${code}: ${j.base_resp?.status_msg ?? "unknown"}`,
-      });
+      const voices = await r.json().catch(() => []);
+      const count = Array.isArray(voices) ? voices.length : "?";
+      checks.push({ name: "Cartesia /voices", ok: true, detail: `OK — ${count} voix disponibles` });
     } else {
       checks.push({
-        name: "MiniMax /get_voice",
+        name: "Cartesia /voices",
         ok: false,
         detail: `HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`,
       });
     }
   } catch (e) {
     checks.push({
-      name: "MiniMax /get_voice",
+      name: "Cartesia /voices",
       ok: false,
       detail: e instanceof Error ? e.message : String(e),
     });
