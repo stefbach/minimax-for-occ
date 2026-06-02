@@ -25,6 +25,11 @@ from typing import Optional
 from dotenv import load_dotenv
 from livekit import agents
 from livekit.agents import Agent, AgentSession, JobContext, WorkerOptions, cli
+from livekit.agents.voice.background_audio import (
+    AudioConfig,
+    BackgroundAudioPlayer,
+    BuiltinAudioClip,
+)
 from livekit.plugins import deepgram, minimax, openai, silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
@@ -230,7 +235,7 @@ def _stt_for(agent: Optional[AxonAgent]) -> deepgram.STT:
         lang = "multi"
 
     candidate: dict = {
-        "model": "nova-3",
+        "model": os.getenv("DEEPGRAM_MODEL", "nova-3"),
         "language": lang,
         # Aggressive endpointing for PSTN. Real-world tests showed Deepgram
         # `transcription_delay` ranging 763-1974ms with utterance_end_ms=700.
@@ -238,9 +243,26 @@ def _stt_for(agent: Optional[AxonAgent]) -> deepgram.STT:
         # mid-sentence cut-offs on hesitant speakers — mitigated by the
         # quick-ack trick in the system prompt (start of replies = short
         # filler word, so even if we mis-fire the user hears something).
-        "endpointing_ms": int(os.getenv("DEEPGRAM_ENDPOINTING_MS", "250")),
-        "utterance_end_ms": int(os.getenv("DEEPGRAM_UTTERANCE_END_MS", "600")),
+        "endpointing_ms": int(os.getenv("DEEPGRAM_ENDPOINTING_MS", "150")),
+        "utterance_end_ms": int(os.getenv("DEEPGRAM_UTTERANCE_END_MS", "400")),
         "interim_results": True,
+        # Phase 1A extra latency knobs — all best-effort, signature-filtered
+        # below so older plugin versions silently drop the unknown kwargs.
+        #  • no_delay: skip the post-processing buffer Deepgram adds for nicer
+        #    transcripts (we don't need punctuation perfection on phone audio).
+        #  • mip_opt_out: opt out of Deepgram's Model Improvement Program
+        #    post-processing → strictly faster, just no training contribution.
+        #  • vad_events: emit explicit VAD events so livekit-agents can act on
+        #    speech-end earlier (needed for filler audio in Phase 1B).
+        #  • punctuate / smart_format / numerals / filler_words: all post-
+        #    processing passes we can disable — saves ~50-150ms per turn.
+        "no_delay": True,
+        "mip_opt_out": True,
+        "vad_events": True,
+        "punctuate": False,
+        "smart_format": False,
+        "numerals": False,
+        "filler_words": False,
     }
     try:
         supported = set(inspect.signature(deepgram.STT.__init__).parameters)
@@ -937,6 +959,56 @@ async def entrypoint(ctx: JobContext) -> None:
     _wire_transcript_hooks(session, call_id)
     _wire_latency_metrics(session, clog)
     _wire_debug_logs(session, clog)
+
+    # Phase 1B — Filler audio. When the LLM is "thinking" after the user
+    # speaks, the caller currently hears 1.5-2s of total silence
+    # (EOU + STT-delay + LLM-TTFT). BackgroundAudioPlayer publishes a
+    # second audio track to the room and automatically plays a "thinking"
+    # sound when the agent enters that state. Caller hears an immediate
+    # cue (~100-200ms after they stop) that the agent is processing →
+    # perceived latency drops by ~1s even though real latency is unchanged.
+    # Enabled by default; disable per-deploy with FILLER_AUDIO=false.
+    if os.getenv("FILLER_AUDIO", "true").lower() not in ("false", "0", "no"):
+        try:
+            # Pick the clip via env so we can iterate without code changes.
+            # KEYBOARD_TYPING is the standard "I'm thinking" sound used by
+            # most voice agents — discreet, recognizable, doesn't compete
+            # with speech. OFFICE_AMBIENCE adds low-volume room tone so the
+            # line never feels "dead" between turns.
+            clip_name = os.getenv("FILLER_AUDIO_CLIP", "KEYBOARD_TYPING").upper()
+            ambient_name = os.getenv("FILLER_AMBIENT_CLIP", "").upper()
+            try:
+                thinking_clip = BuiltinAudioClip[clip_name]
+            except KeyError:
+                clog.warning("Unknown FILLER_AUDIO_CLIP=%s, using KEYBOARD_TYPING", clip_name)
+                thinking_clip = BuiltinAudioClip.KEYBOARD_TYPING
+            ambient_clip = None
+            if ambient_name:
+                try:
+                    ambient_clip = BuiltinAudioClip[ambient_name]
+                except KeyError:
+                    clog.warning("Unknown FILLER_AMBIENT_CLIP=%s, skipping ambient", ambient_name)
+
+            # Volume defaults are low so the filler is audible but unobtrusive.
+            thinking_vol = float(os.getenv("FILLER_AUDIO_VOLUME", "0.6"))
+            ambient_vol = float(os.getenv("FILLER_AMBIENT_VOLUME", "0.15"))
+
+            player = BackgroundAudioPlayer(
+                thinking_sound=AudioConfig(thinking_clip, volume=thinking_vol),
+                ambient_sound=(
+                    AudioConfig(ambient_clip, volume=ambient_vol)
+                    if ambient_clip is not None
+                    else None
+                ),
+            )
+            await player.start(room=ctx.room, agent_session=session)
+            clog.info(
+                "filler audio enabled: thinking=%s vol=%.2f ambient=%s vol=%.2f",
+                clip_name, thinking_vol, ambient_name or "none", ambient_vol,
+            )
+        except Exception:
+            # Best-effort: filler audio is a nice-to-have, never block the call.
+            clog.exception("BackgroundAudioPlayer setup failed; continuing without filler audio")
 
     async def _on_shutdown():
         try:
