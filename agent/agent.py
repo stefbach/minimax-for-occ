@@ -262,7 +262,40 @@ def _stt_for(agent: Optional[AxonAgent]) -> assemblyai.STT:
     except (ValueError, TypeError):
         supported = {"model"}
     kwargs = {k: v for k, v in candidate.items() if k in supported}
-    return assemblyai.STT(**kwargs)
+
+    # Progressive fallback: some kwargs are rejected at runtime by certain
+    # plugin/model combinations (not caught by the signature filter, which
+    # only checks names — not param/value validity). Try the full config,
+    # then degrade to the safest minimal config, logging each failure so the
+    # exact cause is visible in the call logs.
+    attempts = [
+        ("full", kwargs),
+        ("model+key", {k: v for k, v in kwargs.items() if k in ("model", "api_key")}),
+        ("key-only", {k: v for k, v in kwargs.items() if k == "api_key"}),
+    ]
+    last_exc: Optional[Exception] = None
+    for label, attempt_kwargs in attempts:
+        try:
+            stt = assemblyai.STT(**attempt_kwargs)
+            if label != "full":
+                logger.warning(
+                    "AssemblyAI STT built with reduced config '%s' (dropped: %s)",
+                    label,
+                    sorted(set(kwargs) - set(attempt_kwargs)),
+                )
+            return stt
+        except Exception as e:  # noqa: BLE001
+            last_exc = e
+            logger.error(
+                "AssemblyAI STT attempt '%s' failed: %s: %s (kwargs=%s)",
+                label,
+                type(e).__name__,
+                e,
+                sorted(attempt_kwargs),
+            )
+    # All attempts failed — re-raise the last error for the caller to log.
+    assert last_exc is not None
+    raise last_exc
 
 
 def _tts_for(agent: Optional[AxonAgent]) -> cartesia.TTS:
