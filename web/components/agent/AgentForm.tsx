@@ -63,8 +63,27 @@ const GENDER_LABELS: Record<string, string> = {
   feminine: "Féminine", masculine: "Masculine", neutral: "Neutre",
 };
 const COUNTRY_LABELS: Record<string, string> = {
-  FR: "France", CA: "Canada", US: "États-Unis", GB: "Grande-Bretagne",
-  AU: "Australie", BE: "Belgique", CH: "Suisse", MX: "Mexique", NG: "Nigeria",
+  AF: "Afghanistan", AL: "Albanie", AR: "Argentine", AU: "Australie",
+  AT: "Autriche", AZ: "Azerbaïdjan", BD: "Bangladesh", BE: "Belgique",
+  BG: "Bulgarie", BO: "Bolivie", BR: "Brésil", CA: "Canada",
+  CH: "Suisse", CL: "Chili", CN: "Chine", CO: "Colombie",
+  CZ: "Tchéquie", DE: "Allemagne", DK: "Danemark", DO: "Rép. Dominicaine",
+  EC: "Équateur", EG: "Égypte", ES: "Espagne", ET: "Éthiopie",
+  FI: "Finlande", FR: "France", GB: "Grande-Bretagne", GE: "Géorgie",
+  GH: "Ghana", GR: "Grèce", GT: "Guatemala", HK: "Hong Kong",
+  HR: "Croatie", HU: "Hongrie", ID: "Indonésie", IE: "Irlande",
+  IL: "Israël", IN: "Inde", IQ: "Irak", IT: "Italie",
+  JP: "Japon", KE: "Kenya", KR: "Corée du Sud", KZ: "Kazakhstan",
+  LT: "Lituanie", LV: "Lettonie", MA: "Maroc", MX: "Mexique",
+  MY: "Malaisie", NG: "Nigeria", NL: "Pays-Bas", NO: "Norvège",
+  NZ: "Nouvelle-Zélande", PA: "Panama", PE: "Pérou", PH: "Philippines",
+  PK: "Pakistan", PL: "Pologne", PT: "Portugal", PY: "Paraguay",
+  RO: "Roumanie", RS: "Serbie", RU: "Russie", SA: "Arabie Saoudite",
+  SE: "Suède", SG: "Singapour", SI: "Slovénie", SK: "Slovaquie",
+  TH: "Thaïlande", TR: "Turquie", TW: "Taïwan", TZ: "Tanzanie",
+  UA: "Ukraine", UG: "Ouganda", US: "États-Unis", UY: "Uruguay",
+  UZ: "Ouzbékistan", VE: "Venezuela", VN: "Vietnam", ZA: "Afrique du Sud",
+  ZW: "Zimbabwe",
 };
 
 function slugify(s: string): string {
@@ -469,56 +488,6 @@ export function AgentForm({ initial }: { initial?: Agent }) {
         <div className="card" style={{ display: "grid", gap: 14 }}>
           <h3 style={{ margin: 0 }}>Voix</h3>
 
-          {/* Filters */}
-          {cartesiaVoices.length > 0 && (
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-              <span style={{ fontSize: 12, color: "var(--muted)" }}>Filtrer :</span>
-              <select
-                value={filterLang}
-                onChange={(e) => setFilterLang(e.target.value)}
-                style={{ fontSize: 12, padding: "3px 8px", minWidth: 120 }}
-              >
-                <option value="">Toutes les langues</option>
-                {catalogLangs.map((l) => (
-                  <option key={l} value={l}>{LANG_NAMES[l] ?? l.toUpperCase()}</option>
-                ))}
-              </select>
-              <select
-                value={filterGender}
-                onChange={(e) => setFilterGender(e.target.value)}
-                style={{ fontSize: 12, padding: "3px 8px", minWidth: 110 }}
-              >
-                <option value="">Tous les genres</option>
-                {catalogGenders.map((g) => (
-                  <option key={g} value={g}>{GENDER_LABELS[g] ?? g}</option>
-                ))}
-              </select>
-              <select
-                value={filterCountry}
-                onChange={(e) => setFilterCountry(e.target.value)}
-                style={{ fontSize: 12, padding: "3px 8px", minWidth: 120 }}
-              >
-                <option value="">Tous les accents</option>
-                {catalogCountries.map((c) => (
-                  <option key={c} value={c}>{COUNTRY_LABELS[c] ?? c}</option>
-                ))}
-              </select>
-              {(filterLang || filterGender || filterCountry) && (
-                <button
-                  type="button"
-                  className="ghost"
-                  style={{ fontSize: 11, padding: "2px 8px" }}
-                  onClick={() => { setFilterLang(""); setFilterGender(""); setFilterCountry(""); }}
-                >
-                  ✕ Réinitialiser
-                </button>
-              )}
-              <span style={{ fontSize: 12, color: "var(--muted)", marginLeft: "auto" }}>
-                {filteredCatalog.length} voix
-              </span>
-            </div>
-          )}
-
           <div>
             <label>Voix de l&apos;agent</label>
             <select value={voice} onChange={(e) => setVoice(e.target.value)}>
@@ -553,6 +522,55 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                 <option value={voice}>{voice} (ID manuel)</option>
               )}
             </select>
+
+            {/* Horizontal filter bar — below the dropdown, like Cartesia's UI */}
+            {cartesiaVoices.length > 0 && (
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
+                <select
+                  value={filterGender}
+                  onChange={(e) => setFilterGender(e.target.value)}
+                  style={{ fontSize: 12, padding: "4px 10px", borderRadius: 20, border: "1px solid var(--border)", background: "var(--surface-2, rgba(255,255,255,0.06))", color: "inherit", cursor: "pointer" }}
+                >
+                  <option value="">Tous les genres</option>
+                  {catalogGenders.map((g) => (
+                    <option key={g} value={g}>{GENDER_LABELS[g] ?? g}</option>
+                  ))}
+                </select>
+                <select
+                  value={filterLang}
+                  onChange={(e) => setFilterLang(e.target.value)}
+                  style={{ fontSize: 12, padding: "4px 10px", borderRadius: 20, border: "1px solid var(--border)", background: "var(--surface-2, rgba(255,255,255,0.06))", color: "inherit", cursor: "pointer" }}
+                >
+                  <option value="">Toutes les langues</option>
+                  {catalogLangs.map((l) => (
+                    <option key={l} value={l}>{LANG_NAMES[l] ?? l.toUpperCase()}</option>
+                  ))}
+                </select>
+                <select
+                  value={filterCountry}
+                  onChange={(e) => setFilterCountry(e.target.value)}
+                  style={{ fontSize: 12, padding: "4px 10px", borderRadius: 20, border: "1px solid var(--border)", background: "var(--surface-2, rgba(255,255,255,0.06))", color: "inherit", cursor: "pointer" }}
+                >
+                  <option value="">Tous les accents</option>
+                  {catalogCountries.map((c) => (
+                    <option key={c} value={c}>{COUNTRY_LABELS[c] ?? c}</option>
+                  ))}
+                </select>
+                {(filterLang || filterGender || filterCountry) && (
+                  <button
+                    type="button"
+                    className="ghost"
+                    style={{ fontSize: 11, padding: "4px 10px", borderRadius: 20 }}
+                    onClick={() => { setFilterLang(""); setFilterGender(""); setFilterCountry(""); }}
+                  >
+                    ✕ Effacer
+                  </button>
+                )}
+                <span style={{ fontSize: 12, color: "var(--muted)", marginLeft: 4 }}>
+                  {filteredCatalog.length} voix
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Manual UUID entry */}
