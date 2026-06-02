@@ -967,8 +967,9 @@ async def entrypoint(ctx: JobContext) -> None:
     # sound when the agent enters that state. Caller hears an immediate
     # cue (~100-200ms after they stop) that the agent is processing →
     # perceived latency drops by ~1s even though real latency is unchanged.
-    # Enabled by default; disable per-deploy with FILLER_AUDIO=false.
-    if os.getenv("FILLER_AUDIO", "true").lower() not in ("false", "0", "no"):
+    # Default OFF — user feedback was that the keyboard-typing sound felt
+    # weird on a phone call. Re-enable per-deploy with FILLER_AUDIO=true.
+    if os.getenv("FILLER_AUDIO", "false").lower() in ("true", "1", "yes"):
         try:
             # Pick the clip via env so we can iterate without code changes.
             # KEYBOARD_TYPING is the standard "I'm thinking" sound used by
