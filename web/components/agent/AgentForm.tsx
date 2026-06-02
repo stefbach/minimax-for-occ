@@ -37,13 +37,6 @@ const TTS_MODELS: { id: string; label: string }[] = [
   { id: "sonic-3",     label: "sonic-3 — Génération précédente, stable" },
 ];
 
-// Cartesia emotions (subset of TTSVoiceEmotion — most useful for voice calls)
-const CARTESIA_EMOTIONS = [
-  "Neutral", "Calm", "Serene", "Content", "Happy", "Curious",
-  "Confident", "Determined", "Proud", "Sympathetic", "Apologetic",
-  "Enthusiastic", "Warm", "Contemplative", "Grateful",
-] as const;
-
 interface CartesiaVoiceCatalog {
   id: string;
   name: string;
@@ -148,7 +141,6 @@ export function AgentForm({ initial }: { initial?: Agent }) {
     return ids.includes(m) ? m : (ids[0] ?? m);
   });
   const [voice, setVoice] = useState(initial?.tts_voice_id ?? "");
-  const [emotion, setEmotion] = useState(initial?.tts_emotion ?? "");
   const [speed, setSpeed] = useState(initial?.tts_speed ?? 1.0);
   const [volume, setVolume] = useState(initial?.tts_volume ?? 1.0);
   const [ttsModel, setTtsModel] = useState(() => {
@@ -293,7 +285,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
       llm_provider: provider,
       llm_model: model,
       tts_voice_id: voice || null,
-      tts_emotion: emotion || null,
+      tts_emotion: null,
       tts_speed: speed,
       tts_volume: volume,
       tts_pitch: 0,
@@ -348,7 +340,6 @@ export function AgentForm({ initial }: { initial?: Agent }) {
           text: greeting || "Bonjour, je suis votre assistant.",
           model: ttsModel || "sonic-3.5",
           speed: speed !== 1.0 ? speed : undefined,
-          emotion: emotion || undefined,
           language: CARTESIA_LANGUAGE[language] ?? undefined,
         }),
       });
@@ -671,29 +662,15 @@ export function AgentForm({ initial }: { initial?: Agent }) {
               aria-expanded={showVoiceAdvanced}
             >
               <span style={{ transition: "transform 0.15s", transform: showVoiceAdvanced ? "rotate(90deg)" : "none" }}>›</span>
-              ⚙ Réglages avancés (modèle TTS, émotion, vitesse)
+              ⚙ Réglages avancés (modèle TTS, vitesse, volume)
             </button>
             {showVoiceAdvanced && (
               <div style={{ display: "grid", gap: 14, marginTop: 12 }}>
-                <div className="form-row">
-                  <div>
-                    <label>Modèle TTS</label>
-                    <select value={ttsModel} onChange={(e) => setTtsModel(e.target.value)}>
-                      {TTS_MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label>Émotion vocale</label>
-                    <select value={emotion} onChange={(e) => setEmotion(e.target.value)}>
-                      <option value="">— aucune —</option>
-                      {CARTESIA_EMOTIONS.map((e) => (
-                        <option key={e} value={e}>{e}</option>
-                      ))}
-                    </select>
-                    <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
-                      Coloration émotionnelle appliquée sur chaque réponse vocale.
-                    </div>
-                  </div>
+                <div>
+                  <label>Modèle TTS</label>
+                  <select value={ttsModel} onChange={(e) => setTtsModel(e.target.value)}>
+                    {TTS_MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+                  </select>
                 </div>
                 <div className="form-row">
                   <div>
