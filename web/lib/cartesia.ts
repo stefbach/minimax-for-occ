@@ -7,7 +7,7 @@
 
 import { cfg } from "./config";
 
-const CARTESIA_VERSION = "2025-04-16";
+const CARTESIA_VERSION = "2026-03-01";
 
 function cartesiaBase(): string {
   return cfg.cartesia.baseUrl.replace(/\/$/, "");
@@ -98,7 +98,7 @@ export async function previewCartesiaTTS(opts: {
   speed?: number;
   emotion?: string;
 }): Promise<{ audio: ArrayBuffer; format: string }> {
-  const model = opts.model || "sonic-2";
+  const model = opts.model || "sonic-3.5";
   const body: Record<string, unknown> = {
     model_id: model,
     transcript: opts.text,

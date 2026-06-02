@@ -43,7 +43,7 @@ async function checkCartesia(apiKey: string | undefined): Promise<CheckResult> {
     const r = await fetchWithTimeout("https://api.cartesia.ai/voices", {
       headers: {
         Authorization: `Bearer ${apiKey}`,
-        "Cartesia-Version": "2025-04-16",
+        "Cartesia-Version": "2026-03-01",
       },
     });
     if (r.ok) return { service: "Cartesia TTS", status: "ok", message: "API joignable, clé valide" };
