@@ -178,11 +178,15 @@ def _llm_for(agent: Optional[AxonAgent]):
         )
 
     if provider == "openai":
-        api_key = os.environ["OPENAI_API_KEY"]
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise RuntimeError("OpenAI selected but OPENAI_API_KEY is not set on the worker.")
+        oai_model = model if (model and model.startswith(("gpt", "o1", "o3", "o4", "chatgpt"))) else "gpt-4o-mini"
+        logger.info("LLM=openai model=%s key_len=%d max_tokens=%d", oai_model, len(api_key), max_tokens)
         return _build_llm_with_max_tokens(
             openai.LLM,
             max_tokens,
-            model=model or "gpt-4o-mini",
+            model=oai_model,
             api_key=api_key,
             client=_shared_openai_client("https://api.openai.com/v1", api_key),
         )
@@ -190,7 +194,10 @@ def _llm_for(agent: Optional[AxonAgent]):
     # Default: DeepSeek (OpenAI-compatible, cheaper, no censorship issues for FR/EN calls)
     ds_model = model if (model and model.startswith("deepseek-")) else "deepseek-v4-flash"
     base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
-    api_key = os.environ["DEEPSEEK_API_KEY"]
+    api_key = os.getenv("DEEPSEEK_API_KEY")
+    if not api_key:
+        raise RuntimeError("DeepSeek selected but DEEPSEEK_API_KEY is not set on the worker.")
+    logger.info("LLM=deepseek model=%s key_len=%d max_tokens=%d", ds_model, len(api_key), max_tokens)
     return _build_llm_with_max_tokens(
         openai.LLM,
         max_tokens,
