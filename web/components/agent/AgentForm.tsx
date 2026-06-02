@@ -33,9 +33,9 @@ const PROVIDER_MODEL_IDS: Record<LlmProvider, string[]> = Object.fromEntries(
 ) as Record<LlmProvider, string[]>;
 
 const TTS_MODELS: { id: string; label: string }[] = [
-  { id: "sonic-3",     label: "sonic-3 — Dernière génération, latence ultra-faible (recommandé)" },
-  { id: "sonic-2",     label: "sonic-2 — Stable, grande qualité" },
-  { id: "sonic-turbo", label: "sonic-turbo — Le plus rapide, qualité bonne" },
+  { id: "sonic-2",        label: "sonic-2 — Stable, ultra-faible latence (recommandé)" },
+  { id: "sonic-turbo",    label: "sonic-turbo — Le plus rapide" },
+  { id: "sonic-preview",  label: "sonic-preview — Préversion (peut être indisponible)" },
 ];
 
 // Cartesia emotions (subset of TTSVoiceEmotion — most useful for voice calls)
@@ -152,7 +152,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
   const [emotion, setEmotion] = useState(initial?.tts_emotion ?? "");
   const [speed, setSpeed] = useState(initial?.tts_speed ?? 1.0);
   const [volume, setVolume] = useState(initial?.tts_volume ?? 1.0);
-  const [ttsModel, setTtsModel] = useState(initial?.tts_model ?? "sonic-3");
+  const [ttsModel, setTtsModel] = useState(initial?.tts_model ?? "sonic-2");
   const [voiceStyle, setVoiceStyle] = useState(initial?.voice_style ?? "");
   const [systemPrompt, setSystemPrompt] = useState(initial?.system_prompt ?? "");
   const [greeting, setGreeting] = useState(initial?.greeting ?? "Bonjour, je vous écoute.");
@@ -343,7 +343,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
         body: JSON.stringify({
           voice_id: voice || "f786b574-daa5-4673-aa0c-cbe3e8534c02",
           text: greeting || "Bonjour, je suis votre assistant.",
-          model: ttsModel || "sonic-3",
+          model: ttsModel || "sonic-2",
           speed: speed !== 1.0 ? speed : undefined,
           emotion: emotion || undefined,
           language: CARTESIA_LANGUAGE[language] ?? undefined,

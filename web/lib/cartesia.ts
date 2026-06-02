@@ -98,7 +98,7 @@ export async function previewCartesiaTTS(opts: {
   speed?: number;
   emotion?: string;
 }): Promise<{ audio: ArrayBuffer; format: string }> {
-  const model = opts.model || "sonic-3";
+  const model = opts.model || "sonic-2";
   const body: Record<string, unknown> = {
     model_id: model,
     transcript: opts.text,

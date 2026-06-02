@@ -287,7 +287,7 @@ def _tts_for(agent: Optional[AxonAgent]) -> cartesia.TTS:
 
     model = (
         (agent.tts_model if agent and agent.tts_model else None)
-        or os.getenv("CARTESIA_MODEL", "sonic-3")
+        or os.getenv("CARTESIA_MODEL", "sonic-2")
     )
 
     voice = (
