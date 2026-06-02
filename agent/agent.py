@@ -147,11 +147,17 @@ def _llm_for(agent: Optional[AxonAgent]):
         # override was just flipped on), fall back to a sensible Claude
         # default rather than crashing on a bad model name.
         anth_model = model if model.startswith("claude") else "claude-haiku-4-5-20251001"
+        anth_key = os.getenv("ANTHROPIC_API_KEY") or os.getenv("CLAUDE_API_KEY")
+        if not anth_key:
+            raise RuntimeError(
+                "Anthropic selected but neither ANTHROPIC_API_KEY nor "
+                "CLAUDE_API_KEY is set on the worker."
+            )
         return _build_llm_with_max_tokens(
             anthropic.LLM,
             max_tokens,
             model=anth_model,
-            api_key=os.environ["ANTHROPIC_API_KEY"],
+            api_key=anth_key,
         )
 
     if provider == "minimax":
