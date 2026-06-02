@@ -104,9 +104,28 @@ def _shared_openai_client(base_url: str, api_key: str):
 
 
 def _llm_for(agent: Optional[AxonAgent]):
-    """Build a LiveKit-Agents-compatible LLM from the agent's provider/model."""
-    provider = (agent.llm_provider if agent else os.getenv("LLM_PROVIDER", "deepseek")).lower()
-    model = (agent.llm_model if agent and agent.llm_model else os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash"))
+    """Build a LiveKit-Agents-compatible LLM from the agent's provider/model.
+
+    Worker-wide A/B knobs (env): set these to swap LLM provider/model for
+    EVERY call without touching any agent row in DB. Unset to return to the
+    per-agent config. Useful for testing Anthropic / Groq / OpenAI alongside
+    the DeepSeek default.
+      • LLM_PROVIDER_FORCE = "anthropic" | "openai" | "minimax" | "deepseek"
+      • LLM_MODEL_FORCE    = e.g. "claude-haiku-4-5-20251001"
+    """
+    forced_provider = os.getenv("LLM_PROVIDER_FORCE", "").strip().lower()
+    forced_model = os.getenv("LLM_MODEL_FORCE", "").strip()
+
+    provider = (
+        forced_provider
+        or (agent.llm_provider.lower() if agent and agent.llm_provider else "")
+        or os.getenv("LLM_PROVIDER", "deepseek").lower()
+    )
+    model = (
+        forced_model
+        or (agent.llm_model if agent and agent.llm_model else "")
+        or os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
+    )
 
     # Cap the response length so a chatty model can't blow our per-turn budget.
     # 220 tokens ≈ 160 words ≈ ~40s of TTS audio — plenty for conversational
@@ -120,10 +139,14 @@ def _llm_for(agent: Optional[AxonAgent]):
             raise RuntimeError(
                 "Anthropic plugin not installed. Add it to requirements (livekit-agents[anthropic])."
             ) from e
+        # If the per-agent model is a deepseek/openai id (because the env
+        # override was just flipped on), fall back to a sensible Claude
+        # default rather than crashing on a bad model name.
+        anth_model = model if model.startswith("claude") else "claude-haiku-4-5-20251001"
         return _build_llm_with_max_tokens(
             anthropic.LLM,
             max_tokens,
-            model=model or "claude-sonnet-4-5",
+            model=anth_model,
             api_key=os.environ["ANTHROPIC_API_KEY"],
         )
 
@@ -942,14 +965,21 @@ def prewarm(proc):
         # Non-fatal: the entrypoint falls back to a per-call VAD.load().
         pass
 
-    # Resolve which provider's endpoint to warm. Mirrors _llm_for's defaults.
-    provider = os.getenv("LLM_PROVIDER", "deepseek").lower()
+    # Resolve which provider's endpoint to warm. Mirrors _llm_for's defaults,
+    # honoring the LLM_PROVIDER_FORCE override so an A/B test on Anthropic
+    # warms the Anthropic edge instead of DeepSeek's.
+    provider = (
+        os.getenv("LLM_PROVIDER_FORCE", "").strip().lower()
+        or os.getenv("LLM_PROVIDER", "deepseek").lower()
+    )
     if provider == "deepseek":
         url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
     elif provider == "minimax":
         url = os.getenv("MINIMAX_BASE_URL", "https://api.minimax.io/v1")
     elif provider == "openai":
         url = "https://api.openai.com/v1"
+    elif provider == "anthropic":
+        url = "https://api.anthropic.com/v1"
     else:
         url = None
     if url:
