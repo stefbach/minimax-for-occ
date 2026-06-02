@@ -838,10 +838,33 @@ async def entrypoint(ctx: JobContext) -> None:
     else:
         chosen_turn_detector = "vad"
 
+    # Build each provider separately so a failure points to the exact
+    # component (STT / LLM / TTS) in the call logs instead of an opaque
+    # "unhandled exception". Each logs and re-raises with a clear marker.
+    try:
+        _stt = _stt_for(axon)
+    except Exception:
+        clog.exception("BUILD FAILED: STT (AssemblyAI). Check ASSEMBLYAI_API_KEY on Fly.")
+        raise
+    try:
+        _llm = _llm_for(axon)
+    except Exception:
+        clog.exception(
+            "BUILD FAILED: LLM (provider=%s model=%s). Check the matching *_API_KEY on Fly.",
+            (axon.llm_provider if axon else None),
+            (axon.llm_model if axon else None),
+        )
+        raise
+    try:
+        _tts = _tts_for(axon)
+    except Exception:
+        clog.exception("BUILD FAILED: TTS (Cartesia). Check CARTESIA_API_KEY on Fly.")
+        raise
+
     session_kwargs: dict = dict(
-        stt=_stt_for(axon),
-        llm=_llm_for(axon),
-        tts=_tts_for(axon),
+        stt=_stt,
+        llm=_llm,
+        tts=_tts,
         vad=vad,
     )
 
