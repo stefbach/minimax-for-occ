@@ -256,6 +256,17 @@ def _stt_for(agent: Optional[AxonAgent]) -> assemblyai.STT:
     api_key = os.getenv("ASSEMBLYAI_API_KEY")
     if api_key:
         candidate["api_key"] = api_key
+    else:
+        # Make the missing-key state painfully obvious in the logs so we
+        # don't waste a redeploy cycle debugging a typo or stale secret.
+        related = sorted(k for k in os.environ if "ASSEMBLY" in k.upper())
+        logger.error(
+            "ASSEMBLYAI_API_KEY not visible on worker. "
+            "len(os.getenv)=%d, related env keys present=%s, all env key count=%d",
+            len(os.environ.get("ASSEMBLYAI_API_KEY") or ""),
+            related,
+            len(os.environ),
+        )
 
     try:
         supported = set(inspect.signature(assemblyai.STT.__init__).parameters)
