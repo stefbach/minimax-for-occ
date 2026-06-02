@@ -247,8 +247,12 @@ def _stt_for(agent: Optional[AxonAgent]) -> assemblyai.STT:
             os.getenv("ASSEMBLYAI_EOT_THRESHOLD", "0.7")
         ),
         "min_turn_silence": int(os.getenv("ASSEMBLYAI_MIN_TURN_SILENCE", "250")),
-        "continuous_partials": True,
     }
+    # continuous_partials / interruption_delay are ONLY accepted by the
+    # 'u3-rt-pro' model — the plugin raises ValueError if passed with the
+    # universal-streaming models. Gate them on the model to avoid crashing.
+    if model == "u3-rt-pro":
+        candidate["continuous_partials"] = True
     api_key = os.getenv("ASSEMBLYAI_API_KEY")
     if api_key:
         candidate["api_key"] = api_key
