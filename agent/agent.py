@@ -250,9 +250,9 @@ def _stt_for(agent: Optional[AxonAgent]) -> assemblyai.STT:
     candidate: dict = {
         "model": model,
         "end_of_turn_confidence_threshold": float(
-            os.getenv("ASSEMBLYAI_EOT_THRESHOLD", "0.4")
+            os.getenv("ASSEMBLYAI_EOT_THRESHOLD", "0.3")
         ),
-        "min_turn_silence": int(os.getenv("ASSEMBLYAI_MIN_TURN_SILENCE", "150")),
+        "min_turn_silence": int(os.getenv("ASSEMBLYAI_MIN_TURN_SILENCE", "100")),
         # Skip the formatted-final pass (punctuation/casing). It adds ~1s of
         # end-of-turn latency for zero benefit — the LLM reads raw text fine.
         # Override with ASSEMBLYAI_FORMAT_TURNS=true if a clean transcript is
