@@ -1,17 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 /**
- * ConnectTableModal — registers an ALREADY-EXISTING physical table (e.g.
- * leads_rdv imported via the Supabase dashboard) to the org.
+ * ConnectTableModal — registers an already-existing physical table to the org.
  *
- * Flow: type the table name → "Analyser" introspects its columns → user
- * confirms which column is the phone (for dialing) and which is the name →
- * "Connecter" registers it.
+ * The user picks from a DROPDOWN of tables a super-admin assigned to their org
+ * (and that aren't already connected) — they never type a raw table name and
+ * can never see another tenant's tables. On selection we introspect the
+ * columns, let them confirm the phone/name column, then register.
  */
 
 interface IntrospectedCol { key: string; type: string; }
+interface Assignable { physical_table: string; note: string | null; }
 
 interface Props {
   onClose: () => void;
@@ -19,6 +20,7 @@ interface Props {
 }
 
 export function ConnectTableModal({ onClose, onConnected }: Props) {
+  const [assignable, setAssignable] = useState<Assignable[] | null>(null);
   const [physical, setPhysical] = useState("");
   const [label, setLabel] = useState("");
   const [cols, setCols] = useState<IntrospectedCol[] | null>(null);
@@ -27,25 +29,36 @@ export function ConnectTableModal({ onClose, onConnected }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function introspect() {
+  // Load the dropdown of tables assigned to this org but not yet connected.
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/data-tables/assignable")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) => { if (!cancelled) setAssignable(Array.isArray(data) ? data : []); })
+      .catch(() => { if (!cancelled) setAssignable([]); });
+    return () => { cancelled = true; };
+  }, []);
+
+  async function introspect(tableName: string) {
     setError(null);
+    setCols(null);
+    if (!tableName) return;
     setBusy(true);
     try {
       const r = await fetch("/api/data-tables/register?introspect=1", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ physical_table: physical.trim().toLowerCase() }),
+        body: JSON.stringify({ physical_table: tableName }),
       });
       const body = await r.json();
-      if (!r.ok) { setError(body.error ?? `Échec (${r.status})`); setCols(null); return; }
+      if (!r.ok) { setError(body.error ?? `Échec (${r.status})`); return; }
       const c = body.columns as IntrospectedCol[];
       setCols(c);
-      // Smart defaults for phone/name column.
       const phoneGuess = c.find((x) => /tel|phone|numero|e164|mobile/i.test(x.key))?.key ?? "";
       const nameGuess = c.find((x) => /nom|name|firstname|fullname/i.test(x.key))?.key ?? "";
       setPhoneCol(phoneGuess);
       setNameCol(nameGuess);
-      if (!label) setLabel(physical.trim());
+      if (!label) setLabel(tableName);
     } finally {
       setBusy(false);
     }
@@ -60,8 +73,8 @@ export function ConnectTableModal({ onClose, onConnected }: Props) {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          physical_table: physical.trim().toLowerCase(),
-          label: label.trim() || physical.trim(),
+          physical_table: physical,
+          label: label.trim() || physical,
           phone_column: phoneCol,
           name_column: nameCol || null,
         }),
@@ -83,25 +96,34 @@ export function ConnectTableModal({ onClose, onConnected }: Props) {
         </div>
 
         <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-          Indiquez le nom d&apos;une table déjà présente dans votre projet Supabase
-          (par exemple <span className="kbd">leads_rdv</span> que vous avez importée).
-          Axon va lire ses colonnes automatiquement.
+          Choisissez une table mise à votre disposition. Axon lira ses colonnes automatiquement.
         </p>
 
-        <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
-          <div style={{ flex: 1 }}>
-            <label>Nom de la table</label>
-            <input
-              value={physical}
-              onChange={(e) => { setPhysical(e.target.value); setCols(null); }}
-              placeholder="leads_rdv"
-              style={{ fontFamily: "monospace", fontSize: 13 }}
-            />
+        {assignable === null ? (
+          <div className="muted" style={{ fontSize: 13 }}>Chargement…</div>
+        ) : assignable.length === 0 ? (
+          <div style={{ background: "var(--bg-2)", padding: 12, borderRadius: 8, fontSize: 13, color: "var(--muted)" }}>
+            Aucune table disponible à connecter pour le moment. Une table doit d&apos;abord vous être
+            attribuée par un administrateur Axon (après import dans Supabase).
           </div>
-          <button type="button" onClick={introspect} disabled={busy || !physical.trim()}>
-            {busy && !cols ? "Analyse…" : "Analyser"}
-          </button>
-        </div>
+        ) : (
+          <div>
+            <label>Table disponible</label>
+            <select
+              value={physical}
+              onChange={(e) => { setPhysical(e.target.value); introspect(e.target.value); }}
+            >
+              <option value="">— choisir une table —</option>
+              {assignable.map((a) => (
+                <option key={a.physical_table} value={a.physical_table}>
+                  {a.physical_table}{a.note ? ` — ${a.note}` : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {busy && !cols && physical && <div className="muted" style={{ fontSize: 13 }}>Analyse des colonnes…</div>}
 
         {cols && (
           <>
