@@ -425,50 +425,9 @@ export function CampaignWizard({
         </div>
       </section>
 
-      {/* 2. Agent OU Team */}
+      {/* 2. Qui répond ? — binary choice: single agent vs multi-agent journey */}
       <section className="card">
-        <h3>2. Qui répond ?</h3>
-
-        {teams.length > 0 && (
-          <div style={{ marginBottom: 14 }}>
-            <label>Team IA (parcours multi-agents)</label>
-            <select
-              value={teamId}
-              onChange={(e) => {
-                setTeamId(e.target.value);
-                // If a team is picked AND has a resolvable lead handle, auto-update
-                // agentHandleId so the rest of the wizard reflects the choice.
-                const t = teams.find((x) => x.id === e.target.value);
-                if (t?.lead_agent_handle_id) setAgentHandleId(t.lead_agent_handle_id);
-              }}
-            >
-              <option value="">— Aucune (un seul agent répond) —</option>
-              {teams.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name} · {t.member_count} agent{t.member_count === 1 ? "" : "s"}
-                  {t.description ? ` — ${t.description.slice(0, 60)}` : ""}
-                </option>
-              ))}
-            </select>
-            {selectedTeam && (
-              <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-                {selectedTeam.lead_agent_handle_id ? (
-                  <>
-                    ✅ L&apos;agent <strong>lead</strong> de la team répond en premier,
-                    puis transfère selon les règles définies dans{" "}
-                    <a href={`/teams/${selectedTeam.id}`} target="_blank" rel="noreferrer" style={{ color: "var(--accent-2)" }}>
-                      le parcours
-                    </a>.
-                  </>
-                ) : (
-                  <span style={{ color: "#ffb060" }}>
-                    ⚠️ Cette team n&apos;a pas d&apos;agent lead actif. Définissez-en un dans Teams IA.
-                  </span>
-                )}
-              </div>
-            )}
-          </div>
-        )}
+        <h3>2. Qui répond aux appels ?</h3>
 
         {agents.length === 0 ? (
           <p className="muted" style={{ margin: 0 }}>
@@ -476,37 +435,131 @@ export function CampaignWizard({
           </p>
         ) : (
           <>
-            <label>
-              {selectedTeam ? "Agent qui répond (auto-sélectionné depuis la team)" : "Agent IA"}
-            </label>
-            <select
-              value={agentHandleId}
-              onChange={(e) => setAgentHandleId(e.target.value)}
-              disabled={!!selectedTeam}
-            >
-              {agents.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.display_name}
-                </option>
-              ))}
-            </select>
-            {selectedAgent && (
-              <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
-                Modèle : <span className="kbd">{selectedAgent.llm_model ?? "—"}</span>
-                {" · "}
-                Voix : <span className="kbd">{selectedAgent.tts_voice_id ?? "—"}</span>
+            {/* Mode selector — two clear radio cards. */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
+              <label
+                style={{
+                  display: "flex", gap: 10, alignItems: "flex-start", cursor: "pointer",
+                  padding: 12, borderRadius: 8,
+                  border: `1px solid ${!teamId ? "var(--accent)" : "var(--border)"}`,
+                  background: !teamId ? "var(--accent-soft)" : "var(--bg-2)",
+                }}
+              >
+                <input
+                  type="radio"
+                  name="answer_mode"
+                  checked={!teamId}
+                  onChange={() => setTeamId("")}
+                  style={{ width: "auto", marginTop: 2 }}
+                />
+                <div>
+                  <div style={{ fontWeight: 600 }}>Un seul agent</div>
+                  <div style={{ fontSize: 12, color: "var(--muted)" }}>
+                    Le même agent gère tout l&apos;appel du début à la fin.
+                  </div>
+                </div>
+              </label>
+
+              <label
+                style={{
+                  display: "flex", gap: 10, alignItems: "flex-start",
+                  cursor: teams.length > 0 ? "pointer" : "not-allowed",
+                  opacity: teams.length > 0 ? 1 : 0.5,
+                  padding: 12, borderRadius: 8,
+                  border: `1px solid ${teamId ? "var(--accent)" : "var(--border)"}`,
+                  background: teamId ? "var(--accent-soft)" : "var(--bg-2)",
+                }}
+              >
+                <input
+                  type="radio"
+                  name="answer_mode"
+                  checked={!!teamId}
+                  disabled={teams.length === 0}
+                  onChange={() => {
+                    const first = teams[0];
+                    if (first) {
+                      setTeamId(first.id);
+                      if (first.lead_agent_handle_id) setAgentHandleId(first.lead_agent_handle_id);
+                    }
+                  }}
+                  style={{ width: "auto", marginTop: 2 }}
+                />
+                <div>
+                  <div style={{ fontWeight: 600 }}>Parcours multi-agents</div>
+                  <div style={{ fontSize: 12, color: "var(--muted)" }}>
+                    Plusieurs agents se passent le relais (ex&nbsp;: Charlotte → Isabelle → Victoria).
+                    {teams.length === 0 && " — créez d'abord une Team IA."}
+                  </div>
+                </div>
+              </label>
+            </div>
+
+            {/* Single-agent picker */}
+            {!teamId && (
+              <div>
+                <label>Agent</label>
+                <select value={agentHandleId} onChange={(e) => setAgentHandleId(e.target.value)}>
+                  {agents.map((a) => (
+                    <option key={a.id} value={a.id}>{a.display_name}</option>
+                  ))}
+                </select>
+                {selectedAgent && (
+                  <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
+                    Modèle : <span className="kbd">{selectedAgent.llm_model ?? "—"}</span>
+                    {" · "}
+                    Voix : <span className="kbd">{selectedAgent.tts_voice_id ?? "—"}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Multi-agent (team) picker */}
+            {teamId && (
+              <div>
+                <label>Parcours (Team IA)</label>
+                <select
+                  value={teamId}
+                  onChange={(e) => {
+                    setTeamId(e.target.value);
+                    const t = teams.find((x) => x.id === e.target.value);
+                    if (t?.lead_agent_handle_id) setAgentHandleId(t.lead_agent_handle_id);
+                  }}
+                >
+                  {teams.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name} · {t.member_count} agent{t.member_count === 1 ? "" : "s"}
+                    </option>
+                  ))}
+                </select>
+                {selectedTeam && (
+                  <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
+                    {selectedTeam.lead_agent_handle_id ? (
+                      <>
+                        ✅ <strong>{agents.find((a) => a.id === selectedTeam.lead_agent_handle_id)?.display_name ?? "Le 1er agent"}</strong> répond
+                        à l&apos;appel, puis transfère automatiquement selon{" "}
+                        <a href={`/teams/${selectedTeam.id}`} target="_blank" rel="noreferrer" style={{ color: "var(--accent-2)" }}>
+                          le parcours défini
+                        </a>.
+                      </>
+                    ) : (
+                      <span style={{ color: "#ffb060" }}>
+                        ⚠️ Cette team n&apos;a pas d&apos;agent « 1er appel ». Ouvrez{" "}
+                        <a href={`/teams/${selectedTeam.id}`} target="_blank" rel="noreferrer" style={{ color: "var(--accent-2)" }}>le parcours</a>{" "}
+                        pour en définir un.
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </>
         )}
 
-        {/* Script réutilisable — rendu indépendamment de la présence d'agents :
-            l'agent garde sa voix/personnalité, le script définit l'objectif de
-            conversation pour CETTE campagne. */}
-        <div style={{ marginTop: 16 }}>
-          <label>Script (optionnel)</label>
+        {/* Script — optional refinement, clearly secondary. */}
+        <div style={{ marginTop: 18, paddingTop: 14, borderTop: "1px solid var(--border)" }}>
+          <label>Script de conversation (optionnel)</label>
           <select value={scriptId} onChange={(e) => setScriptId(e.target.value)}>
-            <option value="">— Aucun (l&apos;agent suit son prompt par défaut) —</option>
+            <option value="">— Aucun (l&apos;agent suit son prompt) —</option>
             {scripts.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name}{s.mission ? ` — ${s.mission}` : ""}
@@ -514,12 +567,10 @@ export function CampaignWizard({
             ))}
           </select>
           <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-            {scripts.length === 0 ? (
-              <>Aucun script. Créez-en un depuis la page <span className="kbd">Scripts</span> pour réutiliser le même agent avec différents objectifs de conversation.</>
-            ) : scriptId ? (
-              <>{scripts.find((s) => s.id === scriptId)?.description ?? "Ce script guidera la conversation de l'agent pour cette campagne."}</>
+            {scriptId ? (
+              <>{scripts.find((s) => s.id === scriptId)?.description ?? "Ce script guide la conversation pour cette campagne."}</>
             ) : (
-              <>Le même agent (voix + personnalité) peut servir plusieurs campagnes ; le script définit l&apos;objectif propre à celle-ci.</>
+              <>Laisse vide pour utiliser le comportement par défaut de l&apos;agent. Un script ajoute un objectif précis pour CETTE campagne.</>
             )}
           </div>
         </div>

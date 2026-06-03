@@ -41,6 +41,7 @@ const NAV: NavItem[] = [
 
   // ─── CONFIGURATION ───
   { href: "/agents",    label: "Agents",          icon: "◇", group: "Configuration", roles: MGMT },
+  { href: "/teams",     label: "Teams IA",        icon: "⌬", group: "Configuration", roles: MGMT },
   { href: "/scripts",   label: "Scripts",         icon: "✎", group: "Configuration", roles: MGMT },
 
   // ─── OPÉRATIONS ───
@@ -69,7 +70,6 @@ const NAV: NavItem[] = [
   { href: "/numbers",        label: "Numéros (→ Paramètres)",        icon: "✆", group: "Avancé", roles: MGMT, advanced: true },
   { href: "/numbers/health", label: "Santé numéros (→ Paramètres)",  icon: "♥", group: "Avancé", roles: MGMT, advanced: true },
   { href: "/workflows",      label: "Workflows n8n (→ Paramètres)",  icon: "⇄", group: "Avancé", roles: MGMT, advanced: true },
-  { href: "/teams",          label: "Teams IA (→ Paramètres)",       icon: "⌬", group: "Avancé", roles: MGMT, advanced: true },
   { href: "/flows",          label: "Flows / IVR (avancé)",          icon: "❖", group: "Avancé", roles: MGMT, advanced: true },
 ];
 
