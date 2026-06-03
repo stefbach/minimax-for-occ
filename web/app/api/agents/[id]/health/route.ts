@@ -59,7 +59,13 @@ async function checkCartesia(apiKey: string | undefined): Promise<CheckResult> {
 
 async function checkAssemblyAI(apiKey: string | undefined): Promise<CheckResult> {
   if (!apiKey) {
-    return { service: "AssemblyAI STT", status: "fail", message: "ASSEMBLYAI_API_KEY manquante (Fly secret uniquement)" };
+    // The STT key lives on the AGENT host (LiveKit Cloud / Fly), not on Vercel.
+    // From the web we can't see it — so this is "non vérifiable", not a failure.
+    return {
+      service: "AssemblyAI STT",
+      status: "skipped",
+      message: "Clé gérée côté agent (LiveKit/Fly) — non vérifiable depuis le web.",
+    };
   }
   try {
     const r = await fetchWithTimeout("https://api.assemblyai.com/v2/account", {
@@ -165,7 +171,9 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   const config = checkAgentConfig(agent as AgentConfig);
 
   const checks = [config, livekit, assemblyai, deepseek, cartesia];
-  const ok = checks.every((c) => c.status === "ok");
+  // "skipped" checks (e.g. a key that lives on the agent host, not on Vercel)
+  // are not failures — only a real "fail" marks the agent unhealthy.
+  const ok = checks.every((c) => c.status !== "fail");
   return NextResponse.json({
     ok,
     agent_id: id,
