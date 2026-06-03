@@ -76,6 +76,8 @@ export async function POST(req: Request) {
     script_id?: string | null;
     contact_list_id?: string | null;
     data_table_id?: string | null;
+    mode?: string | null;
+    engine?: Record<string, unknown> | null;
     phone_number_id?: string | null;
     caller_id_e164?: string | null;
     schedule?: Record<string, unknown>;
@@ -129,6 +131,9 @@ export async function POST(req: Request) {
     }
   }
 
+  // Dynamic (continuous) mode requires a data table to re-select from.
+  const mode = body.mode === "dynamic" && resolvedDataTableId ? "dynamic" : "static";
+
   const { data: campaign, error } = await sb
     .from("campaigns")
     .insert({
@@ -139,6 +144,7 @@ export async function POST(req: Request) {
       agent_team_id: resolvedTeamId,
       script_id: body.script_id ?? null,
       data_table_id: resolvedDataTableId,
+      mode,
       phone_number_id: body.phone_number_id ?? null,
       caller_id_e164: body.caller_id_e164 ?? null,
       state: "draft",
@@ -147,6 +153,7 @@ export async function POST(req: Request) {
       max_attempts: body.max_attempts ?? 3,
       retry_delay_min: body.retry_delay_min ?? 60,
       amd_enabled: body.amd_enabled ?? true,
+      metadata: mode === "dynamic" && body.engine ? { engine: body.engine } : {},
     })
     .select()
     .single();
@@ -157,14 +164,13 @@ export async function POST(req: Request) {
     await ingestTargets(sb, org_id, campaign.id, body.targets);
   }
 
-  // Primary OCC flow: seed every row of the chosen data table as a target,
-  // carrying the row data as payload (for {{vars}}) + source_metadata (for
-  // write-back to the real table).
-  if (dataTable) {
+  // STATIC mode only: seed every row of the chosen data table as a fixed
+  // target now. In DYNAMIC mode the dialer re-selects from the table at each
+  // slot per metadata.engine, so we do NOT pre-seed.
+  if (dataTable && mode === "static") {
     try {
       await ingestDataTableTargets(sb, org_id, campaign.id, dataTable);
     } catch (e) {
-      // Don't fail campaign creation if seeding hiccups; surface in logs.
       console.error("[campaigns] data table seeding failed:", e instanceof Error ? e.message : e);
     }
   }

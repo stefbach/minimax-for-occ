@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { DynamicEngineConfig, defaultEngineConfig, type EngineConfig } from "./DynamicEngineConfig";
 
 export interface AgentHandleOption {
   id: string;
@@ -52,6 +53,8 @@ export interface DataTableOption {
   label: string;
   physical_table: string;
   row_count: number;
+  columns: Array<{ key: string; label: string; type: string }>;
+  phone_column: string;
 }
 
 interface Target {
@@ -265,6 +268,24 @@ export function CampaignWizard({
   // like leads_rdv), or fall back to the legacy CSV paste / contact picker.
   const [contactListId, setContactListId] = useState("");
   const [dataTableId, setDataTableId] = useState("");
+  const selectedDataTable = useMemo(
+    () => dataTables.find((t) => t.id === dataTableId) ?? null,
+    [dataTables, dataTableId],
+  );
+  // "Continuous" campaign: re-selects from the table at each slot per rules.
+  const [dynamicMode, setDynamicMode] = useState(false);
+  const [engineConfig, setEngineConfig] = useState<EngineConfig | null>(null);
+
+  function onPickDataTable(id: string) {
+    setDataTableId(id);
+    const t = dataTables.find((x) => x.id === id);
+    if (t) {
+      setEngineConfig(defaultEngineConfig(t.columns, t.phone_column));
+    } else {
+      setDynamicMode(false);
+      setEngineConfig(null);
+    }
+  }
   const [phoneNumberId, setPhoneNumberId] = useState(numbers[0]?.id ?? "");
   const [callerIdOverride, setCallerIdOverride] = useState("");
   const [csvText, setCsvText] = useState("");
@@ -385,6 +406,8 @@ export function CampaignWizard({
           script_id: scriptId || null,
           contact_list_id: contactListId || null,
           data_table_id: dataTableId || null,
+          mode: dynamicMode && dataTableId ? "dynamic" : "static",
+          engine: dynamicMode && dataTableId && engineConfig ? engineConfig : null,
           phone_number_id: phoneNumberId || null,
           caller_id_e164: callerIdOverride.trim() || null,
           schedule,
@@ -626,21 +649,43 @@ export function CampaignWizard({
         <h3>4. Cibles</h3>
         <div style={{ display: "grid", gap: 12 }}>
           {dataTables.length > 0 && (
-            <div style={{ background: "var(--bg-2)", padding: 12, borderRadius: 8 }}>
-              <label>Table de contacts (recommandé)</label>
-              <select value={dataTableId} onChange={(e) => setDataTableId(e.target.value)}>
-                <option value="">— Pas de table (utiliser CSV ci-dessous) —</option>
-                {dataTables.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.label} ({t.physical_table}) · {t.row_count} contact{t.row_count === 1 ? "" : "s"}
-                  </option>
-                ))}
-              </select>
-              <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-                {dataTableId
-                  ? `La campagne appellera tous les contacts de cette table. Les variables ({{nom}}, {{bmi}}…) viennent de ses colonnes, et l'agent réécrit ses résultats dedans.`
-                  : `Choisis la table à appeler. Gère tes tables dans CRM / Contacts.`}
+            <div style={{ background: "var(--bg-2)", padding: 12, borderRadius: 8, display: "grid", gap: 10 }}>
+              <div>
+                <label>Table de contacts (recommandé)</label>
+                <select value={dataTableId} onChange={(e) => onPickDataTable(e.target.value)}>
+                  <option value="">— Pas de table (utiliser CSV ci-dessous) —</option>
+                  {dataTables.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.label} ({t.physical_table}) · {t.row_count} contact{t.row_count === 1 ? "" : "s"}
+                    </option>
+                  ))}
+                </select>
+                <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+                  {dataTableId
+                    ? `Les variables ({{nom}}, {{bmi}}…) viennent des colonnes de cette table, et l'agent y réécrit ses résultats.`
+                    : `Choisis la table à appeler. Gère tes tables dans CRM / Contacts.`}
+                </div>
               </div>
+
+              {selectedDataTable && (
+                <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 13 }}>
+                  <input type="checkbox" checked={dynamicMode}
+                    onChange={(e) => setDynamicMode(e.target.checked)} style={{ width: "auto" }} />
+                  <span>
+                    <strong>Campagne continue</strong> — re-sélectionne les contacts à chaque créneau
+                    selon des règles (statuts, relances J+X, plafond/jour). Sinon, appel unique de tous les contacts.
+                  </span>
+                </label>
+              )}
+
+              {selectedDataTable && dynamicMode && engineConfig && (
+                <DynamicEngineConfig
+                  columns={selectedDataTable.columns}
+                  phoneColumn={selectedDataTable.phone_column}
+                  value={engineConfig}
+                  onChange={setEngineConfig}
+                />
+              )}
             </div>
           )}
 

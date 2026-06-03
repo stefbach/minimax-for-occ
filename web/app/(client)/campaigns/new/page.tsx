@@ -149,11 +149,14 @@ export default async function NewCampaignPage() {
       // Data tables (real tables like leads_rdv) the user can target.
       const { data } = await sb
         .from("tenant_data_tables")
-        .select("id,label,physical_table")
+        .select("id,label,physical_table,columns,phone_column")
         .eq("org_id", DEFAULT_ORG)
         .order("created_at", { ascending: false })
         .limit(200);
-      const tbls = (data ?? []) as Array<{ id: string; label: string; physical_table: string }>;
+      const tbls = (data ?? []) as Array<{
+        id: string; label: string; physical_table: string;
+        columns: Array<{ key: string; label: string; type: string }>; phone_column: string;
+      }>;
       const withCounts: typeof dataTables = [];
       for (const t of tbls) {
         let count = 0;
@@ -165,7 +168,11 @@ export default async function NewCampaignPage() {
         } catch {
           count = 0;
         }
-        withCounts.push({ id: t.id, label: t.label, physical_table: t.physical_table, row_count: count });
+        withCounts.push({
+          id: t.id, label: t.label, physical_table: t.physical_table, row_count: count,
+          columns: Array.isArray(t.columns) ? t.columns : [],
+          phone_column: t.phone_column,
+        });
       }
       dataTables = withCounts;
     } catch {

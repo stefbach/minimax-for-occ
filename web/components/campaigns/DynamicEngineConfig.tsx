@@ -1,0 +1,310 @@
+"use client";
+
+import { useState } from "react";
+
+/**
+ * DynamicEngineConfig — the client-configurable rules for a "continuous"
+ * campaign that re-selects leads from a data table at each time slot.
+ *
+ * Everything is column-MAPPED (Q1=B): the client tells Axon which column in
+ * THEIR table holds the status, the callback datetime, and the per-phase
+ * date/attempts trackers — so any tenant works without hardcoded names.
+ *
+ * Emits a `EngineConfig` object the wizard stores in campaigns.metadata.engine.
+ */
+
+export interface PhaseConfig {
+  name: string;
+  date_column: string;
+  attempts_column: string;
+  wait_business_days: number;
+}
+
+export interface EngineConfig {
+  selection: {
+    status_column: string;
+    include_statuses: string[];
+    phone_starts_with: string;
+    phone_min_len: number | null;
+    phone_max_len: number | null;
+  };
+  callback: { enabled: boolean; status_value: string; datetime_column: string };
+  cadence: {
+    enabled: boolean;
+    business_days_only: boolean;
+    max_attempts_per_phase: number;
+    phases: PhaseConfig[];
+  };
+  slots: { days: number[]; hours: string[]; timezone: string };
+  volume: { max_new_per_day: number; wave_size: number; wave_pause_secs: number };
+}
+
+interface Column { key: string; label: string; type: string; }
+
+const DAYS = [
+  { n: 1, l: "L" }, { n: 2, l: "M" }, { n: 3, l: "M" }, { n: 4, l: "J" },
+  { n: 5, l: "V" }, { n: 6, l: "S" }, { n: 0, l: "D" },
+];
+
+const TIMEZONES = [
+  "Europe/London", "Europe/Paris", "Indian/Mauritius", "America/New_York", "UTC",
+];
+
+export function defaultEngineConfig(columns: Column[], phoneColumn: string): EngineConfig {
+  const textCols = columns.filter((c) => c.type === "text");
+  const dateCols = columns.filter((c) => c.type === "date" || c.type === "datetime");
+  const numCols = columns.filter((c) => c.type === "number");
+  const statusCol = textCols.find((c) => /qualif|status|statut|stage/i.test(c.key))?.key ?? textCols[0]?.key ?? "";
+  const cbCol = dateCols.find((c) => /rappel|callback|recall/i.test(c.key))?.key ?? "";
+  return {
+    selection: {
+      status_column: statusCol,
+      include_statuses: [],
+      phone_starts_with: "",
+      phone_min_len: null,
+      phone_max_len: null,
+    },
+    callback: { enabled: Boolean(cbCol), status_value: "RAPPEL", datetime_column: cbCol },
+    cadence: {
+      enabled: false,
+      business_days_only: true,
+      max_attempts_per_phase: 3,
+      phases: dateCols.length >= 1
+        ? [{ name: "J1", date_column: dateCols[0]?.key ?? "", attempts_column: numCols[0]?.key ?? "", wait_business_days: 0 }]
+        : [],
+    },
+    slots: { days: [1, 2, 3, 4, 5], hours: ["09:00"], timezone: "Europe/London" },
+    volume: { max_new_per_day: 200, wave_size: 15, wave_pause_secs: 60 },
+  };
+}
+
+interface Props {
+  columns: Column[];
+  phoneColumn: string;
+  value: EngineConfig;
+  onChange: (cfg: EngineConfig) => void;
+}
+
+export function DynamicEngineConfig({ columns, value, onChange }: Props) {
+  const [statusInput, setStatusInput] = useState("");
+  const textCols = columns.filter((c) => c.type === "text");
+  const dateCols = columns.filter((c) => c.type === "date" || c.type === "datetime");
+  const numCols = columns.filter((c) => c.type === "number");
+
+  function set<K extends keyof EngineConfig>(key: K, v: EngineConfig[K]) {
+    onChange({ ...value, [key]: v });
+  }
+
+  function addStatus() {
+    const s = statusInput.trim();
+    if (s && !value.selection.include_statuses.includes(s)) {
+      set("selection", { ...value.selection, include_statuses: [...value.selection.include_statuses, s] });
+    }
+    setStatusInput("");
+  }
+
+  function toggleDay(n: number) {
+    const days = value.slots.days.includes(n)
+      ? value.slots.days.filter((d) => d !== n)
+      : [...value.slots.days, n];
+    set("slots", { ...value.slots, days });
+  }
+
+  return (
+    <div style={{ display: "grid", gap: 16 }}>
+      {/* ── Qui appeler ── */}
+      <div style={box}>
+        <h4 style={h4}>Qui appeler ?</h4>
+        <div className="form-row">
+          <div>
+            <label>Colonne « statut »</label>
+            <select
+              value={value.selection.status_column}
+              onChange={(e) => set("selection", { ...value.selection, status_column: e.target.value })}
+            >
+              <option value="">— choisir —</option>
+              {textCols.map((c) => <option key={c.key} value={c.key}>{c.label} ({c.key})</option>)}
+            </select>
+          </div>
+          <div>
+            <label>Filtre numéro : commence par</label>
+            <input
+              value={value.selection.phone_starts_with}
+              onChange={(e) => set("selection", { ...value.selection, phone_starts_with: e.target.value })}
+              placeholder="+44"
+            />
+          </div>
+        </div>
+        <div>
+          <label>Statuts à appeler</label>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
+            {value.selection.include_statuses.map((s) => (
+              <span key={s} className="tag" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+                {s}
+                <button type="button" onClick={() => set("selection", { ...value.selection, include_statuses: value.selection.include_statuses.filter((x) => x !== s) })}
+                  style={{ background: "none", border: "none", cursor: "pointer", color: "var(--muted)" }}>✕</button>
+              </span>
+            ))}
+            {value.selection.include_statuses.length === 0 && (
+              <span style={{ fontSize: 12, color: "var(--muted)" }}>Aucun → tous les contacts seront éligibles.</span>
+            )}
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <input
+              value={statusInput}
+              onChange={(e) => setStatusInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addStatus(); } }}
+              placeholder="ex: NOUVEAU DOSSIER (Entrée pour ajouter)"
+            />
+            <button type="button" className="ghost" onClick={addStatus}>Ajouter</button>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Relances ── */}
+      <div style={box}>
+        <h4 style={h4}>Relances (suite d&apos;appels)</h4>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+          <input type="checkbox" checked={value.cadence.enabled}
+            onChange={(e) => set("cadence", { ...value.cadence, enabled: e.target.checked })}
+            style={{ width: "auto" }} />
+          Activer les relances multi-jours (J+X)
+        </label>
+
+        {value.cadence.enabled && (
+          <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
+            <div className="form-row">
+              <div>
+                <label>Colonne « rappel programmé » (prioritaire)</label>
+                <select value={value.callback.datetime_column}
+                  onChange={(e) => set("callback", { ...value.callback, datetime_column: e.target.value, enabled: Boolean(e.target.value) })}>
+                  <option value="">— aucune —</option>
+                  {dateCols.map((c) => <option key={c.key} value={c.key}>{c.label} ({c.key})</option>)}
+                </select>
+              </div>
+              <div>
+                <label>Valeur de statut « rappel »</label>
+                <input value={value.callback.status_value}
+                  onChange={(e) => set("callback", { ...value.callback, status_value: e.target.value })}
+                  placeholder="RAPPEL" />
+              </div>
+            </div>
+
+            <div>
+              <label>Phases de relance</label>
+              <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>
+                Chaque phase note la date d&apos;appel et le nombre de tentatives dans VOS colonnes.
+              </div>
+              <div style={{ display: "grid", gap: 8 }}>
+                {value.cadence.phases.map((p, i) => (
+                  <div key={i} style={{ display: "grid", gridTemplateColumns: "90px 1fr 1fr 110px auto", gap: 6, alignItems: "center" }}>
+                    <input value={p.name} placeholder="J1"
+                      onChange={(e) => set("cadence", { ...value.cadence, phases: value.cadence.phases.map((x, j) => j === i ? { ...x, name: e.target.value } : x) })} />
+                    <select value={p.date_column}
+                      onChange={(e) => set("cadence", { ...value.cadence, phases: value.cadence.phases.map((x, j) => j === i ? { ...x, date_column: e.target.value } : x) })}>
+                      <option value="">colonne date…</option>
+                      {dateCols.map((c) => <option key={c.key} value={c.key}>{c.key}</option>)}
+                    </select>
+                    <select value={p.attempts_column}
+                      onChange={(e) => set("cadence", { ...value.cadence, phases: value.cadence.phases.map((x, j) => j === i ? { ...x, attempts_column: e.target.value } : x) })}>
+                      <option value="">colonne tentatives…</option>
+                      {numCols.map((c) => <option key={c.key} value={c.key}>{c.key}</option>)}
+                    </select>
+                    <input type="number" value={p.wait_business_days} title="Jours ouvrés d'attente avant cette phase"
+                      onChange={(e) => set("cadence", { ...value.cadence, phases: value.cadence.phases.map((x, j) => j === i ? { ...x, wait_business_days: Number(e.target.value) } : x) })} />
+                    <button type="button" className="ghost" style={{ padding: "6px 10px" }}
+                      onClick={() => set("cadence", { ...value.cadence, phases: value.cadence.phases.filter((_, j) => j !== i) })}>✕</button>
+                  </div>
+                ))}
+                <button type="button" className="ghost" style={{ justifySelf: "start" }}
+                  onClick={() => set("cadence", { ...value.cadence, phases: [...value.cadence.phases, { name: `J${value.cadence.phases.length * 2 + 1}`, date_column: "", attempts_column: "", wait_business_days: value.cadence.phases.length * 2 }] })}>
+                  + Ajouter une phase
+                </button>
+              </div>
+            </div>
+
+            <div className="form-row">
+              <div>
+                <label>Max tentatives par phase</label>
+                <input type="number" value={value.cadence.max_attempts_per_phase}
+                  onChange={(e) => set("cadence", { ...value.cadence, max_attempts_per_phase: Number(e.target.value) })} />
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, paddingTop: 22 }}>
+                <input type="checkbox" checked={value.cadence.business_days_only}
+                  onChange={(e) => set("cadence", { ...value.cadence, business_days_only: e.target.checked })}
+                  style={{ width: "auto" }} />
+                <span style={{ fontSize: 13 }}>Jours ouvrés uniquement</span>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── Créneaux ── */}
+      <div style={box}>
+        <h4 style={h4}>Créneaux (quand appeler)</h4>
+        <div>
+          <label>Jours actifs</label>
+          <div style={{ display: "flex", gap: 6 }}>
+            {DAYS.map((d) => (
+              <button key={d.n} type="button"
+                onClick={() => toggleDay(d.n)}
+                style={{
+                  width: 36, height: 36, borderRadius: 8, cursor: "pointer",
+                  border: `1px solid ${value.slots.days.includes(d.n) ? "var(--accent)" : "var(--border)"}`,
+                  background: value.slots.days.includes(d.n) ? "var(--accent-soft)" : "var(--bg-2)",
+                  color: "inherit",
+                }}>{d.l}</button>
+            ))}
+          </div>
+        </div>
+        <div className="form-row">
+          <div>
+            <label>Heures de tir</label>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+              {value.slots.hours.map((h, i) => (
+                <span key={i} style={{ display: "inline-flex", gap: 4, alignItems: "center" }}>
+                  <input type="time" value={h} style={{ width: "auto" }}
+                    onChange={(e) => set("slots", { ...value.slots, hours: value.slots.hours.map((x, j) => j === i ? e.target.value : x) })} />
+                  <button type="button" onClick={() => set("slots", { ...value.slots, hours: value.slots.hours.filter((_, j) => j !== i) })}
+                    style={{ background: "none", border: "none", cursor: "pointer", color: "var(--muted)" }}>✕</button>
+                </span>
+              ))}
+              <button type="button" className="ghost" style={{ padding: "4px 10px" }}
+                onClick={() => set("slots", { ...value.slots, hours: [...value.slots.hours, "13:00"] })}>+ heure</button>
+            </div>
+          </div>
+          <div>
+            <label>Fuseau horaire</label>
+            <select value={value.slots.timezone} onChange={(e) => set("slots", { ...value.slots, timezone: e.target.value })}>
+              {TIMEZONES.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Volume ── */}
+      <div style={box}>
+        <h4 style={h4}>Volume</h4>
+        <div className="form-row">
+          <div>
+            <label>Max nouveaux contacts / jour</label>
+            <input type="number" value={value.volume.max_new_per_day}
+              onChange={(e) => set("volume", { ...value.volume, max_new_per_day: Number(e.target.value) })} />
+          </div>
+          <div>
+            <label>Vague (appels simultanés)</label>
+            <input type="number" value={value.volume.wave_size}
+              onChange={(e) => set("volume", { ...value.volume, wave_size: Number(e.target.value) })} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const box: React.CSSProperties = {
+  background: "var(--bg-2)", border: "1px solid var(--border)", borderRadius: 10, padding: 14,
+  display: "grid", gap: 10,
+};
+const h4: React.CSSProperties = { margin: 0, fontSize: 14 };
