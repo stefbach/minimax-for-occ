@@ -387,7 +387,7 @@ def load_target_context(target_id: Optional[str]) -> dict[str, Any]:
             r = c.get(
                 _supabase_url(
                     f"/rest/v1/campaign_targets?id=eq.{target_id}"
-                    "&select=payload,contacts(display_name,e164,email,attributes,notes)"
+                    "&select=contact_id,payload,contacts(id,display_name,e164,email,attributes,notes,org_id)"
                 )
             )
             r.raise_for_status()
@@ -400,6 +400,13 @@ def load_target_context(target_id: Optional[str]) -> dict[str, Any]:
             payload = row.get("payload") or {}
 
             vars: dict[str, Any] = {}
+            # Reserved keys (double-underscore) so callers can resolve the
+            # contact to write back to, without these polluting {{templates}}.
+            cid = row.get("contact_id") or contact.get("id")
+            if cid:
+                vars["__contact_id__"] = cid
+            if contact.get("org_id"):
+                vars["__org_id__"] = contact["org_id"]
             # 1. Contact's flexible attributes (lowest priority — overridable)
             if isinstance(attrs, dict):
                 vars.update(attrs)

@@ -82,6 +82,83 @@ def update_call_metadata(call_id: Optional[str], patch: dict[str, Any]) -> None:
         logger.exception("update_call_metadata failed (call=%s)", call_id)
 
 
+def save_contact_data(
+    contact_id: Optional[str],
+    org_id: Optional[str],
+    attributes_patch: dict[str, Any],
+    *,
+    display_name: Optional[str] = None,
+    email: Optional[str] = None,
+    notes: Optional[str] = None,
+) -> dict[str, Any]:
+    """Merge `attributes_patch` into contacts.attributes for one contact and
+    optionally update its display_name / email / notes.
+
+    Used by the in-call `save_contact_data` agent tool so an agent can persist
+    what it learns mid-conversation (BMI, DOB, eligibility, ...) onto the CRM
+    contact row that the campaign is calling.
+
+    Returns {"ok": True, "saved": [...keys...]} or {"ok": False, "error": ...}
+    so the calling tool can report success to the LLM.
+
+    org_id is required and used as a WHERE clause so a misrouted call can never
+    write onto another tenant's contact.
+    """
+    if not has_supabase():
+        return {"ok": False, "error": "supabase not configured"}
+    if not contact_id:
+        return {"ok": False, "error": "no contact_id for this call (manual/sim call?)"}
+    if not org_id:
+        return {"ok": False, "error": "no org_id resolved"}
+    try:
+        with httpx.Client(timeout=httpx.Timeout(8.0), headers=_supabase_headers()) as c:
+            # Read current attributes so we shallow-merge instead of clobber.
+            r = c.get(
+                _supabase_url(
+                    f"/rest/v1/contacts?id=eq.{contact_id}&org_id=eq.{org_id}"
+                    "&select=attributes"
+                ),
+            )
+            r.raise_for_status()
+            rows = r.json() or []
+            if not rows:
+                return {"ok": False, "error": "contact not found in this org"}
+            current = rows[0].get("attributes") or {}
+            if not isinstance(current, dict):
+                current = {}
+            # Drop None values so the agent can't accidentally wipe a field.
+            clean_patch = {k: v for k, v in (attributes_patch or {}).items() if v is not None}
+            merged = {**current, **clean_patch}
+
+            body: dict[str, Any] = {"attributes": merged}
+            if display_name is not None and str(display_name).strip():
+                body["display_name"] = str(display_name).strip()
+            if email is not None and str(email).strip():
+                body["email"] = str(email).strip()
+            if notes is not None and str(notes).strip():
+                body["notes"] = str(notes).strip()
+
+            r2 = c.patch(
+                _supabase_url(
+                    f"/rest/v1/contacts?id=eq.{contact_id}&org_id=eq.{org_id}"
+                ),
+                headers={
+                    **_supabase_headers(),
+                    "Content-Type": "application/json",
+                    "Prefer": "return=minimal",
+                },
+                json=body,
+            )
+            r2.raise_for_status()
+            saved_keys = sorted(clean_patch.keys()) + [
+                k for k in ("display_name", "email", "notes") if k in body
+            ]
+            return {"ok": True, "saved": saved_keys}
+    except Exception as exc:
+        logger.exception("save_contact_data failed (contact=%s)", contact_id)
+        return {"ok": False, "error": str(exc)}
+
+
 def append_transcript_turn(
     call_id: Optional[str],
     speaker: str,

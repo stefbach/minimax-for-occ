@@ -453,6 +453,66 @@ def _build_rag_tool(agent: AxonAgent):
     return search_knowledge_base
 
 
+def _build_save_contact_tool(contact_id: Optional[str], org_id: Optional[str]):
+    """function_tool that lets the agent persist what it learns mid-call onto
+    the CRM contact row (contacts.attributes + display_name/email/notes).
+
+    Bound to THIS call's contact_id + org_id (resolved from the campaign
+    target), so the LLM never has to know or pass an id — it just calls
+    save_contact_data with the fields it collected. Returns None when there's
+    no contact (manual/simulation calls), so the tool simply isn't offered.
+    """
+    from livekit.agents import function_tool
+    from db_writes import save_contact_data as _save
+
+    if not contact_id:
+        return None
+
+    @function_tool
+    async def save_contact_data(
+        fields_json: str,
+        display_name: str = "",
+        email: str = "",
+        notes: str = "",
+    ) -> str:
+        """Persist structured data you collected about the patient onto their
+        CRM record. Call this as soon as you have confirmed values — don't wait
+        until the end of the call. Safe to call multiple times; fields merge.
+
+        Args:
+            fields_json: A JSON object of field→value pairs to save. Use the
+                field keys defined for this campaign, e.g.
+                {"bmi": 42, "poids": 120, "taille": 169, "qualification": "eligible",
+                 "nhs_wmp_status": "tier3", "patient_dob": "1985-04-12",
+                 "allergies": "penicillin", "current_medications": "metformin"}.
+                Numbers as numbers, dates as YYYY-MM-DD strings.
+            display_name: Optional — the patient's full name if newly confirmed.
+            email: Optional — the patient's email if newly confirmed.
+            notes: Optional — a short free-text note to append about this call.
+        """
+        import json as _json
+        try:
+            fields = _json.loads(fields_json) if fields_json else {}
+            if not isinstance(fields, dict):
+                return "Error: fields_json must be a JSON object."
+        except Exception as e:
+            return f"Error: invalid JSON ({e})."
+        result = await asyncio.to_thread(
+            _save,
+            contact_id,
+            org_id,
+            fields,
+            display_name=display_name or None,
+            email=email or None,
+            notes=notes or None,
+        )
+        if result.get("ok"):
+            return f"Saved: {', '.join(result.get('saved', [])) or '(nothing new)'}."
+        return f"Could not save: {result.get('error', 'unknown error')}."
+
+    return save_contact_data
+
+
 # ─── Agent wrapper that greets via TTS only ───────────────────────────────
 class AxonVoiceAgent(Agent):
     def __init__(self, *, instructions: str, tools, greeting: str):
@@ -1064,6 +1124,15 @@ async def entrypoint(ctx: JobContext) -> None:
         if axon.rag_enabled:
             tools.append(_build_rag_tool(axon))
             clog.info("RAG tool enabled (top-%d)", axon.rag_top_k)
+        # In-call CRM write-back: give the agent a save_contact_data tool bound
+        # to THIS call's contact (resolved from the campaign target). Lets
+        # Isabelle persist bmi, Victoria persist DOB/allergies, etc. mid-call.
+        _save_contact_id = target_vars.get("__contact_id__")
+        _save_org_id = target_vars.get("__org_id__") or (axon.org_id if axon else None)
+        _save_tool = _build_save_contact_tool(_save_contact_id, _save_org_id)
+        if _save_tool is not None:
+            tools.append(_save_tool)
+            clog.info("save_contact_data tool enabled (contact=%s)", _save_contact_id)
         # Multi-agent swarm: add `transfer_to_specialist` if this agent
         # belongs to a team. Non-blocking: returns None when no team.
         import time as _time
