@@ -1,17 +1,20 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase";
+import { requestOrgId } from "@/lib/request-org";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /** GET /api/agents/[id]/prompt-versions — full history (newest first). */
-export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
+  const orgId = await requestOrgId(req);
   const sb = supabaseServer();
   const { data, error } = await sb
     .from("prompt_versions")
     .select("*")
     .eq("agent_id", id)
+    .eq("org_id", orgId)
     .order("version", { ascending: false });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data ?? []);
@@ -24,6 +27,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
  */
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
+  const orgId = await requestOrgId(req);
   const sb = supabaseServer();
   const body = (await req.json().catch(() => ({}))) as {
     system_prompt?: string;
@@ -36,6 +40,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     .from("agents")
     .select("system_prompt, greeting, org_id")
     .eq("id", id)
+    .eq("org_id", orgId)
     .maybeSingle();
   if (agentErr) return NextResponse.json({ error: agentErr.message }, { status: 500 });
   if (!agent) return NextResponse.json({ error: "agent not found" }, { status: 404 });
@@ -48,6 +53,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     .from("prompt_versions")
     .select("version")
     .eq("agent_id", id)
+    .eq("org_id", orgId)
     .order("version", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -56,6 +62,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const { data, error } = await sb
     .from("prompt_versions")
     .insert({
+      org_id: orgId,
       agent_id: id,
       version: nextVersion,
       system_prompt: systemPrompt,

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
+import { currentOrgIdForServer } from "@/lib/supabase-auth";
 import type { Agent } from "@/lib/types";
 import { HelpButton } from "@/components/help/HelpButton";
 
@@ -15,14 +16,19 @@ interface SourceRow {
 
 async function loadSources(): Promise<SourceRow[]> {
   if (!hasSupabase()) return [];
+  const orgId = await currentOrgIdForServer();
   const sb = supabaseServer();
-  const { data: agents } = await sb.from("agents").select("id, name, rag_enabled");
+  const { data: agents } = await sb
+    .from("agents")
+    .select("id, name, rag_enabled")
+    .eq("org_id", orgId);
   const agentList = (agents as Pick<Agent, "id" | "name" | "rag_enabled">[]) ?? [];
   const out: SourceRow[] = [];
   for (const a of agentList) {
     const { data } = await sb
       .from("documents")
       .select("source_name")
+      .eq("org_id", orgId)
       .eq("agent_id", a.id);
     const counts = new Map<string, number>();
     for (const r of (data ?? []) as { source_name: string }[]) {

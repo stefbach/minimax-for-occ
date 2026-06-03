@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
+import { currentOrgIdForServer } from "@/lib/supabase-auth";
 import { FlowEditor, type FlowFull, type Step, type Edge } from "./FlowEditor";
 import { HelpButton } from "@/components/help/HelpButton";
 
@@ -8,18 +9,26 @@ export const dynamic = "force-dynamic";
 
 async function loadFlow(id: string): Promise<FlowFull | null> {
   if (!hasSupabase()) return null;
+  const orgId = await currentOrgIdForServer();
   const sb = supabaseServer();
-  const { data: flow } = await sb.from("flows").select("*").eq("id", id).maybeSingle();
+  const { data: flow } = await sb
+    .from("flows")
+    .select("*")
+    .eq("id", id)
+    .eq("org_id", orgId)
+    .maybeSingle();
   if (!flow) return null;
   const { data: steps } = await sb
     .from("flow_steps")
     .select("*")
     .eq("flow_id", id)
+    .eq("org_id", orgId)
     .order("created_at", { ascending: true });
   const { data: edges } = await sb
     .from("flow_edges")
     .select("*")
     .eq("flow_id", id)
+    .eq("org_id", orgId)
     .order("position", { ascending: true });
   return {
     ...(flow as Omit<FlowFull, "steps" | "edges">),

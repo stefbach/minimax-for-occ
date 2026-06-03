@@ -222,10 +222,15 @@ export async function GET(req: Request) {
       ? sb
           .from("agent_handles")
           .select("id, display_name, kind")
+          .eq("org_id", org_id)
           .in("id", agentIds)
       : Promise.resolve({ data: [], error: null }),
     queueIds.length
-      ? sb.from("queues").select("id, name").in("id", queueIds)
+      ? sb
+          .from("queues")
+          .select("id, name")
+          .eq("org_id", org_id)
+          .in("id", queueIds)
       : Promise.resolve({ data: [], error: null }),
     sb
       .from("campaigns")
@@ -234,7 +239,8 @@ export async function GET(req: Request) {
       .limit(200),
     sb
       .from("campaign_targets")
-      .select("campaign_id, status"),
+      .select("campaign_id, status")
+      .eq("org_id", org_id),
   ]);
 
   const agentMeta = new Map<string, { display_name: string; kind: string }>();

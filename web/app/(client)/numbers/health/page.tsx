@@ -1,11 +1,10 @@
 import Link from "next/link";
 import { hasSupabase, supabaseServer } from "@/lib/supabase";
+import { currentOrgIdForServer } from "@/lib/supabase-auth";
 import { HelpButton } from "@/components/help/HelpButton";
 import { ReleaseButton } from "@/components/numbers/ReleaseButton";
 
 export const dynamic = "force-dynamic";
-
-import { LEGACY_ORG_ID as DEFAULT_ORG } from "@/lib/constants";
 
 interface HealthRow {
   id: string;
@@ -29,6 +28,7 @@ interface DailyBucket {
 
 async function loadData(): Promise<{ rows: HealthRow[]; daily: DailyBucket[] }> {
   if (!hasSupabase()) return { rows: [], daily: [] };
+  const orgId = await currentOrgIdForServer();
   const sb = supabaseServer();
 
   let rows: HealthRow[] = [];
@@ -36,7 +36,7 @@ async function loadData(): Promise<{ rows: HealthRow[]; daily: DailyBucket[] }> 
     const { data } = await sb
       .from("phone_numbers_health")
       .select("*")
-      .eq("org_id", DEFAULT_ORG)
+      .eq("org_id", orgId)
       .limit(1000);
     rows = ((data ?? []) as unknown as HealthRow[]) ?? [];
   } catch {
@@ -52,7 +52,7 @@ async function loadData(): Promise<{ rows: HealthRow[]; daily: DailyBucket[] }> 
     const { data } = await sb
       .from("calls")
       .select("started_at")
-      .eq("org_id", DEFAULT_ORG)
+      .eq("org_id", orgId)
       .gte("started_at", since)
       .limit(50000);
     const byDay = new Map<string, number>();

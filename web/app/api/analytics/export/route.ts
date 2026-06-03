@@ -123,6 +123,7 @@ export async function GET(req: Request) {
       .select(
         "campaign_id, contact_id, status, attempts, last_attempt_at, next_attempt_at, last_call_id",
       )
+      .eq("org_id", org_id)
       .in("campaign_id", ids)
       .limit(50_000);
     if (error) return new Response(error.message, { status: 500 });

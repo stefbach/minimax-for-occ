@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase";
+import { requestOrgId } from "@/lib/request-org";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -137,14 +138,16 @@ function checkAgentConfig(agent: AgentConfig): CheckResult {
   return { service: "Config agent", status: "fail", message: issues.join(", ") };
 }
 
-export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
+  const orgId = await requestOrgId(req);
   const sb = supabaseServer();
   const { data: agent, error } = await sb
     .from("agents")
     .select("id, name, tts_voice_id, tts_model, llm_provider, llm_model, language")
     .eq("id", id)
-    .single();
+    .eq("org_id", orgId)
+    .maybeSingle();
 
   if (error || !agent) {
     return NextResponse.json(

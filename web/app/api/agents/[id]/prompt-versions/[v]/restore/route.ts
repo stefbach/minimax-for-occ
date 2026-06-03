@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase";
+import { requestOrgId } from "@/lib/request-org";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,7 +12,7 @@ export const dynamic = "force-dynamic";
  * prompt as a new version (so the rollback itself is reversible).
  */
 export async function POST(
-  _req: Request,
+  req: Request,
   ctx: { params: Promise<{ id: string; v: string }> }
 ) {
   const { id, v } = await ctx.params;
@@ -20,6 +21,7 @@ export async function POST(
     return NextResponse.json({ error: "invalid version" }, { status: 400 });
   }
 
+  const orgId = await requestOrgId(req);
   const sb = supabaseServer();
 
   // 1. Fetch target historical version.
@@ -27,6 +29,7 @@ export async function POST(
     .from("prompt_versions")
     .select("system_prompt, greeting")
     .eq("agent_id", id)
+    .eq("org_id", orgId)
     .eq("version", versionNum)
     .maybeSingle();
   if (targetErr) return NextResponse.json({ error: targetErr.message }, { status: 500 });
@@ -38,17 +41,20 @@ export async function POST(
     .from("agents")
     .select("system_prompt, greeting")
     .eq("id", id)
+    .eq("org_id", orgId)
     .maybeSingle();
   const { data: last } = await sb
     .from("prompt_versions")
     .select("version")
     .eq("agent_id", id)
+    .eq("org_id", orgId)
     .order("version", { ascending: false })
     .limit(1)
     .maybeSingle();
   const nextVersion = ((last?.version as number | undefined) ?? 0) + 1;
 
   await sb.from("prompt_versions").insert({
+    org_id: orgId,
     agent_id: id,
     version: nextVersion,
     system_prompt: (current?.system_prompt as string | null) ?? "",
@@ -64,9 +70,11 @@ export async function POST(
       greeting: target.greeting,
     })
     .eq("id", id)
+    .eq("org_id", orgId)
     .select()
-    .single();
+    .maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (!data) return NextResponse.json({ error: "agent not found" }, { status: 404 });
 
   return NextResponse.json({ ok: true, agent: data, restored_version: versionNum });
 }

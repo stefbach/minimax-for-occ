@@ -1,16 +1,19 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase";
+import { requestOrgId } from "@/lib/request-org";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
+  const orgId = await requestOrgId(req);
   const sb = supabaseServer();
   const { data, error } = await sb
     .from("agent_n8n_workflows")
     .select("*")
     .eq("agent_id", id)
+    .eq("org_id", orgId)
     .order("created_at", { ascending: true });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data ?? []);
@@ -18,6 +21,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
+  const orgId = await requestOrgId(req);
   const sb = supabaseServer();
   const body = (await req.json()) as {
     workflow_id: string;
@@ -33,10 +37,20 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       { status: 400 },
     );
   }
+  // Verify the parent agent belongs to this org before binding a workflow to it.
+  const { data: agent } = await sb
+    .from("agents")
+    .select("id")
+    .eq("id", id)
+    .eq("org_id", orgId)
+    .maybeSingle();
+  if (!agent) return NextResponse.json({ error: "agent not found" }, { status: 404 });
+
   const { data, error } = await sb
     .from("agent_n8n_workflows")
     .upsert(
       {
+        org_id: orgId,
         agent_id: id,
         workflow_id: body.workflow_id,
         workflow_name: body.workflow_name,
@@ -55,6 +69,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
 export async function DELETE(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
+  const orgId = await requestOrgId(req);
   const { searchParams } = new URL(req.url);
   const bindingId = searchParams.get("binding_id");
   if (!bindingId) {
@@ -65,7 +80,8 @@ export async function DELETE(req: Request, ctx: { params: Promise<{ id: string }
     .from("agent_n8n_workflows")
     .delete()
     .eq("id", bindingId)
-    .eq("agent_id", id);
+    .eq("agent_id", id)
+    .eq("org_id", orgId);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
 }
