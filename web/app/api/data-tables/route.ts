@@ -109,10 +109,19 @@ export async function POST(req: Request) {
     p_name_column: nameCol,
   });
   if (error) {
-    const msg = error.message.includes("already exists")
-      ? "Une table avec ce nom existe déjà."
+    const m = error.message.toLowerCase();
+    const taken =
+      m.includes("already exists") ||
+      m.includes("duplicate key") ||
+      m.includes("unique constraint") ||
+      m.includes("physical_table");
+    const msg = taken
+      ? `Ce nom de table (« ${physical} ») est déjà utilisé. Choisissez-en un autre.`
       : error.message;
-    return NextResponse.json({ error: msg }, { status: 400 });
+    return NextResponse.json(
+      { error: msg, code: taken ? "name_taken" : undefined },
+      { status: taken ? 409 : 400 },
+    );
   }
   return NextResponse.json({ id: data, physical_table: physical, label }, { status: 201 });
 }

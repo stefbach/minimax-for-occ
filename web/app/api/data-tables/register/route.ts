@@ -57,10 +57,22 @@ export async function POST(req: Request) {
     p_name_column: (body.name_column ?? "nom").trim() || null,
   });
   if (error) {
+    const lower = error.message.toLowerCase();
     let msg = error.message;
-    if (msg.includes("does not exist")) msg = `La table "${physical}" n'existe pas.`;
-    else if (msg.includes("already registered")) msg = "Cette table est déjà connectée.";
-    return NextResponse.json({ error: msg }, { status: 400 });
+    let status = 400;
+    if (lower.includes("does not exist")) {
+      msg = `La table "${physical}" n'existe pas.`;
+    } else if (
+      lower.includes("already registered") ||
+      lower.includes("duplicate key") ||
+      lower.includes("unique constraint") ||
+      lower.includes("physical_table")
+    ) {
+      // Same org re-registering OR another org already claimed this table.
+      msg = `La table « ${physical} » est déjà connectée (à votre organisation ou une autre). Choisissez-en une autre.`;
+      status = 409;
+    }
+    return NextResponse.json({ error: msg, code: status === 409 ? "name_taken" : undefined }, { status });
   }
   return NextResponse.json({ id: data, physical_table: physical }, { status: 201 });
 }

@@ -184,7 +184,13 @@ export async function runDynamicSelection(sb: SupabaseClient, campaign: Campaign
   // concurrent tick already inserted, this errors and we bail (no double-seed).
   const { data: runRow, error: claimErr } = await sb
     .from("campaign_runs")
-    .insert({ campaign_id: campaign.id, org_id: campaign.org_id, run_date: dateStr, slot_label: dueSlot })
+    .insert({
+      campaign_id: campaign.id,
+      org_id: campaign.org_id,
+      run_date: dateStr,
+      slot_label: dueSlot,
+      started_at: new Date().toISOString(),
+    })
     .select("id")
     .single();
   if (claimErr || !runRow) return; // lost the race (or insert failed) — skip
@@ -315,31 +321,47 @@ async function seedSelected(
   }
 
   // 2. Insert targets (ignore dup so a lead already pending isn't re-queued).
+  //    `.select()` returns ONLY the rows actually inserted — duplicates that
+  //    were ignored are absent. We bookkeep against exactly those, so a lead
+  //    already pending from an earlier slot isn't counted/advanced twice.
+  let insertedContactIds = new Set<string>();
   if (targetRows.length > 0) {
-    await sb.from("campaign_targets").upsert(targetRows, { onConflict: "campaign_id,contact_id", ignoreDuplicates: true });
+    const { data: inserted } = await sb
+      .from("campaign_targets")
+      .upsert(targetRows, { onConflict: "campaign_id,contact_id", ignoreDuplicates: true })
+      .select("contact_id");
+    insertedContactIds = new Set((inserted ?? []).map((r) => r.contact_id as string));
   }
 
-  // 3. Phase bookkeeping: increment the phase's attempts column; when the
-  //    attempt count reaches the per-phase max, stamp the phase date so the
+  // 3. Phase bookkeeping — only for leads that were NEWLY queued this slot.
+  //    Atomic increment via rpc_bump_lead_phase (UPDATE … = … + 1) so two
+  //    campaigns sharing a table can't clobber each other's counts; the RPC
+  //    also stamps the phase date when the per-phase max is reached, so the
   //    lead graduates to the next phase after its wait (mirrors OCC set_date_j).
   if (engine.cadence.enabled) {
     const maxAtt = engine.cadence.max_attempts_per_phase || 3;
     for (const s of selected) {
       if (!s.phase || s.phase === "RAPPEL" || s.phase === "ONCE") continue;
       const phaseCfg = engine.cadence.phases.find((p) => p.name === s.phase);
-      if (!phaseCfg) continue;
+      if (!phaseCfg || !phaseCfg.attempts_column) continue;
       const rowId = s.row.id;
       if (!rowId) continue;
-      const curAtt = Number(s.row[phaseCfg.attempts_column] ?? 0);
-      const newAtt = curAtt + 1;
-      const patch: Record<string, unknown> = {};
-      if (phaseCfg.attempts_column) patch[phaseCfg.attempts_column] = newAtt;
-      if (newAtt >= maxAtt && phaseCfg.date_column) patch[phaseCfg.date_column] = todayStr;
-      if (Object.keys(patch).length > 0) {
-        await sb.from(table).update(patch).eq("id", rowId);
-      }
+      // Skip leads whose target already existed (duplicate ignored above).
+      const tel = String(s.row[phoneCol] ?? "").trim();
+      const e164 = tel.startsWith("+") ? tel : `+${tel.replace(/[^0-9]/g, "")}`;
+      const cid = contactByE164.get(e164);
+      if (!cid || !insertedContactIds.has(cid)) continue;
+      const { error: bumpErr } = await sb.rpc("rpc_bump_lead_phase", {
+        p_table: table,
+        p_row_id: rowId,
+        p_attempts_col: phaseCfg.attempts_column,
+        p_max: maxAtt,
+        p_date_col: phaseCfg.date_column || "",
+        p_date_val: todayStr,
+      });
+      if (bumpErr) console.error(`[dynamic] phase bump failed row=${rowId}:`, bumpErr.message);
     }
   }
 
-  return targetRows.length;
+  return insertedContactIds.size;
 }

@@ -249,13 +249,35 @@ def emit_qualification_webhooks(
             hooks = r.json() or []
             if not hooks:
                 return
+
+            # The agent only knows the physical table name (not the registry
+            # UUID). Resolve it once so table-scoped hooks match correctly.
+            # None when this was a contact-mode save (no data table).
+            resolved_table_id = data_table_id
+            if resolved_table_id is None and physical_table:
+                try:
+                    rt = c.get(_supabase_url(
+                        "/rest/v1/tenant_data_tables"
+                        f"?select=id&org_id=eq.{org_id}"
+                        f"&physical_table=eq.{physical_table}&limit=1"
+                    ))
+                    rt.raise_for_status()
+                    rows = rt.json() or []
+                    if rows:
+                        resolved_table_id = rows[0].get("id")
+                except Exception:
+                    logger.exception("could not resolve data_table_id for %s", physical_table)
+
             for h in hooks:
                 col = h.get("watch_column") or "qualification"
                 if col not in fields:
                     continue
-                # Table scoping: NULL data_table_id => all tables for the org.
+                # Table scoping: a hook with NULL data_table_id fires for every
+                # table; a hook bound to a specific table fires ONLY when this
+                # save came from that table (so it never fires on contact-mode
+                # saves or saves to other tables).
                 hook_tbl = h.get("data_table_id")
-                if hook_tbl and data_table_id and hook_tbl != data_table_id:
+                if hook_tbl and hook_tbl != resolved_table_id:
                     continue
                 new_val = fields.get(col)
                 matches = h.get("match_values") or []
@@ -265,7 +287,7 @@ def emit_qualification_webhooks(
                     "event": h.get("event") or "qualification_changed",
                     "org_id": org_id,
                     "data_table": physical_table,
-                    "data_table_id": data_table_id,
+                    "data_table_id": resolved_table_id,
                     "row_id": row_id,
                     "watch_column": col,
                     "value": new_val,
