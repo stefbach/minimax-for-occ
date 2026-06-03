@@ -1,26 +1,31 @@
 import { NextResponse } from "next/server";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
+import { requestOrgId } from "@/lib/request-org";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(
-  _req: Request,
+  req: Request,
   ctx: { params: Promise<{ id: string }> },
 ) {
   if (!hasSupabase()) {
     return NextResponse.json({ error: "Supabase non configuré" }, { status: 500 });
   }
   const { id } = await ctx.params;
+  const orgId = await requestOrgId(req);
   const sb = supabaseServer();
 
   const { data: script, error } = await sb
     .from("scripts")
     .select("*")
     .eq("id", id)
-    .single();
-  if (error) return NextResponse.json({ error: error.message }, { status: 404 });
+    .eq("org_id", orgId)
+    .maybeSingle();
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (!script) return NextResponse.json({ error: "not found" }, { status: 404 });
 
+  // script_versions inherits tenancy via script_id; parent is org-checked.
   const { data: latest } = await sb
     .from("script_versions")
     .select("id, version, steps, note, created_at, created_by")
@@ -40,6 +45,7 @@ export async function PATCH(
     return NextResponse.json({ error: "Supabase non configuré" }, { status: 500 });
   }
   const { id } = await ctx.params;
+  const orgId = await requestOrgId(req);
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body) return NextResponse.json({ error: "body requis" }, { status: 400 });
 
@@ -56,22 +62,29 @@ export async function PATCH(
     .from("scripts")
     .update(patch)
     .eq("id", id)
+    .eq("org_id", orgId)
     .select()
-    .single();
+    .maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (!data) return NextResponse.json({ error: "not found" }, { status: 404 });
   return NextResponse.json(data);
 }
 
 export async function DELETE(
-  _req: Request,
+  req: Request,
   ctx: { params: Promise<{ id: string }> },
 ) {
   if (!hasSupabase()) {
     return NextResponse.json({ error: "Supabase non configuré" }, { status: 500 });
   }
   const { id } = await ctx.params;
+  const orgId = await requestOrgId(req);
   const sb = supabaseServer();
-  const { error } = await sb.from("scripts").delete().eq("id", id);
+  const { error } = await sb
+    .from("scripts")
+    .delete()
+    .eq("id", id)
+    .eq("org_id", orgId);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
 }

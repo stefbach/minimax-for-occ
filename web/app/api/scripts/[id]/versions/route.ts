@@ -1,17 +1,37 @@
 import { NextResponse } from "next/server";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { supabaseSession } from "@/lib/supabase-auth";
+import { requestOrgId } from "@/lib/request-org";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+async function assertScriptInOrg(
+  sb: ReturnType<typeof supabaseServer>,
+  scriptId: string,
+  orgId: string,
+): Promise<boolean> {
+  const { data } = await sb
+    .from("scripts")
+    .select("id")
+    .eq("id", scriptId)
+    .eq("org_id", orgId)
+    .maybeSingle();
+  return !!data;
+}
+
 export async function GET(
-  _req: Request,
+  req: Request,
   ctx: { params: Promise<{ id: string }> },
 ) {
   if (!hasSupabase()) return NextResponse.json([]);
   const { id } = await ctx.params;
+  const orgId = await requestOrgId(req);
   const sb = supabaseServer();
+  // script_versions has no org_id column — verify the parent script first.
+  if (!(await assertScriptInOrg(sb, id, orgId))) {
+    return NextResponse.json({ error: "script not found" }, { status: 404 });
+  }
   const { data, error } = await sb
     .from("script_versions")
     .select("id, version, note, created_at, created_by")
@@ -30,6 +50,7 @@ export async function POST(
     return NextResponse.json({ error: "Supabase non configuré" }, { status: 500 });
   }
   const { id } = await ctx.params;
+  const orgId = await requestOrgId(req);
   const body = (await req.json().catch(() => null)) as {
     steps?: unknown;
     note?: string | null;
@@ -39,6 +60,9 @@ export async function POST(
   }
 
   const sb = supabaseServer();
+  if (!(await assertScriptInOrg(sb, id, orgId))) {
+    return NextResponse.json({ error: "script not found" }, { status: 404 });
+  }
 
   // Compute the next version number.
   const { data: last } = await sb
