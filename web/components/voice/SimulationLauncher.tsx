@@ -168,7 +168,7 @@ export function SimulationLauncher({ systemPrompt, greeting, onStart, disabled }
           onClick={() =>
             setVals(Object.fromEntries(detected.map((d) => [d.key, d.suggestion ?? ""])))
           }
-          style={{ background: "transparent", border: "1px solid var(--muted)" }}
+          style={{ background: "transparent", border: "1px solid var(--muted)", color: "var(--text)" }}
         >
           Réinitialiser
         </button>

@@ -248,7 +248,7 @@ export function VoicePanel({
           </>
         )}
         <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={runHealthCheck} disabled={healthLoading} style={{ background: "transparent", border: "1px solid var(--muted)" }}>
+          <button onClick={runHealthCheck} disabled={healthLoading} style={{ background: "transparent", border: "1px solid var(--muted)", color: "var(--text)" }}>
             {healthLoading ? "Diagnostic…" : "Tester les services"}
           </button>
         </div>
