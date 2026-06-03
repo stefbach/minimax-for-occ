@@ -8,11 +8,17 @@ export const dynamic = "force-dynamic";
 
 async function loadAgents(orgId: string | null): Promise<Agent[]> {
   if (!hasSupabase()) return [];
+  // Tenant safety: if we cannot resolve an org_id, return an empty list
+  // instead of leaking every tenant's agents.
+  if (!orgId) return [];
   try {
     const sb = supabaseServer();
-    let q = sb.from("agents").select("*").order("updated_at", { ascending: false }).limit(6);
-    if (orgId) q = q.eq("org_id", orgId);
-    const { data } = await q;
+    const { data } = await sb
+      .from("agents")
+      .select("*")
+      .eq("org_id", orgId)
+      .order("updated_at", { ascending: false })
+      .limit(6);
     return (data as Agent[]) ?? [];
   } catch {
     return [];

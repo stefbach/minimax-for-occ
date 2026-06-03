@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { hasSupabase, supabaseServer } from "@/lib/supabase";
+import { currentOrgIdForServer } from "@/lib/supabase-auth";
 import { CampaignDetailClient, type CampaignDetail, type TargetRow } from "@/components/campaigns/CampaignDetailClient";
 
 export const dynamic = "force-dynamic";
@@ -23,12 +24,14 @@ export default async function CampaignDetailPage({
     );
   }
 
+  const orgId = await currentOrgIdForServer();
   const sb = supabaseServer();
   const { data: campaign, error } = await sb
     .from("campaigns")
     .select("*")
     .eq("id", id)
-    .single();
+    .eq("org_id", orgId)
+    .maybeSingle();
   if (error || !campaign) return notFound();
 
   let agentName: string | null = null;
@@ -37,7 +40,8 @@ export default async function CampaignDetailPage({
       .from("agent_handles")
       .select("display_name")
       .eq("id", campaign.agent_handle_id)
-      .single();
+      .eq("org_id", orgId)
+      .maybeSingle();
     agentName = (ah?.display_name as string) ?? null;
   }
   let phone: { e164: string; label: string | null } | null = null;
@@ -46,7 +50,8 @@ export default async function CampaignDetailPage({
       .from("phone_numbers")
       .select("e164,label")
       .eq("id", campaign.phone_number_id)
-      .single();
+      .eq("org_id", orgId)
+      .maybeSingle();
     if (pn) phone = pn as any;
   }
 
@@ -56,6 +61,7 @@ export default async function CampaignDetailPage({
       "id,status,attempts,last_attempt_at,next_attempt_at,last_call_id,contact_id,contacts(e164,display_name)",
     )
     .eq("campaign_id", id)
+    .eq("org_id", orgId)
     .order("status", { ascending: true })
     .limit(2000);
 

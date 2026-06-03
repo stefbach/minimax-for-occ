@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
+import { currentOrgIdForServer } from "@/lib/supabase-auth";
 import type { Agent } from "@/lib/types";
 import { AgentSession } from "@/components/agent/AgentSession";
 
@@ -23,8 +24,14 @@ export default async function AgentDetailPage({
       </div>
     );
   }
+  const orgId = await currentOrgIdForServer();
   const sb = supabaseServer();
-  const { data } = await sb.from("agents").select("*").eq("id", id).maybeSingle();
+  const { data } = await sb
+    .from("agents")
+    .select("*")
+    .eq("id", id)
+    .eq("org_id", orgId)
+    .maybeSingle();
   if (!data) return notFound();
   const agent = data as Agent;
   return <AgentSession agent={agent} initialTab={tab ?? "session"} />;

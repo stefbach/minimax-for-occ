@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
+import { currentOrgIdForServer } from "@/lib/supabase-auth";
 import type { Agent } from "@/lib/types";
 import { HelpButton } from "@/components/help/HelpButton";
 
@@ -7,8 +8,13 @@ export const dynamic = "force-dynamic";
 
 async function loadAgents(): Promise<Agent[]> {
   if (!hasSupabase()) return [];
+  const orgId = await currentOrgIdForServer();
   const sb = supabaseServer();
-  const { data } = await sb.from("agents").select("*").order("updated_at", { ascending: false });
+  const { data } = await sb
+    .from("agents")
+    .select("*")
+    .eq("org_id", orgId)
+    .order("updated_at", { ascending: false });
   return (data as Agent[]) ?? [];
 }
 

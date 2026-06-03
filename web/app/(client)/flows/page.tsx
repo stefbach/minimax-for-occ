@@ -1,11 +1,10 @@
 import Link from "next/link";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
+import { currentOrgIdForServer } from "@/lib/supabase-auth";
 import { NewFlowButton } from "./NewFlowButton";
 import { HelpButton } from "@/components/help/HelpButton";
 
 export const dynamic = "force-dynamic";
-
-import { LEGACY_ORG_ID as DEFAULT_ORG_ID } from "@/lib/constants";
 
 type FlowRow = {
   id: string;
@@ -18,16 +17,18 @@ type FlowRow = {
 
 async function loadFlows(): Promise<FlowRow[]> {
   if (!hasSupabase()) return [];
+  const orgId = await currentOrgIdForServer();
   const sb = supabaseServer();
   const { data: flows } = await sb
     .from("flows")
     .select("id,name,description,start_step_id,updated_at")
-    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("org_id", orgId)
     .order("updated_at", { ascending: false });
 
   const ids = (flows ?? []).map((f) => f.id);
   const counts: Record<string, number> = {};
   if (ids.length > 0) {
+    // flow_steps inherit org via flow_id; flows query above already filtered.
     const { data: steps } = await sb.from("flow_steps").select("flow_id").in("flow_id", ids);
     for (const s of steps ?? []) counts[s.flow_id] = (counts[s.flow_id] ?? 0) + 1;
   }

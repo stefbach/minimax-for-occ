@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
+import { currentOrgIdForServer } from "@/lib/supabase-auth";
 import { AgentForm } from "@/components/agent/AgentForm";
 import type { Agent } from "@/lib/types";
 import { HelpButton } from "@/components/help/HelpButton";
@@ -17,8 +18,14 @@ export default async function EditAgentPage({ params }: { params: Promise<{ id: 
       </div>
     );
   }
+  const orgId = await currentOrgIdForServer();
   const sb = supabaseServer();
-  const { data } = await sb.from("agents").select("*").eq("id", id).maybeSingle();
+  const { data } = await sb
+    .from("agents")
+    .select("*")
+    .eq("id", id)
+    .eq("org_id", orgId)
+    .maybeSingle();
   if (!data) return notFound();
   const agent = data as Agent;
 

@@ -1,10 +1,9 @@
 import { hasSupabase, supabaseServer } from "@/lib/supabase";
+import { currentOrgIdForServer } from "@/lib/supabase-auth";
 import { TeamsClient, type TeamRow, type AgentOption } from "@/components/teams/TeamsClient";
 import { HelpButton } from "@/components/help/HelpButton";
 
 export const dynamic = "force-dynamic";
-
-import { LEGACY_ORG_ID as DEFAULT_ORG } from "@/lib/constants";
 
 export default async function TeamsPage() {
   let teams: TeamRow[] = [];
@@ -12,17 +11,18 @@ export default async function TeamsPage() {
 
   if (hasSupabase()) {
     try {
+      const orgId = await currentOrgIdForServer();
       const sb = supabaseServer();
       const [{ data: ts }, { data: ags }] = await Promise.all([
         sb
           .from("agent_teams")
           .select("*")
-          .eq("org_id", DEFAULT_ORG)
+          .eq("org_id", orgId)
           .order("created_at", { ascending: false }),
         sb
           .from("agents")
           .select("id, name, description")
-          .eq("org_id", DEFAULT_ORG)
+          .eq("org_id", orgId)
           .order("name", { ascending: true }),
       ]);
       teams = (ts ?? []) as TeamRow[];

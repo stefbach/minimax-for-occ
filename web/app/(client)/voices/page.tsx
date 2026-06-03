@@ -1,4 +1,5 @@
 import { hasSupabase, supabaseServer } from "@/lib/supabase";
+import { currentOrgIdForServer } from "@/lib/supabase-auth";
 import type { Voice } from "@/lib/types";
 import { VoiceStudio } from "@/components/voice/VoiceStudio";
 import { HelpButton } from "@/components/help/HelpButton";
@@ -7,10 +8,12 @@ export const dynamic = "force-dynamic";
 
 async function loadVoices(): Promise<Voice[]> {
   if (!hasSupabase()) return [];
+  const orgId = await currentOrgIdForServer();
   const sb = supabaseServer();
   const { data } = await sb
     .from("voices")
     .select("*")
+    .eq("org_id", orgId)
     .order("source", { ascending: true })
     .order("created_at", { ascending: false });
   return (data as Voice[]) ?? [];
