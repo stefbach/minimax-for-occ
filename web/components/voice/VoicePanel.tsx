@@ -12,6 +12,7 @@ import {
   useConnectionState,
 } from "@livekit/components-react";
 import { ConnectionState } from "livekit-client";
+import { SimulationLauncher } from "./SimulationLauncher";
 
 type Conn = { token: string; url: string; room: string };
 
@@ -129,19 +130,45 @@ function AssistantView({ agentId, onAgentJoinTimeout }: { agentId: string; onAge
   );
 }
 
-export function VoicePanel({ agentId }: { agentId: string }) {
+export function VoicePanel({
+  agentId,
+  systemPrompt,
+  greeting,
+}: {
+  agentId: string;
+  /** Optional: the agent's system prompt — when provided, a Simulation
+   *  launcher detects {{vars}} and lets the operator fill them in before
+   *  connecting. Omit for a plain "Start session" button (legacy behavior). */
+  systemPrompt?: string | null;
+  /** Optional: the agent's greeting — scanned for {{vars}} alongside the
+   *  system prompt. */
+  greeting?: string | null;
+}) {
   const [conn, setConn] = useState<Conn | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [health, setHealth] = useState<HealthReport | null>(null);
   const [healthLoading, setHealthLoading] = useState(false);
 
-  const connect = useCallback(async () => {
+  const connect = useCallback(async (simulationVars?: Record<string, string>) => {
     setLoading(true);
     setError(null);
     setHealth(null);
     try {
-      const res = await fetch(`/api/token?agent_id=${encodeURIComponent(agentId)}`);
+      const params = new URLSearchParams({ agent_id: agentId });
+      if (simulationVars && Object.keys(simulationVars).length > 0) {
+        // Strip empty strings so the worker treats them as "not provided"
+        // and leaves the {{placeholder}} literal in the prompt (helpful for
+        // catching missed fields during a sim).
+        const trimmed: Record<string, string> = {};
+        for (const [k, v] of Object.entries(simulationVars)) {
+          if (v && v.trim() !== "") trimmed[k] = v.trim();
+        }
+        if (Object.keys(trimmed).length > 0) {
+          params.set("vars", JSON.stringify(trimmed));
+        }
+      }
+      const res = await fetch(`/api/token?${params.toString()}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "token fetch failed");
       setConn({ token: data.token, url: data.url, room: data.room });
@@ -183,6 +210,10 @@ export function VoicePanel({ agentId }: { agentId: string }) {
     connect();
   }, [connect]);
 
+  // Show the Simulation launcher when we have prompt content to inspect for
+  // {{vars}}; otherwise fall back to the plain "Start session" button.
+  const hasPromptContent = Boolean((systemPrompt && systemPrompt.length > 0) || (greeting && greeting.length > 0));
+
   if (!conn) {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 12, alignItems: "stretch" }}>
@@ -192,15 +223,28 @@ export function VoicePanel({ agentId }: { agentId: string }) {
             Diagnostic en cours…
           </div>
         )}
-        <p style={{ color: "var(--muted)", margin: 0 }}>
-          Cliquez pour rejoindre la salle LiveKit. Le worker MiniMax y sera dispatché et chargera la config de cet agent.
-        </p>
+        {hasPromptContent ? (
+          <SimulationLauncher
+            systemPrompt={systemPrompt}
+            greeting={greeting}
+            onStart={(vars) => connect(vars)}
+            disabled={loading}
+          />
+        ) : (
+          <>
+            <p style={{ color: "var(--muted)", margin: 0 }}>
+              Cliquez pour rejoindre la salle LiveKit. Le worker y sera dispatché et chargera la config de cet agent.
+            </p>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => connect()} disabled={loading}>
+                {loading ? "Connexion…" : "Démarrer la session vocale"}
+              </button>
+            </div>
+          </>
+        )}
         <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={connect} disabled={loading}>
-            {loading ? "Connexion…" : "Démarrer la session vocale"}
-          </button>
           <button onClick={runHealthCheck} disabled={healthLoading} style={{ background: "transparent", border: "1px solid var(--muted)" }}>
-            {healthLoading ? "…" : "Tester les services"}
+            {healthLoading ? "Diagnostic…" : "Tester les services"}
           </button>
         </div>
         {error && <div style={{ color: "#ff8080" }}>{error}</div>}

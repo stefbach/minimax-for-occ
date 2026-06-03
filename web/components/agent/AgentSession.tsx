@@ -63,9 +63,13 @@ export function AgentSession({ agent, initialTab }: { agent: Agent; initialTab: 
           <section className="panel">
             <header>
               <h2>Voix</h2>
-              <div className="meta">LiveKit · MiniMax TTS · Deepgram STT</div>
+              <div className="meta">LiveKit · Cartesia TTS · AssemblyAI STT</div>
             </header>
-            <VoicePanel agentId={agent.id} />
+            <VoicePanel
+              agentId={agent.id}
+              systemPrompt={agent.system_prompt}
+              greeting={agent.greeting}
+            />
           </section>
           <section className="panel">
             <header>

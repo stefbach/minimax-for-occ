@@ -907,12 +907,29 @@ async def entrypoint(ctx: JobContext) -> None:
     # missing data is visible in logs instead of silently empty.
     from datetime import date as _date
     template_vars = dict(target_vars)
+    # Simulation mode: the web "Test in simulation" UI ships an inline JSON
+    # blob of variables via participant attributes instead of going through a
+    # campaign target row. These override anything from the target (so a
+    # tester can poke specific values without touching the DB).
+    sim_raw = p_attrs.get("simulation_vars")
+    if sim_raw:
+        try:
+            import json as _json_sim
+            sim_dict = _json_sim.loads(sim_raw)
+            if isinstance(sim_dict, dict):
+                template_vars.update(sim_dict)
+                clog.info(
+                    "[call_id=%s] simulation_vars merged (%d keys)",
+                    call_id, len(sim_dict),
+                )
+        except Exception:
+            clog.warning("[call_id=%s] simulation_vars present but unparsable", call_id)
     template_vars.setdefault("current_date", _date.today().isoformat())
     if axon:
         template_vars.setdefault("agent_name", axon.name)
     instructions = render_template(instructions, template_vars)
     greeting = render_template(greeting, template_vars)
-    if target_vars:
+    if template_vars:
         clog.info(
             "[call_id=%s] template vars resolved (%d keys: %s)",
             call_id, len(template_vars), sorted(template_vars.keys()),
