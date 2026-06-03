@@ -546,8 +546,22 @@ def _build_save_contact_tool(
 
 # ─── Agent wrapper that greets via TTS only ───────────────────────────────
 class AxonVoiceAgent(Agent):
-    def __init__(self, *, instructions: str, tools, greeting: str):
-        super().__init__(instructions=instructions, tools=tools)
+    def __init__(self, *, instructions: str, tools, greeting: str, llm=None, tts=None, stt=None, vad=None):
+        # Per-agent llm/tts/stt/vad override the session defaults. This is what
+        # makes a handoff actually CHANGE THE VOICE: update_agent() rebuilds the
+        # activity from the new Agent's components, whereas reassigning
+        # session.tts mid-session is cached and has no audible effect. Passing
+        # None leaves the component inheriting from the session (initial agent).
+        kwargs = {"instructions": instructions, "tools": tools}
+        if llm is not None:
+            kwargs["llm"] = llm
+        if tts is not None:
+            kwargs["tts"] = tts
+        if stt is not None:
+            kwargs["stt"] = stt
+        if vad is not None:
+            kwargs["vad"] = vad
+        super().__init__(**kwargs)
         self._greeting = greeting
 
     async def on_enter(self) -> None:
@@ -706,14 +720,25 @@ def _install_team_handoff_watcher(
             save_row=save_row,
         )
         try:
-            session.llm = _llm_for(axon_next)
-            session.tts = _tts_for(axon_next)
+            next_llm = _llm_for(axon_next)
+            next_tts = _tts_for(axon_next)
+            # Belt-and-suspenders: also set on the session (no-op on some
+            # versions, but harmless). The authoritative swap is the per-agent
+            # tts/llm passed into the new Agent below.
+            try:
+                session.llm = next_llm
+                session.tts = next_tts
+            except Exception:
+                pass
             await session.update_agent(
-                AxonVoiceAgent(instructions=instr, tools=tools, greeting=greet)
+                AxonVoiceAgent(
+                    instructions=instr, tools=tools, greeting=greet,
+                    llm=next_llm, tts=next_tts,
+                )
             )
             clog.info(
-                "handoff: FULL swap -> %s (%s), %d tools",
-                axon_next.id, axon_next.name, len(tools),
+                "handoff: FULL swap -> %s (%s) voice=%s model=%s, %d tools",
+                axon_next.id, axon_next.name, axon_next.tts_voice_id, axon_next.llm_model, len(tools),
             )
         except Exception:
             clog.exception("handoff: full swap failed")
