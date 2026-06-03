@@ -19,6 +19,29 @@
   --radius: 12px;
 }
 
+/* Light theme — applied via <html data-theme="light"> (see ThemeLangSwitcher).
+   Keeps the same orange accent so the brand still feels Axon, on a clean
+   white surface. */
+html[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f7f8fb;
+  --bg-2: #ffffff;
+  --panel: #ffffff;
+  --panel-2: #f1f3f8;
+  --border: #e3e6ee;
+  --border-2: #cdd2de;
+  --text: #1a2030;
+  --muted: #5a6378;
+  --muted-2: #8a92a3;
+  --accent: #e65a25;
+  --accent-2: #ff7c47;
+  --accent-soft: rgba(230, 90, 37, 0.10);
+  --good: #16a34a;
+  --warn: #d97706;
+  --bad: #dc2626;
+  --info: #2563eb;
+}
+
 * { box-sizing: border-box; }
 
 html, body {

@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Brand } from "./brand/Brand";
 import { OrgSwitcher } from "./OrgSwitcher";
+import { ThemeLangSwitcher } from "./ThemeLangSwitcher";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
 type Role =
@@ -47,7 +48,6 @@ const NAV: NavItem[] = [
 
   // ─── OPÉRATIONS ───
   { href: "/campaigns", label: "Campagnes",       icon: "⇈", group: "Opérations", roles: MGMT },
-  { href: "/live",      label: "Live Monitor",    icon: "◉", group: "Opérations", roles: OPS },
   { href: "/calls",     label: "Appels",          icon: "☎", group: "Opérations", roles: OPS },
   { href: "/workflows", label: "Workflows n8n",   icon: "⇄", group: "Opérations", roles: MGMT },
 
@@ -142,6 +142,10 @@ export function ClientSidebar() {
       <Link href="/" className="brand">
         <Brand size={18} />
       </Link>
+
+      <div style={{ marginTop: 10, marginBottom: 4, paddingBottom: 10, borderBottom: "1px solid var(--border)" }}>
+        <ThemeLangSwitcher />
+      </div>
 
       {GROUP_ORDER.filter((g) => groups[g]?.length).map((group) => (
         <div key={group} style={{ marginTop: 6 }}>
