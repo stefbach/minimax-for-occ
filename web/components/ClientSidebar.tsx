@@ -47,6 +47,7 @@ const NAV: NavItem[] = [
   // ─── OPÉRATIONS ───
   { href: "/campaigns", label: "Campagnes",       icon: "⇈", group: "Opérations", roles: MGMT },
   { href: "/calls",     label: "Appels",          icon: "☎", group: "Opérations", roles: OPS },
+  { href: "/workflows", label: "Workflows n8n",   icon: "⇄", group: "Opérations", roles: MGMT },
 
   // ─── DONNÉES ───
   { href: "/contacts",  label: "CRM / Contacts",  icon: "◐", group: "Données" },
@@ -69,7 +70,6 @@ const NAV: NavItem[] = [
   // Phase 6 → into Paramètres:
   { href: "/numbers",        label: "Numéros (→ Paramètres)",        icon: "✆", group: "Avancé", roles: MGMT, advanced: true },
   { href: "/numbers/health", label: "Santé numéros (→ Paramètres)",  icon: "♥", group: "Avancé", roles: MGMT, advanced: true },
-  { href: "/workflows",      label: "Workflows n8n (→ Paramètres)",  icon: "⇄", group: "Avancé", roles: MGMT, advanced: true },
   { href: "/flows",          label: "Flows / IVR (avancé)",          icon: "❖", group: "Avancé", roles: MGMT, advanced: true },
 ];
 
