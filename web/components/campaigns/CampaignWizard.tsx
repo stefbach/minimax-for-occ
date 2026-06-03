@@ -940,7 +940,7 @@ export function CampaignWizard({
               {" · "}
               {(engineConfig.slots.hours ?? []).join(", ") || "—"}
               {" · max "}
-              {engineConfig.volume.max_new_per_day} nouveaux/jour
+              {engineConfig.volume.max_new_per_day} nouveaux/créneau
             </li>
           ) : (
             <li>

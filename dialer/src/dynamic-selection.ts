@@ -219,21 +219,12 @@ export async function runDynamicSelection(sb: SupabaseClient, campaign: Campaign
       (x) => x.phase !== "RAPPEL" && x.phase !== firstPhaseName && x.phase !== "ONCE",
     );
 
-    // Per-day cap: how many NEW (fresh) already launched today.
+    // Per-SLOT cap on NEW (fresh / first-phase / ONCE) leads. Matches OCC's
+    // n8n behaviour where each run injected up to N fresh leads — so 3 slots
+    // x N = up to 3N fresh contacts per day, plus all due relances (J3/J5)
+    // and callbacks (which are not capped).
     const cap = engine.volume.max_new_per_day ?? 200;
-    const { data: todayRuns } = await sb
-      .from("campaign_runs")
-      .select("by_phase")
-      .eq("campaign_id", campaign.id)
-      .eq("run_date", dateStr);
-    let freshAlready = 0;
-    for (const r of todayRuns ?? []) {
-      const bp = (r as { by_phase: Record<string, number> }).by_phase ?? {};
-      freshAlready += bp[firstPhaseName] ?? 0;
-      freshAlready += bp["ONCE"] ?? 0;
-    }
-    const freshBudget = Math.max(0, cap - freshAlready);
-    const freshCapped = fresh.slice(0, freshBudget);
+    const freshCapped = fresh.slice(0, cap);
 
     const selected = [...callbacks, ...laterPhases, ...freshCapped];
 

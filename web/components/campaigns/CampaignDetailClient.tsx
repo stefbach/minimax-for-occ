@@ -313,7 +313,7 @@ export function CampaignDetailClient({
               <div>{campaign.engine.hours.length > 0 ? campaign.engine.hours.join(" · ") : "—"}</div>
             </div>
             <div>
-              <div className="muted" style={{ fontSize: 12 }}>Nouveaux / jour max</div>
+              <div className="muted" style={{ fontSize: 12 }}>Nouveaux / créneau max</div>
               <div>{campaign.engine.max_new_per_day ?? "∞"}</div>
             </div>
             <div>
