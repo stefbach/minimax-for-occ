@@ -730,73 +730,86 @@ export function CampaignWizard({
             </div>
           )}
 
-          <div>
-            <label>Coller un CSV (e164,nom)</label>
-            <textarea
-              value={csvText}
-              onChange={(e) => setCsvText(e.target.value)}
-              placeholder={"+33612345678,Jean Dupont\n+33687654321,Marie Martin"}
-              style={{ minHeight: 120, fontFamily: "ui-monospace, monospace", fontSize: 13 }}
-            />
-            <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-              {csvTargets.length} cible{csvTargets.length === 1 ? "" : "s"} valide{csvTargets.length === 1 ? "" : "s"} détectée{csvTargets.length === 1 ? "" : "s"}.
+          {selectedDataTable ? (
+            // A data table is the source of truth — the CSV/contact picker would
+            // only confuse (and isn't used for table-backed campaigns).
+            <div className="muted" style={{ fontSize: 13, padding: 12, background: "var(--bg-2)", borderRadius: 8, lineHeight: 1.5 }}>
+              📋 Cible : table <strong>{selectedDataTable.label}</strong> ({selectedDataTable.row_count} contact{selectedDataTable.row_count === 1 ? "" : "s"}).
+              {dynamicMode
+                ? " Le moteur sélectionne les contacts à appeler à chaque créneau selon tes règles ci-dessus (statuts, relances). Pas besoin de coller une liste."
+                : " Tous les contacts de la table seront appelés une fois."}
             </div>
-          </div>
-          <div>
-            <label>… ou importer depuis les contacts existants</label>
-            <input
-              value={contactSearch}
-              onChange={(e) => setContactSearch(e.target.value)}
-              placeholder="Filtrer (nom ou numéro)…"
-            />
-            <div
-              style={{
-                marginTop: 8,
-                maxHeight: 200,
-                overflowY: "auto",
-                border: "1px solid var(--border)",
-                borderRadius: 8,
-                padding: 8,
-                background: "var(--bg-2)",
-              }}
-            >
-              {filteredContacts.length === 0 ? (
-                <div className="muted" style={{ fontSize: 12 }}>Aucun contact</div>
-              ) : (
-                filteredContacts.map((c) => (
-                  <label
-                    key={c.id}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                      padding: "4px 0",
-                      cursor: "pointer",
-                      margin: 0,
-                      color: "var(--text)",
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      style={{ width: "auto" }}
-                      checked={pickedContactIds.has(c.id)}
-                      onChange={() => togglePicked(c.id)}
-                    />
-                    <span>
-                      {c.display_name ?? c.e164}{" "}
-                      <span className="muted" style={{ fontSize: 12 }}>{c.e164}</span>
-                    </span>
-                  </label>
-                ))
-              )}
-            </div>
-            <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-              {pickedContactIds.size} contact{pickedContactIds.size === 1 ? "" : "s"} sélectionné{pickedContactIds.size === 1 ? "" : "s"}.
-            </div>
-          </div>
-          <div className="muted" style={{ fontSize: 13 }}>
-            <strong>Total cibles (déduplication par e164) :</strong> {targets.length}
-          </div>
+          ) : (
+            <>
+              <div>
+                <label>Coller un CSV (e164,nom)</label>
+                <textarea
+                  value={csvText}
+                  onChange={(e) => setCsvText(e.target.value)}
+                  placeholder={"+33612345678,Jean Dupont\n+33687654321,Marie Martin"}
+                  style={{ minHeight: 120, fontFamily: "ui-monospace, monospace", fontSize: 13 }}
+                />
+                <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+                  {csvTargets.length} cible{csvTargets.length === 1 ? "" : "s"} valide{csvTargets.length === 1 ? "" : "s"} détectée{csvTargets.length === 1 ? "" : "s"}.
+                </div>
+              </div>
+              <div>
+                <label>… ou importer depuis les contacts existants</label>
+                <input
+                  value={contactSearch}
+                  onChange={(e) => setContactSearch(e.target.value)}
+                  placeholder="Filtrer (nom ou numéro)…"
+                />
+                <div
+                  style={{
+                    marginTop: 8,
+                    maxHeight: 200,
+                    overflowY: "auto",
+                    border: "1px solid var(--border)",
+                    borderRadius: 8,
+                    padding: 8,
+                    background: "var(--bg-2)",
+                  }}
+                >
+                  {filteredContacts.length === 0 ? (
+                    <div className="muted" style={{ fontSize: 12 }}>Aucun contact</div>
+                  ) : (
+                    filteredContacts.map((c) => (
+                      <label
+                        key={c.id}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                          padding: "4px 0",
+                          cursor: "pointer",
+                          margin: 0,
+                          color: "var(--text)",
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          style={{ width: "auto" }}
+                          checked={pickedContactIds.has(c.id)}
+                          onChange={() => togglePicked(c.id)}
+                        />
+                        <span>
+                          {c.display_name ?? c.e164}{" "}
+                          <span className="muted" style={{ fontSize: 12 }}>{c.e164}</span>
+                        </span>
+                      </label>
+                    ))
+                  )}
+                </div>
+                <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+                  {pickedContactIds.size} contact{pickedContactIds.size === 1 ? "" : "s"} sélectionné{pickedContactIds.size === 1 ? "" : "s"}.
+                </div>
+              </div>
+              <div className="muted" style={{ fontSize: 13 }}>
+                <strong>Total cibles (déduplication par e164) :</strong> {targets.length}
+              </div>
+            </>
+          )}
         </div>
       </section>
 
@@ -805,7 +818,7 @@ export function CampaignWizard({
         <h3>5. Planning</h3>
         <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1fr 1fr 1fr" }}>
           <div>
-            <label>Concurrence max</label>
+            <label>Appels simultanés (max)</label>
             <input
               type="number"
               min={1}
@@ -813,6 +826,9 @@ export function CampaignWizard({
               value={maxConcurrency}
               onChange={(e) => setMaxConcurrency(Number(e.target.value) || 1)}
             />
+            <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+              Nb d&apos;appels passés en même temps. Plus élevé = plus rapide, mais plus d&apos;agents occupés.
+            </div>
           </div>
           <div>
             <label>Tentatives max</label>
@@ -823,6 +839,9 @@ export function CampaignWizard({
               value={maxAttempts}
               onChange={(e) => setMaxAttempts(Number(e.target.value) || 1)}
             />
+            <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+              Rappels si pas de réponse / occupé, avant d&apos;abandonner un numéro.
+            </div>
           </div>
           <div>
             <label>Délai retry (min)</label>
@@ -833,6 +852,9 @@ export function CampaignWizard({
               value={retryDelayMin}
               onChange={(e) => setRetryDelayMin(Number(e.target.value) || 1)}
             />
+            <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+              Temps d&apos;attente avant de re-tenter un numéro injoignable.
+            </div>
           </div>
         </div>
         <div style={{ marginTop: 12 }}>

@@ -285,20 +285,18 @@ export function DynamicEngineConfig({ columns, value, onChange }: Props) {
 
       {/* ── Volume ── */}
       <div style={box}>
-        <h4 style={h4}>Volume</h4>
+        <h4 style={h4}>Combien de nouveaux contacts par créneau&nbsp;?</h4>
         <div className="form-row">
           <div>
-            <label>Max nouveaux contacts / créneau</label>
+            <label>Nouveaux contacts max par créneau</label>
             <input type="number" value={value.volume.max_new_per_day}
               onChange={(e) => set("volume", { ...value.volume, max_new_per_day: Number(e.target.value) })} />
-            <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
-              Plafond appliqué à chaque tir. Avec {Math.max(1, (value.slots.hours ?? []).length)} créneau{(value.slots.hours ?? []).length > 1 ? "x" : ""} actif{(value.slots.hours ?? []).length > 1 ? "s" : ""} : jusqu&apos;à {value.volume.max_new_per_day * Math.max(1, (value.slots.hours ?? []).length)} nouveaux/jour. Les relances (J3, J5, RAPPEL) ne sont pas plafonnées.
+            <div className="muted" style={{ fontSize: 11, marginTop: 4, lineHeight: 1.5 }}>
+              Combien de contacts <strong>jamais encore appelés</strong> on lance à chaque créneau.
+              {" "}Avec tes {Math.max(1, (value.slots.hours ?? []).length)} créneau{(value.slots.hours ?? []).length > 1 ? "x" : ""}, ça fait jusqu&apos;à{" "}
+              <strong>{value.volume.max_new_per_day * Math.max(1, (value.slots.hours ?? []).length)} nouveaux/jour</strong>.
+              {" "}Les relances (rappels J+X) partent en plus, sans limite.
             </div>
-          </div>
-          <div>
-            <label>Vague (appels simultanés)</label>
-            <input type="number" value={value.volume.wave_size}
-              onChange={(e) => set("volume", { ...value.volume, wave_size: Number(e.target.value) })} />
           </div>
         </div>
       </div>
