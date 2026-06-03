@@ -1,6 +1,7 @@
 import { supabase } from "./supabase.js";
 import { dialTarget, type DialJob } from "./dial.js";
 import { ensureOutboundTrunkAuth } from "./livekit-trunk.js";
+import { runDynamicSelection } from "./dynamic-selection.js";
 
 const POLL_INTERVAL_MS = Number(process.env.POLL_INTERVAL_MS ?? 30_000);
 const WORKER_CONCURRENCY = Number(process.env.WORKER_CONCURRENCY ?? 10);
@@ -12,7 +13,7 @@ async function scheduleTick() {
   const sb = supabase();
   const { data: campaigns, error } = await sb
     .from("campaigns")
-    .select("id,state,max_concurrency,schedule")
+    .select("id,state,max_concurrency,schedule,mode,metadata,data_table_id,org_id")
     .eq("state", "running");
   if (error) {
     console.error("[scheduler] failed to list running campaigns:", error.message);
@@ -22,7 +23,25 @@ async function scheduleTick() {
 
   const now = new Date();
   for (const c of campaigns) {
-    if (!withinSchedule((c as any).schedule, now)) continue;
+    // Dynamic (continuous) campaigns re-select leads from their data table at
+    // each configured slot, seeding fresh `pending` targets. The dialing loop
+    // below then places those calls. Static campaigns skip this entirely.
+    if ((c as any).mode === "dynamic") {
+      try {
+        await runDynamicSelection(sb, {
+          id: c.id as string,
+          org_id: (c as any).org_id as string,
+          data_table_id: (c as any).data_table_id as string | null,
+          metadata: (c as any).metadata ?? null,
+        }, now);
+      } catch (e) {
+        console.error(`[scheduler] dynamic selection failed for ${c.id}:`, (e as Error)?.message);
+      }
+    } else if (!withinSchedule((c as any).schedule, now)) {
+      // Static campaigns honour the legacy schedule gate; dynamic ones manage
+      // their own slot windows inside runDynamicSelection.
+      continue;
+    }
 
     const { count: dialingCount } = await sb
       .from("campaign_targets")
