@@ -333,6 +333,106 @@ def load_campaign_script(campaign_id: str) -> Optional[str]:
         return None
 
 
+import re as _re
+_TEMPLATE_RE = _re.compile(r"\{\{\s*([a-zA-Z0-9_\.]+)\s*\}\}")
+
+
+def render_template(template: str, vars: dict[str, Any]) -> str:
+    """Replace every `{{key}}` token in `template` with `vars[key]`.
+
+    Behavior:
+      • Unknown keys are left in place (e.g. `{{foo}}` stays `{{foo}}`). That
+        makes missing data visible in transcripts/logs instead of silently
+        dropping into an empty string and confusing the LLM.
+      • Whitespace inside the braces is tolerated: `{{ name }}` works.
+      • Dotted paths are accepted as flat keys (callers can pre-flatten
+        nested dicts using `.` joins if they want, e.g. `contact.firstname`).
+      • `None` values render as empty string — clearer than the literal "None".
+    """
+    if not template:
+        return template
+
+    def _repl(m: _re.Match[str]) -> str:
+        key = m.group(1)
+        if key not in vars:
+            return m.group(0)
+        v = vars[key]
+        return "" if v is None else str(v)
+
+    return _TEMPLATE_RE.sub(_repl, template)
+
+
+def load_target_context(target_id: Optional[str]) -> dict[str, Any]:
+    """Fetch a campaign target + its contact and return a flat variable map
+    usable by `render_template`.
+
+    Sources merged (later overrides earlier when keys collide):
+      1. `contacts.attributes` (jsonb) — the per-contact custom fields imported
+         from CSV (e.g. `bmi`, `nom`, `note`, `qualification` for OCC).
+      2. Standard `contacts.*` columns: `display_name`, `e164`, `email`,
+         `notes` (text field, not the jsonb).
+      3. Computed identity helpers derived from the name: `firstname`,
+         `lastname`, `patient_firstname`, `patient_lastname` (= same).
+      4. `campaign_targets.payload` (jsonb) — per-target overrides set when
+         the target was queued (highest priority).
+
+    Returns an empty dict on any failure or when Supabase isn't configured —
+    the caller falls back to running with raw `{{placeholders}}` showing,
+    which is loud enough to spot in logs.
+    """
+    if not has_supabase() or not target_id:
+        return {}
+    try:
+        with httpx.Client(timeout=httpx.Timeout(10.0), headers=_supabase_headers()) as c:
+            r = c.get(
+                _supabase_url(
+                    f"/rest/v1/campaign_targets?id=eq.{target_id}"
+                    "&select=payload,contacts(display_name,e164,email,attributes,notes)"
+                )
+            )
+            r.raise_for_status()
+            rows = r.json() or []
+            if not rows:
+                return {}
+            row = rows[0]
+            contact = (row.get("contacts") or {}) if isinstance(row.get("contacts"), dict) else {}
+            attrs = contact.get("attributes") or {}
+            payload = row.get("payload") or {}
+
+            vars: dict[str, Any] = {}
+            # 1. Contact's flexible attributes (lowest priority — overridable)
+            if isinstance(attrs, dict):
+                vars.update(attrs)
+            # 2. Standard contact columns
+            for k in ("display_name", "e164", "email", "notes"):
+                if contact.get(k) is not None:
+                    vars[k] = contact[k]
+            # 3. Computed identity helpers
+            full_name = (
+                attrs.get("nom")
+                or attrs.get("name")
+                or attrs.get("full_name")
+                or contact.get("display_name")
+                or ""
+            )
+            full_name = str(full_name).strip()
+            if full_name:
+                parts = full_name.split(None, 1)
+                first = parts[0]
+                last = parts[1] if len(parts) > 1 else ""
+                vars.setdefault("firstname", first)
+                vars.setdefault("lastname", last)
+                vars.setdefault("patient_firstname", first)
+                vars.setdefault("patient_lastname", last)
+            # 4. Per-target payload (highest priority — last write wins)
+            if isinstance(payload, dict):
+                vars.update(payload)
+            return vars
+    except Exception:
+        logger.exception("failed to load target context for %s", target_id)
+        return {}
+
+
 def rag_search(agent_id: str, query: str, top_k: int = 4) -> list[dict[str, Any]]:
     """Embed `query` via DeepSeek and call the match_documents RPC for `agent_id`."""
     if not has_supabase():

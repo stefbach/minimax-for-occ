@@ -38,7 +38,9 @@ from agent_config import (
     _agent_id_from_metadata,
     load_agent,
     load_campaign_script,
+    load_target_context,
     rag_search,
+    render_template,
     resolve_agent_id,
 )
 from db_writes import append_transcript_turn, trigger_post_call_pipeline
@@ -823,18 +825,31 @@ async def entrypoint(ctx: JobContext) -> None:
     if campaign_id and str(campaign_id).startswith("X-LK-"):
         campaign_id = None
 
-    # Load the agent config and the campaign script CONCURRENTLY and off the
-    # asyncio event loop (both are blocking httpx calls to Supabase). Running
-    # them in parallel — instead of back-to-back, and without blocking the loop
-    # that drives the room/audio — cuts the dead-air the caller hears before
-    # the agent greets.
+    # Same forwarded-SIP-header gotcha applies to target_id. The target row
+    # carries the per-contact variables we substitute into the prompt
+    # ({{patient_firstname}}, {{bmi}}, {{note}}, …).
+    target_id = (
+        p_attrs.get("sip.h.x-lk-target-id")
+        or p_attrs.get("target_id")
+        or p_attrs.get("axon.target_id")
+    )
+    if target_id and str(target_id).startswith("X-LK-"):
+        target_id = None
+
+    # Load the agent config, the campaign script, and the per-target context
+    # CONCURRENTLY off the asyncio event loop (all are blocking httpx calls to
+    # Supabase). Running them in parallel — instead of back-to-back, and
+    # without blocking the loop that drives the room/audio — cuts the dead-air
+    # the caller hears before the agent greets.
     async def _load(fn, arg):
         return await asyncio.to_thread(fn, str(arg)) if arg else None
 
-    axon, script_text = await asyncio.gather(
+    axon, script_text, target_vars = await asyncio.gather(
         _load(load_agent, agent_id),
         _load(load_campaign_script, campaign_id),
+        _load(load_target_context, target_id),
     )
+    target_vars = target_vars or {}
 
     if axon:
         clog.info(
@@ -885,6 +900,23 @@ async def entrypoint(ctx: JobContext) -> None:
         instructions = f"{instructions}\n\n{script_text}"
     elif campaign_id:
         clog.info("campaign %s has no script — using agent base prompt", campaign_id)
+
+    # Template substitution: resolve every {{var}} in the system prompt and
+    # greeting using the per-target context (contact attributes, computed
+    # firstname/lastname, current_date, etc.). Unknown keys stay literal so
+    # missing data is visible in logs instead of silently empty.
+    from datetime import date as _date
+    template_vars = dict(target_vars)
+    template_vars.setdefault("current_date", _date.today().isoformat())
+    if axon:
+        template_vars.setdefault("agent_name", axon.name)
+    instructions = render_template(instructions, template_vars)
+    greeting = render_template(greeting, template_vars)
+    if target_vars:
+        clog.info(
+            "[call_id=%s] template vars resolved (%d keys: %s)",
+            call_id, len(template_vars), sorted(template_vars.keys()),
+        )
 
     # Perceived-latency trick used by Retell / Vapi / ElevenLabs Conversational:
     # force the LLM to ALWAYS start its replies with a 1-2 word acknowledgement
