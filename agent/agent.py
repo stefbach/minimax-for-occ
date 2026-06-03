@@ -453,19 +453,29 @@ def _build_rag_tool(agent: AxonAgent):
     return search_knowledge_base
 
 
-def _build_save_contact_tool(contact_id: Optional[str], org_id: Optional[str]):
-    """function_tool that lets the agent persist what it learns mid-call onto
-    the CRM contact row (contacts.attributes + display_name/email/notes).
+def _build_save_contact_tool(
+    contact_id: Optional[str],
+    org_id: Optional[str],
+    data_table: Optional[str] = None,
+    data_row_id: Optional[str] = None,
+):
+    """function_tool that lets the agent persist what it learns mid-call.
 
-    Bound to THIS call's contact_id + org_id (resolved from the campaign
-    target), so the LLM never has to know or pass an id — it just calls
+    Two write targets:
+      • Data-table mode (campaign sourced from a real table like leads_rdv):
+        writes to that physical table's row by real column names.
+      • Otherwise: writes to the generic contacts row (attributes jsonb).
+
+    Bound to THIS call's ids, so the LLM never handles an id — it just calls
     save_contact_data with the fields it collected. Returns None when there's
-    no contact (manual/simulation calls), so the tool simply isn't offered.
+    nothing to write to (manual/simulation calls).
     """
     from livekit.agents import function_tool
-    from db_writes import save_contact_data as _save
+    from db_writes import save_contact_data as _save_contact
+    from db_writes import save_to_data_table as _save_table
 
-    if not contact_id:
+    use_table = bool(data_table and data_row_id)
+    if not use_table and not contact_id:
         return None
 
     @function_tool
@@ -497,15 +507,26 @@ def _build_save_contact_tool(contact_id: Optional[str], org_id: Optional[str]):
                 return "Error: fields_json must be a JSON object."
         except Exception as e:
             return f"Error: invalid JSON ({e})."
-        result = await asyncio.to_thread(
-            _save,
-            contact_id,
-            org_id,
-            fields,
-            display_name=display_name or None,
-            email=email or None,
-            notes=notes or None,
-        )
+        # Fold the convenience args into the field map (real-column names).
+        if display_name:
+            fields.setdefault("nom", display_name)
+        if email:
+            fields.setdefault("email", email)
+        if notes:
+            fields.setdefault("note", notes)
+
+        if use_table:
+            result = await asyncio.to_thread(_save_table, data_table, data_row_id, fields)
+        else:
+            result = await asyncio.to_thread(
+                _save_contact,
+                contact_id,
+                org_id,
+                fields,
+                display_name=display_name or None,
+                email=email or None,
+                notes=notes or None,
+            )
         if result.get("ok"):
             return f"Saved: {', '.join(result.get('saved', [])) or '(nothing new)'}."
         return f"Could not save: {result.get('error', 'unknown error')}."
@@ -1129,10 +1150,18 @@ async def entrypoint(ctx: JobContext) -> None:
         # Isabelle persist bmi, Victoria persist DOB/allergies, etc. mid-call.
         _save_contact_id = target_vars.get("__contact_id__")
         _save_org_id = target_vars.get("__org_id__") or (axon.org_id if axon else None)
-        _save_tool = _build_save_contact_tool(_save_contact_id, _save_org_id)
+        _save_table = target_vars.get("__data_table__")
+        _save_row = target_vars.get("__data_row_id__")
+        _save_tool = _build_save_contact_tool(
+            _save_contact_id, _save_org_id, _save_table, _save_row
+        )
         if _save_tool is not None:
             tools.append(_save_tool)
-            clog.info("save_contact_data tool enabled (contact=%s)", _save_contact_id)
+            clog.info(
+                "save_contact_data tool enabled (mode=%s contact=%s table=%s row=%s)",
+                "data_table" if (_save_table and _save_row) else "contact",
+                _save_contact_id, _save_table, _save_row,
+            )
         # Multi-agent swarm: add `transfer_to_specialist` if this agent
         # belongs to a team. Non-blocking: returns None when no team.
         import time as _time

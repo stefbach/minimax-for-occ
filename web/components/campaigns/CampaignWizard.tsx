@@ -47,6 +47,13 @@ export interface ContactListOption {
   contact_count: number;
 }
 
+export interface DataTableOption {
+  id: string;
+  label: string;
+  physical_table: string;
+  row_count: number;
+}
+
 interface Target {
   e164: string;
   name: string | null;
@@ -233,6 +240,7 @@ export function CampaignWizard({
   scripts = [],
   teams = [],
   contactLists = [],
+  dataTables = [],
 }: {
   agents: AgentHandleOption[];
   numbers: PhoneNumberOption[];
@@ -240,6 +248,7 @@ export function CampaignWizard({
   scripts?: ScriptOption[];
   teams?: TeamOption[];
   contactLists?: ContactListOption[];
+  dataTables?: DataTableOption[];
 }) {
   const router = useRouter();
 
@@ -252,9 +261,10 @@ export function CampaignWizard({
   const [agentHandleId, setAgentHandleId] = useState(agents[0]?.id ?? "");
   const effectiveHandleId = selectedTeam?.lead_agent_handle_id ?? agentHandleId;
   const [scriptId, setScriptId] = useState("");
-  // Source for the campaign's targets: a Base de Contacts (preferred — bulk),
-  // or fall back to the legacy CSV paste / individual contact picker.
+  // Source for the campaign's targets: a data table (preferred — real table
+  // like leads_rdv), or fall back to the legacy CSV paste / contact picker.
   const [contactListId, setContactListId] = useState("");
+  const [dataTableId, setDataTableId] = useState("");
   const [phoneNumberId, setPhoneNumberId] = useState(numbers[0]?.id ?? "");
   const [callerIdOverride, setCallerIdOverride] = useState("");
   const [csvText, setCsvText] = useState("");
@@ -374,6 +384,7 @@ export function CampaignWizard({
           agent_team_id: teamId || null,
           script_id: scriptId || null,
           contact_list_id: contactListId || null,
+          data_table_id: dataTableId || null,
           phone_number_id: phoneNumberId || null,
           caller_id_e164: callerIdOverride.trim() || null,
           schedule,
@@ -614,24 +625,21 @@ export function CampaignWizard({
       <section className="card">
         <h3>4. Cibles</h3>
         <div style={{ display: "grid", gap: 12 }}>
-          {contactLists.length > 0 && (
+          {dataTables.length > 0 && (
             <div style={{ background: "var(--bg-2)", padding: 12, borderRadius: 8 }}>
-              <label>Base de contacts (recommandé)</label>
-              <select
-                value={contactListId}
-                onChange={(e) => setContactListId(e.target.value)}
-              >
-                <option value="">— Pas de base (utiliser CSV / contacts individuels) —</option>
-                {contactLists.map((l) => (
-                  <option key={l.id} value={l.id}>
-                    {l.name} · {l.contact_count} contact{l.contact_count === 1 ? "" : "s"}
+              <label>Table de contacts (recommandé)</label>
+              <select value={dataTableId} onChange={(e) => setDataTableId(e.target.value)}>
+                <option value="">— Pas de table (utiliser CSV ci-dessous) —</option>
+                {dataTables.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.label} ({t.physical_table}) · {t.row_count} contact{t.row_count === 1 ? "" : "s"}
                   </option>
                 ))}
               </select>
               <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-                {contactListId
-                  ? `La campagne ciblera tous les contacts de cette base au démarrage. Tu peux quand même ajouter des cibles supplémentaires ci-dessous.`
-                  : `Sélectionne une base pour ajouter automatiquement tous ses contacts comme cibles. Gère les bases dans CRM / Contacts.`}
+                {dataTableId
+                  ? `La campagne appellera tous les contacts de cette table. Les variables ({{nom}}, {{bmi}}…) viennent de ses colonnes, et l'agent réécrit ses résultats dedans.`
+                  : `Choisis la table à appeler. Gère tes tables dans CRM / Contacts.`}
               </div>
             </div>
           )}

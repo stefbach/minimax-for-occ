@@ -387,7 +387,8 @@ def load_target_context(target_id: Optional[str]) -> dict[str, Any]:
             r = c.get(
                 _supabase_url(
                     f"/rest/v1/campaign_targets?id=eq.{target_id}"
-                    "&select=contact_id,payload,contacts(id,display_name,e164,email,attributes,notes,org_id)"
+                    "&select=contact_id,payload,source,source_metadata,"
+                    "contacts(id,display_name,e164,email,attributes,notes,org_id)"
                 )
             )
             r.raise_for_status()
@@ -398,6 +399,7 @@ def load_target_context(target_id: Optional[str]) -> dict[str, Any]:
             contact = (row.get("contacts") or {}) if isinstance(row.get("contacts"), dict) else {}
             attrs = contact.get("attributes") or {}
             payload = row.get("payload") or {}
+            src_meta = row.get("source_metadata") or {}
 
             vars: dict[str, Any] = {}
             # Reserved keys (double-underscore) so callers can resolve the
@@ -407,6 +409,12 @@ def load_target_context(target_id: Optional[str]) -> dict[str, Any]:
                 vars["__contact_id__"] = cid
             if contact.get("org_id"):
                 vars["__org_id__"] = contact["org_id"]
+            # Data-table mode: the real patient row lives in a physical table
+            # (e.g. leads_rdv). Expose the table + row id so save_contact_data
+            # writes back THERE with real column names, not into contacts.
+            if isinstance(src_meta, dict) and src_meta.get("physical_table") and src_meta.get("row_id"):
+                vars["__data_table__"] = src_meta["physical_table"]
+                vars["__data_row_id__"] = src_meta["row_id"]
             # 1. Contact's flexible attributes (lowest priority — overridable)
             if isinstance(attrs, dict):
                 vars.update(attrs)

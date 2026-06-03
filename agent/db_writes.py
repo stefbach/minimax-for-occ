@@ -159,6 +159,62 @@ def save_contact_data(
         return {"ok": False, "error": str(exc)}
 
 
+def save_to_data_table(
+    physical_table: Optional[str],
+    row_id: Optional[str],
+    fields: dict[str, Any],
+) -> dict[str, Any]:
+    """PATCH a row of a tenant data table (e.g. leads_rdv) by id, writing the
+    provided fields to their REAL columns. Unknown columns are dropped by
+    PostgREST? No — PostgREST errors on unknown columns, so we first read the
+    table's column list and keep only matching keys.
+
+    Used by the in-call save_contact_data tool when the campaign target came
+    from a data table (source_metadata.physical_table / row_id).
+    """
+    if not has_supabase():
+        return {"ok": False, "error": "supabase not configured"}
+    if not physical_table or not row_id:
+        return {"ok": False, "error": "no data-table row for this call"}
+    # Basic guard against a malformed table name reaching the URL.
+    import re as _re
+    if not _re.match(r"^[a-z][a-z0-9_]{2,62}$", physical_table):
+        return {"ok": False, "error": f"invalid table name {physical_table}"}
+    try:
+        with httpx.Client(timeout=httpx.Timeout(8.0), headers=_supabase_headers()) as c:
+            # Introspect columns via a 1-row probe (limit=1) to learn valid keys.
+            probe = c.get(
+                _supabase_url(f"/rest/v1/{physical_table}?select=*&limit=1"),
+            )
+            probe.raise_for_status()
+            sample = probe.json() or []
+            valid_cols = set(sample[0].keys()) if sample else set(fields.keys())
+            clean = {
+                k: v for k, v in (fields or {}).items()
+                if v is not None and k in valid_cols and k not in ("id", "created_at")
+            }
+            # Always bump updated_at if the column exists.
+            if "updated_at" in valid_cols:
+                from datetime import datetime, timezone
+                clean["updated_at"] = datetime.now(timezone.utc).isoformat()
+            if not clean:
+                return {"ok": False, "error": "no matching columns to write"}
+            r = c.patch(
+                _supabase_url(f"/rest/v1/{physical_table}?id=eq.{row_id}"),
+                headers={
+                    **_supabase_headers(),
+                    "Content-Type": "application/json",
+                    "Prefer": "return=minimal",
+                },
+                json=clean,
+            )
+            r.raise_for_status()
+            return {"ok": True, "saved": sorted(k for k in clean if k != "updated_at")}
+    except Exception as exc:
+        logger.exception("save_to_data_table failed (%s/%s)", physical_table, row_id)
+        return {"ok": False, "error": str(exc)}
+
+
 def append_transcript_turn(
     call_id: Optional[str],
     speaker: str,

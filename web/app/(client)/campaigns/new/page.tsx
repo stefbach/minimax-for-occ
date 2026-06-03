@@ -1,5 +1,5 @@
 import { hasSupabase, supabaseServer } from "@/lib/supabase";
-import { CampaignWizard, type AgentHandleOption, type PhoneNumberOption, type ContactOption, type ScriptOption, type TeamOption, type ContactListOption } from "@/components/campaigns/CampaignWizard";
+import { CampaignWizard, type AgentHandleOption, type PhoneNumberOption, type ContactOption, type ScriptOption, type TeamOption, type ContactListOption, type DataTableOption } from "@/components/campaigns/CampaignWizard";
 import { HelpButton } from "@/components/help/HelpButton";
 
 export const dynamic = "force-dynamic";
@@ -13,6 +13,7 @@ export default async function NewCampaignPage() {
   let scripts: ScriptOption[] = [];
   let teams: TeamOption[] = [];
   let contactLists: ContactListOption[] = [];
+  let dataTables: DataTableOption[] = [];
 
   if (hasSupabase()) {
     const sb = supabaseServer();
@@ -145,34 +146,28 @@ export default async function NewCampaignPage() {
       /* ignore */
     }
     try {
-      // Bases de Contacts the user can pick to source the campaign's targets
-      // from, without manually picking individual contacts.
+      // Data tables (real tables like leads_rdv) the user can target.
       const { data } = await sb
-        .from("contact_lists")
-        .select("id,name,description")
+        .from("tenant_data_tables")
+        .select("id,label,physical_table")
         .eq("org_id", DEFAULT_ORG)
         .order("created_at", { ascending: false })
         .limit(200);
-      const baseRows = (data ?? []) as Array<{ id: string; name: string; description: string | null }>;
-      const ids = baseRows.map((b) => b.id);
-      const counts: Record<string, number> = {};
-      if (ids.length > 0) {
-        const { data: cs } = await sb
-          .from("contacts")
-          .select("list_id")
-          .eq("org_id", DEFAULT_ORG)
-          .in("list_id", ids);
-        for (const c of cs ?? []) {
-          const k = (c as { list_id: string }).list_id;
-          counts[k] = (counts[k] ?? 0) + 1;
+      const tbls = (data ?? []) as Array<{ id: string; label: string; physical_table: string }>;
+      const withCounts: typeof dataTables = [];
+      for (const t of tbls) {
+        let count = 0;
+        try {
+          const { count: c } = await sb
+            .from(t.physical_table)
+            .select("id", { count: "exact", head: true });
+          count = c ?? 0;
+        } catch {
+          count = 0;
         }
+        withCounts.push({ id: t.id, label: t.label, physical_table: t.physical_table, row_count: count });
       }
-      contactLists = baseRows.map((b) => ({
-        id: b.id,
-        name: b.name,
-        description: b.description,
-        contact_count: counts[b.id] ?? 0,
-      }));
+      dataTables = withCounts;
     } catch {
       /* ignore */
     }
@@ -194,6 +189,7 @@ export default async function NewCampaignPage() {
         scripts={scripts}
         teams={teams}
         contactLists={contactLists}
+        dataTables={dataTables}
       />
     </>
   );

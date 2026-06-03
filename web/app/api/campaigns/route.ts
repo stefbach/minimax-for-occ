@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
-import { ingestTargets } from "@/lib/campaign-targets";
+import { ingestTargets, ingestDataTableTargets } from "@/lib/campaign-targets";
 import { requestOrgId } from "@/lib/request-org";
 
 export const runtime = "nodejs";
@@ -109,6 +109,26 @@ export async function POST(req: Request) {
     if (t) resolvedTeamId = t.id as string;
   }
 
+  // Resolve + verify the data table (if any) belongs to the caller's org.
+  let resolvedDataTableId: string | null = null;
+  let dataTable: { physical_table: string; phone_column: string; name_column: string | null } | null = null;
+  if (body.data_table_id) {
+    const { data: dt } = await sb
+      .from("tenant_data_tables")
+      .select("id, physical_table, phone_column, name_column")
+      .eq("id", body.data_table_id)
+      .eq("org_id", org_id)
+      .maybeSingle();
+    if (dt) {
+      resolvedDataTableId = dt.id as string;
+      dataTable = {
+        physical_table: dt.physical_table as string,
+        phone_column: dt.phone_column as string,
+        name_column: (dt.name_column as string | null) ?? null,
+      };
+    }
+  }
+
   const { data: campaign, error } = await sb
     .from("campaigns")
     .insert({
@@ -118,6 +138,7 @@ export async function POST(req: Request) {
       agent_handle_id: body.agent_handle_id,
       agent_team_id: resolvedTeamId,
       script_id: body.script_id ?? null,
+      data_table_id: resolvedDataTableId,
       phone_number_id: body.phone_number_id ?? null,
       caller_id_e164: body.caller_id_e164 ?? null,
       state: "draft",
@@ -134,6 +155,18 @@ export async function POST(req: Request) {
   // Seed targets from the wizard's CSV / contact picker.
   if (body.targets && body.targets.length > 0) {
     await ingestTargets(sb, org_id, campaign.id, body.targets);
+  }
+
+  // Primary OCC flow: seed every row of the chosen data table as a target,
+  // carrying the row data as payload (for {{vars}}) + source_metadata (for
+  // write-back to the real table).
+  if (dataTable) {
+    try {
+      await ingestDataTableTargets(sb, org_id, campaign.id, dataTable);
+    } catch (e) {
+      // Don't fail campaign creation if seeding hiccups; surface in logs.
+      console.error("[campaigns] data table seeding failed:", e instanceof Error ? e.message : e);
+    }
   }
 
   // Additionally seed every contact in the chosen Base de Contacts (the
