@@ -267,20 +267,29 @@ export function CampaignWizard({
   // Source for the campaign's targets: a data table (preferred — real table
   // like leads_rdv), or fall back to the legacy CSV paste / contact picker.
   const [contactListId, setContactListId] = useState("");
-  const [dataTableId, setDataTableId] = useState("");
+  // When the org has exactly one data table, auto-select it so the campaign
+  // configuration (statuts, volume, relances) is visible immediately instead
+  // of hidden behind a dropdown choice.
+  const soleTable = dataTables.length === 1 ? dataTables[0] : null;
+  const [dataTableId, setDataTableId] = useState(soleTable?.id ?? "");
   const selectedDataTable = useMemo(
     () => dataTables.find((t) => t.id === dataTableId) ?? null,
     [dataTables, dataTableId],
   );
   // "Continuous" campaign: re-selects from the table at each slot per rules.
-  const [dynamicMode, setDynamicMode] = useState(false);
-  const [engineConfig, setEngineConfig] = useState<EngineConfig | null>(null);
+  // Defaults ON whenever a table is in play — that's the configurable engine
+  // (statuts/volume/relances) clients asked to see by default.
+  const [dynamicMode, setDynamicMode] = useState(!!soleTable);
+  const [engineConfig, setEngineConfig] = useState<EngineConfig | null>(
+    soleTable ? defaultEngineConfig(soleTable.columns, soleTable.phone_column) : null,
+  );
 
   function onPickDataTable(id: string) {
     setDataTableId(id);
     const t = dataTables.find((x) => x.id === id);
     if (t) {
       setEngineConfig(defaultEngineConfig(t.columns, t.phone_column));
+      setDynamicMode(true); // surface the engine config straight away
     } else {
       setDynamicMode(false);
       setEngineConfig(null);
@@ -668,14 +677,46 @@ export function CampaignWizard({
               </div>
 
               {selectedDataTable && (
-                <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 13 }}>
-                  <input type="checkbox" checked={dynamicMode}
-                    onChange={(e) => setDynamicMode(e.target.checked)} style={{ width: "auto" }} />
-                  <span>
-                    <strong>Campagne continue</strong> — re-sélectionne les contacts à chaque créneau
-                    selon des règles (statuts, relances J+X, plafond/jour). Sinon, appel unique de tous les contacts.
-                  </span>
-                </label>
+                <div>
+                  <label>Type de campagne</label>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                    <label
+                      style={{
+                        display: "flex", gap: 10, alignItems: "flex-start", cursor: "pointer",
+                        padding: 12, borderRadius: 8,
+                        border: `1px solid ${dynamicMode ? "var(--accent)" : "var(--border)"}`,
+                        background: dynamicMode ? "var(--accent-soft)" : "var(--bg-2)",
+                      }}
+                    >
+                      <input type="radio" name="campaign_type" checked={dynamicMode}
+                        onChange={() => setDynamicMode(true)} style={{ width: "auto", marginTop: 2 }} />
+                      <div>
+                        <div style={{ fontWeight: 600 }}>Campagne continue 🔁</div>
+                        <div style={{ fontSize: 12, color: "var(--muted)" }}>
+                          Re-sélectionne les contacts à chaque créneau selon vos règles :
+                          statuts ciblés, relances J+X, plafond d&apos;appels/jour. (logique J1/J3/J5)
+                        </div>
+                      </div>
+                    </label>
+                    <label
+                      style={{
+                        display: "flex", gap: 10, alignItems: "flex-start", cursor: "pointer",
+                        padding: 12, borderRadius: 8,
+                        border: `1px solid ${!dynamicMode ? "var(--accent)" : "var(--border)"}`,
+                        background: !dynamicMode ? "var(--accent-soft)" : "var(--bg-2)",
+                      }}
+                    >
+                      <input type="radio" name="campaign_type" checked={!dynamicMode}
+                        onChange={() => setDynamicMode(false)} style={{ width: "auto", marginTop: 2 }} />
+                      <div>
+                        <div style={{ fontWeight: 600 }}>Appel unique 📞</div>
+                        <div style={{ fontSize: 12, color: "var(--muted)" }}>
+                          Appelle une seule fois chaque contact de la table, sans relances automatiques.
+                        </div>
+                      </div>
+                    </label>
+                  </div>
+                </div>
               )}
 
               {selectedDataTable && dynamicMode && engineConfig && (
