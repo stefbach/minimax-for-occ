@@ -2,72 +2,61 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { hasSupabase, supabaseServer } from "@/lib/supabase";
 import { currentOrgIdForServer } from "@/lib/supabase-auth";
-import { ContactListDetail } from "@/components/contacts/ContactListDetail";
+import { DataTableDetail, type ColumnSpec } from "@/components/contacts/DataTableDetail";
 
 export const dynamic = "force-dynamic";
 
-interface ColumnSpec {
-  key: string;
-  label: string;
-  type: string;
-}
-
-export default async function ContactListPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function DataTablePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   if (!hasSupabase()) {
-    return (
-      <div className="card">
-        <h3>Supabase non configuré</h3>
-      </div>
-    );
+    return <div className="card"><h3>Supabase non configuré</h3></div>;
   }
-
   const sb = supabaseServer();
   const orgId = await currentOrgIdForServer();
 
-  const { data: list } = await sb
-    .from("contact_lists")
-    .select("id, name, description, columns")
+  const { data: reg } = await sb
+    .from("tenant_data_tables")
+    .select("id, physical_table, label, columns, phone_column, name_column, is_managed")
     .eq("id", id)
     .eq("org_id", orgId)
     .maybeSingle();
-  if (!list) return notFound();
+  if (!reg) return notFound();
 
-  const { data: rows } = await sb
-    .from("contacts")
-    .select("id, display_name, e164, email, attributes, created_at, updated_at")
-    .eq("org_id", orgId)
-    .eq("list_id", id)
-    .order("updated_at", { ascending: false })
-    .limit(1000);
+  let rows: Record<string, unknown>[] = [];
+  try {
+    const { data } = await sb
+      .from(reg.physical_table)
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(1000);
+    rows = data ?? [];
+  } catch {
+    rows = [];
+  }
 
-  const columns = (Array.isArray(list.columns) ? list.columns : []) as ColumnSpec[];
+  const columns = (Array.isArray(reg.columns) ? reg.columns : []) as ColumnSpec[];
 
   return (
     <>
       <div className="page-header">
         <div>
-          <h1>{list.name}</h1>
+          <h1>{reg.label}</h1>
           <div className="subtitle">
-            <Link href="/contacts" style={{ color: "var(--muted)" }}>
-              ← Bases de contacts
-            </Link>
+            <Link href="/contacts" style={{ color: "var(--muted)" }}>← Tables de contacts</Link>
             {" · "}
-            {(rows ?? []).length} contact{(rows ?? []).length === 1 ? "" : "s"}
+            <span style={{ fontFamily: "monospace" }}>{reg.physical_table}</span>
             {" · "}
-            {columns.length} colonne{columns.length === 1 ? "" : "s"}
+            {rows.length} contact{rows.length === 1 ? "" : "s"}
           </div>
         </div>
       </div>
-      {list.description && (
-        <p className="muted" style={{ marginTop: -8, marginBottom: 14 }}>{list.description}</p>
-      )}
 
-      <ContactListDetail
-        listId={list.id}
-        listName={list.name}
+      <DataTableDetail
+        registryId={reg.id}
+        physicalTable={reg.physical_table}
         columns={columns}
-        initialContacts={rows ?? []}
+        phoneColumn={reg.phone_column}
+        initialRows={rows}
       />
     </>
   );
