@@ -1,5 +1,5 @@
 import { hasSupabase, supabaseServer } from "@/lib/supabase";
-import { CampaignWizard, type AgentHandleOption, type PhoneNumberOption, type ContactOption, type ScriptOption } from "@/components/campaigns/CampaignWizard";
+import { CampaignWizard, type AgentHandleOption, type PhoneNumberOption, type ContactOption, type ScriptOption, type TeamOption, type ContactListOption } from "@/components/campaigns/CampaignWizard";
 import { HelpButton } from "@/components/help/HelpButton";
 
 export const dynamic = "force-dynamic";
@@ -11,6 +11,8 @@ export default async function NewCampaignPage() {
   let numbers: PhoneNumberOption[] = [];
   let contacts: ContactOption[] = [];
   let scripts: ScriptOption[] = [];
+  let teams: TeamOption[] = [];
+  let contactLists: ContactListOption[] = [];
 
   if (hasSupabase()) {
     const sb = supabaseServer();
@@ -90,6 +92,90 @@ export default async function NewCampaignPage() {
     } catch {
       /* ignore */
     }
+    try {
+      // Teams + their lead agent's handle (so picking a team auto-selects
+      // the right answering agent without an extra step for the user).
+      const { data: ts } = await sb
+        .from("agent_teams")
+        .select("id,name,description,lead_agent_id")
+        .eq("org_id", DEFAULT_ORG)
+        .order("created_at", { ascending: false })
+        .limit(100);
+      const teamRows = (ts ?? []) as Array<{
+        id: string;
+        name: string;
+        description: string | null;
+        lead_agent_id: string | null;
+      }>;
+      // Member counts + lead handle resolution (lead_agent → ai_agent_id handle).
+      const leadIds = teamRows.map((t) => t.lead_agent_id).filter((x): x is string => Boolean(x));
+      const handleByAgent = new Map<string, string>();
+      if (leadIds.length > 0) {
+        const { data: hs } = await sb
+          .from("agent_handles")
+          .select("id,ai_agent_id")
+          .eq("org_id", DEFAULT_ORG)
+          .eq("kind", "ai")
+          .in("ai_agent_id", leadIds);
+        for (const h of hs ?? []) {
+          const aid = (h as { ai_agent_id: string | null }).ai_agent_id;
+          if (aid) handleByAgent.set(aid, (h as { id: string }).id);
+        }
+      }
+      const teamIds = teamRows.map((t) => t.id);
+      const memberCount: Record<string, number> = {};
+      if (teamIds.length > 0) {
+        const { data: ms } = await sb
+          .from("agent_team_members")
+          .select("team_id")
+          .in("team_id", teamIds);
+        for (const m of ms ?? []) {
+          const tid = (m as { team_id: string }).team_id;
+          memberCount[tid] = (memberCount[tid] ?? 0) + 1;
+        }
+      }
+      teams = teamRows.map((t) => ({
+        id: t.id,
+        name: t.name,
+        description: t.description,
+        lead_agent_handle_id: t.lead_agent_id ? handleByAgent.get(t.lead_agent_id) ?? null : null,
+        member_count: memberCount[t.id] ?? 0,
+      }));
+    } catch {
+      /* ignore */
+    }
+    try {
+      // Bases de Contacts the user can pick to source the campaign's targets
+      // from, without manually picking individual contacts.
+      const { data } = await sb
+        .from("contact_lists")
+        .select("id,name,description")
+        .eq("org_id", DEFAULT_ORG)
+        .order("created_at", { ascending: false })
+        .limit(200);
+      const baseRows = (data ?? []) as Array<{ id: string; name: string; description: string | null }>;
+      const ids = baseRows.map((b) => b.id);
+      const counts: Record<string, number> = {};
+      if (ids.length > 0) {
+        const { data: cs } = await sb
+          .from("contacts")
+          .select("list_id")
+          .eq("org_id", DEFAULT_ORG)
+          .in("list_id", ids);
+        for (const c of cs ?? []) {
+          const k = (c as { list_id: string }).list_id;
+          counts[k] = (counts[k] ?? 0) + 1;
+        }
+      }
+      contactLists = baseRows.map((b) => ({
+        id: b.id,
+        name: b.name,
+        description: b.description,
+        contact_count: counts[b.id] ?? 0,
+      }));
+    } catch {
+      /* ignore */
+    }
   }
 
   return (
@@ -101,7 +187,14 @@ export default async function NewCampaignPage() {
         </div>
         <HelpButton contextKey="campaigns" />
       </div>
-      <CampaignWizard agents={agents} numbers={numbers} contacts={contacts} scripts={scripts} />
+      <CampaignWizard
+        agents={agents}
+        numbers={numbers}
+        contacts={contacts}
+        scripts={scripts}
+        teams={teams}
+        contactLists={contactLists}
+      />
     </>
   );
 }

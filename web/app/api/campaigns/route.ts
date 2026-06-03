@@ -72,7 +72,9 @@ export async function POST(req: Request) {
     name?: string;
     description?: string | null;
     agent_handle_id?: string;
+    agent_team_id?: string | null;
     script_id?: string | null;
+    contact_list_id?: string | null;
     phone_number_id?: string | null;
     caller_id_e164?: string | null;
     schedule?: Record<string, unknown>;
@@ -91,6 +93,21 @@ export async function POST(req: Request) {
   const org_id = await requestOrgId(req);
 
   const sb = supabaseServer();
+
+  // Defense in depth: when the caller passes an agent_team_id, make sure
+  // the team belongs to their org. Otherwise drop it silently rather than
+  // 500.
+  let resolvedTeamId: string | null = null;
+  if (body.agent_team_id) {
+    const { data: t } = await sb
+      .from("agent_teams")
+      .select("id")
+      .eq("id", body.agent_team_id)
+      .eq("org_id", org_id)
+      .maybeSingle();
+    if (t) resolvedTeamId = t.id as string;
+  }
+
   const { data: campaign, error } = await sb
     .from("campaigns")
     .insert({
@@ -98,6 +115,7 @@ export async function POST(req: Request) {
       name: body.name,
       description: body.description ?? null,
       agent_handle_id: body.agent_handle_id,
+      agent_team_id: resolvedTeamId,
       script_id: body.script_id ?? null,
       phone_number_id: body.phone_number_id ?? null,
       caller_id_e164: body.caller_id_e164 ?? null,
@@ -112,9 +130,35 @@ export async function POST(req: Request) {
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Optionally seed targets at create time (from the wizard's CSV / contact picker).
+  // Seed targets from the wizard's CSV / contact picker.
   if (body.targets && body.targets.length > 0) {
     await ingestTargets(sb, org_id, campaign.id, body.targets);
+  }
+
+  // Additionally seed every contact in the chosen Base de Contacts (the
+  // primary OCC workflow — pick a base, target it). Verified to belong to
+  // the same org before reading.
+  if (body.contact_list_id) {
+    const { data: listOwn } = await sb
+      .from("contact_lists")
+      .select("id")
+      .eq("id", body.contact_list_id)
+      .eq("org_id", org_id)
+      .maybeSingle();
+    if (listOwn) {
+      const { data: rows } = await sb
+        .from("contacts")
+        .select("e164, display_name")
+        .eq("org_id", org_id)
+        .eq("list_id", body.contact_list_id);
+      const fromList = (rows ?? []).map((r) => ({
+        e164: (r as { e164: string }).e164,
+        name: (r as { display_name: string | null }).display_name,
+      }));
+      if (fromList.length > 0) {
+        await ingestTargets(sb, org_id, campaign.id, fromList);
+      }
+    }
   }
 
   await sb.from("event_log").insert({

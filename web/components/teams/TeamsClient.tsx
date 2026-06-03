@@ -217,7 +217,13 @@ export function TeamsClient({ initial, agents }: { initial: TeamRow[]; agents: A
                       </td>
                       <td>{lead ? <span className="tag">{lead.name}</span> : <span style={{ color: "var(--muted)" }}>—</span>}</td>
                       <td style={{ color: "var(--muted)", fontSize: 13 }}>{t.description ?? "—"}</td>
-                      <td style={{ textAlign: "right" }}>
+                      <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                        <a
+                          href={`/teams/${t.id}`}
+                          style={{ marginRight: 8, color: "var(--accent-2)", fontWeight: 600, textDecoration: "none" }}
+                        >
+                          Voir le parcours →
+                        </a>
                         <button className="danger" style={{ padding: "5px 9px" }} onClick={() => deleteTeam(t.id)}>Supprimer</button>
                       </td>
                     </tr>

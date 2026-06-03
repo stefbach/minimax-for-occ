@@ -30,6 +30,23 @@ export interface ScriptOption {
   description: string | null;
 }
 
+export interface TeamOption {
+  id: string;
+  name: string;
+  description: string | null;
+  /** The agent_handle id of the team's lead — auto-selected when the user
+   *  picks a team, so they don't also need to pick an answering agent. */
+  lead_agent_handle_id: string | null;
+  member_count: number;
+}
+
+export interface ContactListOption {
+  id: string;
+  name: string;
+  description: string | null;
+  contact_count: number;
+}
+
 interface Target {
   e164: string;
   name: string | null;
@@ -214,18 +231,30 @@ export function CampaignWizard({
   numbers,
   contacts,
   scripts = [],
+  teams = [],
+  contactLists = [],
 }: {
   agents: AgentHandleOption[];
   numbers: PhoneNumberOption[];
   contacts: ContactOption[];
   scripts?: ScriptOption[];
+  teams?: TeamOption[];
+  contactLists?: ContactListOption[];
 }) {
   const router = useRouter();
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  // The user picks EITHER a Team (multi-agent journey, auto-resolves to
+  // the lead's handle) OR a single Agent handle. Team takes precedence.
+  const [teamId, setTeamId] = useState("");
+  const selectedTeam = useMemo(() => teams.find((t) => t.id === teamId) ?? null, [teams, teamId]);
   const [agentHandleId, setAgentHandleId] = useState(agents[0]?.id ?? "");
+  const effectiveHandleId = selectedTeam?.lead_agent_handle_id ?? agentHandleId;
   const [scriptId, setScriptId] = useState("");
+  // Source for the campaign's targets: a Base de Contacts (preferred — bulk),
+  // or fall back to the legacy CSV paste / individual contact picker.
+  const [contactListId, setContactListId] = useState("");
   const [phoneNumberId, setPhoneNumberId] = useState(numbers[0]?.id ?? "");
   const [callerIdOverride, setCallerIdOverride] = useState("");
   const [csvText, setCsvText] = useState("");
@@ -310,8 +339,12 @@ export function CampaignWizard({
       setError("Le nom est requis.");
       return;
     }
-    if (!agentHandleId) {
-      setError("Sélectionnez un agent IA.");
+    if (!effectiveHandleId) {
+      setError(
+        selectedTeam
+          ? "Cette team n'a pas d'agent lead actif. Définissez un lead dans Teams IA."
+          : "Sélectionnez un agent IA (ou une team).",
+      );
       return;
     }
     if (!phoneNumberId && !callerIdOverride) {
@@ -337,8 +370,10 @@ export function CampaignWizard({
         body: JSON.stringify({
           name: name.trim(),
           description: description.trim() || null,
-          agent_handle_id: agentHandleId,
+          agent_handle_id: effectiveHandleId,
+          agent_team_id: teamId || null,
           script_id: scriptId || null,
+          contact_list_id: contactListId || null,
           phone_number_id: phoneNumberId || null,
           caller_id_e164: callerIdOverride.trim() || null,
           schedule,
@@ -390,17 +425,65 @@ export function CampaignWizard({
         </div>
       </section>
 
-      {/* 2. Agent */}
+      {/* 2. Agent OU Team */}
       <section className="card">
-        <h3>2. Agent IA</h3>
+        <h3>2. Qui répond ?</h3>
+
+        {teams.length > 0 && (
+          <div style={{ marginBottom: 14 }}>
+            <label>Team IA (parcours multi-agents)</label>
+            <select
+              value={teamId}
+              onChange={(e) => {
+                setTeamId(e.target.value);
+                // If a team is picked AND has a resolvable lead handle, auto-update
+                // agentHandleId so the rest of the wizard reflects the choice.
+                const t = teams.find((x) => x.id === e.target.value);
+                if (t?.lead_agent_handle_id) setAgentHandleId(t.lead_agent_handle_id);
+              }}
+            >
+              <option value="">— Aucune (un seul agent répond) —</option>
+              {teams.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name} · {t.member_count} agent{t.member_count === 1 ? "" : "s"}
+                  {t.description ? ` — ${t.description.slice(0, 60)}` : ""}
+                </option>
+              ))}
+            </select>
+            {selectedTeam && (
+              <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+                {selectedTeam.lead_agent_handle_id ? (
+                  <>
+                    ✅ L&apos;agent <strong>lead</strong> de la team répond en premier,
+                    puis transfère selon les règles définies dans{" "}
+                    <a href={`/teams/${selectedTeam.id}`} target="_blank" rel="noreferrer" style={{ color: "var(--accent-2)" }}>
+                      le parcours
+                    </a>.
+                  </>
+                ) : (
+                  <span style={{ color: "#ffb060" }}>
+                    ⚠️ Cette team n&apos;a pas d&apos;agent lead actif. Définissez-en un dans Teams IA.
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {agents.length === 0 ? (
           <p className="muted" style={{ margin: 0 }}>
             Aucun agent IA disponible. Créez-en un depuis la page Agents.
           </p>
         ) : (
           <>
-            <label>Handle (agent IA)</label>
-            <select value={agentHandleId} onChange={(e) => setAgentHandleId(e.target.value)}>
+            <label>
+              {selectedTeam ? "Agent qui répond (auto-sélectionné depuis la team)" : "Agent IA"}
+            </label>
+            <select
+              value={agentHandleId}
+              onChange={(e) => setAgentHandleId(e.target.value)}
+              disabled={!!selectedTeam}
+            >
               {agents.map((a) => (
                 <option key={a.id} value={a.id}>
                   {a.display_name}
@@ -480,6 +563,28 @@ export function CampaignWizard({
       <section className="card">
         <h3>4. Cibles</h3>
         <div style={{ display: "grid", gap: 12 }}>
+          {contactLists.length > 0 && (
+            <div style={{ background: "var(--bg-2)", padding: 12, borderRadius: 8 }}>
+              <label>Base de contacts (recommandé)</label>
+              <select
+                value={contactListId}
+                onChange={(e) => setContactListId(e.target.value)}
+              >
+                <option value="">— Pas de base (utiliser CSV / contacts individuels) —</option>
+                {contactLists.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.name} · {l.contact_count} contact{l.contact_count === 1 ? "" : "s"}
+                  </option>
+                ))}
+              </select>
+              <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+                {contactListId
+                  ? `La campagne ciblera tous les contacts de cette base au démarrage. Tu peux quand même ajouter des cibles supplémentaires ci-dessous.`
+                  : `Sélectionne une base pour ajouter automatiquement tous ses contacts comme cibles. Gère les bases dans CRM / Contacts.`}
+              </div>
+            </div>
+          )}
+
           <div>
             <label>Coller un CSV (e164,nom)</label>
             <textarea
