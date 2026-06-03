@@ -12,6 +12,7 @@ import { CopilotPanel } from "./CopilotPanel";
 import { HelpButton } from "@/components/help/HelpButton";
 import { LiveMonitorClient } from "@/components/live/LiveMonitorClient";
 import { CallLogsTab } from "./CallLogsTab";
+import { useT } from "@/lib/i18n";
 
 type TabId = "overview" | "stats" | "logs" | "live";
 const TABS: { id: TabId; label: string; icon: string }[] = [
@@ -28,6 +29,7 @@ type Props = {
 };
 
 export function DashboardClient({ initial, initialError, orgId }: Props) {
+  const t = useT();
   const [data, setData] = useState<DashboardOverviewResponse | null>(initial);
   const [error, setError] = useState<string | null>(initialError);
   const [refreshing, setRefreshing] = useState(false);
@@ -71,15 +73,16 @@ export function DashboardClient({ initial, initialError, orgId }: Props) {
     <div style={{ display: "flex", gap: 18, alignItems: "flex-start" }}>
       <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 18 }}>
         <div className="page-header" style={{ marginBottom: 0 }}>
-          <div>
-            <h1>Tableau d&apos;analyse</h1>
-            <div className="subtitle">
-              Pilotage et analyse de vos appels. Mise à jour automatique toutes les 30 s.
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <span style={{ fontSize: 22 }}>📞</span>
+            <div>
+              <h1 style={{ margin: 0 }}>{t("Tableau de bord des appels")}</h1>
+              <div className="subtitle">{t("Pilotage et analyse de vos appels Axon")}.</div>
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <button className="ghost" onClick={fetchData} disabled={refreshing}>
-              {refreshing ? "Actualisation…" : "Actualiser"}
+              {refreshing ? t("Actualisation…") : t("Actualiser")}
             </button>
             <HelpButton contextKey="dashboard" />
           </div>
@@ -87,12 +90,12 @@ export function DashboardClient({ initial, initialError, orgId }: Props) {
 
         {/* Tabs — mirrors the OCC director-dashboard layout, adapted to Axon. */}
         <div style={{ display: "flex", gap: 4, borderBottom: "1px solid var(--border)", flexWrap: "wrap" }}>
-          {TABS.map((t) => {
-            const active = tab === t.id;
+          {TABS.map((tab_) => {
+            const active = tab === tab_.id;
             return (
               <button
-                key={t.id}
-                onClick={() => setTab(t.id)}
+                key={tab_.id}
+                onClick={() => setTab(tab_.id)}
                 className="ghost"
                 style={{
                   border: 0,
@@ -104,8 +107,8 @@ export function DashboardClient({ initial, initialError, orgId }: Props) {
                   padding: "10px 14px",
                 }}
               >
-                <span style={{ marginRight: 6 }}>{t.icon}</span>
-                {t.label}
+                <span style={{ marginRight: 6 }}>{tab_.icon}</span>
+                {t(tab_.label)}
               </button>
             );
           })}
@@ -115,16 +118,16 @@ export function DashboardClient({ initial, initialError, orgId }: Props) {
           <>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
               <Link href="/agents/new" style={{ textDecoration: "none" }}>
-                <button>+ Nouvel agent</button>
+                <button>{t("+ Nouvel agent")}</button>
               </Link>
               <Link href="/campaigns/new" style={{ textDecoration: "none" }}>
-                <button>+ Nouvelle campagne</button>
+                <button>{t("+ Nouvelle campagne")}</button>
               </Link>
               <Link href="/calls" style={{ textDecoration: "none" }}>
-                <button className="ghost">☎ Voir les appels</button>
+                <button className="ghost">{t("☎ Voir les appels")}</button>
               </Link>
               <Link href="/contacts" style={{ textDecoration: "none" }}>
-                <button className="ghost">◐ Contacts</button>
+                <button className="ghost">{t("◐ Contacts")}</button>
               </Link>
             </div>
 

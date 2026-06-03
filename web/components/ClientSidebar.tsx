@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { Brand } from "./brand/Brand";
 import { OrgSwitcher } from "./OrgSwitcher";
 import { ThemeLangSwitcher } from "./ThemeLangSwitcher";
+import { useT } from "@/lib/i18n";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
 type Role =
@@ -79,6 +80,7 @@ const NAV: NavItem[] = [
 const GROUP_ORDER = ["Overview", "Configuration", "Opérations", "Données", "Compte"];
 
 export function ClientSidebar() {
+  const t = useT();
   const pathname = usePathname() ?? "/";
   const [role, setRole] = useState<Role | null>(null);
   const [loadedRole, setLoadedRole] = useState(false);
@@ -132,7 +134,7 @@ export function ClientSidebar() {
         aria-current={active ? "page" : undefined}
       >
         <span aria-hidden="true" style={{ width: 16, opacity: 0.7 }}>{n.icon}</span>
-        <span>{n.label}</span>
+        <span>{t(n.label)}</span>
       </Link>
     );
   };
@@ -158,7 +160,7 @@ export function ClientSidebar() {
               padding: "10px 12px 4px",
             }}
           >
-            {group}
+            {t(group)}
           </div>
           {groups[group].map(renderLink)}
         </div>

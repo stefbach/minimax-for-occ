@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useT } from "@/lib/i18n";
 
 // Call Logs tab — generic Axon call history (no OCC qualification logic).
 // Consumes the existing org-scoped /api/calls route.
@@ -43,6 +44,7 @@ function counterparty(c: CallRow): string {
 }
 
 export function CallLogsTab() {
+  const t = useT();
   const [rows, setRows] = useState<CallRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -83,27 +85,27 @@ export function CallLogsTab() {
     <>
       <div className="card" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 2fr", gap: 12 }}>
         <div>
-          <label>État</label>
+          <label>{t("État")}</label>
           <select value={stateFilter} onChange={(e) => setStateFilter(e.target.value)}>
             {STATE_FILTERS.map((s) => (
-              <option key={s.id} value={s.id}>{s.label}</option>
+              <option key={s.id} value={s.id}>{t(s.label)}</option>
             ))}
           </select>
         </div>
         <div>
-          <label>Sens</label>
+          <label>{t("Sens")}</label>
           <select value={direction} onChange={(e) => setDirection(e.target.value as typeof direction)}>
-            <option value="all">Tous</option>
-            <option value="inbound">↘ Entrants</option>
-            <option value="outbound">↗ Sortants</option>
+            <option value="all">{t("Tous")}</option>
+            <option value="inbound">{t("↘ Entrants")}</option>
+            <option value="outbound">{t("↗ Sortants")}</option>
           </select>
         </div>
         <div>
-          <label>Rechercher</label>
+          <label>{t("Rechercher")}</label>
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Nom, numéro, agent…"
+            placeholder={t("Nom, numéro, agent…")}
           />
         </div>
       </div>
@@ -116,21 +118,21 @@ export function CallLogsTab() {
         <table className="list" style={{ fontSize: 13 }}>
           <thead>
             <tr>
-              <th>Date</th>
-              <th>Contact</th>
-              <th>Sens</th>
-              <th>Agent</th>
-              <th>Durée</th>
-              <th>État</th>
+              <th>{t("Date")}</th>
+              <th>{t("Contact")}</th>
+              <th>{t("Sens")}</th>
+              <th>{t("Agent")}</th>
+              <th>{t("Durée")}</th>
+              <th>{t("État")}</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={7} className="muted" style={{ padding: 16, textAlign: "center" }}>Chargement…</td></tr>
+              <tr><td colSpan={7} className="muted" style={{ padding: 16, textAlign: "center" }}>{t("Chargement…")}</td></tr>
             ) : filtered.length === 0 ? (
               <tr><td colSpan={7} className="muted" style={{ padding: 16, textAlign: "center" }}>
-                Aucun appel ne correspond aux filtres.
+                {t("Aucun appel ne correspond aux filtres.")}
               </td></tr>
             ) : (
               filtered.map((c) => (
@@ -142,11 +144,11 @@ export function CallLogsTab() {
                   <td>{fmtDuration(c.duration_secs)}</td>
                   <td>
                     <span className={`tag${c.state === "failed" ? "" : " accent"}`} style={c.state === "failed" ? { color: "var(--bad)" } : undefined}>
-                      {c.disposition || c.state}
+                      {c.disposition || t(c.state)}
                     </span>
                   </td>
                   <td style={{ textAlign: "right" }}>
-                    <Link href={`/calls/${c.id}`}>Voir</Link>
+                    <Link href={`/calls/${c.id}`}>{t("Voir")}</Link>
                   </td>
                 </tr>
               ))
@@ -155,7 +157,7 @@ export function CallLogsTab() {
         </table>
       </div>
       <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
-        {filtered.length} appel{filtered.length === 1 ? "" : "s"} affichés (max 250).
+        {filtered.length} · {t("Appels")} (max 250).
       </div>
     </>
   );

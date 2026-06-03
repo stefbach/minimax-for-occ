@@ -74,7 +74,7 @@ export function ThemeLangSwitcher() {
   const visibility = hydrated ? 1 : 0;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6, opacity: visibility, transition: "opacity 80ms" }}>
+    <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap", opacity: visibility, transition: "opacity 80ms" }}>
       <div style={pill}>
         <SegButton active={theme === "dark"} onClick={() => updateTheme("dark")} title="Sombre" ariaLabel="Theme: dark">
           ☾

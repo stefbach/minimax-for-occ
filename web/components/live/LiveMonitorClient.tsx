@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useT } from "@/lib/i18n";
 
 // Live Monitor — real-time view of calls in flight, adapted to Axon's `calls`
 // table (LiveKit-driven) via the existing org-scoped /api/calls route. No
@@ -55,6 +56,7 @@ function fmtClock(iso: string | null): string {
 }
 
 function LiveCallCard({ call, now }: { call: CallRow; now: number }) {
+  const t = useT();
   // Tick from answered_at (talk time) when available, else from started_at.
   const anchor = call.answered_at || call.started_at;
   const elapsed = anchor ? Math.floor((now - new Date(anchor).getTime()) / 1000) : 0;
@@ -73,14 +75,14 @@ function LiveCallCard({ call, now }: { call: CallRow; now: number }) {
                 <span style={{ position: "absolute", inset: 0, borderRadius: "50%", background: "var(--good,#16a34a)", opacity: 0.75, animation: "ping 1.2s cubic-bezier(0,0,.2,1) infinite" }} />
                 <span style={{ position: "relative", display: "inline-flex", width: 8, height: 8, borderRadius: "50%", background: "var(--good,#16a34a)" }} />
               </span>
-              {STATE_LABEL[call.state] ?? call.state}
+              {t(STATE_LABEL[call.state] ?? call.state)}
             </span>
           </div>
           <div className="muted" style={{ fontSize: 12, fontFamily: "ui-monospace, monospace" }}>
             {isInbound ? call.from_e164 : call.to_e164}
           </div>
           <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
-            Agent : <span style={{ color: "var(--text)" }}>{call.agent_handles?.display_name ?? "—"}</span>
+            {t("Agent")} : <span style={{ color: "var(--text)" }}>{call.agent_handles?.display_name ?? "—"}</span>
             {call.agent_handles?.kind === "human" ? " 👤" : " 🤖"}
           </div>
         </div>
@@ -93,6 +95,7 @@ function LiveCallCard({ call, now }: { call: CallRow; now: number }) {
 }
 
 export function LiveMonitorClient() {
+  const t = useT();
   const [active, setActive] = useState<CallRow[]>([]);
   const [recent, setRecent] = useState<CallRow[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -146,15 +149,15 @@ export function LiveMonitorClient() {
 
       <div className="page-header">
         <div>
-          <h1>Live Monitor</h1>
+          <h1>{t("Live Monitor")}</h1>
           <div className="subtitle">
-            {active.length} appel{active.length === 1 ? "" : "s"} en cours
+            {active.length} · {t("En cours")}
             {lastCheck && (
-              <span className="muted"> · actualisé {lastCheck.toLocaleTimeString()}</span>
+              <span className="muted"> · {lastCheck.toLocaleTimeString()}</span>
             )}
           </div>
         </div>
-        <Link href="/calls"><button className="ghost">Historique des appels →</button></Link>
+        <Link href="/calls"><button className="ghost">{t("Historique des appels →")}</button></Link>
       </div>
 
       {error && (
@@ -167,7 +170,7 @@ export function LiveMonitorClient() {
         <div className="card" style={{ textAlign: "center", padding: 32 }}>
           <div style={{ fontSize: 28, marginBottom: 8 }}>📡</div>
           <p className="muted" style={{ margin: 0 }}>
-            Aucun appel en cours pour le moment. Cette vue se met à jour automatiquement.
+            {t("Aucun appel en cours pour le moment. Cette vue se met à jour automatiquement.")}
           </p>
         </div>
       ) : (
@@ -179,21 +182,21 @@ export function LiveMonitorClient() {
       )}
 
       <div className="page-header" style={{ marginTop: 8 }}>
-        <h2 style={{ fontSize: 18, margin: 0 }}>Activité récente</h2>
+        <h2 style={{ fontSize: 18, margin: 0 }}>{t("Activité récente")}</h2>
       </div>
       {recent.length === 0 ? (
-        <div className="card"><p className="muted" style={{ margin: 0 }}>Aucun appel récent.</p></div>
+        <div className="card"><p className="muted" style={{ margin: 0 }}>{t("Aucun appel récent.")}</p></div>
       ) : (
         <div className="card" style={{ padding: 0, overflow: "hidden" }}>
           <table className="list" style={{ fontSize: 13 }}>
             <thead>
               <tr>
-                <th>Heure</th>
-                <th>Contact</th>
-                <th>Sens</th>
-                <th>Agent</th>
-                <th>Durée</th>
-                <th>État</th>
+                <th>{t("Heure")}</th>
+                <th>{t("Contact")}</th>
+                <th>{t("Sens")}</th>
+                <th>{t("Agent")}</th>
+                <th>{t("Durée")}</th>
+                <th>{t("État")}</th>
                 <th></th>
               </tr>
             </thead>
@@ -202,16 +205,16 @@ export function LiveMonitorClient() {
                 <tr key={c.id}>
                   <td className="muted">{fmtClock(c.started_at)}</td>
                   <td>{counterparty(c)}</td>
-                  <td>{c.direction === "inbound" ? "↘ Entrant" : "↗ Sortant"}</td>
+                  <td>{c.direction === "inbound" ? t("↘ Entrants") : t("↗ Sortants")}</td>
                   <td className="muted">{c.agent_handles?.display_name ?? "—"}</td>
                   <td>{fmtDuration(c.duration_secs ?? 0)}</td>
                   <td>
                     <span className={`tag${c.state === "failed" ? "" : " accent"}`} style={c.state === "failed" ? { color: "var(--bad)" } : undefined}>
-                      {c.disposition || STATE_LABEL[c.state] || c.state}
+                      {c.disposition || t(STATE_LABEL[c.state] || c.state)}
                     </span>
                   </td>
                   <td style={{ textAlign: "right" }}>
-                    <Link href={`/calls/${c.id}`}>Voir</Link>
+                    <Link href={`/calls/${c.id}`}>{t("Voir")}</Link>
                   </td>
                 </tr>
               ))}

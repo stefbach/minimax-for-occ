@@ -1,6 +1,7 @@
 "use client";
 
 import type { DashboardKpis } from "@/app/api/dashboard/overview/route";
+import { useT } from "@/lib/i18n";
 
 type Props = {
   today: DashboardKpis;
@@ -45,12 +46,15 @@ function Kpi({
   hint: string;
   tone: "good" | "bad" | "muted";
 }) {
+  const t = useT();
   const color =
     tone === "good" ? "var(--good)" : tone === "bad" ? "var(--bad)" : "var(--muted)";
+  // "vs hier: …" → "vs yest: …" in EN (the numeric part is kept verbatim).
+  const hintText = t("vs hier") !== "vs hier" ? hint.replace("vs hier", t("vs hier")) : hint;
   return (
     <div className="card" style={{ padding: 14 }}>
       <div style={{ color: "var(--muted)", fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4 }}>
-        {label}
+        {t(label)}
       </div>
       <div
         style={{
@@ -63,7 +67,7 @@ function Kpi({
       >
         {value}
       </div>
-      <div style={{ fontSize: 12, color }}>{hint}</div>
+      <div style={{ fontSize: 12, color }}>{hintText}</div>
     </div>
   );
 }
