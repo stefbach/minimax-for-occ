@@ -75,6 +75,7 @@ export async function POST(req: Request) {
     agent_team_id?: string | null;
     script_id?: string | null;
     contact_list_id?: string | null;
+    data_table_id?: string | null;
     phone_number_id?: string | null;
     caller_id_e164?: string | null;
     schedule?: Record<string, unknown>;
