@@ -12,12 +12,13 @@ import { HelpButton } from "@/components/help/HelpButton";
 import { LiveMonitorClient } from "@/components/live/LiveMonitorClient";
 import { CallLogsTab } from "./CallLogsTab";
 import { StatsTab } from "./StatsTab";
+import { DirectorTab } from "./DirectorTab";
 import { PeriodBar, presetToRange, type Period, type Filters } from "./PeriodBar";
 import { useT } from "@/lib/i18n";
 
 type TabId = "overview" | "stats" | "logs" | "live";
 const TABS: { id: TabId; label: string; icon: string }[] = [
-  { id: "overview", label: "Vue d'ensemble", icon: "🏠" },
+  { id: "overview", label: "Directeur", icon: "🏠" },
   { id: "stats", label: "Statistiques", icon: "📊" },
   { id: "logs", label: "Call Logs", icon: "📋" },
   { id: "live", label: "Live", icon: "🔴" },
@@ -134,21 +135,8 @@ export function DashboardClient({ initial, initialError, orgId }: Props) {
                 <button className="ghost">{t("◐ Contacts")}</button>
               </Link>
             </div>
-
-            {error && (
-              <div className="card" style={{ borderColor: "var(--bad)" }}>
-                <h3 style={{ color: "var(--bad)" }}>Erreur de chargement</h3>
-                <p className="muted">{error}</p>
-              </div>
-            )}
-
-            {data && <KpiGrid today={data.today} yesterday={data.yesterday} />}
-            {data && (
-              <div className="grid cols-2">
-                <VolumeChart buckets={data.volume_24h} />
-                <DispositionsList items={data.dispositions} />
-              </div>
-            )}
+            <PeriodBar period={period} filters={filters} onPeriod={setPeriod} onFilters={setFilters} />
+            <DirectorTab from={period.from} to={period.to} direction={filters.direction} />
             {data && <CampaignsTable rows={data.campaigns} />}
           </>
         )}
