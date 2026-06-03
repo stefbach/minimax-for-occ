@@ -12,26 +12,58 @@ import { useState } from "react";
 type ColumnType = "text" | "number" | "date" | "datetime" | "boolean" | "phone" | "email" | "json";
 interface ColumnSpec { key: string; label: string; type: ColumnType; }
 
-// Preset library biased to OCC's leads_rdv schema but generic enough to reuse.
-const PRESETS: ColumnSpec[] = [
-  { key: "nom",                  label: "Nom complet",        type: "text" },
-  { key: "numero_telephone",     label: "Téléphone",          type: "phone" },
-  { key: "email",                label: "Email",              type: "email" },
-  { key: "patient_dob",          label: "Date de naissance",  type: "date" },
-  { key: "poids",                label: "Poids (kg)",         type: "number" },
-  { key: "taille",               label: "Taille (cm)",        type: "number" },
-  { key: "bmi",                  label: "IMC",                type: "number" },
-  { key: "qualification",        label: "Qualification",      type: "text" },
-  { key: "note",                 label: "Note",               type: "text" },
-  { key: "nhs_wmp_status",       label: "Statut NHS WMP",     type: "text" },
-  { key: "allergies",            label: "Allergies",          type: "text" },
-  { key: "current_medications",  label: "Médicaments",        type: "text" },
-  { key: "past_surgeries",       label: "Chirurgies passées", type: "text" },
-  { key: "call_outcome",         label: "Résultat appel",     type: "text" },
-  { key: "rappel_rdv",           label: "Rappel RDV",         type: "datetime" },
-  { key: "date_rdv",             label: "Date RDV",           type: "date" },
-  { key: "source_lead",          label: "Source du lead",     type: "text" },
+// Preset library grouped: generic identity/address fields any business needs,
+// CRM/pipeline fields, then OCC-style medical extras. The user ticks what they
+// need and can add custom columns for anything else.
+interface PresetGroup { title: string; cols: ColumnSpec[]; }
+const PRESET_GROUPS: PresetGroup[] = [
+  {
+    title: "Identité",
+    cols: [
+      { key: "nom",              label: "Nom",                type: "text" },
+      { key: "prenom",           label: "Prénom",             type: "text" },
+      { key: "numero_telephone", label: "Téléphone",          type: "phone" },
+      { key: "email",            label: "Email",              type: "email" },
+      { key: "patient_dob",      label: "Date de naissance",  type: "date" },
+      { key: "civilite",         label: "Civilité",           type: "text" },
+      { key: "langue",           label: "Langue",             type: "text" },
+    ],
+  },
+  {
+    title: "Adresse",
+    cols: [
+      { key: "adresse",      label: "Adresse",      type: "text" },
+      { key: "ville",        label: "Ville",        type: "text" },
+      { key: "code_postal",  label: "Code postal",  type: "text" },
+      { key: "pays",         label: "Pays",         type: "text" },
+    ],
+  },
+  {
+    title: "CRM / Suivi",
+    cols: [
+      { key: "qualification", label: "Qualification",   type: "text" },
+      { key: "note",          label: "Note",            type: "text" },
+      { key: "call_outcome",  label: "Résultat appel",  type: "text" },
+      { key: "source_lead",   label: "Source du lead",  type: "text" },
+      { key: "date_rdv",      label: "Date RDV",        type: "date" },
+      { key: "rappel_rdv",    label: "Rappel RDV",      type: "datetime" },
+      { key: "statut",        label: "Statut",          type: "text" },
+    ],
+  },
+  {
+    title: "Santé (optionnel)",
+    cols: [
+      { key: "poids",               label: "Poids (kg)",         type: "number" },
+      { key: "taille",              label: "Taille (cm)",        type: "number" },
+      { key: "bmi",                 label: "IMC",                type: "number" },
+      { key: "nhs_wmp_status",      label: "Statut NHS WMP",     type: "text" },
+      { key: "allergies",           label: "Allergies",          type: "text" },
+      { key: "current_medications", label: "Médicaments",        type: "text" },
+      { key: "past_surgeries",      label: "Chirurgies passées", type: "text" },
+    ],
+  },
 ];
+const PRESETS: ColumnSpec[] = PRESET_GROUPS.flatMap((g) => g.cols);
 
 function slug(s: string): string {
   return s.toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g, "")
@@ -136,16 +168,26 @@ export function CreateDataTableModal({ onClose, onCreated }: Props) {
         <div>
           <label>Colonnes pré-définies</label>
           <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 8 }}>
-            La colonne <span className="kbd">téléphone</span> est obligatoire (pour appeler).
+            Cochez celles dont vous avez besoin. La colonne <span className="kbd">téléphone</span> est
+            obligatoire (pour appeler).
           </div>
-          <div style={presetGrid}>
-            {PRESETS.map((p) => (
-              <label key={p.key} style={presetItem}>
-                <input type="checkbox" checked={picked.has(p.key)} onChange={() => toggle(p.key)}
-                  disabled={p.key === "numero_telephone"} style={{ width: "auto" }} />
-                <span>{p.label}</span>
-                <span className="kbd" style={{ fontSize: 10, marginLeft: "auto" }}>{p.type}</span>
-              </label>
+          <div style={{ display: "grid", gap: 12 }}>
+            {PRESET_GROUPS.map((group) => (
+              <div key={group.title}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "var(--muted)", marginBottom: 4 }}>
+                  {group.title}
+                </div>
+                <div style={presetGrid}>
+                  {group.cols.map((p) => (
+                    <label key={p.key} style={presetItem}>
+                      <input type="checkbox" checked={picked.has(p.key)} onChange={() => toggle(p.key)}
+                        disabled={p.key === "numero_telephone"} style={{ width: "auto" }} />
+                      <span>{p.label}</span>
+                      <span className="kbd" style={{ fontSize: 10, marginLeft: "auto" }}>{p.type}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
             ))}
           </div>
         </div>
