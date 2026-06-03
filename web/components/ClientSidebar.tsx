@@ -36,7 +36,8 @@ const OPS: Role[] = ["super_admin", "admin", "owner", "manager", "supervisor", "
 
 const NAV: NavItem[] = [
   // ─── OVERVIEW ───
-  { href: "/dashboard", label: "Tableau de bord", icon: "▣", group: "Overview" },
+  { href: "/start",     label: "Démarrage guidé", icon: "✦", group: "Overview" },
+  { href: "/dashboard", label: "Tableau d'analyse", icon: "▣", group: "Overview" },
   { href: "/desk",      label: "Mon poste",       icon: "⌂", group: "Overview" }, // all roles — anyone may take a call
 
   // ─── CONFIGURATION ───
@@ -46,6 +47,7 @@ const NAV: NavItem[] = [
 
   // ─── OPÉRATIONS ───
   { href: "/campaigns", label: "Campagnes",       icon: "⇈", group: "Opérations", roles: MGMT },
+  { href: "/live",      label: "Live Monitor",    icon: "◉", group: "Opérations", roles: OPS },
   { href: "/calls",     label: "Appels",          icon: "☎", group: "Opérations", roles: OPS },
   { href: "/workflows", label: "Workflows n8n",   icon: "⇄", group: "Opérations", roles: MGMT },
 
