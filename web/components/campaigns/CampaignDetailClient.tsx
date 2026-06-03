@@ -5,11 +5,21 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { HelpButton } from "@/components/help/HelpButton";
 
+export interface EngineSummary {
+  timezone: string;
+  days: number[];
+  hours: string[];
+  max_new_per_day: number | null;
+  include_statuses: string[];
+  phases: string[];
+}
+
 export interface CampaignDetail {
   id: string;
   name: string;
   description: string | null;
   state: string;
+  mode: string;
   agent_handle_name: string | null;
   phone_e164: string | null;
   max_concurrency: number;
@@ -18,6 +28,19 @@ export interface CampaignDetail {
   amd_enabled: boolean;
   schedule: Record<string, unknown>;
   created_at: string;
+  engine: EngineSummary | null;
+}
+
+export interface CampaignRunRow {
+  id: string;
+  run_date: string;
+  slot_label: string;
+  selected: number | null;
+  launched: number | null;
+  by_phase: Record<string, number>;
+  started_at: string | null;
+  finished_at: string | null;
+  error: string | null;
 }
 
 export interface TargetRow {
@@ -44,12 +67,16 @@ function fmtDate(s: string | null): string {
   return d.toLocaleString();
 }
 
+const DAY_LABELS = ["D", "L", "M", "M", "J", "V", "S"];
+
 export function CampaignDetailClient({
   campaign,
   targets,
+  runs = [],
 }: {
   campaign: CampaignDetail;
   targets: TargetRow[];
+  runs?: CampaignRunRow[];
 }) {
   const router = useRouter();
   const [state, setState] = useState(campaign.state);
@@ -180,6 +207,14 @@ export function CampaignDetailClient({
               Reprendre
             </button>
           )}
+          {/* Reopen: a finished or cancelled campaign can be reactivated at any
+              time. Dynamic campaigns immediately resume their per-slot engine;
+              static ones re-dial any remaining/failed targets. */}
+          {(state === "completed" || state === "cancelled") && (
+            <button onClick={() => patchState("running")} disabled={busy !== null}>
+              {busy === "running" ? "…" : "Rouvrir la campagne"}
+            </button>
+          )}
           {state !== "completed" && state !== "cancelled" && (
             <button
               className="danger"
@@ -249,8 +284,112 @@ export function CampaignDetailClient({
         </div>
       </div>
 
+      {campaign.mode === "dynamic" && campaign.engine && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+            <h2 style={{ fontSize: 18, margin: 0 }}>Campagne continue</h2>
+            <span className="tag accent">re-sélection automatique</span>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 8 }}>
+            <div>
+              <div className="muted" style={{ fontSize: 12 }}>Jours</div>
+              <div style={{ display: "flex", gap: 4 }}>
+                {[1, 2, 3, 4, 5, 6, 0].map((d) => (
+                  <span
+                    key={d}
+                    className="tag"
+                    style={{
+                      opacity: campaign.engine!.days.includes(d) ? 1 : 0.25,
+                      padding: "2px 7px",
+                    }}
+                  >
+                    {DAY_LABELS[d]}
+                  </span>
+                ))}
+              </div>
+            </div>
+            <div>
+              <div className="muted" style={{ fontSize: 12 }}>Créneaux ({campaign.engine.timezone})</div>
+              <div>{campaign.engine.hours.length > 0 ? campaign.engine.hours.join(" · ") : "—"}</div>
+            </div>
+            <div>
+              <div className="muted" style={{ fontSize: 12 }}>Nouveaux / jour max</div>
+              <div>{campaign.engine.max_new_per_day ?? "∞"}</div>
+            </div>
+            <div>
+              <div className="muted" style={{ fontSize: 12 }}>Phases de relance</div>
+              <div>{campaign.engine.phases.length > 0 ? campaign.engine.phases.join(" → ") : "—"}</div>
+            </div>
+          </div>
+          {campaign.engine.include_statuses.length > 0 && (
+            <div>
+              <div className="muted" style={{ fontSize: 12 }}>Statuts ciblés</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
+                {campaign.engine.include_statuses.map((s) => (
+                  <span key={s} className="tag">{s}</span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="muted" style={{ fontSize: 12, marginTop: 16, marginBottom: 6 }}>
+            Historique des passages (60 derniers)
+          </div>
+          {runs.length === 0 ? (
+            <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+              Aucun passage encore. Le moteur sélectionnera des contacts au prochain créneau.
+            </p>
+          ) : (
+            <div style={{ overflowX: "auto" }}>
+              <table className="list" style={{ fontSize: 13 }}>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Créneau</th>
+                    <th>Sélectionnés</th>
+                    <th>Lancés</th>
+                    <th>Par phase</th>
+                    <th>État</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {runs.map((r) => (
+                    <tr key={r.id}>
+                      <td>{r.run_date}</td>
+                      <td>{r.slot_label}</td>
+                      <td>{r.selected ?? "—"}</td>
+                      <td>{r.launched ?? "—"}</td>
+                      <td className="muted">
+                        {Object.keys(r.by_phase).length > 0
+                          ? Object.entries(r.by_phase)
+                              .map(([k, v]) => `${k}:${v}`)
+                              .join("  ")
+                          : "—"}
+                      </td>
+                      <td>
+                        {r.error ? (
+                          <span className="tag" style={{ color: "var(--bad)" }} title={r.error}>
+                            erreur
+                          </span>
+                        ) : r.finished_at ? (
+                          <span className="tag good">ok</span>
+                        ) : (
+                          <span className="tag">en cours</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="page-header" style={{ marginTop: 0 }}>
-        <h2 style={{ fontSize: 18, margin: 0 }}>Cibles</h2>
+        <h2 style={{ fontSize: 18, margin: 0 }}>
+          {campaign.mode === "dynamic" ? "File d'appel actuelle" : "Cibles"}
+        </h2>
         <button className="subtle" onClick={() => setShowImport((v) => !v)}>
           {showImport ? "Annuler" : "Ajouter des cibles"}
         </button>
