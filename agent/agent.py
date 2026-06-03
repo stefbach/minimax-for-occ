@@ -736,6 +736,43 @@ def _install_team_handoff_watcher(
         except RuntimeError:
             state["busy"] = False
 
+    # Primary path: in-process trigger. The transfer/handoff tools run in this
+    # same worker, so they call our handler directly (room metadata written from
+    # the worker doesn't propagate as ROOM metadata, so the event below often
+    # never fires — this is what makes the swap actually happen).
+    def _local_handoff(target_agent_id: str) -> None:
+        if not target_agent_id or target_agent_id == state["seen"] or state["busy"]:
+            return
+        state["seen"] = target_agent_id
+        state["busy"] = True
+
+        async def _run():
+            try:
+                await _do_swap(target_agent_id)
+            finally:
+                state["busy"] = False
+
+        try:
+            asyncio.create_task(_run())
+        except RuntimeError:
+            state["busy"] = False
+
+    try:
+        from swarm import register_local_handoff_handler, unregister_local_handoff_handler
+        register_local_handoff_handler(ctx.room.name, _local_handoff)
+        clog.info("team handoff: in-process handler registered for room=%s", ctx.room.name)
+        # Drop the registry entry when the call ends (long-lived worker).
+        try:
+            async def _unreg():
+                unregister_local_handoff_handler(ctx.room.name)
+            ctx.add_shutdown_callback(_unreg)
+        except Exception:
+            pass
+    except Exception:
+        clog.exception("team handoff: could not register in-process handler")
+
+    # Secondary path (best-effort): also react to ROOM metadata changes, e.g.
+    # a human handoff initiated from the desk via the server API.
     wired = False
     for name in ("metadata_changed", "room_metadata_changed"):
         try:
@@ -745,7 +782,7 @@ def _install_team_handoff_watcher(
         except Exception:
             continue
     if wired:
-        clog.info("team handoff watcher installed")
+        clog.info("team handoff watcher installed (metadata fallback)")
     else:
         clog.warning("team handoff watcher: no metadata_changed event on this SDK")
 

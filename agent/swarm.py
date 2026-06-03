@@ -24,7 +24,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 import httpx
 
@@ -216,6 +216,45 @@ async def emit_handoff(room, new_agent_id: str, *, reason: Optional[str] = None)
             await res
     except Exception:
         logger.exception("emit_handoff: metadata patch failed")
+
+    # The real swap: the transfer tool and the persona-swap watcher live in the
+    # SAME worker process. Room metadata written from the worker's participant
+    # does NOT change ROOM metadata, so the metadata-based signal never reaches
+    # the watcher (that's why the voice never changed). Trigger the swap
+    # directly, in-process.
+    if not _trigger_local_handoff(room, new_agent_id):
+        logger.warning(
+            "emit_handoff: no in-process handoff handler for room=%s — "
+            "persona swap will not happen", getattr(room, "name", "?")
+        )
+
+
+# ─── In-process handoff bridge ────────────────────────────────────────────
+# Maps a room name → a callback that performs the persona swap. Registered by
+# the worker's handoff watcher, called by the transfer/handoff tools.
+_LOCAL_HANDOFF_HANDLERS: dict[str, Any] = {}
+
+
+def register_local_handoff_handler(room_key: str, handler) -> None:
+    if room_key:
+        _LOCAL_HANDOFF_HANDLERS[room_key] = handler
+
+
+def unregister_local_handoff_handler(room_key: str) -> None:
+    _LOCAL_HANDOFF_HANDLERS.pop(room_key, None)
+
+
+def _trigger_local_handoff(room, new_agent_id: str) -> bool:
+    key = getattr(room, "name", "") or ""
+    cb = _LOCAL_HANDOFF_HANDLERS.get(key)
+    if not cb:
+        return False
+    try:
+        cb(str(new_agent_id))
+        return True
+    except Exception:
+        logger.exception("local handoff handler failed")
+        return False
 
 
 def build_transfer_tool(agent_id: Optional[str], room):
