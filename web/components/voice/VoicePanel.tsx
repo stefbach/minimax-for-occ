@@ -134,6 +134,7 @@ export function VoicePanel({
   agentId,
   systemPrompt,
   greeting,
+  scriptId,
 }: {
   agentId: string;
   /** Optional: the agent's system prompt — when provided, a Simulation
@@ -143,6 +144,9 @@ export function VoicePanel({
   /** Optional: the agent's greeting — scanned for {{vars}} alongside the
    *  system prompt. */
   greeting?: string | null;
+  /** Optional: simulate a specific Script (by id). The worker renders it
+   *  into the prompt — including multi-agent handoffs. */
+  scriptId?: string | null;
 }) {
   const [conn, setConn] = useState<Conn | null>(null);
   const [loading, setLoading] = useState(false);
@@ -156,6 +160,7 @@ export function VoicePanel({
     setHealth(null);
     try {
       const params = new URLSearchParams({ agent_id: agentId });
+      if (scriptId) params.set("script_id", scriptId);
       if (simulationVars && Object.keys(simulationVars).length > 0) {
         // Strip empty strings so the worker treats them as "not provided"
         // and leaves the {{placeholder}} literal in the prompt (helpful for
@@ -177,7 +182,7 @@ export function VoicePanel({
     } finally {
       setLoading(false);
     }
-  }, [agentId]);
+  }, [agentId, scriptId]);
 
   const runHealthCheck = useCallback(async () => {
     setHealthLoading(true);

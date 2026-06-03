@@ -1,8 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { ScriptEditor, type ScriptGraph, type AgentHandleLite, emptyGraph, toGraph } from "./ScriptEditor";
+
+// VoicePanel pulls in the LiveKit browser SDK — load it client-only.
+const VoicePanel = dynamic(
+  () => import("@/components/voice/VoicePanel").then((m) => m.VoicePanel),
+  { ssr: false, loading: () => <p className="muted">Chargement du simulateur…</p> },
+);
 
 // Public type re-export so the page can import it from one place.
 export type AgentHandleOption = AgentHandleLite;
@@ -531,6 +537,67 @@ function ScriptDetailView({
           <div style={{ color: "var(--bad)", fontSize: 13 }}>{error}</div>
         )}
       </div>
+
+      <ScriptSimulationPanel scriptId={id} graph={graph} handles={handles} />
+    </div>
+  );
+}
+
+// ── Test a script end-to-end in the browser (incl. multi-agent handoffs) ──
+function ScriptSimulationPanel({
+  scriptId,
+  graph,
+  handles,
+}: {
+  scriptId: string;
+  graph: ScriptGraph;
+  handles: AgentHandleLite[];
+}) {
+  const aiHandles = handles.filter((h) => h.kind === "ai" && h.ai_agent_id);
+
+  // The simulation starts as the agent of the FIRST step (e.g. Charlotte).
+  // Resolve it; let the tester override if the first step has no agent set.
+  const firstNodeAgentHandle = graph.nodes[0]?.agent_handle_id ?? null;
+  const resolvedStart =
+    handles.find((h) => h.id === firstNodeAgentHandle)?.ai_agent_id ?? aiHandles[0]?.ai_agent_id ?? "";
+  const [startAgentId, setStartAgentId] = useState<string>(resolvedStart);
+  useMemo(() => setStartAgentId(resolvedStart), [resolvedStart]);
+
+  // Feed the step contents to VoicePanel's launcher so it detects {{vars}}.
+  const stepsText = useMemo(
+    () => graph.nodes.map((n) => `${n.title}\n${n.content}`).join("\n\n"),
+    [graph],
+  );
+
+  if (aiHandles.length === 0) {
+    return null;
+  }
+
+  return (
+    <div style={{ marginTop: 18, paddingTop: 16, borderTop: "1px solid var(--border)" }}>
+      <h3 style={{ margin: 0 }}>🎧 Tester ce script (simulation)</h3>
+      <p className="muted" style={{ fontSize: 13, marginTop: 4, lineHeight: 1.5 }}>
+        Lance un appel navigateur qui déroule CE script — y compris les bascules
+        entre agents (handoff). Aucun appel réel n&apos;est passé.
+      </p>
+      <div style={{ margin: "10px 0", maxWidth: 360 }}>
+        <label className="muted" style={{ fontSize: 12 }}>Démarrer en tant que</label>
+        <select value={startAgentId} onChange={(e) => setStartAgentId(e.target.value)}>
+          {aiHandles.map((h) => (
+            <option key={h.id} value={h.ai_agent_id as string}>{h.display_name}</option>
+          ))}
+        </select>
+        <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+          Par défaut, l&apos;agent de la 1ʳᵉ étape du script.
+        </div>
+      </div>
+      {startAgentId ? (
+        <VoicePanel agentId={startAgentId} scriptId={scriptId} systemPrompt={stepsText} />
+      ) : (
+        <p className="muted" style={{ fontSize: 13 }}>
+          Aucun agent IA disponible pour la simulation.
+        </p>
+      )}
     </div>
   );
 }

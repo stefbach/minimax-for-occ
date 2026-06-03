@@ -38,6 +38,7 @@ from agent_config import (
     _agent_id_from_metadata,
     load_agent,
     load_campaign_script,
+    load_script_by_id,
     load_target_context,
     rag_search,
     render_template,
@@ -1071,6 +1072,13 @@ async def entrypoint(ctx: JobContext) -> None:
     if target_id and str(target_id).startswith("X-LK-"):
         target_id = None
 
+    # Simulation: the in-app "Tester ce script" UI passes a script_id directly
+    # (no campaign). We render that script into the prompt so the tester can run
+    # the full flow — including multi-agent handoffs — without a campaign.
+    sim_script_id = p_attrs.get("script_id") or p_attrs.get("axon.script_id")
+    if sim_script_id and str(sim_script_id).startswith("X-LK-"):
+        sim_script_id = None
+
     # Load the agent config, the campaign script, and the per-target context
     # CONCURRENTLY off the asyncio event loop (all are blocking httpx calls to
     # Supabase). Running them in parallel — instead of back-to-back, and
@@ -1079,12 +1087,16 @@ async def entrypoint(ctx: JobContext) -> None:
     async def _load(fn, arg):
         return await asyncio.to_thread(fn, str(arg)) if arg else None
 
-    axon, script_text, target_vars = await asyncio.gather(
+    axon, script_text, target_vars, sim_script_text = await asyncio.gather(
         _load(load_agent, agent_id),
         _load(load_campaign_script, campaign_id),
         _load(load_target_context, target_id),
+        _load(load_script_by_id, sim_script_id),
     )
     target_vars = target_vars or {}
+    # In simulation the script comes by id (no campaign); prefer it.
+    if sim_script_text and not script_text:
+        script_text = sim_script_text
 
     if axon:
         clog.info(
@@ -1130,8 +1142,11 @@ async def entrypoint(ctx: JobContext) -> None:
             f"{axon.voice_style}. Reste naturel et conversationnel, adapté à la voix."
         )
 
-    if campaign_id and script_text:
-        clog.info("campaign %s script injected (%d chars)", campaign_id, len(script_text))
+    if script_text:
+        clog.info(
+            "script injected (%d chars) [campaign=%s sim_script=%s]",
+            len(script_text), campaign_id, sim_script_id,
+        )
         instructions = f"{instructions}\n\n{script_text}"
     elif campaign_id:
         clog.info("campaign %s has no script — using agent base prompt", campaign_id)

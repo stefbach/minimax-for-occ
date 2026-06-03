@@ -224,113 +224,149 @@ def load_campaign_script(campaign_id: str) -> Optional[str]:
             script_meta = campaign.get("scripts") or {}
             title = script_meta.get("name") or "Script"
             mission = script_meta.get("mission")
-
-            lines: list[str] = []
-            header = f"## Script à suivre : {title}"
-            if mission:
-                header += f" (objectif : {mission})"
-            lines.append(header)
-            lines.append(
-                "Suis ce déroulé pendant l'appel. Adapte-toi naturellement aux "
-                "réponses de l'interlocuteur ; les branches « Si … » indiquent "
-                "vers quelle étape enchaîner selon ce qu'il répond."
-            )
-
-            # Two storage shapes: the new graph {nodes, edges} or the legacy
-            # array [{step,title,content,branches:[{label,goto}]}].
-            if isinstance(raw_steps, dict) and isinstance(raw_steps.get("nodes"), list):
-                nodes = raw_steps.get("nodes") or []
-                edges = raw_steps.get("edges") or []
-                if not nodes:
-                    return None
-                title_by_id = {
-                    n.get("id"): (n.get("title") or "").strip()
-                    for n in nodes if isinstance(n, dict)
-                }
-                # Resolve agent_handle_id → (display_name, kind) for nodes that
-                # override the campaign agent. Best-effort: one batched query.
-                handle_ids = sorted({
-                    n.get("agent_handle_id") for n in nodes
-                    if isinstance(n, dict) and n.get("agent_handle_id")
-                })
-                handles_by_id: dict[str, dict] = {}
-                if handle_ids:
-                    try:
-                        ids_csv = ",".join(handle_ids)
-                        rh = c.get(_supabase_url(
-                            f"/rest/v1/agent_handles?id=in.({ids_csv})"
-                            "&select=id,kind,display_name"
-                        ))
-                        rh.raise_for_status()
-                        for row in rh.json() or []:
-                            handles_by_id[str(row.get("id"))] = row
-                    except Exception:
-                        logger.exception("failed to fetch agent_handles for script")
-
-                if handles_by_id:
-                    lines.append("")
-                    lines.append("### Agents impliqués dans ce script")
-                    for hid in handle_ids:
-                        h = handles_by_id.get(hid)
-                        if not h:
-                            continue
-                        icon = "👤" if h.get("kind") == "human" else "🤖"
-                        lines.append(
-                            f"  • {icon} {h.get('display_name') or hid}  (handle_id={hid})"
-                        )
-                    lines.append(
-                        "Quand une étape mentionne un agent différent de celui qui "
-                        "parle actuellement, appelle l'outil "
-                        "`handoff_to_handle(handle_id=\"…\", reason=\"…\")` avec "
-                        "le handle_id de l'agent indiqué. Pour un agent IA, la "
-                        "persona change automatiquement ; pour un agent humain, "
-                        "l'appel est transféré vers son numéro."
-                    )
-
-                lines.append("")
-                for idx, n in enumerate(nodes, start=1):
-                    if not isinstance(n, dict):
-                        continue
-                    st_title = (n.get("title") or "").strip()
-                    content = (n.get("content") or "").strip()
-                    line = f"{idx}. {st_title}".strip(". ")
-                    hid = n.get("agent_handle_id")
-                    if hid and hid in handles_by_id:
-                        h = handles_by_id[hid]
-                        icon = "👤" if h.get("kind") == "human" else "🤖"
-                        line += f"  [Agent: {icon} {h.get('display_name') or hid} — handle_id={hid}]"
-                    if content:
-                        line += f" — {content}"
-                    lines.append(line)
-                    for e in edges:
-                        if isinstance(e, dict) and e.get("source") == n.get("id"):
-                            cond = (e.get("condition") or "").strip()
-                            tgt = title_by_id.get(e.get("target"), "?")
-                            if cond:
-                                lines.append(f"   • {cond} → « {tgt} »")
-                return "\n".join(lines)
-
-            steps = raw_steps if isinstance(raw_steps, list) else []
-            if not steps:
-                return None
-            for s in steps:
-                if not isinstance(s, dict):
-                    continue
-                num = s.get("step", "")
-                st_title = (s.get("title") or "").strip()
-                content = (s.get("content") or "").strip()
-                line = f"{num}. {st_title}".strip(". ")
-                if content:
-                    line += f" — {content}"
-                lines.append(line)
-                for b in s.get("branches") or []:
-                    if isinstance(b, dict) and b.get("label"):
-                        goto = b.get("goto")
-                        lines.append(f"   • Si « {b['label']} » → étape {goto}")
-            return "\n".join(lines)
+            return _render_script_steps(c, raw_steps, title, mission)
     except Exception:
         logger.exception("failed to load campaign script for %s", campaign_id)
         return None
+
+
+def load_script_by_id(script_id: str) -> Optional[str]:
+    """Render a Script (by its id) into a prompt addendum — used by the
+    in-app Simulation so a tester can run a script end-to-end (including
+    multi-agent handoffs) without creating a campaign. Same rendering as
+    load_campaign_script."""
+    if not has_supabase() or not script_id:
+        return None
+    try:
+        with httpx.Client(timeout=httpx.Timeout(10.0), headers=_supabase_headers()) as c:
+            r = c.get(_supabase_url(
+                f"/rest/v1/scripts?id=eq.{script_id}&select=name,mission"
+            ))
+            r.raise_for_status()
+            rows = r.json() or []
+            title = (rows[0].get("name") if rows else None) or "Script"
+            mission = rows[0].get("mission") if rows else None
+            r2 = c.get(_supabase_url(
+                f"/rest/v1/script_versions?script_id=eq.{script_id}"
+                "&order=version.desc&limit=1&select=steps,version"
+            ))
+            r2.raise_for_status()
+            versions = r2.json() or []
+            if not versions:
+                return None
+            return _render_script_steps(c, versions[0].get("steps"), title, mission)
+    except Exception:
+        logger.exception("failed to load script %s", script_id)
+        return None
+
+
+def _render_script_steps(c, raw_steps, title, mission) -> Optional[str]:
+    """Flatten a script's steps (graph {nodes,edges} or legacy array) into a
+    readable numbered playbook the LLM follows. Shared by campaign + script
+    simulation. `c` is an open httpx.Client (for resolving agent handles)."""
+    lines: list[str] = []
+    header = f"## Script à suivre : {title}"
+    if mission:
+        header += f" (objectif : {mission})"
+    lines.append(header)
+    lines.append(
+        "Suis ce déroulé pendant l'appel. Adapte-toi naturellement aux "
+        "réponses de l'interlocuteur ; les branches « Si … » indiquent "
+        "vers quelle étape enchaîner selon ce qu'il répond."
+    )
+
+    # Two storage shapes: the new graph {nodes, edges} or the legacy
+    # array [{step,title,content,branches:[{label,goto}]}].
+    if isinstance(raw_steps, dict) and isinstance(raw_steps.get("nodes"), list):
+        nodes = raw_steps.get("nodes") or []
+        edges = raw_steps.get("edges") or []
+        if not nodes:
+            return None
+        title_by_id = {
+            n.get("id"): (n.get("title") or "").strip()
+            for n in nodes if isinstance(n, dict)
+        }
+        # Resolve agent_handle_id → (display_name, kind) for nodes that
+        # override the campaign agent. Best-effort: one batched query.
+        handle_ids = sorted({
+            n.get("agent_handle_id") for n in nodes
+            if isinstance(n, dict) and n.get("agent_handle_id")
+        })
+        handles_by_id: dict[str, dict] = {}
+        if handle_ids:
+            try:
+                ids_csv = ",".join(handle_ids)
+                rh = c.get(_supabase_url(
+                    f"/rest/v1/agent_handles?id=in.({ids_csv})"
+                    "&select=id,kind,display_name"
+                ))
+                rh.raise_for_status()
+                for row in rh.json() or []:
+                    handles_by_id[str(row.get("id"))] = row
+            except Exception:
+                logger.exception("failed to fetch agent_handles for script")
+
+        if handles_by_id:
+            lines.append("")
+            lines.append("### Agents impliqués dans ce script")
+            for hid in handle_ids:
+                h = handles_by_id.get(hid)
+                if not h:
+                    continue
+                icon = "👤" if h.get("kind") == "human" else "🤖"
+                lines.append(
+                    f"  • {icon} {h.get('display_name') or hid}  (handle_id={hid})"
+                )
+            lines.append(
+                "Quand une étape mentionne un agent différent de celui qui "
+                "parle actuellement, appelle l'outil "
+                "`handoff_to_handle(handle_id=\"…\", reason=\"…\")` avec "
+                "le handle_id de l'agent indiqué. Pour un agent IA, la "
+                "persona change automatiquement ; pour un agent humain, "
+                "l'appel est transféré vers son numéro."
+            )
+
+        lines.append("")
+        for idx, n in enumerate(nodes, start=1):
+            if not isinstance(n, dict):
+                continue
+            st_title = (n.get("title") or "").strip()
+            content = (n.get("content") or "").strip()
+            line = f"{idx}. {st_title}".strip(". ")
+            hid = n.get("agent_handle_id")
+            if hid and hid in handles_by_id:
+                h = handles_by_id[hid]
+                icon = "👤" if h.get("kind") == "human" else "🤖"
+                line += f"  [Agent: {icon} {h.get('display_name') or hid} — handle_id={hid}]"
+            if content:
+                line += f" — {content}"
+            lines.append(line)
+            for e in edges:
+                if isinstance(e, dict) and e.get("source") == n.get("id"):
+                    cond = (e.get("condition") or "").strip()
+                    tgt = title_by_id.get(e.get("target"), "?")
+                    if cond:
+                        lines.append(f"   • {cond} → « {tgt} »")
+        return "\n".join(lines)
+
+    steps = raw_steps if isinstance(raw_steps, list) else []
+    if not steps:
+        return None
+    for s in steps:
+        if not isinstance(s, dict):
+            continue
+        num = s.get("step", "")
+        st_title = (s.get("title") or "").strip()
+        content = (s.get("content") or "").strip()
+        line = f"{num}. {st_title}".strip(". ")
+        if content:
+            line += f" — {content}"
+        lines.append(line)
+        for b in s.get("branches") or []:
+            if isinstance(b, dict) and b.get("label"):
+                goto = b.get("goto")
+                lines.append(f"   • Si « {b['label']} » → étape {goto}")
+    return "\n".join(lines)
 
 
 import re as _re

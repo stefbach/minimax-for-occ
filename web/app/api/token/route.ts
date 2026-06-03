@@ -47,6 +47,9 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const agentId = searchParams.get("agent_id");
+  // Simulation: run a specific Script (by id) through the agent — including
+  // multi-agent handoffs — without creating a campaign.
+  const scriptId = searchParams.get("script_id");
   const room = searchParams.get("room") ?? `voice-${crypto.randomUUID()}`;
   const identity = searchParams.get("identity") ?? `user-${crypto.randomUUID()}`;
 
@@ -91,6 +94,10 @@ export async function GET(request: Request) {
   if (agentId) {
     attrs.agent_id = agentId;
     meta.agent_id = agentId;
+  }
+  if (scriptId) {
+    attrs.script_id = scriptId;
+    meta.script_id = scriptId;
   }
   if (simulationVars) {
     // Stringify because participant attributes are flat string→string maps.
