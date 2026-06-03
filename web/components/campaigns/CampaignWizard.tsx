@@ -846,37 +846,49 @@ export function CampaignWizard({
             Détection de répondeur (AMD)
           </label>
         </div>
-        <div style={{ marginTop: 12 }}>
-          <label>Jours autorisés</label>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            {DAYS.map((d) => {
-              const active = days.includes(d.id);
-              return (
-                <button
-                  key={d.id}
-                  type="button"
-                  className={active ? "" : "ghost"}
-                  onClick={() => toggleDay(d.id)}
-                  style={{ padding: "6px 12px" }}
-                >
-                  {d.label}
-                </button>
-              );
-            })}
+
+        {dynamicMode && selectedDataTable ? (
+          // In dynamic mode the engine above already controls days / slots /
+          // timezone (per-slot fires, not a window). Re-showing them here only
+          // creates confusion + double-source-of-truth. Hide them entirely.
+          <div className="muted" style={{ fontSize: 12, marginTop: 14, padding: 10, background: "var(--bg-2)", borderRadius: 8, lineHeight: 1.5 }}>
+            ℹ️ Jours, créneaux et fuseau horaire sont configurés ci-dessus dans
+            <strong> « Créneaux »</strong> du moteur (Campagne continue). Cette campagne tirera
+            uniquement aux heures précises que tu y as définies.
           </div>
-        </div>
-        <div style={{ marginTop: 12 }}>
-          <label>Fuseau horaire</label>
-          <select value={timezone} onChange={(e) => setTimezone(e.target.value)}>
-            {TIMEZONE_GROUPS.map((group) => (
-              <optgroup key={group.group} label={group.group}>
-                {group.items.map((tz) => (
-                  <option key={tz.id} value={tz.id}>{tz.label}</option>
+        ) : (
+          <>
+            <div style={{ marginTop: 12 }}>
+              <label>Jours autorisés</label>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {DAYS.map((d) => {
+                  const active = days.includes(d.id);
+                  return (
+                    <button
+                      key={d.id}
+                      type="button"
+                      className={active ? "" : "ghost"}
+                      onClick={() => toggleDay(d.id)}
+                      style={{ padding: "6px 12px" }}
+                    >
+                      {d.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div style={{ marginTop: 12 }}>
+              <label>Fuseau horaire</label>
+              <select value={timezone} onChange={(e) => setTimezone(e.target.value)}>
+                {TIMEZONE_GROUPS.map((group) => (
+                  <optgroup key={group.group} label={group.group}>
+                    {group.items.map((tz) => (
+                      <option key={tz.id} value={tz.id}>{tz.label}</option>
+                    ))}
+                  </optgroup>
                 ))}
-              </optgroup>
-            ))}
-          </select>
-        </div>
+              </select>
+            </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
           <div>
             <label>Heure début</label>
@@ -901,6 +913,8 @@ export function CampaignWizard({
           ℹ️ Saisis les heures dans le fuseau horaire choisi (heure locale). On les convertit
           en UTC pour le serveur d&apos;appels — l&apos;équivalent UTC est affiché sous chaque champ.
         </div>
+          </>
+        )}
       </section>
 
       {/* 6. Récap */}
@@ -920,9 +934,19 @@ export function CampaignWizard({
             Concurrence {maxConcurrency} · Retries {maxAttempts} ({retryDelayMin}min) · AMD{" "}
             {amdEnabled ? "on" : "off"}
           </li>
-          <li>
-            Fenêtre : {days.map((d) => DAYS.find((x) => x.id === d)?.label).join(", ")} · {hourStart}–{hourEnd} ({TZ_LABEL_BY_ID[timezone] ?? timezone}) <span className="muted">→ {localToUtc(hourStart, timezone)}–{localToUtc(hourEnd, timezone)} UTC</span>
-          </li>
+          {dynamicMode && engineConfig ? (
+            <li>
+              Créneaux ({engineConfig.slots.timezone}) : {(engineConfig.slots.days ?? []).map((d) => DAYS.find((x) => x.id === d)?.label).filter(Boolean).join(", ") || "—"}
+              {" · "}
+              {(engineConfig.slots.hours ?? []).join(", ") || "—"}
+              {" · max "}
+              {engineConfig.volume.max_new_per_day} nouveaux/jour
+            </li>
+          ) : (
+            <li>
+              Fenêtre : {days.map((d) => DAYS.find((x) => x.id === d)?.label).join(", ")} · {hourStart}–{hourEnd} ({TZ_LABEL_BY_ID[timezone] ?? timezone}) <span className="muted">→ {localToUtc(hourStart, timezone)}–{localToUtc(hourEnd, timezone)} UTC</span>
+            </li>
+          )}
         </ul>
         {error && (
           <div style={{ color: "var(--bad)", marginTop: 12, fontSize: 14 }}>{error}</div>
