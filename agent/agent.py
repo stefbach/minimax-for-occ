@@ -473,6 +473,7 @@ def _build_save_contact_tool(
     from livekit.agents import function_tool
     from db_writes import save_contact_data as _save_contact
     from db_writes import save_to_data_table as _save_table
+    from db_writes import emit_qualification_webhooks as _emit_webhooks
 
     use_table = bool(data_table and data_row_id)
     if not use_table and not contact_id:
@@ -528,6 +529,14 @@ def _build_save_contact_tool(
                 notes=notes or None,
             )
         if result.get("ok"):
+            # Notify any configured n8n webhooks (post-RDV Email/WhatsApp etc.)
+            # the moment a watched column like `qualification` is written.
+            try:
+                await asyncio.to_thread(
+                    _emit_webhooks, org_id, data_table, data_row_id, fields,
+                )
+            except Exception:  # never let telemetry break the call
+                pass
             return f"Saved: {', '.join(result.get('saved', [])) or '(nothing new)'}."
         return f"Could not save: {result.get('error', 'unknown error')}."
 

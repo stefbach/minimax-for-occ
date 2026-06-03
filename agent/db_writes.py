@@ -215,6 +215,85 @@ def save_to_data_table(
         return {"ok": False, "error": str(exc)}
 
 
+def emit_qualification_webhooks(
+    org_id: Optional[str],
+    physical_table: Optional[str],
+    row_id: Optional[str],
+    fields: dict[str, Any],
+    data_table_id: Optional[str] = None,
+) -> None:
+    """Notify n8n (or any configured endpoint) when the agent writes a watched
+    column — typically `qualification` — during a call.
+
+    This is how post-RDV automations fire: the user builds a workflow in the
+    n8n "Workflows" section, exposes its webhook URL, registers it in Axon
+    (org_webhooks), and we POST the row + new values here the moment the AI
+    sets the qualification in-call. Fully column-mapped (watch_column +
+    match_values are per-client config), so nothing is hardcoded to OCC.
+
+    Fire-and-forget: never raises, never blocks the call.
+    """
+    if not org_id or not has_supabase() or not fields:
+        return
+    try:
+        with httpx.Client(timeout=httpx.Timeout(6.0), headers=_supabase_headers()) as c:
+            # Pull this org's active webhooks. We filter watch_column / table
+            # match in Python to keep the query simple and the matching robust.
+            q = (
+                "/rest/v1/org_webhooks"
+                "?select=id,url,event,data_table_id,watch_column,match_values,headers"
+                f"&org_id=eq.{org_id}&active=eq.true"
+            )
+            r = c.get(_supabase_url(q))
+            r.raise_for_status()
+            hooks = r.json() or []
+            if not hooks:
+                return
+            for h in hooks:
+                col = h.get("watch_column") or "qualification"
+                if col not in fields:
+                    continue
+                # Table scoping: NULL data_table_id => all tables for the org.
+                hook_tbl = h.get("data_table_id")
+                if hook_tbl and data_table_id and hook_tbl != data_table_id:
+                    continue
+                new_val = fields.get(col)
+                matches = h.get("match_values") or []
+                if matches and str(new_val) not in [str(m) for m in matches]:
+                    continue
+                payload = {
+                    "event": h.get("event") or "qualification_changed",
+                    "org_id": org_id,
+                    "data_table": physical_table,
+                    "data_table_id": data_table_id,
+                    "row_id": row_id,
+                    "watch_column": col,
+                    "value": new_val,
+                    "fields": fields,
+                    "occurred_at": _now_iso(),
+                }
+                extra_headers = h.get("headers") if isinstance(h.get("headers"), dict) else {}
+                try:
+                    hr = c.post(
+                        h["url"],
+                        headers={"Content-Type": "application/json", **(extra_headers or {})},
+                        json=payload,
+                    )
+                    logger.info(
+                        "qualification webhook -> %s [%s] status=%s",
+                        h.get("id"), h.get("event"), hr.status_code,
+                    )
+                except Exception as post_exc:  # one bad URL shouldn't stop the rest
+                    logger.warning("qualification webhook %s POST failed: %s", h.get("id"), post_exc)
+    except Exception:
+        logger.exception("emit_qualification_webhooks failed (org=%s)", org_id)
+
+
+def _now_iso() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat()
+
+
 def append_transcript_turn(
     call_id: Optional[str],
     speaker: str,

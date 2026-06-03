@@ -1,6 +1,9 @@
 import Link from "next/link";
 import { listN8nWorkflows } from "@/lib/n8n";
 import { HelpButton } from "@/components/help/HelpButton";
+import { hasSupabase, supabaseServer } from "@/lib/supabase";
+import { currentOrgIdForServer } from "@/lib/supabase-auth";
+import { OrgWebhooksPanel, type WebhookRow, type DataTableOption } from "@/components/workflows/OrgWebhooksPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +14,33 @@ export default async function WorkflowsPage() {
     workflows = await listN8nWorkflows();
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
+  }
+
+  // Outbound webhook triggers (post-RDV automations) + the org's data tables
+  // (for scoping the dropdown). Loaded best-effort.
+  let webhooks: WebhookRow[] = [];
+  let dataTables: DataTableOption[] = [];
+  if (hasSupabase()) {
+    try {
+      const sb = supabaseServer();
+      const orgId = await currentOrgIdForServer();
+      const { data: wh } = await sb
+        .from("org_webhooks")
+        .select("id,name,url,event,data_table_id,watch_column,match_values,active")
+        .eq("org_id", orgId)
+        .order("created_at", { ascending: false })
+        .limit(200);
+      webhooks = (wh ?? []) as WebhookRow[];
+      const { data: dt } = await sb
+        .from("tenant_data_tables")
+        .select("id,label")
+        .eq("org_id", orgId)
+        .order("created_at", { ascending: false })
+        .limit(200);
+      dataTables = (dt ?? []) as DataTableOption[];
+    } catch {
+      /* ignore */
+    }
   }
 
   const editorBase = (process.env.N8N_BASE_URL ?? "").replace(/\/$/, "");
@@ -39,6 +69,8 @@ export default async function WorkflowsPage() {
           </div>
         </div>
       )}
+
+      <OrgWebhooksPanel initial={webhooks} dataTables={dataTables} />
 
       {!error && (
         <>
