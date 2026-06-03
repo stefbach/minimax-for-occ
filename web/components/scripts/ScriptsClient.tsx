@@ -150,6 +150,15 @@ export function ScriptsClient({ handles = [] }: { handles?: AgentHandleLite[] })
           )}
         </div>
 
+        <MergePanel
+          scripts={scripts}
+          handles={handles}
+          onMerged={async (id) => {
+            await refresh();
+            setSelectedId(id);
+          }}
+        />
+
         <h3 style={{ marginTop: 24 }}>Scripts existants</h3>
         {loading ? (
           <p className="muted">Chargement…</p>
@@ -240,6 +249,138 @@ export function ScriptsClient({ handles = [] }: { handles?: AgentHandleLite[] })
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── Merge several scripts into one continuous multi-agent "parcours" ──────
+function MergePanel({
+  scripts,
+  handles,
+  onMerged,
+}: {
+  scripts: ScriptRow[];
+  handles: AgentHandleLite[];
+  onMerged: (id: string) => void | Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [parts, setParts] = useState<Array<{ script_id: string; agent_handle_id: string }>>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const aiHandles = handles.filter((h) => h.kind !== "human");
+  const available = scripts.filter((s) => !parts.some((p) => p.script_id === s.id));
+
+  function addPart(script_id: string) {
+    if (!script_id) return;
+    setParts((p) => [...p, { script_id, agent_handle_id: "" }]);
+  }
+  function move(i: number, dir: -1 | 1) {
+    setParts((p) => {
+      const j = i + dir;
+      if (j < 0 || j >= p.length) return p;
+      const next = [...p];
+      [next[i], next[j]] = [next[j], next[i]];
+      return next;
+    });
+  }
+  function setAgent(i: number, agent_handle_id: string) {
+    setParts((p) => p.map((x, idx) => (idx === i ? { ...x, agent_handle_id } : x)));
+  }
+  function removePart(i: number) {
+    setParts((p) => p.filter((_, idx) => idx !== i));
+  }
+
+  async function submit() {
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await fetch("/api/scripts/merge", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: name.trim(),
+          parts: parts.map((p) => ({
+            script_id: p.script_id,
+            agent_handle_id: p.agent_handle_id || null,
+          })),
+        }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error ?? "merge failed");
+      setName("");
+      setParts([]);
+      setOpen(false);
+      await onMerged(data.id);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const nameOf = (id: string) => scripts.find((s) => s.id === id)?.name ?? id;
+
+  return (
+    <div style={{ marginTop: 18, paddingTop: 14, borderTop: "1px solid var(--border)" }}>
+      <button className="ghost" onClick={() => setOpen((v) => !v)} style={{ fontSize: 13 }}>
+        🔗 {open ? "Fermer" : "Fusionner des scripts"}
+      </button>
+      {open && (
+        <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
+          <div className="muted" style={{ fontSize: 12, lineHeight: 1.5 }}>
+            Combine plusieurs scripts en UN parcours continu. Chaque bloc est
+            assigné à son agent ; le relais (handoff) se fait automatiquement
+            entre les agents pendant l&apos;appel.
+          </div>
+
+          <label className="muted" style={{ fontSize: 12 }}>Nom du script fusionné</label>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex: Parcours OCC complet" />
+
+          {parts.length > 0 && (
+            <div style={{ display: "grid", gap: 6 }}>
+              {parts.map((p, i) => (
+                <div key={p.script_id} style={{ border: "1px solid var(--border-2)", borderRadius: 8, padding: 8, display: "grid", gap: 6 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6 }}>
+                    <strong style={{ fontSize: 12 }}>{i + 1}. {nameOf(p.script_id)}</strong>
+                    <div style={{ display: "flex", gap: 2 }}>
+                      <button className="ghost" style={{ padding: "1px 6px" }} onClick={() => move(i, -1)} disabled={i === 0}>↑</button>
+                      <button className="ghost" style={{ padding: "1px 6px" }} onClick={() => move(i, 1)} disabled={i === parts.length - 1}>↓</button>
+                      <button className="ghost" style={{ padding: "1px 6px", color: "var(--bad)" }} onClick={() => removePart(i)}>✕</button>
+                    </div>
+                  </div>
+                  <select value={p.agent_handle_id} onChange={(e) => setAgent(i, e.target.value)} style={{ fontSize: 12 }}>
+                    <option value="">Agent : garder celui des étapes</option>
+                    {aiHandles.map((h) => (
+                      <option key={h.id} value={h.id}>Agent : {h.display_name}</option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {available.length > 0 && (
+            <select value="" onChange={(e) => addPart(e.target.value)} style={{ fontSize: 13 }}>
+              <option value="">+ Ajouter un script à la suite…</option>
+              {available.map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+          )}
+
+          <div>
+            <button onClick={submit} disabled={busy || !name.trim() || parts.length < 2}>
+              {busy ? "Fusion…" : `Fusionner ${parts.length || ""} script${parts.length > 1 ? "s" : ""}`}
+            </button>
+          </div>
+          {parts.length < 2 && (
+            <div className="muted" style={{ fontSize: 11 }}>Sélectionnez au moins 2 scripts.</div>
+          )}
+          {error && <div style={{ color: "var(--bad)", fontSize: 13 }}>{error}</div>}
+        </div>
+      )}
     </div>
   );
 }
