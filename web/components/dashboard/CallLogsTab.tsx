@@ -43,19 +43,20 @@ function counterparty(c: CallRow): string {
   return c.contacts?.display_name || num || "—";
 }
 
-export function CallLogsTab() {
+export function CallLogsTab({ from, to, direction }: { from: string; to: string; direction: string }) {
   const t = useT();
   const [rows, setRows] = useState<CallRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [stateFilter, setStateFilter] = useState<string>("ended,failed");
   const [search, setSearch] = useState("");
-  const [direction, setDirection] = useState<"all" | "inbound" | "outbound">("all");
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await fetch(`/api/calls?state=${encodeURIComponent(stateFilter)}&limit=250`, { cache: "no-store" });
+      const qs = new URLSearchParams({ state: stateFilter, limit: "250", from, to });
+      if (direction !== "all") qs.set("direction", direction);
+      const r = await fetch(`/api/calls?${qs.toString()}`, { cache: "no-store" });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
       setRows(Array.isArray(j) ? j : []);
@@ -65,7 +66,7 @@ export function CallLogsTab() {
     } finally {
       setLoading(false);
     }
-  }, [stateFilter]);
+  }, [stateFilter, from, to, direction]);
 
   useEffect(() => {
     fetchData();
@@ -74,30 +75,21 @@ export function CallLogsTab() {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return rows.filter((c) => {
-      if (direction !== "all" && c.direction !== direction) return false;
       if (!q) return true;
       const haystack = `${counterparty(c)} ${c.from_e164 ?? ""} ${c.to_e164 ?? ""} ${c.agent_handles?.display_name ?? ""}`.toLowerCase();
       return haystack.includes(q);
     });
-  }, [rows, search, direction]);
+  }, [rows, search]);
 
   return (
     <>
-      <div className="card" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 2fr", gap: 12 }}>
+      <div className="card" style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 12 }}>
         <div>
           <label>{t("État")}</label>
           <select value={stateFilter} onChange={(e) => setStateFilter(e.target.value)}>
             {STATE_FILTERS.map((s) => (
               <option key={s.id} value={s.id}>{t(s.label)}</option>
             ))}
-          </select>
-        </div>
-        <div>
-          <label>{t("Sens")}</label>
-          <select value={direction} onChange={(e) => setDirection(e.target.value as typeof direction)}>
-            <option value="all">{t("Tous")}</option>
-            <option value="inbound">{t("↘ Entrants")}</option>
-            <option value="outbound">{t("↗ Sortants")}</option>
           </select>
         </div>
         <div>

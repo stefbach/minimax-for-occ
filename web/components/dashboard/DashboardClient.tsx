@@ -12,6 +12,8 @@ import { CopilotPanel } from "./CopilotPanel";
 import { HelpButton } from "@/components/help/HelpButton";
 import { LiveMonitorClient } from "@/components/live/LiveMonitorClient";
 import { CallLogsTab } from "./CallLogsTab";
+import { StatsTab } from "./StatsTab";
+import { PeriodBar, presetToRange, type Period, type Filters } from "./PeriodBar";
 import { useT } from "@/lib/i18n";
 
 type TabId = "overview" | "stats" | "logs" | "live";
@@ -33,6 +35,9 @@ export function DashboardClient({ initial, initialError, orgId }: Props) {
   const [data, setData] = useState<DashboardOverviewResponse | null>(initial);
   const [error, setError] = useState<string | null>(initialError);
   const [refreshing, setRefreshing] = useState(false);
+  // Period + filters drive the Statistiques and Call Logs tabs.
+  const [period, setPeriod] = useState<Period>({ ...presetToRange("7d"), preset: "7d" });
+  const [filters, setFilters] = useState<Filters>({ direction: "all" });
 
   const fetchData = useCallback(async () => {
     try {
@@ -151,23 +156,17 @@ export function DashboardClient({ initial, initialError, orgId }: Props) {
 
         {tab === "stats" && (
           <>
-            {data && (
-              <div className="grid cols-2">
-                <VolumeChart buckets={data.volume_24h} />
-                <DispositionsList items={data.dispositions} />
-              </div>
-            )}
-            <div className="card">
-              <h3 style={{ marginTop: 0 }}>Performance par agent</h3>
-              <p className="muted" style={{ fontSize: 13 }}>
-                Vue détaillée par agent — à venir. Pour l&apos;instant la vue
-                d&apos;ensemble agrège les principaux indicateurs.
-              </p>
-            </div>
+            <PeriodBar period={period} filters={filters} onPeriod={setPeriod} onFilters={setFilters} />
+            <StatsTab from={period.from} to={period.to} direction={filters.direction} />
           </>
         )}
 
-        {tab === "logs" && <CallLogsTab />}
+        {tab === "logs" && (
+          <>
+            <PeriodBar period={period} filters={filters} onPeriod={setPeriod} onFilters={setFilters} />
+            <CallLogsTab from={period.from} to={period.to} direction={filters.direction} />
+          </>
+        )}
 
         {tab === "live" && <LiveMonitorClient />}
       </div>

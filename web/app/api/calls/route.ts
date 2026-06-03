@@ -45,6 +45,14 @@ export async function GET(request: Request) {
     q = q.in("state", states);
   }
 
+  // Optional period + direction filters (dashboard Call Logs tab).
+  const from = searchParams.get("from");
+  const to = searchParams.get("to");
+  if (from) q = q.gte("started_at", from);
+  if (to) q = q.lte("started_at", to);
+  const dir = searchParams.get("direction");
+  if (dir === "inbound" || dir === "outbound") q = q.eq("direction", dir);
+
   const { data, error } = await q;
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
