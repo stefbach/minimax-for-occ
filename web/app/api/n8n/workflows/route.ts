@@ -1,6 +1,25 @@
 import { NextResponse } from "next/server";
 import { listN8nWorkflows } from "@/lib/n8n";
 import { TEMPLATES, VOICE_AGENT_WORKFLOW_TAG } from "@/lib/workflow-templates";
+import { supabaseServer, hasSupabase } from "@/lib/supabase";
+import { requestOrgId } from "@/lib/request-org";
+
+// Resolve the caller org's n8n tag (clean label or slug fallback) so new
+// workflows are stamped for tenant isolation on the shared n8n instance.
+async function resolveOrgTag(req: Request): Promise<string | null> {
+  if (!hasSupabase()) return null;
+  try {
+    const orgId = await requestOrgId(req);
+    const { data } = await supabaseServer()
+      .from("organizations")
+      .select("n8n_tag,slug")
+      .eq("id", orgId)
+      .maybeSingle();
+    return ((data?.n8n_tag as string | null) || (data?.slug as string | null)) ?? null;
+  } catch {
+    return null;
+  }
+}
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -100,27 +119,36 @@ export async function POST(req: Request) {
   }
   const row = (await created.json()) as { id: string; name: string };
 
-  // 2. Make sure a `voice-agent` tag exists, then attach.
-  let tagId: string | null = null;
+  // 2. Tag the new workflow: `voice-agent` (for templates) AND the caller
+  //    org's tag (for tenant isolation on the shared n8n instance).
+  const orgTag = await resolveOrgTag(req);
   try {
-    const tagsRes = await fetch(`${base}/api/v1/tags`, { headers });
-    if (tagsRes.ok) {
-      const tags = (await tagsRes.json()) as { data?: { id: string; name: string }[] };
-      tagId = tags.data?.find((t) => t.name === VOICE_AGENT_WORKFLOW_TAG)?.id ?? null;
-    }
-    if (!tagId) {
-      const newTag = await fetch(`${base}/api/v1/tags`, {
+    // Load existing tags once, then find-or-create each needed tag.
+    const tagsRes = await fetch(`${base}/api/v1/tags?limit=250`, { headers });
+    const existing: { id: string; name: string }[] = tagsRes.ok
+      ? ((await tagsRes.json()) as { data?: { id: string; name: string }[] }).data ?? []
+      : [];
+    const ensure = async (name: string): Promise<string | null> => {
+      const hit = existing.find((t) => t.name === name)?.id;
+      if (hit) return hit;
+      const made = await fetch(`${base}/api/v1/tags`, {
         method: "POST",
         headers,
-        body: JSON.stringify({ name: VOICE_AGENT_WORKFLOW_TAG }),
+        body: JSON.stringify({ name }),
       });
-      if (newTag.ok) tagId = (await newTag.json()).id ?? null;
+      return made.ok ? (await made.json()).id ?? null : null;
+    };
+    const wanted = [VOICE_AGENT_WORKFLOW_TAG, ...(orgTag ? [orgTag] : [])];
+    const tagIds: string[] = [];
+    for (const name of wanted) {
+      const id = await ensure(name);
+      if (id) tagIds.push(id);
     }
-    if (tagId) {
+    if (tagIds.length > 0) {
       await fetch(`${base}/api/v1/workflows/${row.id}/tags`, {
         method: "PUT",
         headers,
-        body: JSON.stringify([{ id: tagId }]),
+        body: JSON.stringify(tagIds.map((id) => ({ id }))),
       });
     }
   } catch {

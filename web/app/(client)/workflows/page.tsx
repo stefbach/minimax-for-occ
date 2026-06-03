@@ -8,22 +8,42 @@ import { OrgWebhooksPanel, type WebhookRow, type DataTableOption } from "@/compo
 export const dynamic = "force-dynamic";
 
 export default async function WorkflowsPage() {
+  // Resolve this client's n8n tag first — the Workflows list is filtered by it
+  // so a tenant only ever sees its own flows on the shared n8n instance.
+  let orgTag: string | null = null;
+  let webhooks: WebhookRow[] = [];
+  let dataTables: DataTableOption[] = [];
+  let orgId: string | null = null;
+  if (hasSupabase()) {
+    try {
+      const sb = supabaseServer();
+      orgId = await currentOrgIdForServer();
+      const { data: org } = await sb
+        .from("organizations")
+        .select("n8n_tag,slug")
+        .eq("id", orgId)
+        .maybeSingle();
+      orgTag = ((org?.n8n_tag as string | null) || (org?.slug as string | null)) ?? null;
+    } catch {
+      /* ignore */
+    }
+  }
+
   let workflows: Awaited<ReturnType<typeof listN8nWorkflows>> = [];
   let error: string | null = null;
   try {
-    workflows = await listN8nWorkflows();
+    // Only this org's tagged workflows. Without a tag we show nothing rather
+    // than leaking every tenant's flows.
+    workflows = orgTag ? await listN8nWorkflows({ tags: orgTag }) : [];
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
   }
 
   // Outbound webhook triggers (post-RDV automations) + the org's data tables
   // (for scoping the dropdown). Loaded best-effort.
-  let webhooks: WebhookRow[] = [];
-  let dataTables: DataTableOption[] = [];
-  if (hasSupabase()) {
+  if (hasSupabase() && orgId) {
     try {
       const sb = supabaseServer();
-      const orgId = await currentOrgIdForServer();
       const { data: wh } = await sb
         .from("org_webhooks")
         .select("id,name,url,event,data_table_id,watch_column,match_values,active")
@@ -52,7 +72,10 @@ export default async function WorkflowsPage() {
       <div className="page-header">
         <div>
           <h1>Workflows n8n</h1>
-          <div className="subtitle">{workflows.length} workflow{workflows.length === 1 ? "" : "s"} sur l&apos;instance.</div>
+          <div className="subtitle">
+            {workflows.length} workflow{workflows.length === 1 ? "" : "s"}
+            {orgTag ? <> · filtré sur le tag <span className="kbd">{orgTag}</span></> : null}
+          </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <Link href="/workflows/new"><button>+ Nouveau workflow</button></Link>

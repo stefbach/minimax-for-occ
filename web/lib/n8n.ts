@@ -25,7 +25,9 @@ function workflowSummary(wf: RawN8nWorkflow): N8nWorkflowSummary {
   };
 }
 
-export async function listN8nWorkflows(opts: { active?: boolean } = {}): Promise<N8nWorkflowSummary[]> {
+export async function listN8nWorkflows(
+  opts: { active?: boolean; tags?: string } = {},
+): Promise<N8nWorkflowSummary[]> {
   const base = process.env.N8N_BASE_URL?.replace(/\/$/, "");
   const apiKey = process.env.N8N_API_KEY;
   if (!base || !apiKey) {
@@ -33,6 +35,9 @@ export async function listN8nWorkflows(opts: { active?: boolean } = {}): Promise
   }
   const params = new URLSearchParams();
   if (opts.active !== undefined) params.set("active", String(opts.active));
+  // Multi-tenant isolation on a shared n8n instance: filter by the caller
+  // org's tag so a client only ever sees its own workflows.
+  if (opts.tags) params.set("tags", opts.tags);
   const res = await fetch(`${base}/api/v1/workflows?${params}`, {
     headers: { "X-N8N-API-KEY": apiKey, accept: "application/json" },
     cache: "no-store",
@@ -40,6 +45,42 @@ export async function listN8nWorkflows(opts: { active?: boolean } = {}): Promise
   if (!res.ok) throw new Error(`n8n list failed: ${res.status}`);
   const json = (await res.json()) as { data?: RawN8nWorkflow[] };
   return (json.data ?? []).map(workflowSummary);
+}
+
+/** Find-or-create an n8n tag by name; returns its id (or null on failure). */
+export async function ensureN8nTag(name: string): Promise<string | null> {
+  const base = n8nBase();
+  const headers = n8nHeaders();
+  try {
+    const res = await fetch(`${base}/api/v1/tags?limit=250`, { headers, cache: "no-store" });
+    if (res.ok) {
+      const tags = (await res.json()) as { data?: { id: string; name: string }[] };
+      const found = tags.data?.find((t) => t.name === name)?.id;
+      if (found) return found;
+    }
+    const created = await fetch(`${base}/api/v1/tags`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ name }),
+    });
+    if (created.ok) return ((await created.json()) as { id?: string }).id ?? null;
+  } catch {
+    /* best-effort */
+  }
+  return null;
+}
+
+/** Replace the tag set on a workflow (n8n PUT semantics). Best-effort. */
+export async function setN8nWorkflowTags(workflowId: string, tagIds: string[]): Promise<void> {
+  try {
+    await fetch(`${n8nBase()}/api/v1/workflows/${encodeURIComponent(workflowId)}/tags`, {
+      method: "PUT",
+      headers: n8nHeaders(),
+      body: JSON.stringify(tagIds.map((id) => ({ id }))),
+    });
+  } catch {
+    /* best-effort */
+  }
 }
 
 function n8nHeaders(): Record<string, string> {
