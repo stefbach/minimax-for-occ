@@ -114,7 +114,7 @@ export function DynamicEngineConfig({ columns, value, onChange }: Props) {
     <div style={{ display: "grid", gap: 16 }}>
       {/* ── Qui appeler ── */}
       <div style={box}>
-        <h4 style={h4}>Qui appeler ?</h4>
+        <h4 style={h4}>Filtres : quels contacts cibler ?</h4>
         <div className="form-row">
           <div>
             <label>Colonne « statut »</label>

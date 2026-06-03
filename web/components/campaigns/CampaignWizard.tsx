@@ -447,7 +447,10 @@ export function CampaignWizard({
     <div style={{ display: "grid", gap: 16, maxWidth: 900 }}>
       {/* 1. Identité */}
       <section className="card">
-        <h3>1. Identité</h3>
+        <h3>1. Nom de la campagne</h3>
+        <div className="muted" style={{ fontSize: 12, marginTop: -6, marginBottom: 10 }}>
+          Un nom clair pour la retrouver dans la liste.
+        </div>
         <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1fr" }}>
           <div>
             <label>Nom *</label>
@@ -470,7 +473,10 @@ export function CampaignWizard({
 
       {/* 2. Qui répond ? — binary choice: single agent vs multi-agent journey */}
       <section className="card">
-        <h3>2. Qui répond aux appels ?</h3>
+        <h3>2. Qui passe les appels ?</h3>
+        <div className="muted" style={{ fontSize: 12, marginTop: -6, marginBottom: 10 }}>
+          L&apos;agent IA — ou une équipe d&apos;agents qui se passent le relais — qui parlera au téléphone.
+        </div>
 
         {agents.length === 0 ? (
           <p className="muted" style={{ margin: 0 }}>
@@ -621,7 +627,10 @@ export function CampaignWizard({
 
       {/* 3. Numéro émetteur */}
       <section className="card">
-        <h3>3. Numéro émetteur</h3>
+        <h3>3. Numéro affiché</h3>
+        <div className="muted" style={{ fontSize: 12, marginTop: -6, marginBottom: 10 }}>
+          Le numéro qui s&apos;affiche sur le téléphone de la personne appelée.
+        </div>
         <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1fr 1fr" }}>
           <div>
             <label>Numéro Twilio</label>
@@ -655,7 +664,10 @@ export function CampaignWizard({
 
       {/* 4. Cibles */}
       <section className="card">
-        <h3>4. Cibles</h3>
+        <h3>4. Qui appeler ?</h3>
+        <div className="muted" style={{ fontSize: 12, marginTop: -6, marginBottom: 10 }}>
+          La liste de contacts à appeler et la façon de les appeler (une fois, ou en continu avec relances).
+        </div>
         <div style={{ display: "grid", gap: 12 }}>
           {dataTables.length > 0 && (
             <div style={{ background: "var(--bg-2)", padding: 12, borderRadius: 8, display: "grid", gap: 10 }}>
@@ -815,7 +827,12 @@ export function CampaignWizard({
 
       {/* 5. Planning */}
       <section className="card">
-        <h3>5. Planning</h3>
+        <h3>5. {dynamicMode && selectedDataTable ? "Réglages d'appel" : "Planning des appels"}</h3>
+        <div className="muted" style={{ fontSize: 12, marginTop: -6, marginBottom: 10 }}>
+          {dynamicMode && selectedDataTable
+            ? "Cadence technique (les jours et créneaux sont définis plus haut, dans « Créneaux »)."
+            : "Quand passer les appels et à quelle cadence."}
+        </div>
         <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1fr 1fr 1fr" }}>
           <div>
             <label>Appels simultanés (max)</label>
@@ -942,6 +959,9 @@ export function CampaignWizard({
       {/* 6. Récap */}
       <section className="card">
         <h3>6. Récapitulatif</h3>
+        <div className="muted" style={{ fontSize: 12, marginTop: -6, marginBottom: 10 }}>
+          Vérifie avant de créer. La campagne est créée en brouillon — tu la démarres ensuite.
+        </div>
         <ul style={{ margin: 0, paddingLeft: 18, color: "var(--muted)", lineHeight: 1.7 }}>
           <li>
             <strong style={{ color: "var(--text)" }}>{name || "(sans nom)"}</strong>
