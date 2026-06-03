@@ -2,7 +2,16 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { verifyOrgCookieEdge } from "@/lib/org-cookie-edge";
 
-type Role = "super_admin" | "admin" | "manager" | "supervisor" | "agent";
+type Role =
+  | "super_admin"
+  | "admin"
+  | "owner"
+  | "manager"
+  | "supervisor"
+  | "builder"
+  | "agent"
+  | "analyst"
+  | "viewer";
 
 /** Must match `ORG_COOKIE` from web/lib/supabase-auth.ts. Duplicated here to
  *  avoid pulling next/headers into the Edge middleware bundle. */
@@ -12,20 +21,27 @@ const ORG_COOKIE = "axon.org_id";
  * Path prefix → allowed roles. The longest matching prefix wins. Paths not
  * listed here are allowed for any authenticated user.
  */
+// "owner" is the per-org top role (e.g. the founder of a tenant). It must be
+// granted the same access as "admin" inside its own org. "builder" can edit
+// agent-side configuration. "analyst" and "viewer" are read-only roles.
+const MGMT: Role[] = ["super_admin", "admin", "owner", "manager"];
+const BUILD: Role[] = ["super_admin", "admin", "owner", "manager", "builder"];
+const OPS: Role[] = ["super_admin", "admin", "owner", "manager", "supervisor", "analyst", "viewer"];
+
 const ROUTE_ROLES: Array<[string, Role[]]> = [
   ["/admin",     ["super_admin", "admin"]],
-  ["/agents",    ["super_admin", "admin", "manager"]],
-  ["/voices",    ["super_admin", "admin", "manager"]],
-  ["/flows",     ["super_admin", "admin", "manager"]],
-  ["/workflows", ["super_admin", "admin", "manager"]],
-  ["/documents", ["super_admin", "admin", "manager"]],
-  ["/numbers",   ["super_admin", "admin", "manager"]],
-  ["/campaigns", ["super_admin", "admin", "manager"]],
-  ["/settings",  ["super_admin", "admin", "manager"]],
-  ["/queues",    ["super_admin", "admin", "manager", "supervisor"]],
-  ["/calls",     ["super_admin", "admin", "manager", "supervisor"]],
-  ["/dashboard", ["super_admin", "admin", "manager", "supervisor"]],
-  ["/analytics", ["super_admin", "admin", "manager", "supervisor"]],
+  ["/agents",    BUILD],
+  ["/voices",    BUILD],
+  ["/flows",     BUILD],
+  ["/workflows", BUILD],
+  ["/documents", BUILD],
+  ["/numbers",   MGMT],
+  ["/campaigns", MGMT],
+  ["/settings",  MGMT],
+  ["/queues",    OPS],
+  ["/calls",     OPS],
+  ["/dashboard", OPS],
+  ["/analytics", OPS],
   // /desk and /contacts: open to everyone (no entry → no filter)
 ];
 
@@ -34,10 +50,15 @@ function landingFor(role: Role | null): string {
     case "super_admin":
     case "admin":
       return "/admin";
+    case "owner":
     case "manager":
+    case "analyst":
+    case "viewer":
       return "/dashboard";
     case "supervisor":
       return "/calls";
+    case "builder":
+      return "/agents";
     case "agent":
     default:
       return "/desk";

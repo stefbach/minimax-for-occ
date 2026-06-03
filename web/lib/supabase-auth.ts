@@ -152,10 +152,15 @@ export function landingPathFor(role: AppRole | string | undefined): string {
     case "super_admin":
     case "admin":
       return "/admin";
+    case "owner":
     case "manager":
+    case "analyst":
+    case "viewer":
       return "/dashboard";
     case "supervisor":
       return "/dashboard"; // /supervision will replace this when shipped
+    case "builder":
+      return "/agents";
     case "agent":
       return "/desk";
     default:
