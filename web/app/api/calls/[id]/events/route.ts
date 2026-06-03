@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { supabaseSession } from "@/lib/supabase-auth";
+import { requestOrgId } from "@/lib/request-org";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,17 +29,19 @@ export async function POST(
   const payload =
     body.payload && typeof body.payload === "object" ? body.payload : {};
 
+  const orgId = await requestOrgId(request);
   const sb = await supabaseSession();
   const { data: auth } = await sb.auth.getUser();
   const userId = auth.user?.id ?? null;
 
   const admin = supabaseServer();
 
-  // Sanity-check the call exists.
+  // Sanity-check the call exists AND belongs to the caller's org.
   const { data: call, error: callErr } = await admin
     .from("calls")
     .select("id")
     .eq("id", id)
+    .eq("org_id", orgId)
     .maybeSingle();
   if (callErr) {
     return NextResponse.json({ error: callErr.message }, { status: 500 });

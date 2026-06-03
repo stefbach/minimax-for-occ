@@ -10,11 +10,20 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   const { id } = await ctx.params;
   const orgId = await requestOrgId(req);
   const sb = supabaseServer();
+  // Verify the parent agent belongs to this org before exposing the
+  // version history (prompt_versions has no org_id column — inherits via
+  // agent_id).
+  const { data: agent } = await sb
+    .from("agents")
+    .select("id")
+    .eq("id", id)
+    .eq("org_id", orgId)
+    .maybeSingle();
+  if (!agent) return NextResponse.json({ error: "agent not found" }, { status: 404 });
   const { data, error } = await sb
     .from("prompt_versions")
     .select("*")
     .eq("agent_id", id)
-    .eq("org_id", orgId)
     .order("version", { ascending: false });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data ?? []);
@@ -48,12 +57,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const systemPrompt = body.system_prompt ?? (agent.system_prompt as string | null) ?? "";
   const greeting = body.greeting ?? (agent.greeting as string | null) ?? null;
 
-  // Next version = max(existing) + 1.
+  // Next version = max(existing) + 1. prompt_versions inherits tenancy
+  // via agent_id (no org_id column); parent agent is already org-checked.
   const { data: last } = await sb
     .from("prompt_versions")
     .select("version")
     .eq("agent_id", id)
-    .eq("org_id", orgId)
     .order("version", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -62,7 +71,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const { data, error } = await sb
     .from("prompt_versions")
     .insert({
-      org_id: orgId,
       agent_id: id,
       version: nextVersion,
       system_prompt: systemPrompt,

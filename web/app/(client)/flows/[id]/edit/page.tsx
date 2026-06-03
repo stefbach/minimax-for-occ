@@ -18,17 +18,17 @@ async function loadFlow(id: string): Promise<FlowFull | null> {
     .eq("org_id", orgId)
     .maybeSingle();
   if (!flow) return null;
+  // flow_steps / flow_edges inherit org via flow_id; the flows row above
+  // is already org-filtered, so we trust the parent's tenancy here.
   const { data: steps } = await sb
     .from("flow_steps")
     .select("*")
     .eq("flow_id", id)
-    .eq("org_id", orgId)
     .order("created_at", { ascending: true });
   const { data: edges } = await sb
     .from("flow_edges")
     .select("*")
     .eq("flow_id", id)
-    .eq("org_id", orgId)
     .order("position", { ascending: true });
   return {
     ...(flow as Omit<FlowFull, "steps" | "edges">),

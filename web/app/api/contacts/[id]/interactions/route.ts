@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { supabaseSession } from "@/lib/supabase-auth";
+import { requestOrgId } from "@/lib/request-org";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -8,16 +9,27 @@ export const dynamic = "force-dynamic";
 const VALID_KINDS = new Set(["call", "note", "email", "sms", "ai_summary", "tag"]);
 
 export async function GET(
-  _req: Request,
+  req: Request,
   ctx: { params: Promise<{ id: string }> },
 ) {
   if (!hasSupabase()) return NextResponse.json([]);
   const { id } = await ctx.params;
+  const orgId = await requestOrgId(req);
   const sb = supabaseServer();
+  // Verify the parent contact belongs to the caller's org before exposing
+  // its interactions.
+  const { data: parentContact } = await sb
+    .from("contacts")
+    .select("id")
+    .eq("id", id)
+    .eq("org_id", orgId)
+    .maybeSingle();
+  if (!parentContact) return NextResponse.json({ error: "not_found" }, { status: 404 });
   const { data, error } = await sb
     .from("contact_interactions")
     .select("id, contact_id, call_id, kind, summary, details, created_by, occurred_at")
     .eq("contact_id", id)
+    .eq("org_id", orgId)
     .order("occurred_at", { ascending: false })
     .limit(100);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -32,6 +44,7 @@ export async function POST(
     return NextResponse.json({ error: "Supabase non configuré" }, { status: 500 });
   }
   const { id } = await ctx.params;
+  const orgId = await requestOrgId(req);
   const body = (await req.json().catch(() => null)) as {
     kind?: string;
     summary?: string | null;
@@ -52,6 +65,7 @@ export async function POST(
     .from("contacts")
     .select("id, org_id")
     .eq("id", id)
+    .eq("org_id", orgId)
     .maybeSingle();
   if (cErr || !contact) {
     return NextResponse.json({ error: "contact introuvable" }, { status: 404 });

@@ -24,12 +24,21 @@ export async function POST(
   const orgId = await requestOrgId(req);
   const sb = supabaseServer();
 
+  // Verify parent agent belongs to this org. prompt_versions has no org_id
+  // column — tenancy inherits via agent_id.
+  const { data: parentAgent } = await sb
+    .from("agents")
+    .select("id")
+    .eq("id", id)
+    .eq("org_id", orgId)
+    .maybeSingle();
+  if (!parentAgent) return NextResponse.json({ error: "agent not found" }, { status: 404 });
+
   // 1. Fetch target historical version.
   const { data: target, error: targetErr } = await sb
     .from("prompt_versions")
     .select("system_prompt, greeting")
     .eq("agent_id", id)
-    .eq("org_id", orgId)
     .eq("version", versionNum)
     .maybeSingle();
   if (targetErr) return NextResponse.json({ error: targetErr.message }, { status: 500 });
@@ -47,14 +56,12 @@ export async function POST(
     .from("prompt_versions")
     .select("version")
     .eq("agent_id", id)
-    .eq("org_id", orgId)
     .order("version", { ascending: false })
     .limit(1)
     .maybeSingle();
   const nextVersion = ((last?.version as number | undefined) ?? 0) + 1;
 
   await sb.from("prompt_versions").insert({
-    org_id: orgId,
     agent_id: id,
     version: nextVersion,
     system_prompt: (current?.system_prompt as string | null) ?? "",

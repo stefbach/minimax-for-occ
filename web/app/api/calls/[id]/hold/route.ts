@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { supabaseSession } from "@/lib/supabase-auth";
+import { requestOrgId } from "@/lib/request-org";
 import {
   DEFAULT_HOLD_MUSIC_URL,
   defaultWebhookUrl,
@@ -59,11 +60,13 @@ export async function POST(
   }
   const resume = body.resume === true;
 
+  const orgId = await requestOrgId(request);
   const admin = supabaseServer();
   const { data: call, error } = await admin
     .from("calls")
     .select("id, org_id, twilio_call_sid, state")
     .eq("id", id)
+    .eq("org_id", orgId)
     .maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!call) return NextResponse.json({ error: "not_found" }, { status: 404 });

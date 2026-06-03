@@ -237,10 +237,13 @@ export async function GET(req: Request) {
       .select("id, name, state")
       .eq("org_id", org_id)
       .limit(200),
+    // campaign_targets has no org_id column — it inherits tenancy via
+    // campaign_id. We filter post-hoc by intersecting with this org's
+    // campaign list (campMap below) so cross-tenant rows don't pollute
+    // aggregates.
     sb
       .from("campaign_targets")
-      .select("campaign_id, status")
-      .eq("org_id", org_id),
+      .select("campaign_id, status"),
   ]);
 
   const agentMeta = new Map<string, { display_name: string; kind: string }>();

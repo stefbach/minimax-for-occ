@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
+import { requestOrgId } from "@/lib/request-org";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,13 +20,14 @@ export const dynamic = "force-dynamic";
  * rather than the whole endpoint failing.
  */
 export async function GET(
-  _req: Request,
+  req: Request,
   ctx: { params: Promise<{ id: string }> },
 ) {
   if (!hasSupabase()) {
     return NextResponse.json({ error: "Supabase non configuré" }, { status: 500 });
   }
   const { id } = await ctx.params;
+  const orgId = await requestOrgId(req);
   const sb = supabaseServer();
 
   const { data: call, error } = await sb
@@ -34,6 +36,7 @@ export async function GET(
       "id, org_id, direction, state, from_e164, to_e164, started_at, answered_at, ended_at, duration_secs, contact_id, queue_id, campaign_id, agent_handle_id, room_id",
     )
     .eq("id", id)
+    .eq("org_id", orgId)
     .maybeSingle();
   if (error || !call) {
     return NextResponse.json({ error: error?.message ?? "call introuvable" }, { status: 404 });
@@ -47,6 +50,7 @@ export async function GET(
       .from("contacts")
       .select("id, e164, display_name, email, tags, notes, metadata, created_at, updated_at")
       .eq("id", call.contact_id)
+      .eq("org_id", orgId)
       .maybeSingle();
     contact = c ?? null;
 
@@ -84,6 +88,7 @@ export async function GET(
       .from("campaigns")
       .select("id, name, mission, script_id")
       .eq("id", campaignId)
+      .eq("org_id", orgId)
       .maybeSingle();
     if (camp) {
       campaign = {
@@ -97,6 +102,7 @@ export async function GET(
           .from("scripts")
           .select("id, name, mission")
           .eq("id", campaign.script_id)
+          .eq("org_id", orgId)
           .maybeSingle();
         const { data: ver } = await sb
           .from("script_versions")

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
+import { requestOrgId } from "@/lib/request-org";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,16 +11,18 @@ export const dynamic = "force-dynamic";
  * should target this path.
  */
 
-export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
   if (!hasSupabase()) {
     return NextResponse.json({ error: "Supabase non configuré." }, { status: 500 });
   }
   const { id } = await ctx.params;
+  const orgId = await requestOrgId(req);
   const sb = supabaseServer();
   const { data, error } = await sb
     .from("phone_numbers")
     .select("*")
     .eq("id", id)
+    .eq("org_id", orgId)
     .maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!data) return NextResponse.json({ error: "not found" }, { status: 404 });
@@ -31,6 +34,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     return NextResponse.json({ error: "Supabase non configuré." }, { status: 500 });
   }
   const { id } = await ctx.params;
+  const orgId = await requestOrgId(req);
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body) return NextResponse.json({ error: "body requis" }, { status: 400 });
 
@@ -60,8 +64,10 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     .from("phone_numbers")
     .update(patch)
     .eq("id", id)
+    .eq("org_id", orgId)
     .select()
-    .single();
+    .maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (!data) return NextResponse.json({ error: "not found" }, { status: 404 });
   return NextResponse.json(data);
 }

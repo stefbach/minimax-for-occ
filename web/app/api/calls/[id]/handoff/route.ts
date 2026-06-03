@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { supabaseSession } from "@/lib/supabase-auth";
+import { requestOrgId } from "@/lib/request-org";
 import { rateLimit, clientIp } from "@/lib/rate-limit";
 import { patchRoomMetadata } from "@/lib/livekit-room";
 
@@ -69,6 +70,7 @@ export async function POST(
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
+  const orgId = await requestOrgId(request);
   const admin = supabaseServer();
 
   const { data: call, error: callErr } = await admin
@@ -77,6 +79,7 @@ export async function POST(
       "id, org_id, room_id, state, agent_handle_id, agent_handles(id, kind, display_name)",
     )
     .eq("id", id)
+    .eq("org_id", orgId)
     .maybeSingle();
   if (callErr) {
     return NextResponse.json({ error: callErr.message }, { status: 500 });
@@ -103,6 +106,7 @@ export async function POST(
     .from("agent_handles")
     .select("id, org_id, kind, active, display_name, ai_agent_id, user_id")
     .eq("id", target)
+    .eq("org_id", orgId)
     .maybeSingle();
   if (thErr) {
     return NextResponse.json({ error: thErr.message }, { status: 500 });
@@ -141,7 +145,8 @@ export async function POST(
   const { error: updErr } = await admin
     .from("calls")
     .update({ agent_handle_id: targetHandle.id })
-    .eq("id", call.id);
+    .eq("id", call.id)
+    .eq("org_id", orgId);
   if (updErr) {
     return NextResponse.json({ error: updErr.message }, { status: 500 });
   }

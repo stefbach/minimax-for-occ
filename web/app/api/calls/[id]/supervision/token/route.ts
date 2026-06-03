@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { AccessToken } from "livekit-server-sdk";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { supabaseSession } from "@/lib/supabase-auth";
+import { requestOrgId } from "@/lib/request-org";
 import { rateLimit, clientIp } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
@@ -70,11 +71,13 @@ export async function POST(
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
+  const orgId = await requestOrgId(request);
   const admin = supabaseServer();
   const { data: call, error } = await admin
     .from("calls")
     .select("id, org_id, room_id, state")
     .eq("id", id)
+    .eq("org_id", orgId)
     .maybeSingle();
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
+import { requestOrgId } from "@/lib/request-org";
 import { hasTwilio } from "@/lib/twilio";
 import { configureNumberWebhooks, publicAppUrl } from "@/lib/twilio-config";
 
@@ -28,11 +29,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   }
 
   const { id } = await ctx.params;
+  const orgId = await requestOrgId(req);
   const sb = supabaseServer();
   const { data: row, error: fetchErr } = await sb
     .from("phone_numbers")
     .select("id, provider, provider_sid, e164")
     .eq("id", id)
+    .eq("org_id", orgId)
     .maybeSingle();
   if (fetchErr) return NextResponse.json({ error: fetchErr.message }, { status: 500 });
   if (!row) return NextResponse.json({ error: "Numéro introuvable." }, { status: 404 });
@@ -61,6 +64,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         webhook_configured_at: new Date().toISOString(),
       })
       .eq("id", id)
+      .eq("org_id", orgId)
       .select()
       .single();
     if (updErr) {

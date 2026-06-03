@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
+import { requestOrgId } from "@/lib/request-org";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,14 +14,23 @@ const ALLOWED_STATES = new Set([
   "cancelled",
 ]);
 
-export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
   if (!hasSupabase()) return NextResponse.json({ error: "Supabase non configuré" }, { status: 500 });
   const { id } = await ctx.params;
+  const orgId = await requestOrgId(req);
   const sb = supabaseServer();
-  const { data, error } = await sb.from("campaigns").select("*").eq("id", id).single();
-  if (error) return NextResponse.json({ error: error.message }, { status: 404 });
+  const { data, error } = await sb
+    .from("campaigns")
+    .select("*")
+    .eq("id", id)
+    .eq("org_id", orgId)
+    .maybeSingle();
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (!data) return NextResponse.json({ error: "not found" }, { status: 404 });
 
-  // KPI counts.
+  // KPI counts. campaign_targets has no org_id column — the parent
+  // campaign row above is already org-filtered, so restricting by
+  // campaign_id is sufficient.
   const { data: targets } = await sb
     .from("campaign_targets")
     .select("status")
@@ -38,7 +48,8 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       .from("agent_handles")
       .select("id,display_name,kind,ai_agent_id")
       .eq("id", data.agent_handle_id)
-      .single();
+      .eq("org_id", orgId)
+      .maybeSingle();
     if (ah) agent_handle = ah as any;
   }
   let phone_number: { id: string; e164: string; label: string | null } | null = null;
@@ -47,7 +58,8 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       .from("phone_numbers")
       .select("id,e164,label")
       .eq("id", data.phone_number_id)
-      .single();
+      .eq("org_id", orgId)
+      .maybeSingle();
     if (pn) phone_number = pn as any;
   }
 
@@ -61,6 +73,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       .from("scripts")
       .select("id,name,mission")
       .eq("id", scriptId)
+      .eq("org_id", orgId)
       .maybeSingle();
     if (sc) script = sc as { id: string; name: string; mission: string | null };
   }
@@ -71,6 +84,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
   if (!hasSupabase()) return NextResponse.json({ error: "Supabase non configuré" }, { status: 500 });
   const { id } = await ctx.params;
+  const orgId = await requestOrgId(req);
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body) return NextResponse.json({ error: "body requis" }, { status: 400 });
 
@@ -109,9 +123,11 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     .from("campaigns")
     .update(patch)
     .eq("id", id)
+    .eq("org_id", orgId)
     .select()
-    .single();
+    .maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (!data) return NextResponse.json({ error: "not found" }, { status: 404 });
 
   if ("state" in body) {
     await sb.from("event_log").insert({
@@ -127,11 +143,16 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   return NextResponse.json(data);
 }
 
-export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+export async function DELETE(req: Request, ctx: { params: Promise<{ id: string }> }) {
   if (!hasSupabase()) return NextResponse.json({ error: "Supabase non configuré" }, { status: 500 });
   const { id } = await ctx.params;
+  const orgId = await requestOrgId(req);
   const sb = supabaseServer();
-  const { error } = await sb.from("campaigns").delete().eq("id", id);
+  const { error } = await sb
+    .from("campaigns")
+    .delete()
+    .eq("id", id)
+    .eq("org_id", orgId);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
 }

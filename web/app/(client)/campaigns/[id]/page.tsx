@@ -55,13 +55,14 @@ export default async function CampaignDetailPage({
     if (pn) phone = pn as any;
   }
 
+  // campaign_targets has no org_id column — tenancy is enforced via the
+  // parent campaign_id (the campaign row above was already org-filtered).
   const { data: targetsRaw } = await sb
     .from("campaign_targets")
     .select(
       "id,status,attempts,last_attempt_at,next_attempt_at,last_call_id,contact_id,contacts(e164,display_name)",
     )
     .eq("campaign_id", id)
-    .eq("org_id", orgId)
     .order("status", { ascending: true })
     .limit(2000);
 

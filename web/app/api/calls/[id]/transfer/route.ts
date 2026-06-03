@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { supabaseSession } from "@/lib/supabase-auth";
+import { requestOrgId } from "@/lib/request-org";
 import { rateLimit, clientIp } from "@/lib/rate-limit";
 import { patchRoomMetadata } from "@/lib/livekit-room";
 import { updateCall, hasTwilio, TwilioApiError } from "@/lib/twilio";
@@ -70,12 +71,14 @@ export async function POST(
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
+  const orgId = await requestOrgId(request);
   const admin = supabaseServer();
 
   const { data: call, error: callErr } = await admin
     .from("calls")
     .select("id, org_id, room_id, state, agent_handle_id, twilio_call_sid, from_e164")
     .eq("id", id)
+    .eq("org_id", orgId)
     .maybeSingle();
   if (callErr) {
     return NextResponse.json({ error: callErr.message }, { status: 500 });

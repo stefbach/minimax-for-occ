@@ -118,12 +118,13 @@ export async function GET(req: Request) {
       );
     }
 
+    // campaign_targets has no org_id column — tenancy is enforced by
+    // restricting to campaign_ids we already filtered by org_id above.
     const { data, error } = await sb
       .from("campaign_targets")
       .select(
         "campaign_id, contact_id, status, attempts, last_attempt_at, next_attempt_at, last_call_id",
       )
-      .eq("org_id", org_id)
       .in("campaign_id", ids)
       .limit(50_000);
     if (error) return new Response(error.message, { status: 500 });

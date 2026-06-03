@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { supabaseSession } from "@/lib/supabase-auth";
+import { requestOrgId } from "@/lib/request-org";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,14 +18,24 @@ interface TurnInput {
 }
 
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
   const { id } = await context.params;
   if (!hasSupabase()) {
     return NextResponse.json({ error: "supabase_unavailable" }, { status: 503 });
   }
+  const orgId = await requestOrgId(request);
   const admin = supabaseServer();
+  // Verify the parent call belongs to the caller's org before returning
+  // transcript turns (which inherit the tenant via call_id).
+  const { data: parentCall } = await admin
+    .from("calls")
+    .select("id")
+    .eq("id", id)
+    .eq("org_id", orgId)
+    .maybeSingle();
+  if (!parentCall) return NextResponse.json({ error: "not_found" }, { status: 404 });
   const { data, error } = await admin
     .from("call_transcripts")
     .select("id, seq, speaker, speaker_id, text, started_at, ended_at, confidence, language")
@@ -58,11 +69,13 @@ export async function POST(
   const { data: auth } = await sb.auth.getUser();
   const userId = auth.user?.id ?? null;
 
+  const orgId = await requestOrgId(request);
   const admin = supabaseServer();
   const { data: call, error: callErr } = await admin
     .from("calls")
     .select("id")
     .eq("id", id)
+    .eq("org_id", orgId)
     .maybeSingle();
   if (callErr) return NextResponse.json({ error: callErr.message }, { status: 500 });
   if (!call) return NextResponse.json({ error: "not_found" }, { status: 404 });

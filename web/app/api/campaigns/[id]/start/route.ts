@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
+import { requestOrgId } from "@/lib/request-org";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,18 +12,21 @@ export const dynamic = "force-dynamic";
  *    with next_attempt_at = now(). The dialer worker picks these up.
  *  - Writes an event_log row.
  */
-export async function POST(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   if (!hasSupabase()) return NextResponse.json({ error: "Supabase non configuré" }, { status: 500 });
   const { id } = await ctx.params;
+  const orgId = await requestOrgId(req);
   const sb = supabaseServer();
 
   const { data: campaign, error: cErr } = await sb
     .from("campaigns")
     .select("id,org_id,state,max_concurrency")
     .eq("id", id)
-    .single();
-  if (cErr || !campaign) {
-    return NextResponse.json({ error: cErr?.message ?? "campagne introuvable" }, { status: 404 });
+    .eq("org_id", orgId)
+    .maybeSingle();
+  if (cErr) return NextResponse.json({ error: cErr.message }, { status: 500 });
+  if (!campaign) {
+    return NextResponse.json({ error: "campagne introuvable" }, { status: 404 });
   }
   if (campaign.state === "completed" || campaign.state === "cancelled") {
     return NextResponse.json(
@@ -36,11 +40,14 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     const { error: upErr } = await sb
       .from("campaigns")
       .update({ state: "running", updated_at: new Date().toISOString() })
-      .eq("id", id);
+      .eq("id", id)
+      .eq("org_id", orgId);
     if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 });
   }
 
   // Pick up to max_concurrency targets that have no scheduled attempt yet.
+  // campaign_targets has no org_id column — restricting by campaign_id is
+  // sufficient because the parent campaign was already org-filtered above.
   const max = campaign.max_concurrency ?? 5;
   const { data: pending } = await sb
     .from("campaign_targets")

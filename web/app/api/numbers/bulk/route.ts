@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
+import { requestOrgId } from "@/lib/request-org";
 import { hasTwilio, releaseNumber, TwilioApiError } from "@/lib/twilio";
 
 export const runtime = "nodejs";
@@ -46,6 +47,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Maximum 500 numéros par opération bulk." }, { status: 400 });
   }
 
+  const orgId = await requestOrgId(req);
   const sb = supabaseServer();
   const ids = body.ids;
   const payload = body.payload ?? {};
@@ -57,6 +59,7 @@ export async function POST(req: Request) {
       const { error, count } = await sb
         .from("phone_numbers")
         .update({ active: body.action === "activate" }, { count: "exact" })
+        .eq("org_id", orgId)
         .in("id", ids);
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       return NextResponse.json({ ok: true, affected: count ?? ids.length });
@@ -67,6 +70,7 @@ export async function POST(req: Request) {
       const { error, count } = await sb
         .from("phone_numbers")
         .update({ queue_id: queueId }, { count: "exact" })
+        .eq("org_id", orgId)
         .in("id", ids);
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       return NextResponse.json({ ok: true, affected: count ?? ids.length });
@@ -77,6 +81,7 @@ export async function POST(req: Request) {
       const { error, count } = await sb
         .from("phone_numbers")
         .update({ agent_handle_id: agentId }, { count: "exact" })
+        .eq("org_id", orgId)
         .in("id", ids);
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       return NextResponse.json({ ok: true, affected: count ?? ids.length });
@@ -87,6 +92,7 @@ export async function POST(req: Request) {
       const { error, count } = await sb
         .from("phone_numbers")
         .update({ flow_id: flowId }, { count: "exact" })
+        .eq("org_id", orgId)
         .in("id", ids);
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       return NextResponse.json({ ok: true, affected: count ?? ids.length });
@@ -107,6 +113,7 @@ export async function POST(req: Request) {
       const { error, count } = await sb
         .from("phone_numbers")
         .update(patch, { count: "exact" })
+        .eq("org_id", orgId)
         .in("id", ids);
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       return NextResponse.json({ ok: true, affected: count ?? ids.length });
@@ -118,6 +125,7 @@ export async function POST(req: Request) {
       const { data: rows, error: fetchErr } = await sb
         .from("phone_numbers")
         .select("id, provider, provider_sid")
+        .eq("org_id", orgId)
         .in("id", ids);
       if (fetchErr) return NextResponse.json({ error: fetchErr.message }, { status: 500 });
 
@@ -148,6 +156,7 @@ export async function POST(req: Request) {
       const { error, count } = await sb
         .from("phone_numbers")
         .delete({ count: "exact" })
+        .eq("org_id", orgId)
         .in("id", ids);
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       return NextResponse.json({ ok: true, affected: count ?? ids.length, warnings });
