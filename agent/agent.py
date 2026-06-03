@@ -595,6 +595,151 @@ async def _watch_handoff(ctx: JobContext, session: AgentSession) -> None:
     logger.debug("handoff watcher: no metadata_changed event on this LiveKit version")
 
 
+def _assemble_agent_runtime(
+    axon: AxonAgent,
+    *,
+    template_vars: dict,
+    ctx: JobContext,
+    save_contact_id,
+    save_org_id,
+    save_table,
+    save_row,
+):
+    """Build (instructions, greeting, tools) for one agent persona, rendered
+    with the call's template vars and bound to the call's write-back target.
+
+    Reused at session start AND on every handoff, so a swapped-in agent gets
+    its OWN system prompt + greeting + tools (transfer_to_specialist,
+    save_contact_data, n8n, RAG) — not merely a new voice.
+    """
+    instructions = axon.system_prompt or (
+        "Tu es un assistant vocal multilingue. Sois concis et conversationnel."
+    )
+    if axon.voice_style:
+        instructions = (
+            f"{instructions}\n\nStyle et ton à adopter : {axon.voice_style}. "
+            "Reste naturel et conversationnel."
+        )
+    if os.getenv("QUICK_ACK", "true").lower() not in ("false", "0", "no"):
+        instructions = (
+            f"{instructions}\n"
+            "Commence chaque réponse par un mot court (Oui, D'accord, "
+            "Bien sûr, Hmm), puis la réponse."
+        )
+    instructions = render_template(instructions, template_vars)
+    greeting = render_template(axon.greeting or "", template_vars)
+
+    tools: list = []
+    try:
+        tools.extend(_build_n8n_tools(axon))
+    except Exception:
+        logger.exception("handoff: n8n tools build failed")
+    if axon.rag_enabled:
+        try:
+            tools.append(_build_rag_tool(axon))
+        except Exception:
+            logger.exception("handoff: rag tool build failed")
+    save_tool = _build_save_contact_tool(save_contact_id, save_org_id, save_table, save_row)
+    if save_tool is not None:
+        tools.append(save_tool)
+    try:
+        t = build_transfer_tool(axon.id, ctx.room)
+        if t is not None:
+            tools.append(t)
+    except Exception:
+        logger.exception("handoff: transfer tool build failed")
+    try:
+        h = build_handoff_to_handle_tool(ctx.room)
+        if h is not None:
+            tools.append(h)
+    except Exception:
+        logger.exception("handoff: handoff_to_handle tool build failed")
+    return instructions, greeting, tools
+
+
+def _install_team_handoff_watcher(
+    ctx: JobContext,
+    session: AgentSession,
+    *,
+    template_vars: dict,
+    save_contact_id,
+    save_org_id,
+    save_table,
+    save_row,
+    clog,
+) -> None:
+    """Watch room metadata for `handoff_to` and FULLY swap the running agent
+    (prompt + greeting + tools + LLM + TTS) to the requested sibling.
+
+    This is what makes the Charlotte → Isabelle → Victoria journey actually
+    behave like three different agents on a real call, each writing back to
+    the same patient row.
+    """
+    state = {"seen": handoff_target_from_metadata(ctx.room.metadata), "busy": False}
+
+    async def _do_swap(target_agent_id: str) -> None:
+        try:
+            axon_next = await asyncio.to_thread(load_agent, target_agent_id)
+        except Exception:
+            clog.exception("handoff: failed to load agent %s", target_agent_id)
+            return
+        if not axon_next:
+            clog.warning("handoff: agent %s not found", target_agent_id)
+            return
+        instr, greet, tools = _assemble_agent_runtime(
+            axon_next,
+            template_vars=template_vars,
+            ctx=ctx,
+            save_contact_id=save_contact_id,
+            save_org_id=save_org_id,
+            save_table=save_table,
+            save_row=save_row,
+        )
+        try:
+            session.llm = _llm_for(axon_next)
+            session.tts = _tts_for(axon_next)
+            await session.update_agent(
+                AxonVoiceAgent(instructions=instr, tools=tools, greeting=greet)
+            )
+            clog.info(
+                "handoff: FULL swap -> %s (%s), %d tools",
+                axon_next.id, axon_next.name, len(tools),
+            )
+        except Exception:
+            clog.exception("handoff: full swap failed")
+
+    def _on_meta(*_a, **_k) -> None:
+        target = handoff_target_from_metadata(ctx.room.metadata)
+        if not target or target == state["seen"] or state["busy"]:
+            return
+        state["seen"] = target
+        state["busy"] = True
+
+        async def _run():
+            try:
+                await _do_swap(target)
+            finally:
+                state["busy"] = False
+
+        try:
+            asyncio.create_task(_run())
+        except RuntimeError:
+            state["busy"] = False
+
+    wired = False
+    for name in ("metadata_changed", "room_metadata_changed"):
+        try:
+            ctx.room.on(name, _on_meta)
+            wired = True
+            break
+        except Exception:
+            continue
+    if wired:
+        clog.info("team handoff watcher installed")
+    else:
+        clog.warning("team handoff watcher: no metadata_changed event on this SDK")
+
+
 def _wire_debug_logs(session: AgentSession, clog) -> None:
     """Log every STT transcript and every assistant turn — runs for ALL sessions,
     not just calls with a call_id. Helps diagnose silent LLM/TTS failures."""
@@ -1211,6 +1356,23 @@ async def entrypoint(ctx: JobContext) -> None:
     _wire_transcript_hooks(session, call_id)
     _wire_latency_metrics(session, clog)
     _wire_debug_logs(session, clog)
+
+    # Multi-agent team journey (Charlotte → Isabelle → Victoria): watch for
+    # `handoff_to` in room metadata and fully swap the running agent — prompt,
+    # greeting, tools, LLM and TTS — to the requested sibling, keeping the same
+    # call + the same write-back target. Without this, transfer_to_specialist
+    # only patches metadata that nobody reads.
+    if axon:
+        _install_team_handoff_watcher(
+            ctx,
+            session,
+            template_vars=template_vars,
+            save_contact_id=target_vars.get("__contact_id__"),
+            save_org_id=target_vars.get("__org_id__") or (axon.org_id if axon else None),
+            save_table=target_vars.get("__data_table__"),
+            save_row=target_vars.get("__data_row_id__"),
+            clog=clog,
+        )
 
     # Phase 1B — Filler audio. When the LLM is "thinking" after the user
     # speaks, the caller currently hears 1.5-2s of total silence
