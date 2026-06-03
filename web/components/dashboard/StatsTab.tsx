@@ -67,7 +67,15 @@ export function StatsTab({ from, to, direction }: { from: string; to: string; di
         <Kpi label={t("Taux d'abandon")} value={pct(k.abandon_rate)} tone={k.abandon_rate > 0.5 ? "bad" : "muted"} />
         <Kpi label={t("Durée moyenne")} value={fmtDuration(k.avg_duration_secs)} />
         <Kpi label={`↘ / ↗`} value={`${k.inbound} / ${k.outbound}`} />
-        <Kpi label={t("Coût estimé")} value={`$${k.cost_estimate.toFixed(2)}`} hint={`~$${k.cost_per_min}/min`} />
+        {k.cost_is_real ? (
+          <Kpi
+            label={t("Coût réel")}
+            value={`$${k.cost_real.toFixed(2)}`}
+            hint={`tel $${k.cost_breakdown.call_minutes.toFixed(2)} · IA $${(k.cost_breakdown.llm_tokens + k.cost_breakdown.tts_chars + k.cost_breakdown.stt_minutes).toFixed(2)}`}
+          />
+        ) : (
+          <Kpi label={t("Coût estimé")} value={`$${k.cost_estimate.toFixed(2)}`} hint={`~$${k.cost_per_min}/min`} />
+        )}
       </div>
 
       {/* Volume + Dispositions */}

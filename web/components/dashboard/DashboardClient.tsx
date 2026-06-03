@@ -8,7 +8,6 @@ import { KpiGrid } from "./KpiGrid";
 import { VolumeChart } from "./VolumeChart";
 import { DispositionsList } from "./DispositionsList";
 import { CampaignsTable } from "./CampaignsTable";
-import { CopilotPanel } from "./CopilotPanel";
 import { HelpButton } from "@/components/help/HelpButton";
 import { LiveMonitorClient } from "@/components/live/LiveMonitorClient";
 import { CallLogsTab } from "./CallLogsTab";
@@ -170,8 +169,6 @@ export function DashboardClient({ initial, initialError, orgId }: Props) {
 
         {tab === "live" && <LiveMonitorClient />}
       </div>
-
-      {tab === "overview" && <CopilotPanel orgId={orgId} />}
     </div>
   );
 }

@@ -409,6 +409,51 @@ def trigger_post_call_pipeline(call_id: Optional[str]) -> None:
         logger.exception("trigger_post_call_pipeline failed")
 
 
+def record_agent_usage(
+    org_id: Optional[str],
+    call_id: Optional[str],
+    *,
+    llm_tokens: int = 0,
+    tts_chars: int = 0,
+    stt_seconds: float = 0.0,
+) -> None:
+    """Report this call's REAL measured usage (LLM tokens, TTS chars, STT
+    seconds) to the web app, which records it with cost so the dashboard shows
+    real per-call cost. Best-effort: never blocks/raises into the call."""
+    if not org_id:
+        return
+    if (llm_tokens or 0) <= 0 and (tts_chars or 0) <= 0 and (stt_seconds or 0) <= 0:
+        return
+    base = (
+        os.getenv("NEXT_PUBLIC_APP_URL")
+        or (f"https://{os.getenv('VERCEL_URL')}" if os.getenv("VERCEL_URL") else None)
+    )
+    if not base:
+        logger.debug("record_agent_usage: no APP_URL — skipping")
+        return
+    base = base.rstrip("/")
+    headers = {"Content-Type": "application/json"}
+    token = os.getenv("APP_SHARED_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    try:
+        with httpx.Client(timeout=httpx.Timeout(8.0), headers=headers) as c:
+            r = c.post(
+                f"{base}/api/usage/agent",
+                json={
+                    "org_id": org_id,
+                    "call_id": call_id,
+                    "llm_tokens": int(llm_tokens or 0),
+                    "tts_chars": int(tts_chars or 0),
+                    "stt_seconds": float(stt_seconds or 0.0),
+                },
+            )
+            if r.status_code >= 400:
+                logger.warning("record_agent_usage -> HTTP %d %s", r.status_code, r.text[:200])
+    except Exception:
+        logger.exception("record_agent_usage failed (call=%s)", call_id)
+
+
 def update_call_recording_url(call_id: Optional[str], url: str) -> None:
     if not call_id or not has_supabase():
         return

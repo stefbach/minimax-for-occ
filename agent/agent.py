@@ -966,6 +966,59 @@ def _wire_latency_metrics(session: AgentSession, clog: logging.LoggerAdapter) ->
             clog.debug("session.on(%s) unavailable", ev_name)
 
 
+def _wire_usage_billing(ctx, session: AgentSession, call_id, org_id, clog) -> None:
+    """Accumulate this call's REAL usage (LLM tokens, TTS chars, STT seconds)
+    via a UsageCollector, and flush it to the web app at shutdown so the
+    dashboard cost reflects actual consumption. Never blocks the call."""
+    if not org_id:
+        clog.debug("usage billing: no org_id — skipping")
+        return
+    try:
+        from livekit.agents import metrics as _metrics
+        from db_writes import record_agent_usage
+    except Exception:
+        clog.debug("usage billing: metrics/db unavailable")
+        return
+
+    collector = _metrics.UsageCollector()
+
+    def _collect(ev):
+        try:
+            m = getattr(ev, "metrics", None) or ev
+            collector.collect(m)
+        except Exception:
+            pass
+
+    for ev_name in ("metrics_collected", "metrics"):
+        try:
+            session.on(ev_name, _collect)
+            break
+        except Exception:
+            continue
+
+    async def _flush():
+        try:
+            s = collector.get_summary()
+            llm_tokens = int(getattr(s, "llm_prompt_tokens", 0) or 0) + int(getattr(s, "llm_completion_tokens", 0) or 0)
+            tts_chars = int(getattr(s, "tts_characters_count", 0) or 0)
+            stt_seconds = float(getattr(s, "stt_audio_duration", 0.0) or 0.0)
+            clog.info(
+                "usage: llm_tokens=%d tts_chars=%d stt_secs=%.1f",
+                llm_tokens, tts_chars, stt_seconds,
+            )
+            await asyncio.to_thread(
+                record_agent_usage, org_id, call_id,
+                llm_tokens=llm_tokens, tts_chars=tts_chars, stt_seconds=stt_seconds,
+            )
+        except Exception:
+            clog.exception("usage billing flush failed")
+
+    try:
+        ctx.add_shutdown_callback(_flush)
+    except Exception:
+        clog.debug("usage billing: add_shutdown_callback unavailable")
+
+
 def _wire_transcript_hooks(session: AgentSession, call_id: Optional[str]) -> None:
     """Subscribe to session events to push each turn into call_transcripts.
 
@@ -1442,6 +1495,7 @@ async def entrypoint(ctx: JobContext) -> None:
     _wire_transcript_hooks(session, call_id)
     _wire_latency_metrics(session, clog)
     _wire_debug_logs(session, clog)
+    _wire_usage_billing(ctx, session, call_id, (axon.org_id if axon else None), clog)
 
     # Multi-agent team journey (Charlotte → Isabelle → Victoria): watch for
     # `handoff_to` in room metadata and fully swap the running agent — prompt,

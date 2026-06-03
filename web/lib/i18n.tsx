@@ -76,6 +76,7 @@ const EN: Record<string, string> = {
   "30 derniers j": "Last 30 days",
   "Tout": "All",
   "Coût estimé": "Est. cost",
+  "Coût réel": "Real cost",
   "Volume d'appels": "Call volume",
   "par heure": "per hour",
   "par jour": "per day",

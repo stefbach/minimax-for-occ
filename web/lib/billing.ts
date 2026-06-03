@@ -45,7 +45,8 @@ export async function recordUsage(
       org_id: orgId,
       event_type: eventType,
       quantity,
-      cost_cents: Math.round(costCents || 0),
+      // Fractional cents preserved — per-call LLM/TTS/STT costs are sub-cent.
+      cost_cents: Number.isFinite(costCents) ? costCents : 0,
       metadata,
     });
     if (error) {
@@ -68,28 +69,31 @@ export function secondsToBillableMinutes(seconds: number): number {
   return Math.ceil(seconds / 60);
 }
 
-/** Estimated cost helpers — all numbers in cents (1/100th of a USD/EUR). */
+/** Per-unit rate card, in cents. Override via env (CALL/LLM/TTS/STT_*_CENTS)
+ *  so each deployment can match its real provider invoices. The QUANTITIES are
+ *  measured (real Twilio minutes, real LLM tokens, real TTS chars, real STT
+ *  minutes) — only these rates are configurable estimates. */
 export const COST_RATES = {
-  // Conservative blended estimates — refine once we have real invoices.
-  call_minute_cents: 2,        // ~$0.02 / min Twilio outbound (FR/US mix)
-  llm_1k_tokens_cents: 0.3,    // deepseek-chat blended in/out (~10x moins cher qu'OpenAI)
-  tts_1k_chars_cents: 3,       // MiniMax speech-02
-  stt_minute_cents: 1,         // Deepgram nova
+  call_minute_cents: Number(process.env.RATE_CALL_MIN_CENTS ?? 2),    // Twilio voice / min
+  llm_1k_tokens_cents: Number(process.env.RATE_LLM_1K_CENTS ?? 0.3),  // DeepSeek blended in/out
+  tts_1k_chars_cents: Number(process.env.RATE_TTS_1K_CENTS ?? 3),     // Cartesia Sonic
+  stt_minute_cents: Number(process.env.RATE_STT_MIN_CENTS ?? 1),      // AssemblyAI / min
 } as const;
 
+/** Cost in FRACTIONAL cents (no rounding — per-call components are sub-cent). */
 export function estimateCostCents(
   eventType: UsageEventType,
   quantity: number,
 ): number {
   switch (eventType) {
     case "call_minutes":
-      return Math.round(quantity * COST_RATES.call_minute_cents);
+      return quantity * COST_RATES.call_minute_cents;
     case "llm_tokens":
-      return Math.round((quantity / 1000) * COST_RATES.llm_1k_tokens_cents);
+      return (quantity / 1000) * COST_RATES.llm_1k_tokens_cents;
     case "tts_chars":
-      return Math.round((quantity / 1000) * COST_RATES.tts_1k_chars_cents);
+      return (quantity / 1000) * COST_RATES.tts_1k_chars_cents;
     case "stt_minutes":
-      return Math.round(quantity * COST_RATES.stt_minute_cents);
+      return quantity * COST_RATES.stt_minute_cents;
     default:
       return 0;
   }

@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 
-export function CopilotPanel({ orgId }: { orgId?: string }) {
+export function CopilotPanel({ orgId, fullPage = false }: { orgId?: string; fullPage?: boolean }) {
   const [input, setInput] = useState("");
   const { messages, sendMessage, status, error } = useChat({
     transport: new DefaultChatTransport({
@@ -26,9 +26,9 @@ export function CopilotPanel({ orgId }: { orgId?: string }) {
   return (
     <aside
       style={{
-        width: 320,
+        width: fullPage ? "100%" : 320,
         flexShrink: 0,
-        position: "sticky",
+        position: fullPage ? "static" : "sticky",
         top: 16,
         alignSelf: "flex-start",
         background: "var(--panel)",
@@ -40,6 +40,7 @@ export function CopilotPanel({ orgId }: { orgId?: string }) {
         gap: 10,
         height: "calc(100vh - 56px)",
         minHeight: 480,
+        maxWidth: fullPage ? 900 : undefined,
       }}
     >
       <header>

@@ -40,6 +40,7 @@ const NAV: NavItem[] = [
   // ─── OVERVIEW ───
   { href: "/start",     label: "Démarrage guidé",  icon: "✦", group: "Overview" },
   { href: "/dashboard", label: "Tableau d'analyse", icon: "▣", group: "Overview" },
+  { href: "/copilot",   label: "Co-pilot manager", icon: "✸", group: "Overview", roles: MGMT },
   { href: "/desk",      label: "Mon poste",        icon: "⌂", group: "Overview" }, // all roles — anyone may take a call
   { href: "/alerts",    label: "Alertes",          icon: "!", group: "Overview", roles: OPS },
 

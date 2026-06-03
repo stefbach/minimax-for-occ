@@ -24,8 +24,11 @@ export type AnalyticsKpis = {
   abandon_rate: number;
   inbound: number;
   outbound: number;
-  cost_estimate: number;
+  cost_estimate: number;   // fallback: duration × rate, used only if no usage events
   cost_per_min: number;
+  cost_real: number;       // real cost (USD) from recorded usage_events over the period
+  cost_is_real: boolean;   // true when usage_events exist for the period
+  cost_breakdown: { call_minutes: number; llm_tokens: number; tts_chars: number; stt_minutes: number };
 };
 
 export type Bucket = { key: string; count: number };
@@ -130,6 +133,26 @@ export async function GET(request: Request) {
   const answeredDurSum = rows.filter(isAnswered).reduce((a, r) => a + (r.duration_secs ?? 0), 0);
   const inbound = rows.filter((r) => r.direction === "inbound").length;
   const outbound = rows.filter((r) => r.direction === "outbound").length;
+
+  // Real cost from recorded usage (telephony minutes + LLM tokens + TTS chars +
+  // STT minutes), summed over the period. cost_cents is fractional cents.
+  const { data: usage } = await sb
+    .from("usage_events")
+    .select("event_type, cost_cents")
+    .eq("org_id", orgId)
+    .gte("occurred_at", from.toISOString())
+    .lte("occurred_at", to.toISOString());
+  const breakdown = { call_minutes: 0, llm_tokens: 0, tts_chars: 0, stt_minutes: 0 };
+  let totalCents = 0;
+  for (const u of usage ?? []) {
+    const cents = Number((u as { cost_cents: number }).cost_cents) || 0;
+    totalCents += cents;
+    const k = (u as { event_type: string }).event_type as keyof typeof breakdown;
+    if (k in breakdown) breakdown[k] += cents;
+  }
+  const costReal = Math.round((totalCents / 100) * 100) / 100; // → dollars, 2dp
+  const r2 = (cents: number) => Math.round((cents / 100) * 100) / 100;
+
   const kpis: AnalyticsKpis = {
     total,
     answered,
@@ -140,6 +163,14 @@ export async function GET(request: Request) {
     outbound,
     cost_estimate: Math.round((durSum / 60) * COST_PER_MIN * 100) / 100,
     cost_per_min: COST_PER_MIN,
+    cost_real: costReal,
+    cost_is_real: (usage ?? []).length > 0,
+    cost_breakdown: {
+      call_minutes: r2(breakdown.call_minutes),
+      llm_tokens: r2(breakdown.llm_tokens),
+      tts_chars: r2(breakdown.tts_chars),
+      stt_minutes: r2(breakdown.stt_minutes),
+    },
   };
 
   // ── Volume buckets ──
