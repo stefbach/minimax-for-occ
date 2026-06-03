@@ -38,45 +38,37 @@ const OPS: Role[] = ["super_admin", "admin", "owner", "manager", "supervisor", "
 
 const NAV: NavItem[] = [
   // ─── OVERVIEW ───
-  { href: "/start",     label: "Démarrage guidé", icon: "✦", group: "Overview" },
+  { href: "/start",     label: "Démarrage guidé",  icon: "✦", group: "Overview" },
   { href: "/dashboard", label: "Tableau d'analyse", icon: "▣", group: "Overview" },
-  { href: "/desk",      label: "Mon poste",       icon: "⌂", group: "Overview" }, // all roles — anyone may take a call
+  { href: "/desk",      label: "Mon poste",        icon: "⌂", group: "Overview" }, // all roles — anyone may take a call
+  { href: "/alerts",    label: "Alertes",          icon: "!", group: "Overview", roles: OPS },
 
   // ─── CONFIGURATION ───
-  { href: "/agents",    label: "Agents",          icon: "◇", group: "Configuration", roles: MGMT },
-  { href: "/teams",     label: "Teams IA",        icon: "⌬", group: "Configuration", roles: MGMT },
-  { href: "/scripts",   label: "Scripts",         icon: "✎", group: "Configuration", roles: MGMT },
+  { href: "/agents",         label: "Agents",                icon: "◇", group: "Configuration", roles: MGMT },
+  { href: "/teams",          label: "Teams IA",              icon: "⌬", group: "Configuration", roles: MGMT },
+  { href: "/scripts",        label: "Scripts",               icon: "✎", group: "Configuration", roles: MGMT },
+  { href: "/agents/library", label: "Bibliothèque persona", icon: "⊕", group: "Configuration", roles: MGMT },
+  { href: "/voices",         label: "Voice Studio",          icon: "♪", group: "Configuration", roles: MGMT },
 
   // ─── OPÉRATIONS ───
-  { href: "/campaigns", label: "Campagnes",       icon: "⇈", group: "Opérations", roles: MGMT },
-  { href: "/calls",     label: "Appels",          icon: "☎", group: "Opérations", roles: OPS },
-  { href: "/workflows", label: "Workflows n8n",   icon: "⇄", group: "Opérations", roles: MGMT },
+  { href: "/campaigns", label: "Campagnes",      icon: "⇈", group: "Opérations", roles: MGMT },
+  { href: "/calls",     label: "Appels",         icon: "☎", group: "Opérations", roles: OPS },
+  { href: "/workflows", label: "Automatisation", icon: "⇄", group: "Opérations", roles: MGMT },
+  { href: "/flows",     label: "Flows / IVR",    icon: "❖", group: "Opérations", roles: MGMT },
+  { href: "/queues",    label: "Files d'attente", icon: "≡", group: "Opérations", roles: OPS },
 
   // ─── DONNÉES ───
-  { href: "/contacts",  label: "CRM / Contacts",  icon: "◐", group: "Données" },
+  { href: "/contacts",       label: "CRM / Contacts",      icon: "◐", group: "Données" },
+  { href: "/numbers",        label: "Numéros de téléphone", icon: "✆", group: "Données", roles: MGMT },
+  { href: "/numbers/health", label: "Santé des numéros",   icon: "♥", group: "Données", roles: MGMT },
 
   // ─── COMPTE ───
   { href: "/settings",  label: "Paramètres",      icon: "⚙", group: "Compte", roles: MGMT },
   { href: "/help",      label: "Guide",           icon: "?", group: "Compte" },
-
-  // ─── AVANCÉ (collapsible — pages not yet folded into their parent) ───
-  // Phase 2 → into Agents:
-  { href: "/voices",         label: "Voice Studio (→ Agents)",       icon: "♪", group: "Avancé", roles: MGMT, advanced: true },
-  { href: "/agents/library", label: "Bibliothèque persona (→ Agents)", icon: "⊕", group: "Avancé", roles: MGMT, advanced: true },
-  { href: "/documents",      label: "Documents RAG (→ Agents)",      icon: "≣", group: "Avancé", roles: MGMT, advanced: true },
-  // Phase 4 → into Appels:
-  { href: "/queues",         label: "Files d'attente (→ Appels)",    icon: "≡", group: "Avancé", roles: OPS,  advanced: true },
-  // Phase 5 → into Dashboard / Rapports:
-  { href: "/analytics",      label: "Analytics (→ Dashboard)",       icon: "▤", group: "Avancé", roles: OPS,  advanced: true },
-  { href: "/analyses",       label: "Analyses LLM (→ Rapports)",     icon: "∑", group: "Avancé", roles: MGMT, advanced: true },
-  { href: "/alerts",         label: "Alertes (→ Dashboard)",         icon: "!", group: "Avancé", roles: OPS,  advanced: true },
-  // Phase 6 → into Paramètres:
-  { href: "/numbers",        label: "Numéros (→ Paramètres)",        icon: "✆", group: "Avancé", roles: MGMT, advanced: true },
-  { href: "/numbers/health", label: "Santé numéros (→ Paramètres)",  icon: "♥", group: "Avancé", roles: MGMT, advanced: true },
-  { href: "/flows",          label: "Flows / IVR (avancé)",          icon: "❖", group: "Avancé", roles: MGMT, advanced: true },
 ];
 
-// Render order for the primary (non-advanced) groups.
+// Render order for the primary groups. The "Avancé" collapsible section is
+// fully retired — every advanced page now lives in its proper functional group.
 const GROUP_ORDER = ["Overview", "Configuration", "Opérations", "Données", "Compte"];
 
 export function ClientSidebar() {

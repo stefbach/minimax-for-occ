@@ -3,19 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import type { Voice } from "@/lib/types";
 
-const TTS_MODELS = [
-  { id: "speech-2.5-hd-preview", label: "speech-2.5-hd (preview, qualité maximale)" },
-  { id: "speech-02-hd", label: "speech-02-hd (HD multilingue)" },
-  { id: "speech-02-turbo", label: "speech-02-turbo (rapide, multilingue)" },
-  { id: "speech-01-turbo", label: "speech-01-turbo (rapide, économique)" },
-  { id: "speech-01", label: "speech-01 (legacy)" },
-];
-
 const LANGUAGES = ["multi", "fr", "en", "es", "de", "it", "zh", "ja"];
 
 export function VoiceStudio({ initial }: { initial: Voice[] }) {
   const [voices, setVoices] = useState<Voice[]>(initial);
-  const [model, setModel] = useState("speech-02-hd");
+  // The cloned voice is always created against the HD model; the per-listening
+  // model selector was removed from this page (no longer user-configurable here).
+  const model = "speech-02-hd";
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [playing, setPlaying] = useState<string | null>(null);
@@ -113,62 +107,8 @@ export function VoiceStudio({ initial }: { initial: Voice[] }) {
   const cloned = voices.filter((v) => v.source === "cloned");
   const presets = voices.filter((v) => v.source === "preset");
 
-  const [diag, setDiag] = useState<{ ok: boolean; checks: { name: string; ok: boolean; detail: string }[] } | null>(null);
-  const [diagBusy, setDiagBusy] = useState(false);
-  async function runDiagnostic() {
-    setDiagBusy(true);
-    try {
-      const r = await fetch("/api/voices/diagnostic");
-      setDiag(await r.json());
-    } catch (e) {
-      setDiag({ ok: false, checks: [{ name: "diagnostic", ok: false, detail: String(e) }] });
-    } finally {
-      setDiagBusy(false);
-    }
-  }
-
   return (
     <div style={{ display: "grid", gap: 16 }}>
-      <div className="card">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-          <h3 style={{ margin: 0 }}>Diagnostic MiniMax</h3>
-          <button className="ghost" onClick={runDiagnostic} disabled={diagBusy} style={{ padding: "5px 10px" }}>
-            {diagBusy ? "…" : "Tester la connexion"}
-          </button>
-        </div>
-        {diag && (
-          <table className="list" style={{ marginTop: 8 }}>
-            <thead><tr><th>Check</th><th>Statut</th><th>Détail</th></tr></thead>
-            <tbody>
-              {diag.checks.map((c) => (
-                <tr key={c.name}>
-                  <td><span className="kbd">{c.name}</span></td>
-                  <td>{c.ok ? <span className="tag good">OK</span> : <span className="tag" style={{ color: "var(--bad)", borderColor: "var(--bad)" }}>KO</span>}</td>
-                  <td className="muted" style={{ fontSize: 13 }}>{c.detail}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-
-      <div className="card">
-        <h3 style={{ marginTop: 0 }}>Modèle TTS pour les écoutes</h3>
-        <div className="form-row">
-          <div>
-            <label>Modèle MiniMax</label>
-            <select value={model} onChange={(e) => setModel(e.target.value)}>
-              {TTS_MODELS.map((m) => (
-                <option key={m.id} value={m.id}>{m.label}</option>
-              ))}
-            </select>
-          </div>
-          <div className="muted" style={{ alignSelf: "end", fontSize: 12, paddingBottom: 6 }}>
-            Choisissez la qualité audio. Le modèle sera aussi utilisable par agent (voir fiche agent).
-          </div>
-        </div>
-      </div>
-
       <div className="card">
         <h3 style={{ marginTop: 0 }}>Cloner une nouvelle voix</h3>
         <p className="muted" style={{ marginTop: 0 }}>
