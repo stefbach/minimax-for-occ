@@ -2,21 +2,23 @@ import { NextResponse } from "next/server";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { requestOrgId } from "@/lib/request-org";
 import { requireModule } from "@/lib/permissions-server";
+import { bucketForCall, QUAL_BUCKETS, type QualBucket } from "@/lib/qualification";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Director "Vue d'ensemble" KPIs — clones the OCC demo's exec summary, fed by
-// Axon's calls + usage_events (lime-window), multi-tenant. Qualification is the
-// call disposition (what the agent records), so the breakdown is generic.
+// Vue d'ensemble — clones the OCC Retell exec summary as closely as the
+// Axon schema allows. One endpoint computes every section so the client
+// hits a single URL per period change.
 
 const ACTIVE = new Set(["ringing", "ivr", "in_progress", "wrap_up"]);
 
 export type DirectorKpis = {
   totalCalls: number;
   answered: number;
+  notAnswered: number;
   answeredPct: number;
-  cost: number; // USD (real, from usage_events)
+  cost: number;
   rdvConfirmed: number;
   conversionRate: number;
   avgDuration: number;
@@ -24,10 +26,73 @@ export type DirectorKpis = {
   callsOverThreshold: number;
   threshold: number;
 };
+
 export type DirectorResponse = {
   kpis: DirectorKpis;
-  qualifications: { key: string; count: number }[];
+  inbound: { total: number; answered: number; notAnswered: number };
+  qualifications: { key: QualBucket; label: string; count: number }[];
+  slots: { matin: number; midi: number; soir: number; hors: number };
+  phases: { rappel: PhaseStat; j1: PhaseStat; j3: PhaseStat; j5: PhaseStat };
+  agentChain: { only1: number; plus2: number; plus3: number };
+  durationBuckets: { lt15s: number; s15_60: number; m1_2: number; m2_3: number; m3_5: number; gt5m: number };
+  summaries: SummaryRow[];
+  humanCallbacks: HumanCallbackRow[];
+  hints: { phasesAvailable: boolean; summariesAvailable: boolean };
 };
+
+type PhaseStat = { leads: number; calls: number };
+
+type SummaryRow = {
+  call_id: string;
+  contact_name: string | null;
+  qualification: QualBucket;
+  qualification_label: string;
+  agent_name: string | null;
+  duration: number;
+  started_at: string;
+  summary: string;
+};
+
+type HumanCallbackRow = {
+  task_id: string;
+  contact_name: string | null;
+  phone: string | null;
+  qualification: string | null;
+  scheduled_for: string | null;
+  status: string;
+};
+
+type CallRow = {
+  id: string;
+  direction: string | null;
+  state: string | null;
+  answered_at: string | null;
+  started_at: string | null;
+  duration_secs: number | null;
+  disposition: string | null;
+  agent_handle_id: string | null;
+  contact_id: string | null;
+  summary: string | null;
+  metadata: { qualification?: string | null } | null;
+  agent_handles?: { display_name: string | null } | null;
+  contacts?: { display_name: string | null } | null;
+};
+
+function slotForHour(h: number): "matin" | "midi" | "soir" | "hors" {
+  if (h >= 9 && h < 12) return "matin";
+  if (h >= 12 && h < 15) return "midi";
+  if (h >= 15 && h < 19) return "soir";
+  return "hors";
+}
+
+function durationBucketFor(secs: number): keyof DirectorResponse["durationBuckets"] {
+  if (secs < 15) return "lt15s";
+  if (secs < 60) return "s15_60";
+  if (secs < 120) return "m1_2";
+  if (secs < 180) return "m2_3";
+  if (secs < 300) return "m3_5";
+  return "gt5m";
+}
 
 export async function GET(request: Request) {
   if (!hasSupabase()) return NextResponse.json({ error: "Supabase non configuré" }, { status: 500 });
@@ -39,14 +104,21 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const now = new Date();
   const to = searchParams.get("to") ? new Date(searchParams.get("to")!) : now;
-  const from = searchParams.get("from") ? new Date(searchParams.get("from")!) : new Date(now.getTime() - 7 * 86400_000);
+  const from = searchParams.get("from")
+    ? new Date(searchParams.get("from")!)
+    : new Date(now.getTime() - 7 * 86400_000);
   const threshold = Number(searchParams.get("threshold") ?? 60);
   const direction = searchParams.get("direction");
 
   const sb = supabaseServer();
+
+  // Main calls query — covers KPIs, qualifications, slots, durations,
+  // inbound counts, and the summaries section in one round-trip.
   let q = sb
     .from("calls")
-    .select("id, direction, state, answered_at, duration_secs, disposition")
+    .select(
+      "id, direction, state, answered_at, started_at, duration_secs, disposition, agent_handle_id, contact_id, summary, metadata, agent_handles(display_name), contacts(display_name)",
+    )
     .eq("org_id", orgId)
     .gte("started_at", from.toISOString())
     .lte("started_at", to.toISOString())
@@ -55,35 +127,208 @@ export async function GET(request: Request) {
   const { data, error } = await q;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const rows = (data ?? []).filter((r) => !ACTIVE.has((r.state as string) ?? ""));
+  const rows = ((data ?? []) as unknown as CallRow[]).filter(
+    (r) => !ACTIVE.has(r.state ?? ""),
+  );
+
+  // KPIs
   const total = rows.length;
   const answered = rows.filter((r) => r.answered_at).length;
-  const answeredDur = rows.filter((r) => r.answered_at).reduce((a, r) => a + (r.duration_secs ?? 0), 0);
+  const notAnswered = total - answered;
+  const answeredDur = rows
+    .filter((r) => r.answered_at)
+    .reduce((a, r) => a + (r.duration_secs ?? 0), 0);
   const over = rows.filter((r) => (r.duration_secs ?? 0) > threshold).length;
 
-  const disp = new Map<string, number>();
+  // Qualification bucketing — one pass.
+  const qcount: Record<QualBucket, number> = {
+    rdv_confirme: 0, passer_humain: 0, rappel: 0, pas_interesse: 0,
+    pas_de_reponse: 0, repondeur: 0, faux_numero: 0, non_eligible: 0,
+    ne_pas_rappeler: 0, autre: 0,
+  };
+  const buckets: { row: CallRow; bucket: QualBucket }[] = [];
   for (const r of rows) {
-    const d = (r.disposition as string) || "—";
-    disp.set(d, (disp.get(d) ?? 0) + 1);
+    const b = bucketForCall(r);
+    qcount[b] += 1;
+    buckets.push({ row: r, bucket: b });
   }
-  const matches = (re: RegExp) =>
-    rows.filter((r) => re.test(((r.disposition as string) || "").toLowerCase())).length;
-  const rdvConfirmed = matches(/rdv|confirm|rendez/);
-  const callbacks = matches(/rappel|callback|programm/);
 
-  // Real cost over the period (USD) from usage_events.
+  // Inbound block — independent of the direction filter for this card.
+  const inboundRows = rows.filter((r) => r.direction === "inbound" || r.direction === "in");
+  const inbound = {
+    total: inboundRows.length,
+    answered: inboundRows.filter((r) => r.answered_at).length,
+    notAnswered: inboundRows.filter((r) => !r.answered_at).length,
+  };
+
+  // Créneaux matin / midi / soir / hors (UK-ish 09-12 / 12-15 / 15-19).
+  const slots = { matin: 0, midi: 0, soir: 0, hors: 0 };
+  for (const r of rows) {
+    if (!r.started_at) continue;
+    const h = new Date(r.started_at).getUTCHours();
+    slots[slotForHour(h)] += 1;
+  }
+
+  // Distribution des durées.
+  const durationBuckets = { lt15s: 0, s15_60: 0, m1_2: 0, m2_3: 0, m3_5: 0, gt5m: 0 };
+  for (const r of rows) {
+    const d = r.duration_secs ?? 0;
+    durationBuckets[durationBucketFor(d)] += 1;
+  }
+
+  // RDV / callbacks via bucket counts (consistent with the grid).
+  const rdvConfirmed = qcount.rdv_confirme;
+  const callbacks = qcount.rappel;
+
+  // Cost over the period.
   const { data: usage } = await sb
     .from("usage_events")
     .select("cost_cents")
     .eq("org_id", orgId)
     .gte("occurred_at", from.toISOString())
     .lte("occurred_at", to.toISOString());
-  const cost = (usage ?? []).reduce((a, u) => a + (Number((u as { cost_cents: number }).cost_cents) || 0), 0) / 100;
+  const cost =
+    (usage ?? []).reduce(
+      (a, u) => a + (Number((u as { cost_cents: number }).cost_cents) || 0),
+      0,
+    ) / 100;
+
+  // Chaîne d'agents — count distinct agents touched per call from call_events.
+  // Initial agent is calls.agent_handle_id (may be null for inbound). Handoffs
+  // are logged with kind='handoff_initiated' and payload.to.
+  const agentChain = { only1: 0, plus2: 0, plus3: 0 };
+  if (rows.length > 0) {
+    const callIds = rows.map((r) => r.id);
+    const { data: evs } = await sb
+      .from("call_events")
+      .select("call_id, kind, payload")
+      .in("call_id", callIds)
+      .in("kind", ["handoff_initiated", "transfer_pstn_requested"]);
+    const distinctByCall = new Map<string, Set<string>>();
+    for (const r of rows) {
+      const s = new Set<string>();
+      if (r.agent_handle_id) s.add(r.agent_handle_id);
+      distinctByCall.set(r.id, s);
+    }
+    for (const ev of (evs ?? []) as Array<{ call_id: string; payload: { to?: string } | null }>) {
+      const target = ev.payload?.to;
+      if (!target) continue;
+      const s = distinctByCall.get(ev.call_id);
+      if (s) s.add(target);
+    }
+    for (const s of distinctByCall.values()) {
+      const n = s.size || 1;
+      if (n >= 3) agentChain.plus3 += 1;
+      else if (n === 2) agentChain.plus2 += 1;
+      else agentChain.only1 += 1;
+    }
+  }
+
+  // "What they said" — pick up to 30 most recent calls with a non-empty
+  // summary, alongside their bucket. Client decides how to tab them.
+  const summaries: SummaryRow[] = buckets
+    .filter(({ row }) => row.summary && row.summary.trim().length > 0)
+    .sort((a, b) =>
+      (b.row.started_at ?? "").localeCompare(a.row.started_at ?? ""),
+    )
+    .slice(0, 80)
+    .map(({ row, bucket }) => ({
+      call_id: row.id,
+      contact_name: row.contacts?.display_name ?? null,
+      qualification: bucket,
+      qualification_label:
+        QUAL_BUCKETS.find((b) => b.key === bucket)?.label ?? bucket,
+      agent_name: row.agent_handles?.display_name ?? null,
+      duration: row.duration_secs ?? 0,
+      started_at: row.started_at ?? "",
+      summary: row.summary as string,
+    }));
+
+  // Dossiers à confier à un humain — open callback tasks.
+  const { data: tasks } = await sb
+    .from("human_callback_tasks")
+    .select(
+      "id, status, qualification, scheduled_for, contacts(display_name, e164)",
+    )
+    .eq("org_id", orgId)
+    .in("status", ["pending", "in_progress"])
+    .order("scheduled_for", { ascending: true, nullsFirst: false })
+    .limit(50);
+  const humanCallbacks: HumanCallbackRow[] = (
+    (tasks ?? []) as unknown as Array<{
+      id: string;
+      status: string;
+      qualification: string | null;
+      scheduled_for: string | null;
+      contacts: { display_name: string | null; e164: string | null } | null;
+    }>
+  ).map((t) => ({
+    task_id: t.id,
+    contact_name: t.contacts?.display_name ?? null,
+    phone: t.contacts?.e164 ?? null,
+    qualification: t.qualification,
+    scheduled_for: t.scheduled_for,
+    status: t.status,
+  }));
+
+  // Phases J1 / J3 / J5 — only meaningful when the tenant maintains a
+  // phase-aware leads table (OCC: leads_rdv_test_axon). For orgs without it
+  // we report zeros and a hint so the UI can label the section as N/A.
+  const phases: DirectorResponse["phases"] = {
+    rappel: { leads: 0, calls: 0 },
+    j1: { leads: 0, calls: 0 },
+    j3: { leads: 0, calls: 0 },
+    j5: { leads: 0, calls: 0 },
+  };
+  let phasesAvailable = false;
+  try {
+    // OCC org has leads_rdv_test_axon; we read it directly. Other orgs simply
+    // get 0s — no crash, no schema dependency.
+    const { data: leads, error: leadsErr } = await sb
+      .from("leads_rdv_test_axon" as never)
+      .select(
+        "qualification, date_j1, date_j3, date_j5, j1_attempts, j3_attempts, j5_attempts",
+      )
+      .limit(20000);
+    if (!leadsErr && Array.isArray(leads)) {
+      phasesAvailable = true;
+      type Lead = {
+        qualification: string | null;
+        date_j1: string | null;
+        date_j3: string | null;
+        date_j5: string | null;
+        j1_attempts: number | null;
+        j3_attempts: number | null;
+        j5_attempts: number | null;
+      };
+      for (const l of leads as unknown as Lead[]) {
+        if ((l.qualification ?? "").toLowerCase().includes("rappel")) {
+          phases.rappel.leads += 1;
+          phases.rappel.calls += Number(l.j1_attempts ?? 0);
+        }
+        if (l.date_j1) {
+          phases.j1.leads += 1;
+          phases.j1.calls += Number(l.j1_attempts ?? 0);
+        }
+        if (l.date_j3) {
+          phases.j3.leads += 1;
+          phases.j3.calls += Number(l.j3_attempts ?? 0);
+        }
+        if (l.date_j5) {
+          phases.j5.leads += 1;
+          phases.j5.calls += Number(l.j5_attempts ?? 0);
+        }
+      }
+    }
+  } catch {
+    /* leads table absent for this tenant — phasesAvailable stays false */
+  }
 
   const body: DirectorResponse = {
     kpis: {
       totalCalls: total,
       answered,
+      notAnswered,
       answeredPct: total ? (answered / total) * 100 : 0,
       cost: Math.round(cost * 100) / 100,
       rdvConfirmed,
@@ -93,9 +338,22 @@ export async function GET(request: Request) {
       callsOverThreshold: over,
       threshold,
     },
-    qualifications: Array.from(disp.entries())
-      .map(([key, count]) => ({ key, count }))
-      .sort((a, b) => b.count - a.count),
+    inbound,
+    qualifications: QUAL_BUCKETS.filter((b) => b.key !== "autre").map((b) => ({
+      key: b.key,
+      label: b.label,
+      count: qcount[b.key],
+    })),
+    slots,
+    phases,
+    agentChain,
+    durationBuckets,
+    summaries,
+    humanCallbacks,
+    hints: {
+      phasesAvailable,
+      summariesAvailable: summaries.length > 0,
+    },
   };
   return NextResponse.json(body);
 }
