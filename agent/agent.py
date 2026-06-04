@@ -1654,6 +1654,27 @@ async def entrypoint(ctx: JobContext) -> None:
             trigger_post_call_pipeline(call_id)
         except Exception:
             clog.exception("post-call pipeline trigger failed")
+        # Force LiveKit to release the room. Without this the room can linger
+        # for the project's empty_timeout (often 5-15 min) — and on prod we
+        # observed dozens of "active" rooms piling up to 87 min, saturating
+        # the worker and starving fresh calls of LLM/TTS bandwidth.
+        try:
+            from livekit import api as _lk_api  # local import: optional dep
+            lk_url = os.getenv("LIVEKIT_URL")
+            lk_key = os.getenv("LIVEKIT_API_KEY")
+            lk_secret = os.getenv("LIVEKIT_API_SECRET")
+            if lk_url and lk_key and lk_secret and getattr(ctx, "room", None):
+                room_name = getattr(ctx.room, "name", None)
+                if room_name:
+                    async with _lk_api.LiveKitAPI(lk_url, lk_key, lk_secret) as lkapi:
+                        await lkapi.room.delete_room(
+                            _lk_api.DeleteRoomRequest(room=room_name),
+                        )
+                    clog.info("room cleanup: deleted LiveKit room %s", room_name)
+        except Exception:
+            # Best-effort. A failed DeleteRoom only leaks one room and the
+            # post-call pipeline already fired above.
+            clog.exception("room cleanup: DeleteRoom failed")
 
     try:
         ctx.add_shutdown_callback(_on_shutdown)
