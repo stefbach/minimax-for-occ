@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import * as XLSX from "xlsx";
 
 export interface ColumnSpec {
   key: string;
@@ -17,6 +18,12 @@ interface Props {
   initialRows: Record<string, unknown>[];
 }
 
+type ImportReport = {
+  inserted: number;
+  total: number;
+  errors: { row: number; reason: string }[];
+};
+
 export function DataTableDetail({ registryId, columns, phoneColumn, initialRows }: Props) {
   const router = useRouter();
   const [rows, setRows] = useState(initialRows);
@@ -25,6 +32,74 @@ export function DataTableDetail({ registryId, columns, phoneColumn, initialRows 
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [importBusy, setImportBusy] = useState(false);
+  const [importReport, setImportReport] = useState<ImportReport | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Build a label → key map so users can fill the human-readable template
+  // and we still know which DB column each cell targets.
+  const keyByLabel: Record<string, string> = {};
+  for (const c of columns) keyByLabel[c.label.toLowerCase()] = c.key;
+  keyByLabel["téléphone"] = phoneColumn;
+  keyByLabel["telephone"] = phoneColumn;
+  keyByLabel["phone"] = phoneColumn;
+  keyByLabel[phoneColumn.toLowerCase()] = phoneColumn;
+
+  async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportBusy(true);
+    setImportError(null);
+    setImportReport(null);
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: "array" });
+      const sheetName = wb.SheetNames[0];
+      if (!sheetName) throw new Error("Fichier vide.");
+      const ws = wb.Sheets[sheetName];
+      const json = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: "" });
+      if (json.length === 0) throw new Error("Aucune ligne trouvée dans le fichier.");
+
+      // Re-map labels → column keys. Skip the example row (any row whose
+      // phone cell is the template placeholder).
+      const mapped = json
+        .map((row) => {
+          const out: Record<string, unknown> = {};
+          for (const [rawHeader, value] of Object.entries(row)) {
+            const k = keyByLabel[rawHeader.toLowerCase().trim()] ?? rawHeader;
+            if (value !== "" && value !== null && value !== undefined) out[k] = value;
+          }
+          return out;
+        })
+        .filter((r) => {
+          const phone = String(r[phoneColumn] ?? "").trim();
+          return phone && !phone.includes("XXXX");
+        });
+
+      if (mapped.length === 0) {
+        throw new Error("Aucune ligne valide à importer (téléphone manquant ?).");
+      }
+
+      const r = await fetch(`/api/data-tables/${registryId}/rows/bulk`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ rows: mapped }),
+      });
+      const body = await r.json();
+      if (!r.ok) {
+        setImportError(body.error ?? `Échec import (HTTP ${r.status})`);
+        return;
+      }
+      setImportReport(body as ImportReport);
+      router.refresh();
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setImportBusy(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
 
   // Columns to render: phone first, then declared columns (deduped).
   const displayCols: ColumnSpec[] = [
@@ -89,7 +164,86 @@ export function DataTableDetail({ registryId, columns, phoneColumn, initialRows 
           style={{ flex: "1 1 240px", minWidth: 200 }}
         />
         <button onClick={() => setShowAdd((v) => !v)}>{showAdd ? "Annuler" : "+ Ajouter un contact"}</button>
+        <button
+          className="ghost"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={importBusy}
+          title="Importer un fichier CSV ou Excel"
+        >
+          {importBusy ? "Import…" : "📥 Importer CSV/Excel"}
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".csv,.xlsx,.xls"
+          onChange={handleImport}
+          style={{ display: "none" }}
+        />
+        <a
+          href={`/api/data-tables/${registryId}/template?format=xlsx`}
+          className="ghost"
+          style={{
+            display: "inline-flex", alignItems: "center", gap: 6,
+            padding: "6px 12px", border: "1px solid var(--border)",
+            borderRadius: 6, textDecoration: "none", color: "var(--text)",
+            fontSize: 13,
+          }}
+          title="Télécharger un modèle Excel pré-rempli avec les bonnes colonnes"
+        >
+          📤 Modèle Excel
+        </a>
       </div>
+
+      {(importReport || importError) && (
+        <div
+          className="card"
+          style={{
+            display: "flex", alignItems: "flex-start", gap: 10, padding: 12,
+            borderColor: importError ? "var(--bad)" : importReport && importReport.errors.length > 0 ? "var(--warn)" : "var(--good)",
+            background: importError
+              ? "color-mix(in srgb, var(--bad) 8%, var(--panel))"
+              : importReport && importReport.errors.length > 0
+                ? "color-mix(in srgb, var(--warn) 8%, var(--panel))"
+                : "color-mix(in srgb, var(--good) 8%, var(--panel))",
+          }}
+        >
+          <div style={{ flex: 1, fontSize: 13 }}>
+            {importError ? (
+              <div style={{ color: "var(--bad)" }}>❌ {importError}</div>
+            ) : importReport ? (
+              <>
+                <div style={{ fontWeight: 600 }}>
+                  ✅ {importReport.inserted} ligne{importReport.inserted > 1 ? "s" : ""} importée{importReport.inserted > 1 ? "s" : ""}
+                  {importReport.total !== importReport.inserted && (
+                    <span style={{ color: "var(--warn)" }}> · {importReport.total - importReport.inserted} ignorée(s)</span>
+                  )}
+                </div>
+                {importReport.errors.length > 0 && (
+                  <details style={{ marginTop: 6 }}>
+                    <summary style={{ cursor: "pointer", color: "var(--warn)", fontSize: 12 }}>
+                      Voir les {importReport.errors.length} erreur(s) ▾
+                    </summary>
+                    <ul style={{ margin: "6px 0 0 0", paddingLeft: 18, fontSize: 12 }}>
+                      {importReport.errors.slice(0, 50).map((er, i) => (
+                        <li key={i}>Ligne {er.row} : {er.reason}</li>
+                      ))}
+                      {importReport.errors.length > 50 && <li>…et {importReport.errors.length - 50} de plus</li>}
+                    </ul>
+                  </details>
+                )}
+              </>
+            ) : null}
+          </div>
+          <button
+            className="ghost"
+            onClick={() => { setImportReport(null); setImportError(null); }}
+            style={{ padding: "2px 8px" }}
+            title="Fermer"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       {showAdd && (
         <form className="card" onSubmit={addRow} style={{ display: "grid", gap: 12 }}>
