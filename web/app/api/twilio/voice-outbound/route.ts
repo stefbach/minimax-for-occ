@@ -43,10 +43,19 @@ export async function POST(req: Request) {
   // Twilio.Device.connect({ params: {...} }), so we have access to
   // arbitrary metadata. We expect an `OrgId` param the client adds so
   // we can pick the right From number for geo-routing.
+  //
+  // `HumanFrom` (when set by /desk via /api/desk/caller-id) takes
+  // precedence — it's the explicit "Humain" caller-ID for the org,
+  // separate from the IA campaign caller-IDs. We validate it's a
+  // sane E.164 to avoid a spoofing vector from the client.
   const orgId = form.get("OrgId") ?? null;
+  const humanFromRaw = (form.get("HumanFrom") ?? "").trim();
+  const humanFrom = /^\+\d{6,15}$/.test(humanFromRaw) ? humanFromRaw : "";
 
   let from = "";
-  if (hasSupabase() && orgId) {
+  if (humanFrom) {
+    from = humanFrom;
+  } else if (hasSupabase() && orgId) {
     try {
       const admin = supabaseServer();
       const picked = await pickFromNumber(admin, orgId, to);

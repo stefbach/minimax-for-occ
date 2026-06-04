@@ -178,10 +178,27 @@ export function Softphone() {
 
       // Twilio's TwiML app receives every param we set here as form fields.
       // OrgId lets the backend geo-route the From caller-ID against
-      // phone_numbers for this org.
-      const call = await device.connect({
-        params: { To: dialNumber, OrgId: handle.org_id },
-      });
+      // phone_numbers for this org. HumanFrom takes precedence — it's the
+      // org's "Humain" number (see /api/desk/caller-id) so human agents
+      // don't borrow the IA's campaign caller-ID for personal callbacks.
+      let humanFrom = "";
+      try {
+        const r = await fetch("/api/desk/caller-id", { cache: "no-store" });
+        if (r.ok) {
+          const j = (await r.json()) as { e164: string | null };
+          if (j.e164) humanFrom = j.e164;
+        }
+      } catch {
+        /* best-effort — leave empty and let the server fall back to geo-routing */
+      }
+
+      const params: Record<string, string> = {
+        To: dialNumber,
+        OrgId: handle.org_id,
+      };
+      if (humanFrom) params.HumanFrom = humanFrom;
+
+      const call = await device.connect({ params });
       twilioCallRef.current = call;
       setTwilioCallState("ringing");
 
