@@ -52,6 +52,9 @@ html, body {
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
+  /* Mobile: stop Safari/Chrome from auto-inflating font sizes on rotate. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 a { color: inherit; text-decoration: none; }
@@ -66,8 +69,13 @@ button {
   font-weight: 600;
   cursor: pointer;
   font-size: 14px;
+  /* Tap-friendly default on mobile while staying compact on desktop. */
+  min-height: 36px;
   transition: filter 120ms ease, transform 120ms ease;
 }
+/* Larger touch targets inside the softphone and Desk keypad — those are the
+   two places agents tap rapidly under stress, so we enforce 44×44 minimum. */
+.softphone button, .desk-keypad button { min-height: 44px; min-width: 44px; }
 button:hover { filter: brightness(1.05); }
 button:active { transform: translateY(1px); }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -108,9 +116,8 @@ label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px
   grid-template-columns: 240px 1fr;
   min-height: 100vh;
 }
-@media (max-width: 880px) {
-  .app-shell { grid-template-columns: 1fr; }
-}
+/* Below 980px the sidebar becomes a slide-in drawer — see the mobile-nav
+   rules near the bottom of this file. */
 
 .sidebar {
   background: var(--bg-2);
@@ -127,17 +134,6 @@ label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px
      sticky positioning prevents the outer page scroll from revealing them. */
   overflow-y: auto;
   overscroll-behavior: contain;
-}
-@media (max-width: 880px) {
-  .sidebar {
-    position: static;
-    height: auto;
-    border-right: 0;
-    border-bottom: 1px solid var(--border);
-    flex-direction: row;
-    overflow-x: auto;
-    padding: 12px;
-  }
 }
 .sidebar .brand {
   display: flex;
@@ -175,7 +171,7 @@ label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px
   width: 100%;
   margin: 0 auto;
 }
-@media (max-width: 720px) {
+@media (max-width: 760px) {
   .main { padding: 18px; }
 }
 
@@ -203,8 +199,22 @@ label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px
 .grid { display: grid; gap: 14px; }
 .grid.cols-2 { grid-template-columns: repeat(2, minmax(0,1fr)); }
 .grid.cols-3 { grid-template-columns: repeat(3, minmax(0,1fr)); }
-@media (max-width: 720px) {
+@media (max-width: 760px) {
   .grid.cols-2, .grid.cols-3 { grid-template-columns: 1fr; }
+}
+
+/* KPI grids used by Director / NHS / Stats tabs. 4 columns desktop, 2
+   columns tablet, 1 column phone. Replaces dozens of inline grid styles. */
+.grid-kpi {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+@media (max-width: 980px) {
+  .grid-kpi { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 480px) {
+  .grid-kpi { grid-template-columns: 1fr; }
 }
 
 .tag {
@@ -328,9 +338,20 @@ table.list th, table.list td {
 table.list th { color: var(--muted); font-weight: 500; text-transform: uppercase; font-size: 11px; letter-spacing: 0.5px; }
 table.list tr:hover td { background: var(--panel-2); }
 
+/* Wrap any table that might overflow on phones — opt-in by adding the
+   class to the parent .card. Existing `.card` blocks with `padding: 0;
+   overflow: hidden` around `table.list` are unaffected on desktop, but
+   gain horizontal scroll on narrow screens via this wrapper. */
+.responsive-table { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+@media (max-width: 760px) {
+  /* Auto-apply: any .card directly containing a .list table gets horizontal
+     scroll on mobile so cells never blow out the viewport. */
+  .card > table.list { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+}
+
 /* form rows */
 .form-row { display: grid; gap: 14px; grid-template-columns: 1fr 1fr; }
-@media (max-width: 720px) { .form-row { grid-template-columns: 1fr; } }
+@media (max-width: 760px) { .form-row { grid-template-columns: 1fr; } }
 
 /* ─── Softphone ──────────────────────────────────────────── */
 .softphone { display: flex; flex-direction: column; gap: 14px; }
@@ -425,4 +446,85 @@ table.list tr:hover td { background: var(--panel-2); }
   border-color: var(--bad);
   color: var(--bad);
   background: rgba(248, 113, 113, 0.1);
+}
+
+/* ─── Modals (generic responsive contract) ───────────────────
+   Most modals in the app are styled inline (position: fixed overlay +
+   inner .card). These rules apply when the modal opts in via the
+   `.modal-card` class on the inner element. Existing inline modals
+   already use `padding: 16` on the overlay so they never butt against
+   the viewport edge — these utilities just ensure the inner card
+   never exceeds the screen height. */
+.modal-card {
+  width: min(560px, 100%);
+  max-height: 90vh;
+  overflow-y: auto;
+}
+@media (max-width: 480px) {
+  .modal-card { width: 100%; max-height: 92vh; }
+}
+
+/* ─── Mobile sidebar drawer ──────────────────────────────────
+   The ClientSidebar component injects a hamburger button + backdrop
+   that are visible only below 980px (see ClientSidebar.tsx). These
+   rules style + animate the drawer transition. Desktop ≥980px is
+   completely unaffected. */
+.mobile-nav-toggle {
+  display: none;
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 60;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  font-size: 20px;
+  line-height: 1;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+.mobile-nav-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 55;
+  animation: fadeIn 160ms ease;
+}
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+@media (max-width: 979px) {
+  .mobile-nav-toggle { display: inline-flex; }
+  /* Collapse the app shell to a single column; we'll overlay the
+     sidebar on demand. Replaces the older flex-row treatment below
+     880px which crowded the top with a horizontally-scrolling nav. */
+  .app-shell { grid-template-columns: 1fr; }
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: min(280px, 84vw);
+    height: 100vh;
+    border-right: 1px solid var(--border);
+    border-bottom: 0;
+    flex-direction: column;
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding: 56px 14px 20px; /* leave room for the close button at top-left */
+    z-index: 56;
+    transform: translateX(-100%);
+    transition: transform 180ms ease-out;
+    box-shadow: 4px 0 18px rgba(0, 0, 0, 0.35);
+  }
+  .sidebar.open { transform: translateX(0); }
+  .mobile-nav-backdrop.open { display: block; }
+  /* Push the main content right of the hamburger button so the page
+     header isn't hidden behind it. */
+  .main { padding-top: 64px; }
 }
