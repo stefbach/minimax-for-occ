@@ -123,7 +123,7 @@ export function NhsSuiviTab() {
         <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 8 }}>
           ⌑ {t("Communication patient")}
         </div>
-        <div className="grid" style={{ gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 12 }}>
+        <div className="grid-kpi">
           <CommCard
             label={t("Email explicatif envoyé")}
             value={data.comms.email_j0_sent}
@@ -164,7 +164,7 @@ export function NhsSuiviTab() {
         <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 8 }}>
           📁 {t("État des dossiers")}
         </div>
-        <div className="grid" style={{ gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 12 }}>
+        <div className="grid-kpi">
           <CommCard
             label={t("Aucun document")}
             value={data.file_status.no_document}
@@ -201,7 +201,7 @@ export function NhsSuiviTab() {
         <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 8 }}>
           🏥 {t("Suivi NHS S2 (après soumission)")}
         </div>
-        <div className="grid" style={{ gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 12 }}>
+        <div className="grid-kpi">
           <CommCard
             label={t("Envoyés NHS")}
             value={data.nhs_tracking.submitted}

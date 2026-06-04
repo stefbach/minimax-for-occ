@@ -52,7 +52,7 @@ export function DirectorTab({ from, to, direction }: { from: string; to: string;
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
-      <div className="grid" style={{ gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 12 }}>
+      <div className="grid-kpi">
         {tiles.map((tile) => (
           <div
             key={tile.label}

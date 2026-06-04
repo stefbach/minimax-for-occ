@@ -61,7 +61,7 @@ export function StatsTab({ from, to, direction }: { from: string; to: string; di
       )}
 
       {/* KPI row */}
-      <div className="grid" style={{ gridTemplateColumns: "repeat(6, minmax(0,1fr))", gap: 12 }}>
+      <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12 }}>
         <Kpi label={t("Appels")} value={String(k.total)} />
         <Kpi label={t("Réussis")} value={`${k.answered} · ${pct(k.answer_rate)}`} tone="good" />
         <Kpi label={t("Taux d'abandon")} value={pct(k.abandon_rate)} tone={k.abandon_rate > 0.5 ? "bad" : "muted"} />

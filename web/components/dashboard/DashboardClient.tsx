@@ -87,8 +87,8 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
   };
 
   return (
-    <div style={{ display: "flex", gap: 18, alignItems: "flex-start" }}>
-      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 18 }}>
+    <div style={{ display: "flex", gap: 18, alignItems: "flex-start", flexWrap: "wrap" }}>
+      <div style={{ flex: 1, minWidth: 0, width: "100%", display: "flex", flexDirection: "column", gap: 18 }}>
         <div className="page-header" style={{ marginBottom: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <span style={{ fontSize: 22 }}>📞</span>
@@ -97,7 +97,9 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
               <div className="subtitle">{t("Pilotage et analyse de vos appels Axon")}.</div>
             </div>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {/* page-header is already flex-wrap; the inner button cluster also
+              wraps so Actualiser + Help stack cleanly on phones. */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <button className="ghost" onClick={fetchData} disabled={refreshing}>
               {refreshing ? t("Actualisation…") : t("Actualiser")}
             </button>
