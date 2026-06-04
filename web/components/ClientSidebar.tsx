@@ -8,6 +8,7 @@ import { OrgSwitcher } from "./OrgSwitcher";
 import { ThemeLangSwitcher } from "./ThemeLangSwitcher";
 import { useT } from "@/lib/i18n";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+import { effectiveModules, isModuleId, type ModuleId } from "@/lib/permissions";
 
 // Width below which the sidebar morphs into a slide-in drawer. Kept in sync
 // with the `.mobile-nav-toggle` media query in globals.css.
@@ -29,51 +30,46 @@ interface NavItem {
   label: string;
   icon: string;
   group: string;
-  /** Which roles can see this entry. Empty/omitted = everyone. */
-  roles?: Role[];
+  /** Which module this entry belongs to. Items without a module are visible
+   *  to every authenticated user (e.g. /start, /help). Visibility is now
+   *  computed via effectiveModules(role, visible_modules) — the owner can
+   *  subtract specific modules per-user via memberships.visible_modules. */
+  module?: ModuleId;
   /** True = lives under the collapsible "Avancé" section (not yet folded into
    *  its parent page). Removed from there as later phases relocate it. */
   advanced?: boolean;
 }
 
-// Reusable role buckets.
-const MGMT: Role[] = ["super_admin", "admin", "owner", "manager"];
-const OWNER_ADMIN: Role[] = ["super_admin", "owner", "admin"];
-// OPS = anyone allowed to consult ops surfaces (dashboards, calls, queues).
-// Includes 'agent' so human callers see the analytics tab by default — the
-// owner can subtract individual modules per user via membership permissions.
-const OPS: Role[] = ["super_admin", "admin", "owner", "manager", "supervisor", "analyst", "viewer", "agent"];
-
 const NAV: NavItem[] = [
   // ─── OVERVIEW ───
   { href: "/start",     label: "Démarrage guidé",  icon: "✦", group: "Overview" },
-  { href: "/dashboard", label: "Tableau d'analyse", icon: "▣", group: "Overview" },
-  { href: "/copilot",   label: "Co-pilot manager", icon: "✸", group: "Overview", roles: MGMT },
-  { href: "/desk",      label: "Mon poste",        icon: "⌂", group: "Overview" }, // all roles — anyone may take a call
-  { href: "/alerts",    label: "Alertes",          icon: "!", group: "Overview", roles: OPS },
+  { href: "/dashboard", label: "Tableau d'analyse", icon: "▣", group: "Overview", module: "dashboard" },
+  { href: "/copilot",   label: "Co-pilot manager", icon: "✸", group: "Overview", module: "copilot" },
+  { href: "/desk",      label: "Mon poste",        icon: "⌂", group: "Overview", module: "desk" },
+  { href: "/alerts",    label: "Alertes",          icon: "!", group: "Overview", module: "alerts" },
 
   // ─── CONFIGURATION ───
-  { href: "/agents",         label: "Agents",                icon: "◇", group: "Configuration", roles: MGMT },
-  { href: "/teams",          label: "Teams IA",              icon: "⌬", group: "Configuration", roles: MGMT },
-  { href: "/scripts",        label: "Scripts",               icon: "✎", group: "Configuration", roles: MGMT },
-  { href: "/agents/library", label: "Bibliothèque persona", icon: "⊕", group: "Configuration", roles: MGMT },
-  { href: "/voices",         label: "Voice Studio",          icon: "♪", group: "Configuration", roles: MGMT },
+  { href: "/agents",         label: "Agents",                icon: "◇", group: "Configuration", module: "agents" },
+  { href: "/teams",          label: "Teams IA",              icon: "⌬", group: "Configuration", module: "agents" },
+  { href: "/scripts",        label: "Scripts",               icon: "✎", group: "Configuration", module: "agents" },
+  { href: "/agents/library", label: "Bibliothèque persona", icon: "⊕", group: "Configuration", module: "agents" },
+  { href: "/voices",         label: "Voice Studio",          icon: "♪", group: "Configuration", module: "agents" },
 
   // ─── OPÉRATIONS ───
-  { href: "/campaigns", label: "Campagnes",      icon: "⇈", group: "Opérations", roles: MGMT },
-  { href: "/calls",     label: "Appels",         icon: "☎", group: "Opérations", roles: OPS },
-  { href: "/workflows", label: "Automatisation", icon: "⇄", group: "Opérations", roles: MGMT },
-  { href: "/flows",     label: "Flows / IVR",    icon: "❖", group: "Opérations", roles: MGMT },
-  { href: "/queues",    label: "Files d'attente", icon: "≡", group: "Opérations", roles: OPS },
+  { href: "/campaigns", label: "Campagnes",      icon: "⇈", group: "Opérations", module: "campaigns" },
+  { href: "/calls",     label: "Appels",         icon: "☎", group: "Opérations", module: "calls" },
+  { href: "/workflows", label: "Automatisation", icon: "⇄", group: "Opérations", module: "workflows" },
+  { href: "/flows",     label: "Flows / IVR",    icon: "❖", group: "Opérations", module: "flows" },
+  { href: "/queues",    label: "Files d'attente", icon: "≡", group: "Opérations", module: "queues" },
 
   // ─── DONNÉES ───
-  { href: "/contacts",       label: "CRM / Contacts",      icon: "◐", group: "Données" },
-  { href: "/numbers",        label: "Numéros de téléphone", icon: "✆", group: "Données", roles: MGMT },
-  { href: "/numbers/health", label: "Santé des numéros",   icon: "♥", group: "Données", roles: MGMT },
+  { href: "/contacts",       label: "CRM / Contacts",      icon: "◐", group: "Données", module: "contacts" },
+  { href: "/numbers",        label: "Numéros de téléphone", icon: "✆", group: "Données", module: "numbers" },
+  { href: "/numbers/health", label: "Santé des numéros",   icon: "♥", group: "Données", module: "numbers" },
 
   // ─── COMPTE ───
-  { href: "/team",      label: "Équipe",          icon: "◉", group: "Compte", roles: OWNER_ADMIN },
-  { href: "/settings",  label: "Paramètres",      icon: "⚙", group: "Compte", roles: MGMT },
+  { href: "/team",      label: "Équipe",          icon: "◉", group: "Compte", module: "team" },
+  { href: "/settings",  label: "Paramètres",      icon: "⚙", group: "Compte", module: "settings" },
   { href: "/help",      label: "Guide",           icon: "?", group: "Compte" },
 ];
 
@@ -85,6 +81,7 @@ export function ClientSidebar() {
   const t = useT();
   const pathname = usePathname() ?? "/";
   const [role, setRole] = useState<Role | null>(null);
+  const [visibleModules, setVisibleModules] = useState<ModuleId[] | null>(null);
   const [loadedRole, setLoadedRole] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   // Mobile drawer state — only meaningful below MOBILE_BREAKPOINT; ignored
@@ -128,21 +125,28 @@ export function ClientSidebar() {
         return;
       }
       sb.from("memberships")
-        .select("role")
+        .select("role, visible_modules")
         .order("created_at", { ascending: true })
         .limit(1)
         .maybeSingle()
-        .then((mr: { data: { role?: string } | null }) => {
+        .then((mr: { data: { role?: string; visible_modules?: unknown } | null }) => {
           setRole((mr.data?.role as Role) ?? "agent");
+          const vm = mr.data?.visible_modules;
+          if (Array.isArray(vm)) {
+            setVisibleModules((vm as unknown[]).filter(isModuleId) as ModuleId[]);
+          } else {
+            setVisibleModules(null);
+          }
           setLoadedRole(true);
         });
     });
   }, []);
 
+  const allowedModules = effectiveModules({ role, visible_modules: visibleModules });
   const canSee = (n: NavItem): boolean => {
     if (!loadedRole || !role) return true; // pre-load: show everything to avoid flicker
-    if (!n.roles || n.roles.length === 0) return true;
-    return n.roles.includes(role);
+    if (!n.module) return true;
+    return allowedModules.includes(n.module);
   };
 
   const visible = NAV.filter(canSee);
