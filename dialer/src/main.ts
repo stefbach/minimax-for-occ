@@ -77,7 +77,21 @@ async function scheduleTick() {
 
 interface Schedule {
   days?: number[];
-  hours?: { start?: string; end?: string };
+  // Single legacy range OR an explicit list of ranges (multi-créneaux).
+  // When `ranges` is present and non-empty, it takes precedence over the
+  // legacy start/end. Times are UTC HH:MM (the wizard converts before sending).
+  hours?: {
+    start?: string;
+    end?: string;
+    ranges?: Array<{ start: string; end: string }>;
+  };
+}
+
+function toMinutes(hhmm: string | undefined): number | null {
+  if (!hhmm) return null;
+  const [h, m] = hhmm.split(":").map(Number);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+  return h * 60 + m;
 }
 
 function withinSchedule(schedule: Schedule | null | undefined, now: Date): boolean {
@@ -85,14 +99,19 @@ function withinSchedule(schedule: Schedule | null | undefined, now: Date): boole
   const days = schedule.days;
   if (Array.isArray(days) && days.length > 0 && !days.includes(now.getDay())) return false;
   const hours = schedule.hours;
-  if (hours?.start && hours?.end) {
-    const [sh, sm] = hours.start.split(":").map(Number);
-    const [eh, em] = hours.end.split(":").map(Number);
-    const cur = now.getHours() * 60 + now.getMinutes();
-    const startM = (sh || 0) * 60 + (sm || 0);
-    const endM = (eh || 23) * 60 + (em || 59);
-    if (cur < startM || cur > endM) return false;
+  if (!hours) return true;
+  const cur = now.getUTCHours() * 60 + now.getUTCMinutes();
+  if (Array.isArray(hours.ranges) && hours.ranges.length > 0) {
+    // ANY range that contains `now` keeps the campaign eligible.
+    return hours.ranges.some((r) => {
+      const s = toMinutes(r.start);
+      const e = toMinutes(r.end);
+      return s !== null && e !== null && cur >= s && cur <= e;
+    });
   }
+  const s = toMinutes(hours.start);
+  const e = toMinutes(hours.end);
+  if (s !== null && e !== null && (cur < s || cur > e)) return false;
   return true;
 }
 

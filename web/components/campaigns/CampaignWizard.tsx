@@ -328,8 +328,19 @@ export function CampaignWizard({
   const [days, setDays] = useState<number[]>(TPL_DEFAULTS.days);
   // Timezone in which hourStart/hourEnd are expressed. Templates may override.
   const [timezone, setTimezone] = useState(TPL_DEFAULTS.timezone);
-  const [hourStart, setHourStart] = useState(TPL_DEFAULTS.hourStart);
-  const [hourEnd, setHourEnd] = useState(TPL_DEFAULTS.hourEnd);
+  // Multi-range hours per day (real call-center pattern: 10:00–13:00 +
+  // 14:00–18:00). The first range is seeded from the template; the user can
+  // add more via the step-3 UI. UTC conversion happens on submit.
+  type HourRange = { start: string; end: string };
+  const [hourRanges, setHourRanges] = useState<HourRange[]>([
+    { start: TPL_DEFAULTS.hourStart, end: TPL_DEFAULTS.hourEnd },
+  ]);
+  const addRange = () =>
+    setHourRanges((rs) => [...rs, { start: "14:00", end: "18:00" }]);
+  const removeRange = (i: number) =>
+    setHourRanges((rs) => (rs.length <= 1 ? rs : rs.filter((_, j) => j !== i)));
+  const updateRange = (i: number, patch: Partial<HourRange>) =>
+    setHourRanges((rs) => rs.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -418,13 +429,21 @@ export function CampaignWizard({
     setSubmitting(true);
     persistDraft();
 
-    // Convert hours from the user-chosen timezone to UTC before sending —
-    // the dialer compares with UTC time when deciding which campaigns to run.
+    // Convert each range's start/end from the user-chosen timezone to UTC
+    // before sending — the dialer compares with UTC. The legacy single
+    // start/end is preserved as the bounding window so older dialers keep
+    // working; new ones honour `ranges` first.
+    const utcRanges = hourRanges
+      .filter((r) => r.start && r.end)
+      .map((r) => ({ start: localToUtc(r.start, timezone), end: localToUtc(r.end, timezone) }));
+    const utcStarts = utcRanges.map((r) => r.start).sort();
+    const utcEnds = utcRanges.map((r) => r.end).sort();
     const schedule = {
       days,
       hours: {
-        start: localToUtc(hourStart, timezone),
-        end: localToUtc(hourEnd, timezone),
+        start: utcStarts[0] ?? "09:00",
+        end: utcEnds[utcEnds.length - 1] ?? "18:00",
+        ranges: utcRanges,
       },
     };
 
@@ -440,7 +459,9 @@ export function CampaignWizard({
             ...engineConfig.slots,
             days,
             timezone,
-            hours: engineConfig.slots.hours.length > 0 ? engineConfig.slots.hours : [hourStart],
+            hours: engineConfig.slots.hours.length > 0
+              ? engineConfig.slots.hours
+              : hourRanges.map((r) => r.start),
           },
         }
       : null;
@@ -1036,29 +1057,53 @@ export function CampaignWizard({
                 ))}
               </select>
             </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
-          <div>
-            <label>Heure début</label>
-            <input
-              type="time"
-              value={hourStart}
-              onChange={(e) => setHourStart(e.target.value)}
-            />
-            <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
-              = {localToUtc(hourStart, timezone)} UTC
-            </div>
+        <div style={{ marginTop: 12 }}>
+          <label>Plages horaires</label>
+          <div style={{ display: "grid", gap: 8 }}>
+            {hourRanges.map((r, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <input
+                  type="time"
+                  value={r.start}
+                  onChange={(e) => updateRange(i, { start: e.target.value })}
+                  style={{ width: "auto" }}
+                />
+                <span className="muted">→</span>
+                <input
+                  type="time"
+                  value={r.end}
+                  onChange={(e) => updateRange(i, { end: e.target.value })}
+                  style={{ width: "auto" }}
+                />
+                <span className="muted" style={{ fontSize: 11 }}>
+                  = {localToUtc(r.start, timezone)}–{localToUtc(r.end, timezone)} UTC
+                </span>
+                {hourRanges.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => removeRange(i)}
+                    title="Supprimer cette plage"
+                    style={{ background: "none", border: "none", cursor: "pointer", color: "var(--muted)", padding: 4, fontSize: 16 }}
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            ))}
+            <button
+              type="button"
+              className="ghost"
+              onClick={addRange}
+              style={{ padding: "6px 12px", alignSelf: "flex-start" }}
+            >
+              + Ajouter une plage
+            </button>
           </div>
-          <div>
-            <label>Heure fin</label>
-            <input type="time" value={hourEnd} onChange={(e) => setHourEnd(e.target.value)} />
-            <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
-              = {localToUtc(hourEnd, timezone)} UTC
-            </div>
+          <div className="muted" style={{ fontSize: 11, marginTop: 8, lineHeight: 1.5 }}>
+            ℹ️ Tu peux définir plusieurs plages par jour (ex. 10:00–13:00 puis 14:00–18:00).
+            Les heures sont saisies en heure locale du fuseau choisi ci-dessus, converties
+            en UTC pour le serveur d&apos;appels.
           </div>
-        </div>
-        <div className="muted" style={{ fontSize: 11, marginTop: 10, lineHeight: 1.5 }}>
-          ℹ️ Saisis les heures dans le fuseau horaire choisi (heure locale). On les convertit
-          en UTC pour le serveur d&apos;appels — l&apos;équivalent UTC est affiché sous chaque champ.
         </div>
           </>
       </section>
@@ -1093,7 +1138,7 @@ export function CampaignWizard({
             </li>
           ) : (
             <li>
-              Fenêtre : {days.map((d) => DAYS.find((x) => x.id === d)?.label).join(", ")} · {hourStart}–{hourEnd} ({TZ_LABEL_BY_ID[timezone] ?? timezone}) <span className="muted">→ {localToUtc(hourStart, timezone)}–{localToUtc(hourEnd, timezone)} UTC</span>
+              Fenêtre : {days.map((d) => DAYS.find((x) => x.id === d)?.label).join(", ")} · {hourRanges.map((r) => `${r.start}–${r.end}`).join(" + ")} ({TZ_LABEL_BY_ID[timezone] ?? timezone}) <span className="muted">→ {hourRanges.map((r) => `${localToUtc(r.start, timezone)}–${localToUtc(r.end, timezone)}`).join(" + ")} UTC</span>
             </li>
           )}
         </ul>
