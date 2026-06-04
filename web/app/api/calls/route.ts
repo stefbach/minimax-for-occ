@@ -57,5 +57,45 @@ export async function GET(request: Request) {
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
-  return NextResponse.json(data ?? []);
+  const calls = (data ?? []) as Array<{ id: string; started_at: string | null }>;
+
+  // Attach real cost per call (sum of usage_events whose metadata.call_id
+  // matches). One aggregate query covers the whole list — cheap enough at
+  // ≤ 250 calls; bypass the join if there's nothing to enrich.
+  let costByCall = new Map<string, number>();
+  if (calls.length > 0) {
+    const ids = calls.map((c) => c.id);
+    try {
+      // Compute time window from the displayed calls so we don't scan the
+      // whole table — narrowed to the period filter when present.
+      const oldest = calls.reduce<string | null>((m, c) => {
+        if (!c.started_at) return m;
+        return !m || c.started_at < m ? c.started_at : m;
+      }, null);
+      const window_start = from ?? oldest ?? undefined;
+      const window_end = to ?? new Date().toISOString();
+      let uq = admin
+        .from("usage_events")
+        .select("cost_cents, metadata")
+        .eq("org_id", orgId);
+      if (window_start) uq = uq.gte("occurred_at", window_start);
+      if (window_end) uq = uq.lte("occurred_at", window_end);
+      const { data: usage } = await uq.limit(50000);
+      for (const u of (usage ?? []) as Array<{ cost_cents: number | string | null; metadata: { call_id?: string } | null }>) {
+        const callId = u.metadata?.call_id;
+        if (!callId || !ids.includes(callId)) continue;
+        const cents = Number(u.cost_cents ?? 0);
+        if (!Number.isFinite(cents)) continue;
+        costByCall.set(callId, (costByCall.get(callId) ?? 0) + cents);
+      }
+    } catch {
+      /* costs are best-effort; the table renders with $0.00 fallbacks. */
+    }
+  }
+
+  const enriched = calls.map((c) => ({
+    ...c,
+    cost_cents: Math.round((costByCall.get(c.id) ?? 0) * 100) / 100,
+  }));
+  return NextResponse.json(enriched);
 }
