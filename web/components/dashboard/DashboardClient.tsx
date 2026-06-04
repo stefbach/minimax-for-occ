@@ -20,7 +20,7 @@ import { useT } from "@/lib/i18n";
 
 type TabId = "overview" | "stats" | "logs" | "live" | "errors" | "nhs";
 const ALL_TABS: { id: TabId; label: string; icon: string }[] = [
-  { id: "overview", label: "Directeur", icon: "🏠" },
+  { id: "overview", label: "Vue d'ensemble", icon: "🏠" },
   { id: "stats", label: "Statistiques", icon: "📊" },
   { id: "logs", label: "Call Logs", icon: "📋" },
   { id: "live", label: "Live", icon: "🔴" },
