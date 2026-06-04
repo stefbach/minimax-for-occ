@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { DirectorResponse } from "@/app/api/dashboard/director/route";
 import { useT } from "@/lib/i18n";
 
@@ -10,16 +10,26 @@ function fmtDur(secs: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
+function fmtDate(iso: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return d.toLocaleString(undefined, { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+const THRESHOLD_OPTIONS = [60, 120, 180, 300, 600];
+
 export function DirectorTab({ from, to, direction }: { from: string; to: string; direction: string }) {
   const t = useT();
   const [data, setData] = useState<DirectorResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [threshold, setThreshold] = useState<number>(60);
+  const [activeQualTab, setActiveQualTab] = useState<string>("all");
 
   useEffect(() => {
     let alive = true;
     setLoading(true);
-    const qs = new URLSearchParams({ from, to });
+    const qs = new URLSearchParams({ from, to, threshold: String(threshold) });
     if (direction !== "all") qs.set("direction", direction);
     fetch(`/api/dashboard/director?${qs}`, { cache: "no-store" })
       .then(async (r) => {
@@ -30,7 +40,17 @@ export function DirectorTab({ from, to, direction }: { from: string; to: string;
       .catch((e) => alive && setError(e instanceof Error ? e.message : "error"))
       .finally(() => alive && setLoading(false));
     return () => { alive = false; };
-  }, [from, to, direction]);
+  }, [from, to, direction, threshold]);
+
+  const summariesByQual = useMemo(() => {
+    const m = new Map<string, DirectorResponse["summaries"]>();
+    if (!data) return m;
+    for (const s of data.summaries) {
+      if (!m.has(s.qualification)) m.set(s.qualification, []);
+      m.get(s.qualification)!.push(s);
+    }
+    return m;
+  }, [data]);
 
   if (loading && !data) return <div className="card"><p className="muted" style={{ margin: 0 }}>{t("Chargement…")}</p></div>;
   if (error) return <div className="card" style={{ borderColor: "var(--bad)", color: "var(--bad)" }}>{error}</div>;
@@ -48,10 +68,19 @@ export function DirectorTab({ from, to, direction }: { from: string; to: string;
     { label: `${t("Durée")} > ${k.threshold}s`, value: k.callsOverThreshold.toLocaleString(), icon: "⧖", tone: "var(--muted)" },
   ];
 
-  const maxQual = Math.max(1, ...data.qualifications.map((q) => q.count));
+  const totalsCards = [
+    { label: t("Total appels"), value: k.totalCalls, tone: "var(--info)" },
+    { label: t("Décrochés"), value: k.answered, tone: "var(--good)" },
+    { label: t("Non décrochés"), value: k.notAnswered, tone: "var(--bad)" },
+  ];
+
+  const visibleSummaries = activeQualTab === "all"
+    ? data.summaries
+    : (summariesByQual.get(activeQualTab) ?? []);
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
+      {/* KPI ROW */}
       <div className="grid-kpi">
         {tiles.map((tile) => (
           <div
@@ -68,19 +97,252 @@ export function DirectorTab({ from, to, direction }: { from: string; to: string;
         ))}
       </div>
 
+      {/* THRESHOLD CHIP ROW */}
+      <div className="card" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, padding: 12 }}>
+        <span className="muted" style={{ fontSize: 12 }}>{t("« appels longs »")} :</span>
+        {THRESHOLD_OPTIONS.map((s) => (
+          <button
+            key={s}
+            type="button"
+            className={threshold === s ? "" : "ghost"}
+            style={{ padding: "3px 10px", fontSize: 12 }}
+            onClick={() => setThreshold(s)}
+          >
+            {s < 60 ? `${s}s` : `${s / 60}min`}
+          </button>
+        ))}
+        <div style={{ flex: 1 }} />
+        <span className="muted" style={{ fontSize: 12 }}>
+          Total : <strong>{k.totalCalls}</strong> · {t("Décrochés")} : <strong style={{ color: "var(--good)" }}>{k.answered}</strong> · {t("Non décrochés")} : <strong style={{ color: "var(--bad)" }}>{k.notAnswered}</strong>
+        </span>
+      </div>
+
+      {/* TOTALS STRIP */}
+      <div className="grid-kpi" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
+        {totalsCards.map((c) => (
+          <div key={c.label} className="card" style={{ padding: 16 }}>
+            <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4 }}>{c.label}</div>
+            <div style={{ fontSize: 28, fontWeight: 700, marginTop: 6, color: c.tone }}>{c.value.toLocaleString()}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* QUALIFICATIONS GRID — 9 fixed cards */}
       <div className="card">
-        <h3 style={{ marginTop: 0 }}>{t("Qualifications")}</h3>
-        {data.qualifications.length === 0 ? (
-          <p className="muted" style={{ fontSize: 13 }}>{t("Aucune donnée")}</p>
+        <h3 style={{ marginTop: 0, marginBottom: 4 }}>{t("Qualifications")}</h3>
+        <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>
+          {t("Source")} : <code>calls.metadata.qualification</code> + <code>calls.disposition</code>
+        </p>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10 }}>
+          {data.qualifications.map((q) => (
+            <div
+              key={q.key}
+              className="card"
+              style={{ padding: 12, textAlign: "center", borderColor: q.count > 0 ? "var(--accent)" : undefined }}
+            >
+              <div style={{ fontSize: 24, fontWeight: 700, color: q.count > 0 ? "var(--accent)" : "var(--muted)" }}>
+                {q.count}
+              </div>
+              <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginTop: 4 }}>
+                {q.label}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* APPELS ENTRANTS */}
+      <div className="card">
+        <h3 style={{ marginTop: 0 }}>{t("Appels entrants")}</h3>
+        <div style={{ display: "flex", gap: 24, alignItems: "baseline" }}>
+          <div>
+            <div style={{ fontSize: 28, fontWeight: 700, color: "var(--info)" }}>{data.inbound.total}</div>
+            <div className="muted" style={{ fontSize: 11 }}>{t("Total")}</div>
+          </div>
+          <div className="muted" style={{ fontSize: 13 }}>
+            <span style={{ color: "var(--good)" }}>{data.inbound.answered} {t("décrochés")}</span>
+            {" · "}
+            <span style={{ color: "var(--bad)" }}>{data.inbound.notAnswered} {t("sans réponse")}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* SUIVI J1 / J3 / J5 + CRÉNEAUX */}
+      <div className="card">
+        <h3 style={{ marginTop: 0 }}>{t("Suivi J1 / J3 / J5")}</h3>
+        <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>
+          {t("Volume par phase et par créneau d'appel")}
+        </p>
+        {data.hints.phasesAvailable ? (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10 }}>
+            {([
+              ["RAPPEL", data.phases.rappel],
+              ["J1", data.phases.j1],
+              ["J3", data.phases.j3],
+              ["J5", data.phases.j5],
+            ] as const).map(([label, p]) => (
+              <div key={label} className="card" style={{ padding: 12 }}>
+                <div className="muted" style={{ fontSize: 11, letterSpacing: 0.4 }}>{label}</div>
+                <div style={{ fontSize: 20, fontWeight: 700, marginTop: 4 }}>{p.leads} <span className="muted" style={{ fontSize: 12, fontWeight: 400 }}>leads</span></div>
+                <div className="muted" style={{ fontSize: 12 }}>{p.calls} {t("appels")}</div>
+              </div>
+            ))}
+          </div>
         ) : (
-          <div style={{ display: "grid", gap: 6 }}>
-            {data.qualifications.map((qrow) => (
-              <div key={qrow.key} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: 13, minWidth: 170 }}>{qrow.key}</span>
-                <div style={{ flex: 1, background: "var(--bg-2)", borderRadius: 4, overflow: "hidden", height: 16 }}>
-                  <div style={{ width: `${(qrow.count / maxQual) * 100}%`, height: "100%", background: "var(--accent)" }} />
+          <p className="muted" style={{ fontSize: 13 }}>
+            {t("Aucune table de phases configurée pour cette organisation.")}
+          </p>
+        )}
+        <div style={{ marginTop: 14 }}>
+          <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>{t("Par créneau")}</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10 }}>
+            {([
+              ["Créneau 1 — matin", data.slots.matin],
+              ["Créneau 2 — midi", data.slots.midi],
+              ["Créneau 3 — soir", data.slots.soir],
+              ["Hors créneau", data.slots.hors],
+            ] as const).map(([label, v]) => (
+              <div key={label} className="card" style={{ padding: 10 }}>
+                <div className="muted" style={{ fontSize: 11 }}>{label}</div>
+                <div style={{ fontSize: 18, fontWeight: 700, marginTop: 2 }}>{v}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* CHAÎNE D'AGENTS */}
+      <div className="card">
+        <h3 style={{ marginTop: 0 }}>{t("Chaîne d'agents")}</h3>
+        <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>
+          {t("Combien de leads sont passés sur 1, 2 ou 3 agents")}
+        </p>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+          {([
+            ["Agent 1 uniquement", data.agentChain.only1],
+            ["Agent 1 → Agent 2", data.agentChain.plus2],
+            ["Agent 1 → 2 → 3", data.agentChain.plus3],
+          ] as const).map(([label, v]) => (
+            <div key={label} className="card" style={{ padding: 12 }}>
+              <div className="muted" style={{ fontSize: 11 }}>{label}</div>
+              <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4 }}>{v}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ANALYSE: DURATIONS + WHAT THEY SAID */}
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1.4fr)", gap: 16 }}>
+        <div className="card">
+          <h3 style={{ marginTop: 0 }}>{t("Distribution des durées")}</h3>
+          {([
+            ["< 15s", data.durationBuckets.lt15s],
+            ["15s - 1min", data.durationBuckets.s15_60],
+            ["1 - 2min", data.durationBuckets.m1_2],
+            ["2 - 3min", data.durationBuckets.m2_3],
+            ["3 - 5min", data.durationBuckets.m3_5],
+            ["> 5min", data.durationBuckets.gt5m],
+          ] as const).map(([label, v]) => {
+            const max = Math.max(1, ...Object.values(data.durationBuckets));
+            return (
+              <div key={label} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                <span style={{ fontSize: 12, minWidth: 80 }}>{label}</span>
+                <div style={{ flex: 1, background: "var(--bg-2)", borderRadius: 4, overflow: "hidden", height: 14 }}>
+                  <div style={{ width: `${(v / max) * 100}%`, height: "100%", background: "var(--accent)" }} />
                 </div>
-                <span className="muted" style={{ fontSize: 12, minWidth: 34, textAlign: "right" }}>{qrow.count}</span>
+                <span className="muted" style={{ fontSize: 12, minWidth: 36, textAlign: "right" }}>{v}</span>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="card">
+          <h3 style={{ marginTop: 0 }}>{t("Ce qu'ils ont dit")}</h3>
+          <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>
+            {t("Résumés d'appels regroupés par qualification")}
+          </p>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+            <button
+              type="button"
+              className={activeQualTab === "all" ? "" : "ghost"}
+              style={{ padding: "3px 10px", fontSize: 12 }}
+              onClick={() => setActiveQualTab("all")}
+            >
+              {t("Tous")} ({data.summaries.length})
+            </button>
+            {data.qualifications.filter((q) => (summariesByQual.get(q.key) ?? []).length > 0).map((q) => (
+              <button
+                key={q.key}
+                type="button"
+                className={activeQualTab === q.key ? "" : "ghost"}
+                style={{ padding: "3px 10px", fontSize: 12 }}
+                onClick={() => setActiveQualTab(q.key)}
+              >
+                {q.label} ({(summariesByQual.get(q.key) ?? []).length})
+              </button>
+            ))}
+          </div>
+          {visibleSummaries.length === 0 ? (
+            <p className="muted" style={{ fontSize: 13 }}>
+              {data.hints.summariesAvailable
+                ? t("Aucun résumé pour cette qualification.")
+                : t("Aucun résumé d'appel sur la période. Les résumés sont générés post-appel.")}
+            </p>
+          ) : (
+            <div style={{ display: "grid", gap: 8, maxHeight: 460, overflowY: "auto" }}>
+              {visibleSummaries.map((s) => (
+                <div key={s.call_id} style={{ borderBottom: "1px solid var(--border)", paddingBottom: 8 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+                    <span style={{ fontWeight: 600, fontSize: 13 }}>{s.contact_name ?? "—"}</span>
+                    <span className="muted" style={{ fontSize: 11 }}>{fmtDate(s.started_at)}</span>
+                  </div>
+                  <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
+                    {s.qualification_label} · {s.agent_name ?? "—"} · {fmtDur(s.duration)}
+                  </div>
+                  <div style={{ fontSize: 12, marginTop: 4 }}>{s.summary}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* DOSSIERS À CONFIER À UN HUMAIN */}
+      <div className="card">
+        <h3 style={{ marginTop: 0 }}>{t("Dossiers à confier à un humain")}</h3>
+        <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>
+          {t("Leads en attente de rappel humain")} · <code>human_callback_tasks</code>
+        </p>
+        {data.humanCallbacks.length === 0 ? (
+          <p className="muted" style={{ fontSize: 13 }}>{t("Aucun dossier en attente.")}</p>
+        ) : (
+          <div style={{ display: "grid", gap: 8 }}>
+            {data.humanCallbacks.map((h) => (
+              <div
+                key={h.task_id}
+                style={{
+                  display: "flex", justifyContent: "space-between", alignItems: "center",
+                  padding: "8px 10px", border: "1px solid var(--border)", borderRadius: 6,
+                  gap: 12,
+                }}
+              >
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: 13 }}>
+                    {h.contact_name ?? "—"} <span className="muted" style={{ fontWeight: 400 }}>{h.phone ?? ""}</span>
+                  </div>
+                  <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
+                    {h.qualification ?? "À passer à l'humain"}
+                    {h.scheduled_for && ` · ${fmtDate(h.scheduled_for)}`}
+                    {h.status && ` · ${h.status}`}
+                  </div>
+                </div>
+                <a
+                  href={`/desk?task=${h.task_id}`}
+                  className="ghost"
+                  style={{ padding: "4px 10px", fontSize: 12, textDecoration: "none" }}
+                >
+                  {t("Voir dans Mon poste")} →
+                </a>
               </div>
             ))}
           </div>
