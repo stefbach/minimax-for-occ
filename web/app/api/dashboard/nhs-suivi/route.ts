@@ -25,6 +25,25 @@ export type NhsSuiviResponse = {
     whatsapp_sent: number;
     responses_received: number;
   };
+  file_status: {
+    no_document: number;
+    partial: number;
+    complete: number;
+    no_response_3d: number;
+  };
+  nhs_tracking: {
+    submitted: number;
+    in_review: number;
+    accepted: number;
+    rejected: number;
+  };
+  pipeline: {
+    initial_call: number;
+    email_reminder: number;
+    response_received: number;
+    file_complete: number;
+    nhs_submitted: number;
+  };
 };
 
 const MONTHLY_OBJECTIVE = Number(process.env.NHS_MONTHLY_OBJECTIVE ?? 30);
@@ -121,6 +140,107 @@ export async function GET(request: Request) {
     ? await countOf((q) => q.not("last_qualification_update", "is", null))
     : 0;
 
+  // ── File status (4 tuiles) ─────────────────────────────────────────────
+  // "Aucun document" — first_mail sent but no doc-tracking columns filled.
+  const noDocument =
+    colSet.has("first_mail")
+      ? await countOf((q) => {
+          let qq = q.not("first_mail", "is", null);
+          if (colSet.has("nhs_wmp_status")) qq = qq.is("nhs_wmp_status", null);
+          if (colSet.has("nhs_wmp_details")) qq = qq.is("nhs_wmp_details", null);
+          return qq;
+        })
+      : 0;
+
+  // "Documents partiels" — at least one of the 3 clinical cols filled but
+  // not all of them. Approximated with: past_surgeries NOT NULL XOR meds NOT
+  // NULL XOR allergies NOT NULL (i.e. not the trivially-empty leads and not
+  // the fully-complete ones). We query the 4 "exactly one filled" cases plus
+  // the 3 "exactly two filled" cases via a single fetch with a partial check.
+  // For tractability we fetch the small set of (id, past_surgeries,
+  // current_medications, allergies) rows and bucket them in memory.
+  let partialDocs = 0;
+  let completeDocs = 0;
+  if (colSet.has("past_surgeries") || colSet.has("current_medications") || colSet.has("allergies")) {
+    try {
+      const cols = [
+        colSet.has("past_surgeries") ? "past_surgeries" : null,
+        colSet.has("current_medications") ? "current_medications" : null,
+        colSet.has("allergies") ? "allergies" : null,
+        colSet.has("bmi") ? "bmi" : null,
+        colSet.has("patient_dob") ? "patient_dob" : null,
+      ].filter(Boolean) as string[];
+      const { data } = await sb.from(table).select(cols.join(",")).limit(20000);
+      const rows = (data ?? []) as unknown as Array<Record<string, unknown>>;
+      for (const r of rows) {
+        const ps = colSet.has("past_surgeries") ? r["past_surgeries"] : undefined;
+        const cm = colSet.has("current_medications") ? r["current_medications"] : undefined;
+        const al = colSet.has("allergies") ? r["allergies"] : undefined;
+        const bmi = colSet.has("bmi") ? r["bmi"] : undefined;
+        const dob = colSet.has("patient_dob") ? r["patient_dob"] : undefined;
+        const filled = [ps, cm, al].filter((v) => v !== null && v !== undefined && v !== "").length;
+        const totalClinical = [
+          colSet.has("past_surgeries"),
+          colSet.has("current_medications"),
+          colSet.has("allergies"),
+        ].filter(Boolean).length;
+        if (filled > 0 && filled < totalClinical) partialDocs += 1;
+        // Complete = bmi, dob, allergies, current_medications, past_surgeries all filled
+        const isComplete =
+          (!colSet.has("bmi") || (bmi !== null && bmi !== undefined && bmi !== "")) &&
+          (!colSet.has("patient_dob") || (dob !== null && dob !== undefined && dob !== "")) &&
+          (!colSet.has("allergies") || (al !== null && al !== undefined && al !== "")) &&
+          (!colSet.has("current_medications") || (cm !== null && cm !== undefined && cm !== "")) &&
+          (!colSet.has("past_surgeries") || (ps !== null && ps !== undefined && ps !== ""));
+        if (isComplete && colSet.has("bmi") && colSet.has("patient_dob") && colSet.has("allergies") && colSet.has("current_medications") && colSet.has("past_surgeries")) {
+          completeDocs += 1;
+        }
+      }
+    } catch {
+      partialDocs = 0;
+      completeDocs = 0;
+    }
+  }
+
+  // "Sans réponse 3j+" — same as pending3d (escalation proxy).
+  const noResponse3d = pending3d;
+
+  // ── NHS tracking (4 tuiles) ────────────────────────────────────────────
+  const nhsSubmitted = colSet.has("nhs_wmp_status")
+    ? await countOf((q) => q.or("nhs_wmp_status.ilike.%submi%,nhs_wmp_status.ilike.%envoye%"))
+    : 0;
+  const nhsInReview = colSet.has("nhs_wmp_status")
+    ? await countOf((q) => q.or("nhs_wmp_status.ilike.%review%,nhs_wmp_status.ilike.%pending%"))
+    : 0;
+  const nhsAccepted = colSet.has("nhs_wmp_status")
+    ? await countOf((q) => q.or("nhs_wmp_status.ilike.%accept%,nhs_wmp_status.ilike.%approv%"))
+    : 0;
+  const nhsRejected = colSet.has("nhs_wmp_status")
+    ? await countOf((q) => q.or("nhs_wmp_status.ilike.%refus%,nhs_wmp_status.ilike.%reject%"))
+    : 0;
+
+  // ── Pipeline (5 étapes) ────────────────────────────────────────────────
+  const stepInitialCall = colSet.has("last_call_datetime")
+    ? await countOf((q) => q.not("last_call_datetime", "is", null))
+    : 0;
+  const stepEmailReminder = colSet.has("second_mail")
+    ? await countOf((q) => q.not("second_mail", "is", null))
+    : 0;
+  // "Réponse reçue" proxy: last_qualification_update > first_mail. Postgres
+  // doesn't support column-to-column comparison in PostgREST filters, so we
+  // approximate with last_qualification_update NOT NULL AND first_mail NOT
+  // NULL — refined heuristic when both timestamps exist.
+  const stepResponseReceived =
+    colSet.has("last_qualification_update") && colSet.has("first_mail")
+      ? await countOf((q) =>
+          q.not("last_qualification_update", "is", null).not("first_mail", "is", null),
+        )
+      : colSet.has("last_qualification_update")
+        ? await countOf((q) => q.not("last_qualification_update", "is", null))
+        : 0;
+  const stepFileComplete = completeDocs;
+  const stepNhsSubmitted = nhsSubmitted;
+
   const body: NhsSuiviResponse = {
     has_data: true,
     monthly_objective: MONTHLY_OBJECTIVE,
@@ -132,6 +252,25 @@ export async function GET(request: Request) {
       email_j2_sent: emailJ2,
       whatsapp_sent: whatsapp,
       responses_received: responses,
+    },
+    file_status: {
+      no_document: noDocument,
+      partial: partialDocs,
+      complete: completeDocs,
+      no_response_3d: noResponse3d,
+    },
+    nhs_tracking: {
+      submitted: nhsSubmitted,
+      in_review: nhsInReview,
+      accepted: nhsAccepted,
+      rejected: nhsRejected,
+    },
+    pipeline: {
+      initial_call: stepInitialCall,
+      email_reminder: stepEmailReminder,
+      response_received: stepResponseReceived,
+      file_complete: stepFileComplete,
+      nhs_submitted: stepNhsSubmitted,
     },
   };
   return NextResponse.json(body);
@@ -145,5 +284,14 @@ function zeros(): NhsSuiviResponse {
     pending_response_3d_plus: 0,
     ready_to_submit: 0,
     comms: { email_j0_sent: 0, email_j2_sent: 0, whatsapp_sent: 0, responses_received: 0 },
+    file_status: { no_document: 0, partial: 0, complete: 0, no_response_3d: 0 },
+    nhs_tracking: { submitted: 0, in_review: 0, accepted: 0, rejected: 0 },
+    pipeline: {
+      initial_call: 0,
+      email_reminder: 0,
+      response_received: 0,
+      file_complete: 0,
+      nhs_submitted: 0,
+    },
   };
 }

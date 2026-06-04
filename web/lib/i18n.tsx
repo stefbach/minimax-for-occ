@@ -212,6 +212,14 @@ const EN: Record<string, string> = {
   "Réponse reçue": "Response received",
   "Dossier complet": "Complete file",
   "Soumis NHS": "Submitted to NHS",
+  "Email initial envoyé · aucun document reçu": "Initial email sent · no document received",
+  "Au moins un document manquant": "At least one document missing",
+  "BMI, DOB, allergies, traitements, antécédents": "BMI, DOB, allergies, medications, history",
+  "Escalade nécessaire": "Escalation required",
+  "Dossiers transmis au NHS": "Files submitted to NHS",
+  "Instruction en cours": "Under review",
+  "Dossiers approuvés": "Files approved",
+  "Dossiers refusés": "Files rejected",
 };
 
 function readLang(): Lang {

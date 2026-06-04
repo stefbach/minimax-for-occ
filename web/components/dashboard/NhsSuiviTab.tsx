@@ -159,11 +159,180 @@ export function NhsSuiviTab() {
         </div>
       </div>
 
+      {/* État des dossiers */}
+      <div>
+        <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 8 }}>
+          📁 {t("État des dossiers")}
+        </div>
+        <div className="grid" style={{ gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 12 }}>
+          <CommCard
+            label={t("Aucun document")}
+            value={data.file_status.no_document}
+            hint={t("Email initial envoyé · aucun document reçu")}
+            tone="var(--muted)"
+            icon="○"
+          />
+          <CommCard
+            label={t("Documents partiels")}
+            value={data.file_status.partial}
+            hint={t("Au moins un document manquant")}
+            tone="var(--warn)"
+            icon="◐"
+          />
+          <CommCard
+            label={t("Dossiers complets")}
+            value={data.file_status.complete}
+            hint={t("BMI, DOB, allergies, traitements, antécédents")}
+            tone="var(--good)"
+            icon="●"
+          />
+          <CommCard
+            label={t("Sans réponse 3j+")}
+            value={data.file_status.no_response_3d}
+            hint={t("Escalade nécessaire")}
+            tone="var(--bad)"
+            icon="⚠"
+          />
+        </div>
+      </div>
+
+      {/* Suivi NHS S2 (après soumission) */}
+      <div>
+        <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 8 }}>
+          🏥 {t("Suivi NHS S2 (après soumission)")}
+        </div>
+        <div className="grid" style={{ gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 12 }}>
+          <CommCard
+            label={t("Envoyés NHS")}
+            value={data.nhs_tracking.submitted}
+            hint={t("Dossiers transmis au NHS")}
+            tone="var(--info)"
+            icon="↗"
+          />
+          <CommCard
+            label={t("In review NHS")}
+            value={data.nhs_tracking.in_review}
+            hint={t("Instruction en cours")}
+            tone="var(--warn)"
+            icon="⌛"
+          />
+          <CommCard
+            label={t("Acceptés NHS")}
+            value={data.nhs_tracking.accepted}
+            hint={t("Dossiers approuvés")}
+            tone="var(--good)"
+            icon="✓"
+          />
+          <CommCard
+            label={t("Refusés NHS")}
+            value={data.nhs_tracking.rejected}
+            hint={t("Dossiers refusés")}
+            tone="var(--bad)"
+            icon="✕"
+          />
+        </div>
+      </div>
+
+      {/* Pipeline de conversion */}
+      <PipelinePanel data={data} />
+
       {!data.has_data && (
         <div className="card" style={{ borderColor: "var(--warn)", color: "var(--warn)", fontSize: 13 }}>
           ℹ️ {t("Aucune table de leads n'est encore enregistrée pour cette organisation. Les chiffres se rempliront dès le premier appel.")}
         </div>
       )}
+    </div>
+  );
+}
+
+function PipelinePanel({ data }: { data: NhsSuiviResponse }) {
+  const t = useT();
+  const total = Math.max(1, data.pipeline.initial_call);
+  const steps = [
+    {
+      key: "initial_call",
+      label: t("Appel initial"),
+      day: "J0",
+      value: data.pipeline.initial_call,
+      pct: 100,
+    },
+    {
+      key: "email_reminder",
+      label: t("Email relance"),
+      day: "J+2",
+      value: data.pipeline.email_reminder,
+      pct: Math.round((data.pipeline.email_reminder / total) * 100),
+    },
+    {
+      key: "response_received",
+      label: t("Réponse reçue"),
+      day: "J+2-5",
+      value: data.pipeline.response_received,
+      pct: Math.round((data.pipeline.response_received / total) * 100),
+    },
+    {
+      key: "file_complete",
+      label: t("Dossier complet"),
+      day: "J+5-10",
+      value: data.pipeline.file_complete,
+      pct: Math.round((data.pipeline.file_complete / total) * 100),
+    },
+    {
+      key: "nhs_submitted",
+      label: t("Soumis NHS"),
+      day: "—",
+      value: data.pipeline.nhs_submitted,
+      pct: Math.round((data.pipeline.nhs_submitted / total) * 100),
+    },
+  ];
+  // Color stops: var(--info) → var(--good) interpolated by step index.
+  const colorFor = (i: number) => {
+    const ratio = i / (steps.length - 1);
+    return `color-mix(in srgb, var(--good) ${Math.round(ratio * 100)}%, var(--info))`;
+  };
+  return (
+    <div>
+      <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 8 }}>
+        ⇆ {t("Pipeline de conversion — étapes patient")}
+      </div>
+      <div className="card" style={{ padding: 16 }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))`,
+            gap: 8,
+            alignItems: "stretch",
+          }}
+        >
+          {steps.map((s, i) => {
+            const bg = colorFor(i);
+            return (
+              <div
+                key={s.key}
+                style={{
+                  background: bg,
+                  color: "#fff",
+                  borderRadius: 8,
+                  padding: 14,
+                  display: "flex",
+                  flexDirection: "column",
+                  justifyContent: "space-between",
+                  minHeight: 120,
+                }}
+              >
+                <div style={{ fontSize: 11, opacity: 0.85, textTransform: "uppercase", letterSpacing: 0.4 }}>
+                  {s.day}
+                </div>
+                <div>
+                  <div style={{ fontSize: 28, fontWeight: 700, lineHeight: 1.1 }}>{s.value}</div>
+                  <div style={{ fontSize: 12, opacity: 0.9, marginTop: 2 }}>{s.label}</div>
+                </div>
+                <div style={{ fontSize: 11, opacity: 0.85 }}>{s.pct}%</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }
