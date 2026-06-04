@@ -139,8 +139,9 @@ const SCENARIOS: Scenario[] = [
 export default async function GuidedStartPage({
   searchParams,
 }: {
-  searchParams?: { scenario?: string };
+  searchParams?: Promise<{ scenario?: string }>;
 }) {
+  const sp = (await searchParams) ?? {};
   const counts: Counts = { agents: 0, tables: 0, contacts: 0, campaigns: 0, numbers: 0, flows: 0 };
   if (hasSupabase()) {
     const orgId = await currentOrgIdForServer();
@@ -155,7 +156,7 @@ export default async function GuidedStartPage({
     Object.assign(counts, { agents, tables, contacts, campaigns, numbers, flows });
   }
 
-  const selectedId = searchParams?.scenario ?? "campaign";
+  const selectedId = sp.scenario ?? "campaign";
   const scenario = SCENARIOS.find((s) => s.id === selectedId) ?? SCENARIOS[0];
   const steps = scenario.steps.map((key, i) => ({ n: i + 1, key, ...stepFor(key, counts) }));
 
