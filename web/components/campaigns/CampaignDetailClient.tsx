@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { HelpButton } from "@/components/help/HelpButton";
+import { EditCampaignModal } from "./EditCampaignModal";
 
 export interface EngineSummary {
   timezone: string;
@@ -81,6 +82,7 @@ export function CampaignDetailClient({
   const router = useRouter();
   const [state, setState] = useState(campaign.state);
   const [busy, setBusy] = useState<string | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showImport, setShowImport] = useState(false);
   const [csvText, setCsvText] = useState("");
@@ -188,6 +190,16 @@ export function CampaignDetailClient({
           )}
         </div>
         <div style={{ display: "flex", gap: 8 }}>
+          {(state === "draft" || state === "paused" || state === "scheduled") && (
+            <button
+              className="ghost"
+              onClick={() => setEditOpen(true)}
+              disabled={busy !== null}
+              title="Modifier le nom, les jours, les plages horaires et la cadence"
+            >
+              ✎ Éditer
+            </button>
+          )}
           {state !== "running" && state !== "completed" && state !== "cancelled" && (
             <button onClick={start} disabled={busy !== null}>
               {busy === "start" ? "…" : "Démarrer"}
@@ -460,6 +472,21 @@ export function CampaignDetailClient({
             </tbody>
           </table>
         </div>
+      )}
+
+      {editOpen && (
+        <EditCampaignModal
+          campaignId={campaign.id}
+          initial={{
+            name: campaign.name,
+            schedule: campaign.schedule as { days?: number[]; hours?: { start?: string; end?: string; ranges?: { start: string; end: string }[] } },
+            max_concurrency: campaign.max_concurrency,
+            max_attempts: campaign.max_attempts,
+            retry_delay_min: campaign.retry_delay_min,
+            amd_enabled: campaign.amd_enabled,
+          }}
+          onClose={() => setEditOpen(false)}
+        />
       )}
     </>
   );

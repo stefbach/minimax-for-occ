@@ -1040,74 +1040,10 @@ export function CampaignWizard({
         <div className="muted" style={{ fontSize: 12, marginTop: -6, marginBottom: 10 }}>
           Jours, plage horaire et cadence d&apos;appel — une seule source de vérité.
         </div>
-        {showAdvanced && (<>
-        <div className="wizard-row-3">
-          <div>
-            <label>Appels simultanés (max)</label>
-            <input
-              type="number"
-              min={1}
-              max={50}
-              value={maxConcurrency}
-              onChange={(e) => setMaxConcurrency(Number(e.target.value) || 1)}
-            />
-            <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
-              Nb d&apos;appels passés en même temps. Plus élevé = plus rapide, mais plus d&apos;agents occupés.
-            </div>
-            {maxConcurrency > PLAN_CONCURRENCY_LIMIT && (
-              <div
-                style={{
-                  fontSize: 11, marginTop: 6, padding: "6px 8px", borderRadius: 6,
-                  background: "color-mix(in srgb, var(--warn) 12%, var(--bg-2))",
-                  color: "var(--warn)", border: "1px solid var(--warn)",
-                }}
-              >
-                ⚠️ Ton plan actuel limite la transcription temps réel à
-                <strong> {PLAN_CONCURRENCY_LIMIT} appels simultanés</strong> (AssemblyAI).
-                Les appels au-delà attendront leur tour — passe sur un plan supérieur
-                pour lever la limite.
-              </div>
-            )}
-          </div>
-          <div>
-            <label>Tentatives max</label>
-            <input
-              type="number"
-              min={1}
-              max={10}
-              value={maxAttempts}
-              onChange={(e) => setMaxAttempts(Number(e.target.value) || 1)}
-            />
-            <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
-              Rappels si pas de réponse / occupé, avant d&apos;abandonner un numéro.
-            </div>
-          </div>
-          <div>
-            <label>Délai retry (min)</label>
-            <input
-              type="number"
-              min={1}
-              max={1440}
-              value={retryDelayMin}
-              onChange={(e) => setRetryDelayMin(Number(e.target.value) || 1)}
-            />
-            <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
-              Temps d&apos;attente avant de re-tenter un numéro injoignable.
-            </div>
-          </div>
-        </div>
-        <div style={{ marginTop: 12 }}>
-          <label>
-            <input
-              type="checkbox"
-              checked={amdEnabled}
-              onChange={(e) => setAmdEnabled(e.target.checked)}
-              style={{ width: "auto", marginRight: 8 }}
-            />
-            Détection de répondeur (AMD)
-          </label>
-        </div>
-        </>)}
+        {/* Cadence inputs moved BELOW the toggle button (further down in this
+            section) so when the user clicks 'Réglages avancés' the panel
+            expands right where they're looking, not far above the créneaux
+            block they were scrolling through. */}
 
         {/* Single créneaux editor — always visible. In dynamic mode the
             values below are also synced into engineConfig.slots at submit
@@ -1225,6 +1161,77 @@ export function CampaignWizard({
             {maxConcurrency} simultanés · {maxAttempts} tentative{maxAttempts > 1 ? "s" : ""} · retry {retryDelayMin} min · AMD {amdEnabled ? "on" : "off"}
           </span>
         </button>
+
+        {showAdvanced && (
+          <div style={{ marginTop: 10, padding: 12, border: "1px solid var(--border)", borderRadius: 8, background: "var(--bg-2)" }}>
+            <div className="wizard-row-3">
+              <div>
+                <label>Appels simultanés (max)</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={50}
+                  value={maxConcurrency}
+                  onChange={(e) => setMaxConcurrency(Number(e.target.value) || 1)}
+                />
+                <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+                  Nb d&apos;appels passés en même temps. Plus élevé = plus rapide, mais plus d&apos;agents occupés.
+                </div>
+                {maxConcurrency > PLAN_CONCURRENCY_LIMIT && (
+                  <div
+                    style={{
+                      fontSize: 11, marginTop: 6, padding: "6px 8px", borderRadius: 6,
+                      background: "color-mix(in srgb, var(--warn) 12%, var(--bg-2))",
+                      color: "var(--warn)", border: "1px solid var(--warn)",
+                    }}
+                  >
+                    ⚠️ Ton plan actuel limite la transcription temps réel à
+                    <strong> {PLAN_CONCURRENCY_LIMIT} appels simultanés</strong> (AssemblyAI).
+                    Les appels au-delà attendront leur tour — passe sur un plan supérieur
+                    pour lever la limite.
+                  </div>
+                )}
+              </div>
+              <div>
+                <label>Tentatives max</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={maxAttempts}
+                  onChange={(e) => setMaxAttempts(Number(e.target.value) || 1)}
+                />
+                <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+                  Rappels si pas de réponse / occupé, avant d&apos;abandonner un numéro.
+                </div>
+              </div>
+              <div>
+                <label>Délai retry (min)</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={1440}
+                  value={retryDelayMin}
+                  onChange={(e) => setRetryDelayMin(Number(e.target.value) || 1)}
+                />
+                <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+                  Temps d&apos;attente avant de re-tenter un numéro injoignable.
+                </div>
+              </div>
+            </div>
+            <div style={{ marginTop: 12 }}>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={amdEnabled}
+                  onChange={(e) => setAmdEnabled(e.target.checked)}
+                  style={{ width: "auto", marginRight: 8 }}
+                />
+                Détection de répondeur (AMD)
+              </label>
+            </div>
+          </div>
+        )}
       </section>
 
       {/* Sentinel Wave 1: preflight panel above the recap. */}
