@@ -459,6 +459,7 @@ def _build_save_contact_tool(
     org_id: Optional[str],
     data_table: Optional[str] = None,
     data_row_id: Optional[str] = None,
+    call_id: Optional[str] = None,
 ):
     """function_tool that lets the agent persist what it learns mid-call.
 
@@ -528,6 +529,7 @@ def _build_save_contact_tool(
                 display_name=display_name or None,
                 email=email or None,
                 notes=notes or None,
+                call_id=call_id,
             )
         if result.get("ok"):
             # Notify any configured n8n webhooks (post-RDV Email/WhatsApp etc.)
@@ -670,6 +672,7 @@ def _assemble_agent_runtime(
     save_org_id,
     save_table,
     save_row,
+    call_id: Optional[str] = None,
 ):
     """Build (instructions, greeting, tools) for one agent persona, rendered
     with the call's template vars and bound to the call's write-back target.
@@ -702,7 +705,9 @@ def _assemble_agent_runtime(
             tools.append(_build_rag_tool(axon))
         except Exception:
             logger.exception("handoff: rag tool build failed")
-    save_tool = _build_save_contact_tool(save_contact_id, save_org_id, save_table, save_row)
+    save_tool = _build_save_contact_tool(
+        save_contact_id, save_org_id, save_table, save_row, call_id=call_id,
+    )
     if save_tool is not None:
         tools.append(save_tool)
     try:
@@ -730,6 +735,7 @@ def _install_team_handoff_watcher(
     save_table,
     save_row,
     clog,
+    call_id: Optional[str] = None,
 ) -> None:
     """Watch room metadata for `handoff_to` and FULLY swap the running agent
     (prompt + greeting + tools + LLM + TTS) to the requested sibling.
@@ -757,6 +763,7 @@ def _install_team_handoff_watcher(
             save_org_id=save_org_id,
             save_table=save_table,
             save_row=save_row,
+            call_id=call_id,
         )
         try:
             next_llm = _llm_for(axon_next)
@@ -1501,7 +1508,8 @@ async def entrypoint(ctx: JobContext) -> None:
         _save_table = target_vars.get("__data_table__")
         _save_row = target_vars.get("__data_row_id__")
         _save_tool = _build_save_contact_tool(
-            _save_contact_id, _save_org_id, _save_table, _save_row
+            _save_contact_id, _save_org_id, _save_table, _save_row,
+            call_id=call_id,
         )
         if _save_tool is not None:
             tools.append(_save_tool)
@@ -1576,6 +1584,11 @@ async def entrypoint(ctx: JobContext) -> None:
         ),
     )
     clog.info("timing: session.start() returned in %.2fs", _time2.monotonic() - _t_start)
+    # Stamp when the agent session became active (SIP participant in the room,
+    # session running). This becomes the call's `answered_at` for the DB
+    # fallback if Twilio's StatusCallback never reaches us — see _on_shutdown.
+    from datetime import datetime as _dt2, timezone as _tz2
+    _session_answered_at_iso = _dt2.now(_tz2.utc).isoformat()
     _wire_transcript_hooks(session, call_id)
     _wire_latency_metrics(session, clog)
     _wire_debug_logs(session, clog)
@@ -1596,6 +1609,7 @@ async def entrypoint(ctx: JobContext) -> None:
             save_table=target_vars.get("__data_table__"),
             save_row=target_vars.get("__data_row_id__"),
             clog=clog,
+            call_id=call_id,
         )
 
     # Phase 1B — Filler audio. When the LLM is "thinking" after the user
@@ -1650,6 +1664,33 @@ async def entrypoint(ctx: JobContext) -> None:
             clog.exception("BackgroundAudioPlayer setup failed; continuing without filler audio")
 
     async def _on_shutdown():
+        # 1. Write definitive call state to the DB so the dashboard shows a
+        #    finished call. Necessary because Twilio's StatusCallback often
+        #    can't reach our Vercel endpoint (APP_URL env mismatch on Fly /
+        #    LiveKit Cloud Agents, signature drift, etc.) and the calls row
+        #    would otherwise stay in 'ringing' forever.
+        try:
+            from db_writes import finalize_call_state as _finalize
+            from datetime import datetime as _dt_end, timezone as _tz_end
+            _ended_iso = _dt_end.now(_tz_end.utc).isoformat()
+            duration = None
+            try:
+                start = _dt_end.fromisoformat(_session_answered_at_iso)
+                end = _dt_end.fromisoformat(_ended_iso)
+                duration = max(0, int((end - start).total_seconds()))
+            except Exception:
+                pass
+            await asyncio.to_thread(
+                _finalize,
+                call_id,
+                answered_at=_session_answered_at_iso,
+                ended_at=_ended_iso,
+                duration_secs=duration,
+                state="ended",
+            )
+        except Exception:
+            clog.exception("finalize_call_state failed at shutdown")
+        # 2. Trigger LLM summary + analysis (best-effort, needs APP_URL set).
         try:
             trigger_post_call_pipeline(call_id)
         except Exception:

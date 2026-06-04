@@ -90,6 +90,7 @@ def save_contact_data(
     display_name: Optional[str] = None,
     email: Optional[str] = None,
     notes: Optional[str] = None,
+    call_id: Optional[str] = None,
 ) -> dict[str, Any]:
     """Merge `attributes_patch` into contacts.attributes for one contact and
     optionally update its display_name / email / notes.
@@ -153,6 +154,20 @@ def save_contact_data(
             saved_keys = sorted(clean_patch.keys()) + [
                 k for k in ("display_name", "email", "notes") if k in body
             ]
+            # Auto-create a /desk follow-up task when the AI sets a
+            # qualification that implies "human, please call this lead back
+            # tomorrow". This is what makes Victoria's "we'll send the slots"
+            # actually surface in the agent dashboard the next morning —
+            # without requiring her to call transfer_to_human explicitly.
+            qual = clean_patch.get("qualification")
+            if qual and _qualification_needs_callback(qual):
+                create_human_callback_task(
+                    org_id,
+                    contact_id,
+                    original_call_id=call_id,
+                    qualification=str(qual),
+                    reason="auto from save_contact_data",
+                )
             return {"ok": True, "saved": saved_keys}
     except Exception as exc:
         logger.exception("save_contact_data failed (contact=%s)", contact_id)
@@ -471,3 +486,155 @@ def update_call_recording_url(call_id: Optional[str], url: str) -> None:
             r.raise_for_status()
     except Exception:
         logger.exception("update_call_recording_url failed (call=%s)", call_id)
+
+
+def finalize_call_state(
+    call_id: Optional[str],
+    *,
+    answered_at: Optional[str] = None,
+    ended_at: Optional[str] = None,
+    duration_secs: Optional[int] = None,
+    state: str = "ended",
+) -> None:
+    """PATCH the calls row at session shutdown so the dashboard shows a
+    finished call even when the Twilio status webhook never arrived
+    (deployment URL not reachable from Twilio, signature mismatch, etc.).
+
+    Never overrides terminal state already written by Twilio: if state is
+    already 'completed' / 'failed' / etc. we leave the row alone.
+    """
+    if not call_id or not has_supabase():
+        return
+    try:
+        with httpx.Client(timeout=httpx.Timeout(5.0), headers=_supabase_headers()) as c:
+            r = c.get(
+                _supabase_url(
+                    f"/rest/v1/calls?id=eq.{call_id}"
+                    "&select=state,answered_at,ended_at,duration_secs"
+                ),
+            )
+            r.raise_for_status()
+            rows = r.json() or []
+            if not rows:
+                return
+            cur = rows[0]
+            cur_state = (cur.get("state") or "").lower()
+            terminal = {"completed", "ended", "failed", "busy", "no_answer",
+                        "canceled", "cancelled"}
+            if cur_state in terminal:
+                # Twilio already finalised this one — don't touch.
+                return
+            body: dict[str, Any] = {"state": state}
+            if ended_at and not cur.get("ended_at"):
+                body["ended_at"] = ended_at
+            if answered_at and not cur.get("answered_at"):
+                body["answered_at"] = answered_at
+            if duration_secs is not None and not cur.get("duration_secs"):
+                body["duration_secs"] = int(duration_secs)
+            r2 = c.patch(
+                _supabase_url(f"/rest/v1/calls?id=eq.{call_id}"),
+                headers={
+                    **_supabase_headers(),
+                    "Content-Type": "application/json",
+                    "Prefer": "return=minimal",
+                },
+                json=body,
+            )
+            r2.raise_for_status()
+            logger.info(
+                "finalize_call_state: %s -> state=%s duration=%ss",
+                call_id, state, duration_secs,
+            )
+    except Exception:
+        logger.exception("finalize_call_state failed (call=%s)", call_id)
+
+
+# Qualifications that imply the lead wants a human follow-up tomorrow.
+# Kept in sync (loosely) with web/lib/qualification.ts buckets.
+_CALLBACK_QUAL_PATTERNS = (
+    "rdv", "rendez", "appointment", "confirm", "booked",
+    "rappel", "callback", "call_back", "call back",
+    "humain", "human", "to_human", "passer",
+)
+
+
+def create_human_callback_task(
+    org_id: Optional[str],
+    contact_id: Optional[str],
+    *,
+    original_call_id: Optional[str] = None,
+    qualification: Optional[str] = None,
+    reason: Optional[str] = None,
+    days_ahead: int = 1,
+) -> None:
+    """Insert a human_callback_tasks row scheduled J+`days_ahead` (rounded
+    to the next weekday, 09:00 UTC) so the contact appears in `/desk` for
+    a human follow-up.
+
+    Dedupes: if the same contact already has a pending/in_progress task,
+    no new row is created.
+    """
+    if not org_id or not has_supabase():
+        return
+    try:
+        from datetime import datetime, timedelta, timezone
+        scheduled = datetime.now(timezone.utc) + timedelta(days=days_ahead)
+        # Snap to the next weekday — no Saturday/Sunday callbacks.
+        while scheduled.weekday() >= 5:
+            scheduled += timedelta(days=1)
+        scheduled = scheduled.replace(hour=9, minute=0, second=0, microsecond=0)
+        with httpx.Client(timeout=httpx.Timeout(5.0), headers=_supabase_headers()) as c:
+            if contact_id:
+                check = c.get(_supabase_url(
+                    f"/rest/v1/human_callback_tasks?contact_id=eq.{contact_id}"
+                    f"&org_id=eq.{org_id}&status=in.(pending,in_progress)"
+                    "&select=id&limit=1"
+                ))
+                if check.is_success and check.json():
+                    logger.debug(
+                        "create_human_callback_task: contact=%s already has open task",
+                        contact_id,
+                    )
+                    return
+            r = c.post(
+                _supabase_url("/rest/v1/human_callback_tasks"),
+                headers={
+                    **_supabase_headers(),
+                    "Content-Type": "application/json",
+                    "Prefer": "return=minimal",
+                },
+                json={
+                    "org_id": org_id,
+                    "contact_id": contact_id,
+                    "original_call_id": original_call_id,
+                    "qualification": qualification,
+                    "transfer_reason": reason,
+                    "scheduled_for": scheduled.isoformat(),
+                    "status": "pending",
+                },
+            )
+            r.raise_for_status()
+            logger.info(
+                "created human_callback_task contact=%s qual=%s scheduled=%s",
+                contact_id, qualification, scheduled.isoformat(),
+            )
+    except Exception:
+        logger.exception(
+            "create_human_callback_task failed (contact=%s)", contact_id,
+        )
+
+
+def _qualification_needs_callback(raw: Optional[str]) -> bool:
+    if not raw:
+        return False
+    s = str(raw).lower()
+    # Exclude negative qualifications so we don't book follow-ups for
+    # patients who explicitly said no.
+    negative = ("pas_interess", "pas interess", "not interest", "decline",
+                "do_not_call", "do not call", "dnc", "ne pas rappel",
+                "wrong number", "faux num", "non eligib", "non éligib",
+                "ineligib", "not eligib")
+    if any(n in s for n in negative):
+        return False
+    return any(p in s for p in _CALLBACK_QUAL_PATTERNS)
+
