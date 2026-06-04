@@ -43,15 +43,17 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     phone_number_id: string | null;
     caller_id_e164: string | null;
     data_table_id: string | null;
-    contact_list_id: string | null;
     metadata: { engine?: Record<string, unknown> } | null;
   };
+  // public.campaigns has no contact_list_id column — the wizard uses it only
+  // at creation time to seed campaign_targets. We pass null to preflight so
+  // the 'target_source_set' check leans on data_table_id or actual rows.
   const { data: campaignRaw, error: cErr } = await sb
     .from("campaigns")
     .select(
       "id,org_id,state,name,max_concurrency,max_attempts,retry_delay_min," +
         "amd_enabled,schedule,agent_handle_id,agent_team_id,phone_number_id," +
-        "caller_id_e164,data_table_id,contact_list_id,metadata",
+        "caller_id_e164,data_table_id,metadata",
     )
     .eq("id", id)
     .eq("org_id", orgId)
@@ -126,7 +128,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     phone_number_id: campaign.phone_number_id,
     caller_id_e164: campaign.caller_id_e164,
     data_table_id: campaign.data_table_id,
-    contact_list_id: campaign.contact_list_id,
+    contact_list_id: null,
     csv_text: null,
     targets: Array.from({ length: targetsCount ?? 0 }, () => ({ e164: "+0" })),
     schedule: campaign.schedule,
