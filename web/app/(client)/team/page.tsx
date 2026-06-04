@@ -1,12 +1,12 @@
 import { redirect } from "next/navigation";
 import { hasSupabase } from "@/lib/supabase";
 import { currentOrgIdForServer, currentRoleInOrg } from "@/lib/supabase-auth";
-import { TeamList } from "@/components/team/TeamList";
+import { TeamPageClient } from "@/components/team/TeamPageClient";
 
 export const dynamic = "force-dynamic";
 
 // Owner/Admin-only page to view and manage org members. Wave A = read-only
-// list. Wave B will add invite, Wave C edit role / disable.
+// list. Wave B = invitations (create + manage). Wave C = edit role / disable.
 
 const MANAGER_ROLES = new Set(["super_admin", "owner", "admin"]);
 
@@ -25,18 +25,5 @@ export default async function TeamPage() {
     redirect("/dashboard");
   }
 
-  return (
-    <>
-      <div className="page-header">
-        <div>
-          <h1>Équipe</h1>
-          <div className="subtitle">
-            Gérez les utilisateurs de votre organisation, leurs rôles et leurs accès.
-          </div>
-        </div>
-        <button disabled title="Invitations bientôt disponibles">+ Inviter</button>
-      </div>
-      <TeamList />
-    </>
-  );
+  return <TeamPageClient />;
 }
