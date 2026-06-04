@@ -1023,9 +1023,11 @@ export function CampaignWizard({
                   {pickedContactIds.size} contact{pickedContactIds.size === 1 ? "" : "s"} sélectionné{pickedContactIds.size === 1 ? "" : "s"}.
                 </div>
               </div>
-              <div className="muted" style={{ fontSize: 13 }}>
-                <strong>Total cibles (déduplication par e164) :</strong> {targets.length}
-              </div>
+              {!selectedDataTable && !contactListId && (
+                <div className="muted" style={{ fontSize: 13 }}>
+                  <strong>Total cibles (déduplication par e164) :</strong> {targets.length}
+                </div>
+              )}
             </>
           )}
         </div>
@@ -1252,7 +1254,13 @@ export function CampaignWizard({
           <li>
             Numéro : {selectedNumber?.e164 ?? callerIdOverride ?? "—"}
           </li>
-          <li>{targets.length} cible{targets.length === 1 ? "" : "s"}</li>
+          <li>
+            {selectedDataTable
+              ? `Source : table « ${selectedDataTable.label} » · ${selectedDataTable.row_count} contact${selectedDataTable.row_count === 1 ? "" : "s"} dans la table${dynamicMode ? " (tirage continu selon vos règles)" : ""}`
+              : contactListId
+                ? `Source : liste de contacts sélectionnée`
+                : `${targets.length} cible${targets.length === 1 ? "" : "s"} (liste fixe)`}
+          </li>
           <li>
             Concurrence {maxConcurrency} · Retries {maxAttempts} ({retryDelayMin}min) · AMD{" "}
             {amdEnabled ? "on" : "off"}
