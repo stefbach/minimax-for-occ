@@ -22,13 +22,26 @@ export default async function DataTablePage({ params }: { params: Promise<{ id: 
     .maybeSingle();
   if (!reg) return notFound();
 
+  // Pick an existing timestamp column to order by — different per-tenant
+  // tables use different names (created_at on Axon-default schemas,
+  // date_creation on OCC-aligned tables, etc.). Fall back to no order at
+  // all rather than erroring out.
   let rows: Record<string, unknown>[] = [];
   try {
-    const { data } = await sb
-      .from(reg.physical_table)
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(1000);
+    const { data: colInfo } = await sb
+      .from("information_schema.columns" as never)
+      .select("column_name")
+      .eq("table_name", reg.physical_table);
+    const colNames = new Set(
+      (colInfo ?? []).map((c) => (c as { column_name: string }).column_name),
+    );
+    const orderCol = ["created_at", "date_creation", "inserted_at", "updated_at"].find(
+      (c) => colNames.has(c),
+    );
+
+    let q = sb.from(reg.physical_table).select("*").limit(1000);
+    if (orderCol) q = q.order(orderCol, { ascending: false, nullsFirst: false });
+    const { data } = await q;
     rows = data ?? [];
   } catch {
     rows = [];

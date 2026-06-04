@@ -36,11 +36,26 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   const reg = await resolveTable(sb, id, orgId);
   if (!reg) return NextResponse.json({ error: "table not found" }, { status: 404 });
 
-  const { data, error } = await sb
-    .from(reg.physical_table)
-    .select("*")
-    .order("created_at", { ascending: false })
-    .limit(1000);
+  // Tables aligned with OCC prod don't have `created_at` — they use
+  // `date_creation` instead. Detect the timestamp column dynamically so the
+  // GET endpoint works regardless of the tenant's schema convention.
+  let orderCol: string | null = null;
+  try {
+    const { data: colInfo } = await sb
+      .from("information_schema.columns" as never)
+      .select("column_name")
+      .eq("table_name", reg.physical_table);
+    const colNames = new Set(
+      (colInfo ?? []).map((c) => (c as { column_name: string }).column_name),
+    );
+    orderCol = ["created_at", "date_creation", "inserted_at", "updated_at"].find(
+      (c) => colNames.has(c),
+    ) ?? null;
+  } catch { /* fall through, unordered query */ }
+
+  let q = sb.from(reg.physical_table).select("*").limit(1000);
+  if (orderCol) q = q.order(orderCol, { ascending: false, nullsFirst: false });
+  const { data, error } = await q;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ table: reg, rows: data ?? [] });
 }
