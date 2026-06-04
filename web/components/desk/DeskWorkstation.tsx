@@ -188,8 +188,20 @@ export function DeskWorkstation() {
           {loading && data.personal.length === 0 ? (
             <div className="muted" style={{ fontSize: 13 }}>{t("Chargement…")}</div>
           ) : data.personal.length === 0 ? (
-            <div className="muted" style={{ fontSize: 13 }}>
-              {t("Aucun appel à traiter pour le moment.")}
+            <div
+              style={{
+                padding: "14px 8px",
+                textAlign: "center",
+                color: "var(--muted)",
+                fontSize: 12,
+                lineHeight: 1.6,
+              }}
+            >
+              <div style={{ fontSize: 24, opacity: 0.5, marginBottom: 6 }}>📋</div>
+              <div>{t("Aucun appel à traiter")}</div>
+              <div style={{ marginTop: 4 }}>
+                {t("Prends-en un dans le Pool partagé →")}
+              </div>
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -249,8 +261,18 @@ export function DeskWorkstation() {
           {loading && data.shared.length === 0 ? (
             <div className="muted" style={{ fontSize: 13 }}>{t("Chargement…")}</div>
           ) : data.shared.length === 0 ? (
-            <div className="muted" style={{ fontSize: 13 }}>
-              {t("Pool partagé vide.")}
+            <div
+              style={{
+                padding: "14px 8px",
+                textAlign: "center",
+                color: "var(--muted)",
+                fontSize: 12,
+                lineHeight: 1.6,
+              }}
+            >
+              <div style={{ fontSize: 24, opacity: 0.5, marginBottom: 6 }}>✓</div>
+              <div>{t("Pool partagé vide")}</div>
+              <div style={{ marginTop: 4 }}>{t("Tous les patients sont traités.")}</div>
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -283,12 +305,12 @@ export function DeskWorkstation() {
       <style jsx>{`
         .desk-3pane {
           display: grid;
-          grid-template-columns: 260px 1fr 280px;
+          grid-template-columns: 240px 1fr 260px;
           gap: 14px;
         }
         @media (max-width: 1100px) {
           .desk-3pane {
-            grid-template-columns: 220px 1fr 240px;
+            grid-template-columns: 200px 1fr 220px;
           }
         }
         @media (max-width: 900px) {
@@ -304,6 +326,21 @@ export function DeskWorkstation() {
           .desk-3pane [data-pane="shared"] {
             display: ${mobileView === "shared" ? "flex" : "none"};
           }
+        }
+        /* Inside the desk, the Softphone's 3-col internal grid (Appels /
+           Keypad / Fiche) competes with the desk's own 3-pane layout and
+           crushes everything. Force it to single-column so it lays out
+           vertically and breathes. */
+        .desk-center :global(.softphone-grid) {
+          grid-template-columns: 1fr !important;
+        }
+        /* The Softphone repeats info (recent calls, contact card) that the
+           desk's PatientCard / queue panes already provide. Hide those two
+           internal columns to reduce visual noise; keep only the central
+           presence + dialer column. */
+        .desk-center :global(.softphone-left),
+        .desk-center :global(.softphone-right) {
+          display: none;
         }
       `}</style>
     </div>
@@ -376,13 +413,29 @@ function PatientCard({ call }: { call: DeskCall | null }) {
   const t = useT();
   if (!call) {
     return (
-      <div className="card">
-        <h3 style={{ marginTop: 0 }}>{t("Aucun patient sélectionné")}</h3>
-        <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+      <div
+        className="card"
+        style={{
+          padding: 24,
+          minHeight: 220,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          textAlign: "center",
+          gap: 14,
+        }}
+      >
+        <div style={{ fontSize: 42, opacity: 0.45 }}>☎</div>
+        <h3 style={{ margin: 0 }}>{t("Prêt à prendre un appel")}</h3>
+        <p className="muted" style={{ margin: 0, fontSize: 13, maxWidth: 360, lineHeight: 1.6 }}>
           {t(
-            "Sélectionnez un appel dans Ma file ou dans le Pool partagé pour voir son contexte.",
+            "Choisis un patient à gauche dans Ma file, ou prends-en un depuis le Pool partagé à droite. Son contexte (historique, qualification, notes) s'affichera ici.",
           )}
         </p>
+        <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4 }}>
+          ↓ {t("Passe en « available » ci-dessous pour recevoir des appels")}
+        </div>
       </div>
     );
   }
