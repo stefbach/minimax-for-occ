@@ -938,8 +938,11 @@ export function CampaignWizard({
                   value={engineConfig}
                   onChange={setEngineConfig}
                   // Créneaux are configured once in step 3 (single source of
-                  // truth — no more dual UI between engine + planning).
+                  // truth — no more dual UI between engine + planning). Same
+                  // for the multi-day relances (J1/J3/J5) — those are timing
+                  // logic and belong with step 3 "Quand", not "Qui appeler".
                   hideSlots
+                  section="no-cadence"
                 />
               )}
             </div>
@@ -1190,6 +1193,22 @@ export function CampaignWizard({
           </div>
         </div>
           </>
+
+        {/* Multi-day retries (J1/J3/J5) — moved from step 2 because it's
+            timing logic, not "who to call" logic. Only shown when a data
+            table is in play and the dynamic engine is active. */}
+        {selectedDataTable && dynamicMode && engineConfig && (
+          <div style={{ marginTop: 14 }}>
+            <DynamicEngineConfig
+              columns={selectedDataTable.columns}
+              phoneColumn={selectedDataTable.phone_column}
+              value={engineConfig}
+              onChange={setEngineConfig}
+              section="cadence-only"
+              hideSlots
+            />
+          </div>
+        )}
 
         {/* Réglages avancés — collapsed by default; the template provides
             sensible defaults so most users never need to open this. */}

@@ -159,9 +159,15 @@ interface Props {
   /** When true, the créneaux (days/hours/timezone) block is hidden — the
    *  wizard renders a single, unified créneaux editor in step 3 instead. */
   hideSlots?: boolean;
+  /** Section to render. 'all' (default) = the legacy full UI. 'no-cadence'
+   *  hides the Relances block so it can be re-mounted in step 3 of the
+   *  wizard (where multi-day retries logically belong). 'cadence-only'
+   *  renders just that block. Both variants share state with the parent
+   *  through value/onChange. */
+  section?: "all" | "no-cadence" | "cadence-only";
 }
 
-export function DynamicEngineConfig({ columns, value, onChange, hideSlots = false }: Props) {
+export function DynamicEngineConfig({ columns, value, onChange, hideSlots = false, section = "all" }: Props) {
   const [statusInput, setStatusInput] = useState("");
   const textCols = columns.filter((c) => c.type === "text");
   const dateCols = columns.filter((c) => c.type === "date" || c.type === "datetime");
@@ -188,6 +194,7 @@ export function DynamicEngineConfig({ columns, value, onChange, hideSlots = fals
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
+      {section !== "cadence-only" && (<>
       {/* ── Qui appeler ── */}
       <div style={box}>
         <h4 style={h4}>Filtres : quels contacts cibler ?</h4>
@@ -236,7 +243,9 @@ export function DynamicEngineConfig({ columns, value, onChange, hideSlots = fals
           </div>
         </div>
       </div>
+      </>)}
 
+      {section !== "no-cadence" && (<>
       {/* ── Relances ── */}
       <div style={box}>
         <h4 style={h4}>Relances (suite d&apos;appels)</h4>
@@ -323,7 +332,9 @@ export function DynamicEngineConfig({ columns, value, onChange, hideSlots = fals
           </div>
         )}
       </div>
+      </>)}
 
+      {section !== "cadence-only" && (<>
       {/* ── Créneaux ── */}
       {!hideSlots && (
       <div style={box}>
@@ -386,6 +397,7 @@ export function DynamicEngineConfig({ columns, value, onChange, hideSlots = fals
           </div>
         </div>
       </div>
+      </>)}
     </div>
   );
 }
