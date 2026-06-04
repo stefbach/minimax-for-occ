@@ -13,24 +13,34 @@ import { LiveMonitorClient } from "@/components/live/LiveMonitorClient";
 import { CallLogsTab } from "./CallLogsTab";
 import { StatsTab } from "./StatsTab";
 import { DirectorTab } from "./DirectorTab";
+import { NhsSuiviTab } from "./NhsSuiviTab";
 import { PeriodBar, presetToRange, type Period, type Filters } from "./PeriodBar";
 import { useT } from "@/lib/i18n";
 
-type TabId = "overview" | "stats" | "logs" | "live";
-const TABS: { id: TabId; label: string; icon: string }[] = [
+type TabId = "overview" | "stats" | "logs" | "live" | "nhs";
+const ALL_TABS: { id: TabId; label: string; icon: string }[] = [
   { id: "overview", label: "Directeur", icon: "🏠" },
   { id: "stats", label: "Statistiques", icon: "📊" },
   { id: "logs", label: "Call Logs", icon: "📋" },
   { id: "live", label: "Live", icon: "🔴" },
+  { id: "nhs", label: "Suivi NHS S2", icon: "🏥" },
 ];
+
+// Per-org feature flag: enable the NHS S2 tracking tab only for orgs whose
+// slug matches a configured pattern. Multi-tenant safe — other orgs never
+// see it. Pattern is env-driven for easy ops changes.
+const NHS_SLUG_RE = new RegExp(process.env.NEXT_PUBLIC_NHS_ORG_PATTERN ?? "^obesity-care-clinic", "i");
 
 type Props = {
   initial: DashboardOverviewResponse | null;
   initialError: string | null;
   orgId?: string;
+  orgSlug?: string | null;
 };
 
-export function DashboardClient({ initial, initialError, orgId }: Props) {
+export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props) {
+  const showNhs = Boolean(orgSlug && NHS_SLUG_RE.test(orgSlug));
+  const TABS = ALL_TABS.filter((t) => t.id !== "nhs" || showNhs);
   const t = useT();
   const [data, setData] = useState<DashboardOverviewResponse | null>(initial);
   const [error, setError] = useState<string | null>(initialError);
@@ -156,6 +166,8 @@ export function DashboardClient({ initial, initialError, orgId }: Props) {
         )}
 
         {tab === "live" && <LiveMonitorClient />}
+
+        {tab === "nhs" && showNhs && <NhsSuiviTab />}
       </div>
     </div>
   );
