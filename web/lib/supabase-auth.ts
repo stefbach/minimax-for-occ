@@ -66,7 +66,21 @@ export async function currentUserOrgs() {
   }>;
 }
 
-export type AppRole = "super_admin" | "admin" | "manager" | "supervisor" | "agent";
+// Client-facing org roles (5) + the platform-only super_admin. supervisor /
+// analyst / viewer / builder were earlier drafts kept for backward compat
+// with rows still in the DB; treat them as synonyms for their closest match
+// in the matrix (supervisor≈manager, viewer≈viewer, etc.).
+export type AppRole =
+  | "super_admin" // platform staff (Axon side)
+  | "owner"       // org owner, 1 per org, full + billing
+  | "admin"       // full ops + user mgmt, no billing
+  | "manager"     // ops + dashboards, no user mgmt
+  | "agent"       // human caller, sees own queue + shared pool
+  | "viewer"      // read-only
+  // ── kept for back-compat with existing rows ──
+  | "supervisor"
+  | "analyst"
+  | "builder";
 
 /** Returns the user's primary membership (first one by created_at), or null. */
 export async function currentMembership(): Promise<{
