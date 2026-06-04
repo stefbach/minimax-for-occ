@@ -32,6 +32,11 @@ export function DataTableDetail({ registryId, columns, phoneColumn, initialRows 
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<Record<string, string>>({});
+  const [editBusy, setEditBusy] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [importBusy, setImportBusy] = useState(false);
   const [importReport, setImportReport] = useState<ImportReport | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
@@ -142,6 +147,64 @@ export function DataTableDetail({ registryId, columns, phoneColumn, initialRows 
       router.refresh();
     } finally {
       setBusy(false);
+    }
+  }
+
+  function openEdit(row: Record<string, unknown>) {
+    const id = row.id as string;
+    if (!id) return;
+    const initial: Record<string, string> = {};
+    for (const c of displayCols) {
+      const v = row[c.key];
+      initial[c.key] = v === null || v === undefined ? "" : String(v);
+    }
+    setEditDraft(initial);
+    setEditingId(id);
+    setEditError(null);
+  }
+
+  async function saveEdit() {
+    if (!editingId) return;
+    setEditBusy(true);
+    setEditError(null);
+    try {
+      const r = await fetch(`/api/data-tables/${registryId}/rows/${editingId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ values: editDraft }),
+      });
+      const body = await r.json();
+      if (!r.ok) {
+        setEditError(body.error ?? `Échec (${r.status})`);
+        return;
+      }
+      setRows((prev) => prev.map((r) => ((r.id as string) === editingId ? body : r)));
+      setEditingId(null);
+      router.refresh();
+    } finally {
+      setEditBusy(false);
+    }
+  }
+
+  async function deleteRow(row: Record<string, unknown>) {
+    const id = row.id as string;
+    if (!id) return;
+    const label = String(row[phoneColumn] ?? id);
+    if (!confirm(`Supprimer ce contact (${label}) ? Cette action est irréversible.`)) return;
+    setDeletingId(id);
+    try {
+      const r = await fetch(`/api/data-tables/${registryId}/rows/${id}`, {
+        method: "DELETE",
+      });
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        alert((body as { error?: string }).error ?? `Échec suppression (${r.status})`);
+        return;
+      }
+      setRows((prev) => prev.filter((r) => (r.id as string) !== id));
+      router.refresh();
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -291,20 +354,91 @@ export function DataTableDetail({ registryId, columns, phoneColumn, initialRows 
                 {displayCols.map((c) => (
                   <th key={c.key} style={{ whiteSpace: "nowrap" }}>{c.label}</th>
                 ))}
+                <th style={{ whiteSpace: "nowrap", textAlign: "right" }}>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((r, i) => (
-                <tr key={(r.id as string) ?? i}>
-                  {displayCols.map((c) => (
-                    <td key={c.key} style={{ fontSize: 13, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {fmt(r[c.key]) || <em style={{ color: "var(--muted)" }}>—</em>}
+              {filtered.map((r, i) => {
+                const rowId = (r.id as string) ?? "";
+                const isDeleting = deletingId === rowId;
+                return (
+                  <tr key={rowId || i} style={{ opacity: isDeleting ? 0.4 : 1 }}>
+                    {displayCols.map((c) => (
+                      <td key={c.key} style={{ fontSize: 13, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {fmt(r[c.key]) || <em style={{ color: "var(--muted)" }}>—</em>}
+                      </td>
+                    ))}
+                    <td style={{ textAlign: "right", whiteSpace: "nowrap", padding: "4px 8px" }}>
+                      <button
+                        className="ghost"
+                        onClick={() => openEdit(r)}
+                        disabled={!rowId || isDeleting}
+                        style={{ padding: "3px 8px", marginRight: 4, fontSize: 12 }}
+                        title="Éditer"
+                      >
+                        ✎
+                      </button>
+                      <button
+                        className="ghost"
+                        onClick={() => deleteRow(r)}
+                        disabled={!rowId || isDeleting}
+                        style={{ padding: "3px 8px", fontSize: 12, color: "var(--bad)" }}
+                        title="Supprimer"
+                      >
+                        🗑
+                      </button>
                     </td>
-                  ))}
-                </tr>
-              ))}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {editingId && (
+        <div
+          onClick={() => !editBusy && setEditingId(null)}
+          style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
+            display: "flex", alignItems: "flex-start", justifyContent: "center",
+            zIndex: 100, padding: 20, overflowY: "auto",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="card"
+            style={{ width: "min(720px, 100%)", marginTop: 30, display: "grid", gap: 12 }}
+          >
+            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
+              <h3 style={{ margin: 0 }}>Éditer le contact</h3>
+              <button className="ghost" onClick={() => setEditingId(null)} disabled={editBusy} style={{ padding: "2px 8px" }}>×</button>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10 }}>
+              {displayCols.map((c) => (
+                <div key={c.key}>
+                  <label style={{ fontSize: 12 }}>
+                    {c.label}
+                    {c.key === phoneColumn && <span style={{ color: "var(--accent)" }}> *</span>}
+                  </label>
+                  <input
+                    type={inputType(c.type)}
+                    value={editDraft[c.key] ?? ""}
+                    onChange={(e) => setEditDraft((d) => ({ ...d, [c.key]: e.target.value }))}
+                  />
+                </div>
+              ))}
+            </div>
+            {editError && <div style={{ color: "var(--bad)", fontSize: 13 }}>{editError}</div>}
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button className="ghost" onClick={() => setEditingId(null)} disabled={editBusy}>
+                Annuler
+              </button>
+              <button onClick={saveEdit} disabled={editBusy || !editDraft[phoneColumn]?.trim()}>
+                {editBusy ? "Enregistrement…" : "Enregistrer"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </>
