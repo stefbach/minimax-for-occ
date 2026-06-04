@@ -833,13 +833,26 @@ export function NumbersClient({
                       </label>
                     </td>
                     <td style={{ textAlign: "right" }}>
-                      <button
-                        className="danger"
-                        style={{ padding: "5px 9px" }}
-                        onClick={() => release(n)}
-                      >
-                        Libérer
-                      </button>
+                      <div style={{ display: "inline-flex", gap: 6 }}>
+                        <a
+                          href={`/numbers/${n.id}`}
+                          className="button"
+                          style={{
+                            padding: "5px 9px",
+                            textDecoration: "none",
+                            fontSize: 12,
+                          }}
+                        >
+                          Réglages
+                        </a>
+                        <button
+                          className="danger"
+                          style={{ padding: "5px 9px" }}
+                          onClick={() => release(n)}
+                        >
+                          Libérer
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );

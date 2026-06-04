@@ -57,7 +57,12 @@ export async function configureNumberWebhooks(
 ): Promise<ConfiguredWebhook> {
   const { sid, token } = getCreds();
   const base = trimSlash(appUrl);
-  const voiceUrl = `${base}/api/twilio-voice`;
+  // /api/twilio/voice-inbound dispatches to flow → queue → AI fallback
+  // (which itself redirects to /api/twilio-voice for the LiveKit SIP bridge).
+  // Numbers configured before this route existed point at /api/twilio-voice
+  // directly; reconfiguring them via /api/numbers/[id]/configure-webhook
+  // upgrades them.
+  const voiceUrl = `${base}/api/twilio/voice-inbound`;
   const statusCallback = `${base}/api/twilio/status`;
 
   const body = new URLSearchParams();

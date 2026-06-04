@@ -44,16 +44,18 @@ export default async function NewCampaignWizardPage({
       const agentIds = handles
         .map((h) => h.ai_agent_id)
         .filter((x): x is string => Boolean(x));
-      let agentInfo = new Map<string, { llm_model: string | null; tts_voice_id: string | null }>();
+      let agentInfo = new Map<string, { llm_model: string | null; tts_voice_id: string | null; has_prompt: boolean }>();
       if (agentIds.length > 0) {
         const { data: ags } = await sb
           .from("agents")
-          .select("id,llm_model,tts_voice_id")
+          .select("id,llm_model,tts_voice_id,system_prompt")
           .in("id", agentIds);
         for (const a of ags ?? []) {
+          const sp = (a.system_prompt as string | null) ?? "";
           agentInfo.set(a.id as string, {
             llm_model: (a.llm_model as string) ?? null,
             tts_voice_id: (a.tts_voice_id as string) ?? null,
+            has_prompt: sp.trim().length > 0,
           });
         }
       }
@@ -62,6 +64,7 @@ export default async function NewCampaignWizardPage({
         display_name: h.display_name,
         llm_model: h.ai_agent_id ? agentInfo.get(h.ai_agent_id)?.llm_model ?? null : null,
         tts_voice_id: h.ai_agent_id ? agentInfo.get(h.ai_agent_id)?.tts_voice_id ?? null : null,
+        has_prompt: h.ai_agent_id ? agentInfo.get(h.ai_agent_id)?.has_prompt ?? false : false,
       }));
     } catch { /* ignore */ }
     try {

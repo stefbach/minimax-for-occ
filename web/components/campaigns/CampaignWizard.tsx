@@ -3,12 +3,18 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { DynamicEngineConfig, defaultEngineConfig, type EngineConfig } from "./DynamicEngineConfig";
+import { PreflightPanel } from "./PreflightPanel";
+import { preflightCampaign, isPreflightClear } from "@/lib/sentinel/preflight";
 
 export interface AgentHandleOption {
   id: string;
   display_name: string;
   llm_model: string | null;
   tts_voice_id: string | null;
+  /** Wave 1 preflight: true when the referenced `agents.system_prompt` (or
+   *  `prompt`/`instructions`) is non-empty. Surfaced in the wizard so the
+   *  preflight panel can flag agents without a prompt before submit. */
+  has_prompt?: boolean;
 }
 
 export interface PhoneNumberOption {
@@ -515,6 +521,61 @@ export function CampaignWizard({
   // skip ahead with missing fields.
   const step1Valid = name.trim().length > 0 && Boolean(effectiveHandleId) && Boolean(phoneNumberId || callerIdOverride);
   const step2Valid = Boolean(dataTableId || contactListId || (csvText.trim().length > 0) || pickedContactIds.size > 0);
+
+  // Sentinel Wave 1: run the deterministic preflight against the in-memory
+  // draft. The recap surfaces blockers/warnings; the "Créer" button is
+  // disabled when any blocker remains unresolved. Server-side re-runs the
+  // same checks in /api/campaigns/[id]/start.
+  const preflightResult = useMemo(() => {
+    return preflightCampaign({
+      name,
+      agent_handle_id: effectiveHandleId || null,
+      agent_team_id: teamId || null,
+      phone_number_id: phoneNumberId || null,
+      caller_id_e164: callerIdOverride.trim() || null,
+      data_table_id: dataTableId || null,
+      contact_list_id: contactListId || null,
+      csv_text: csvText,
+      targets,
+      schedule: {
+        days,
+        hours: {
+          start: hourRanges[0]?.start ?? null,
+          end: hourRanges[hourRanges.length - 1]?.end ?? null,
+          ranges: hourRanges,
+        },
+      },
+      max_concurrency: maxConcurrency,
+      max_attempts: maxAttempts,
+      retry_delay_min: retryDelayMin,
+      amd_enabled: amdEnabled,
+      // The wizard doesn't have the raw agent row — pass a derived snapshot
+      // built from the AgentHandleOption (page-loader fetched `has_prompt`
+      // and `tts_voice_id` already). When the prompt is non-empty we feed a
+      // sentinel string so the rule sees "non-empty"; the server check uses
+      // the real DB row.
+      agent: selectedAgent
+        ? {
+            prompt: selectedAgent.has_prompt ? "filled" : "",
+            tts_voice_id: selectedAgent.tts_voice_id,
+          }
+        : null,
+      // Same trick for the phone number: the wizard already filters numbers
+      // to active=true (cf. wizard page loader), so any selected row is
+      // active by construction.
+      phoneNumber: selectedNumber
+        ? { active: selectedNumber.active, e164: selectedNumber.e164 }
+        : null,
+    });
+  }, [
+    name, effectiveHandleId, teamId, phoneNumberId, callerIdOverride,
+    dataTableId, contactListId, csvText, targets,
+    days, hourRanges,
+    maxConcurrency, maxAttempts, retryDelayMin, amdEnabled,
+    selectedAgent, selectedNumber,
+  ]);
+
+  const preflightClear = isPreflightClear(preflightResult);
 
   const STEPS: { n: 1 | 2 | 3; label: string; icon: string }[] = [
     { n: 1, label: "Qui appelle ?", icon: "🎙" },
@@ -1132,6 +1193,9 @@ export function CampaignWizard({
         </button>
       </section>
 
+      {/* Sentinel Wave 1: preflight panel above the recap. */}
+      <PreflightPanel result={preflightResult} />
+
       {/* 6. Récap */}
       <section className="card">
         <h3>6. Récapitulatif</h3>
@@ -1170,7 +1234,11 @@ export function CampaignWizard({
           <div style={{ color: "var(--bad)", marginTop: 12, fontSize: 14 }}>{error}</div>
         )}
         <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-          <button onClick={submit} disabled={submitting}>
+          <button
+            onClick={submit}
+            disabled={submitting || !preflightClear}
+            title={!preflightClear ? "Corrige les blocages ci-dessus pour pouvoir lancer." : undefined}
+          >
             {submitting ? "Création…" : "Créer en brouillon"}
           </button>
           <button
