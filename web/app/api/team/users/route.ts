@@ -38,11 +38,31 @@ export async function POST(req: Request) {
     password?: string;
     role?: string;
     display_name?: string;
+    visible_modules?: unknown;
   };
   const email = (body.email ?? "").trim().toLowerCase();
   const password = body.password ?? "";
   const role = body.role ?? "";
   const displayName = (body.display_name ?? "").trim() || null;
+
+  // Optional per-user module allow-list. NULL = inherit role default. When
+  // present, must be a non-empty array of valid module ids; we reject the
+  // request rather than silently dropping unknown ids (helps surface
+  // client/server drift).
+  let visibleModules: ModuleId[] | null = null;
+  if (body.visible_modules !== undefined && body.visible_modules !== null) {
+    if (!Array.isArray(body.visible_modules)) {
+      return NextResponse.json({ error: "visible_modules doit être un tableau" }, { status: 400 });
+    }
+    const cleaned: ModuleId[] = [];
+    for (const m of body.visible_modules) {
+      if (!isModuleId(m)) {
+        return NextResponse.json({ error: `module inconnu: ${String(m)}` }, { status: 400 });
+      }
+      if (!cleaned.includes(m)) cleaned.push(m);
+    }
+    visibleModules = cleaned;
+  }
 
   if (!email || !password || !role) {
     return NextResponse.json({ error: "email, password et rôle requis" }, { status: 400 });
@@ -125,7 +145,14 @@ export async function POST(req: Request) {
   }
   const { error: memErr } = await sb
     .from("memberships")
-    .insert({ org_id: orgId, user_id: userId, role });
+    .insert({
+      org_id: orgId,
+      user_id: userId,
+      role,
+      // Persist the explicit allow-list only when provided; NULL keeps the
+      // user on the role default and avoids leaking "no modules" semantics.
+      visible_modules: visibleModules,
+    });
   if (memErr) {
     return NextResponse.json({ error: memErr.message }, { status: 500 });
   }

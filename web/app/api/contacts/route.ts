@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { requestOrgId } from "@/lib/request-org";
+import { requireModule } from "@/lib/permissions-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -8,6 +9,10 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   if (!hasSupabase()) return NextResponse.json([]);
   const orgId = await requestOrgId(req);
+  const gate = await requireModule(orgId, "contacts");
+  if (!gate.allowed) {
+    return NextResponse.json({ error: "module_forbidden", module: "contacts" }, { status: 403 });
+  }
   const sb = supabaseServer();
   const { data, error } = await sb
     .from("contacts")

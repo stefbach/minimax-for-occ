@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { currentOrgIdForServer, currentRoleInOrg, currentUser } from "@/lib/supabase-auth";
+import { isModuleId, type ModuleId } from "@/lib/permissions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,6 +23,9 @@ export type TeamMember = {
   status: "active" | "disabled";
   created_at: string | null;
   is_self: boolean;
+  /** Raw value from memberships.visible_modules. NULL = inherits role default;
+   *  an array = explicit allow-list (the user sees ONLY those modules). */
+  visible_modules: ModuleId[] | null;
 };
 export type TeamMembersResponse = { members: TeamMember[]; current_user_id: string | null };
 
@@ -40,11 +44,16 @@ export async function GET() {
 
   const { data: msRows, error: msErr } = await sb
     .from("memberships")
-    .select("user_id, role, created_at")
+    .select("user_id, role, created_at, visible_modules")
     .eq("org_id", orgId)
     .order("created_at", { ascending: true });
   if (msErr) return NextResponse.json({ error: msErr.message }, { status: 500 });
-  const memberships = (msRows ?? []) as Array<{ user_id: string; role: string; created_at: string | null }>;
+  const memberships = (msRows ?? []) as Array<{
+    user_id: string;
+    role: string;
+    created_at: string | null;
+    visible_modules: unknown;
+  }>;
 
   const userIds = memberships.map((m) => m.user_id).filter(Boolean);
   let profileById = new Map<string, { email: string | null; full_name: string | null; is_active: boolean | null }>();
@@ -62,6 +71,9 @@ export async function GET() {
 
   const members: TeamMember[] = memberships.map((m) => {
     const p = profileById.get(m.user_id);
+    const vm = Array.isArray(m.visible_modules)
+      ? ((m.visible_modules as unknown[]).filter(isModuleId) as ModuleId[])
+      : null;
     return {
       user_id: m.user_id,
       email: p?.email ?? null,
@@ -70,6 +82,7 @@ export async function GET() {
       status: p?.is_active === false ? "disabled" : "active",
       created_at: m.created_at,
       is_self: meId !== null && m.user_id === meId,
+      visible_modules: vm,
     };
   });
 

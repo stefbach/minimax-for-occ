@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { requestOrgId } from "@/lib/request-org";
+import { requireModule } from "@/lib/permissions-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,6 +32,10 @@ export type DirectorResponse = {
 export async function GET(request: Request) {
   if (!hasSupabase()) return NextResponse.json({ error: "Supabase non configuré" }, { status: 500 });
   const orgId = await requestOrgId(request);
+  const gate = await requireModule(orgId, "dashboard");
+  if (!gate.allowed) {
+    return NextResponse.json({ error: "module_forbidden", module: "dashboard" }, { status: 403 });
+  }
   const { searchParams } = new URL(request.url);
   const now = new Date();
   const to = searchParams.get("to") ? new Date(searchParams.get("to")!) : now;

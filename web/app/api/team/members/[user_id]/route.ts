@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { currentOrgIdForServer, currentRoleInOrg, currentUser } from "@/lib/supabase-auth";
+import { isModuleId, type ModuleId } from "@/lib/permissions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,6 +24,9 @@ const ALLOWED_ROLES = new Set(["owner", "admin", "manager", "agent", "viewer"]);
 type Body = {
   role?: string;
   is_active?: boolean;
+  /** Granular per-user module allow-list. `null` (explicit) resets the user
+   *  to the role default; an array sets the explicit allow-list. */
+  visible_modules?: unknown;
 };
 
 async function gate(): Promise<
@@ -66,6 +70,7 @@ async function applyUpdate(
   const isSelf = targetUserId === callerId;
   const wantsRoleChange = typeof body.role === "string" && body.role !== targetMembership.role;
   const wantsActiveChange = typeof body.is_active === "boolean";
+  const wantsModulesChange = Object.prototype.hasOwnProperty.call(body, "visible_modules");
 
   // 2. Self-edit guard. Users cannot change their own role or disable
   //    themselves through this endpoint (admins managing themselves leads to
@@ -100,7 +105,35 @@ async function applyUpdate(
     if (updErr) return NextResponse.json({ error: updErr.message }, { status: 500 });
   }
 
-  // 4. Activation state lives on profiles.is_active (Wave C uses soft delete).
+  // 4. Granular per-user module visibility. `null` resets to role default;
+  //    an array overrides the default. Self-edits are allowed (an owner can
+  //    legitimately want to hide modules from themselves while they focus on
+  //    one area) but we still validate the payload server-side.
+  if (wantsModulesChange) {
+    let nextValue: ModuleId[] | null;
+    if (body.visible_modules === null) {
+      nextValue = null;
+    } else if (Array.isArray(body.visible_modules)) {
+      const cleaned: ModuleId[] = [];
+      for (const m of body.visible_modules) {
+        if (!isModuleId(m)) {
+          return NextResponse.json({ error: `module inconnu: ${String(m)}` }, { status: 400 });
+        }
+        if (!cleaned.includes(m)) cleaned.push(m);
+      }
+      nextValue = cleaned;
+    } else {
+      return NextResponse.json({ error: "visible_modules doit être null ou un tableau" }, { status: 400 });
+    }
+    const { error: vmErr } = await sb
+      .from("memberships")
+      .update({ visible_modules: nextValue })
+      .eq("org_id", orgId)
+      .eq("user_id", targetUserId);
+    if (vmErr) return NextResponse.json({ error: vmErr.message }, { status: 500 });
+  }
+
+  // 5. Activation state lives on profiles.is_active (Wave C uses soft delete).
   if (wantsActiveChange) {
     const { error: profErr } = await sb
       .from("profiles")

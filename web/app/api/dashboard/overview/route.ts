@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { requestOrgId } from "@/lib/request-org";
+import { requireModule } from "@/lib/permissions-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -217,6 +218,14 @@ export async function GET(req: Request) {
     );
   }
   const orgId = await requestOrgId(req);
+
+  // Per-user module gate. The middleware already enforces this at the page
+  // level; this stops API consumers (curl, side panels) from leaking data
+  // when "Tableau d'analyse" was subtracted from their membership.
+  const gate = await requireModule(orgId, "dashboard");
+  if (!gate.allowed) {
+    return NextResponse.json({ error: "module_forbidden", module: "dashboard" }, { status: 403 });
+  }
 
   try {
     const todayStart = startOfTodayUTC();
