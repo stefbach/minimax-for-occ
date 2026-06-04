@@ -11,7 +11,9 @@ export const dynamic = "force-dynamic";
 type StepKey =
   | "agent" | "contacts" | "scripts" | "number" | "campaign"
   | "campaigns_list" | "ivr" | "transfer" | "live" | "simulation"
-  | "monitor" | "schedule";
+  | "monitor" | "schedule"
+  // ── Agent humain (caller) workflow ──
+  | "desk_discover" | "desk_claim" | "desk_dial" | "desk_qualify" | "desk_callback";
 
 type Counts = {
   agents: number; tables: number; contacts: number;
@@ -106,6 +108,37 @@ function stepFor(key: StepKey, c: Counts): {
         desc: "Lancez une conversation simulée pour valider le comportement avant de dépenser un appel.",
         href: "/agents", cta: "Lancer une simulation", done: false,
       };
+    // ── Agent humain — pas de droits sur agents IA / campagnes ──
+    case "desk_discover":
+      return {
+        title: "Découvrir Mon poste",
+        desc: "Trois panneaux : ta file du jour à gauche, le contexte patient au centre, le pool partagé à droite.",
+        href: "/desk", cta: "Ouvrir Mon poste", done: false,
+      };
+    case "desk_claim":
+      return {
+        title: "Prendre un appel du pool partagé",
+        desc: "Le pool partagé montre les patients à rappeler que personne n'a encore réservés. Clique « Prendre » pour t'en attribuer un.",
+        href: "/desk", cta: "Voir le pool", done: false,
+      };
+    case "desk_dial":
+      return {
+        title: "Lancer ton premier appel",
+        desc: "Sélectionne un patient dans ta file, vérifie son contexte au centre, puis clique « Appeler ». Ton micro/écouteurs se connectent automatiquement.",
+        href: "/desk", cta: "Aller à Mon poste", done: false,
+      };
+    case "desk_qualify":
+      return {
+        title: "Qualifier un appel",
+        desc: "À la fin de l'appel : choisis une qualification (RDV confirmé, à rappeler, pas intéressé…) et ajoute une note. Le patient avance dans le pipeline.",
+        href: "/desk", cta: "Voir la qualification", done: false,
+      };
+    case "desk_callback":
+      return {
+        title: "Programmer un rappel",
+        desc: "Pour les patients à recontacter, fixe une date/heure : ils réapparaîtront dans ta file à ce moment-là.",
+        href: "/desk", cta: "Ouvrir Mon poste", done: false, optional: true,
+      };
   }
 }
 
@@ -117,7 +150,10 @@ type Scenario = {
   steps: StepKey[];
 };
 
-const SCENARIOS: Scenario[] = [
+// Onboarding scenarios for managers/owners/admins — they configure agents,
+// campaigns, numbers, etc. An agent humain (caller) gets a different list
+// (AGENT_SCENARIOS below) since they don't have rights on any of these.
+const MGMT_SCENARIOS: Scenario[] = [
   // ─── Scénarios validés patron ────────────────────────────────────────────
   {
     id: "campaign",
@@ -207,6 +243,55 @@ const SCENARIOS: Scenario[] = [
   },
 ];
 
+// Onboarding scenarios for human-agent callers. They land on /desk by default
+// (cf. landingPathFor); these guide them through their first day.
+const AGENT_SCENARIOS: Scenario[] = [
+  {
+    id: "first_day",
+    emoji: "🎧",
+    title: "Mon premier jour",
+    subtitle: "Découvre l'interface, prends un appel, qualifie-le, programme un rappel.",
+    steps: ["desk_discover", "desk_claim", "desk_dial", "desk_qualify", "desk_callback"],
+  },
+  {
+    id: "take_call",
+    emoji: "📞",
+    title: "Prendre un appel maintenant",
+    subtitle: "Le plus court chemin du pool partagé jusqu'à la qualification.",
+    steps: ["desk_claim", "desk_dial", "desk_qualify"],
+  },
+  {
+    id: "qualify",
+    emoji: "📝",
+    title: "Bien qualifier les appels",
+    subtitle: "Comprendre quand utiliser quelle qualification, et programmer les rappels.",
+    steps: ["desk_qualify", "desk_callback"],
+  },
+];
+
+// Read-only scenarios for viewers (auditors, NHS partners).
+const VIEWER_SCENARIOS: Scenario[] = [
+  {
+    id: "explore",
+    emoji: "📊",
+    title: "Parcourir le tableau de bord",
+    subtitle: "KPIs, qualifications, coût, performance — vue d'ensemble.",
+    steps: ["monitor"],
+  },
+];
+
+function scenariosForRole(role: string | null | undefined): Scenario[] {
+  switch (role) {
+    case "agent":
+      return AGENT_SCENARIOS;
+    case "viewer":
+      return VIEWER_SCENARIOS;
+    default:
+      // owner, admin, manager, supervisor, super_admin → full onboarding.
+      return MGMT_SCENARIOS;
+  }
+}
+
 export default async function GuidedStartPage({
   searchParams,
 }: {
@@ -228,9 +313,21 @@ export default async function GuidedStartPage({
     Object.assign(counts, { agents, tables, contacts, campaigns, numbers, flows, scripts });
   }
 
-  const selectedId = sp.scenario ?? "campaign";
+  // Pick the scenario list adapted to the current role — an agent (caller)
+  // doesn't see "Lancer une campagne", and a viewer just gets "Parcourir".
+  let role: string | null = null;
+  if (hasSupabase()) {
+    try {
+      const orgId = await currentOrgIdForServer();
+      const { currentRoleInOrg } = await import("@/lib/supabase-auth");
+      role = await currentRoleInOrg(orgId);
+    } catch { /* fall back to MGMT_SCENARIOS */ }
+  }
+  const SCENARIOS = scenariosForRole(role);
+
+  const selectedId = sp.scenario ?? SCENARIOS[0]?.id ?? "campaign";
   const scenario = SCENARIOS.find((s) => s.id === selectedId) ?? SCENARIOS[0];
-  const steps = scenario.steps.map((key, i) => ({ n: i + 1, key, ...stepFor(key, counts) }));
+  const steps = scenario?.steps.map((key, i) => ({ n: i + 1, key, ...stepFor(key, counts) })) ?? [];
 
   const requiredDone = steps.filter((s) => !s.optional && s.done).length;
   const requiredTotal = steps.filter((s) => !s.optional).length;
