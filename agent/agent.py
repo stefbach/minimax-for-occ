@@ -1425,7 +1425,16 @@ async def entrypoint(ctx: JobContext) -> None:
     # `turn_handling=TurnHandlingOptions(...)` now. We try the new API first
     # and fall back to the old kwargs otherwise. Either way, signature-filter
     # so unknown kwargs are dropped instead of crashing.
-    min_endp = float(os.getenv("MIN_ENDPOINTING_DELAY", "0.10"))
+    #
+    # Default raised from 0.10s → 0.80s after a real-world OCC call where the
+    # patient gave their name and date of birth as 3 separate fragments
+    # ("Megan, Claudia, Kenneth" / pause / "17 more" / pause / "1993").
+    # At 0.10s each pause looked like an end-of-turn and the LLM started a new
+    # turn, cancelling the previous one. After 3 cancellations the pipeline
+    # got wedged and Victoria stopped responding entirely. 0.80s groups
+    # natural fragmented speech into a single turn while still feeling
+    # conversational. Override via MIN_ENDPOINTING_DELAY env var if needed.
+    min_endp = float(os.getenv("MIN_ENDPOINTING_DELAY", "0.8"))
 
     new_api_applied = False
     try:
