@@ -619,6 +619,48 @@ async def _watch_handoff(ctx: JobContext, session: AgentSession) -> None:
     logger.debug("handoff watcher: no metadata_changed event on this LiveKit version")
 
 
+_LANG_NAMES = {
+    "fr": "français", "en": "English", "es": "español", "de": "Deutsch",
+    "it": "italiano", "pt": "português", "nl": "Nederlands",
+}
+
+_QUICK_ACK_BY_LANG = {
+    "fr": "Commence chaque réponse par un mot court (Oui, D'accord, Bien sûr, Hmm), puis la réponse.",
+    "en": "Start each reply with a short word (Yes, Sure, Okay, Hmm), then the answer.",
+    "es": "Comienza cada respuesta con una palabra corta (Sí, Claro, Vale, Hmm), luego la respuesta.",
+    "de": "Beginne jede Antwort mit einem kurzen Wort (Ja, Klar, Okay, Hmm), dann die Antwort.",
+    "it": "Inizia ogni risposta con una parola breve (Sì, Certo, Va bene, Hmm), poi la risposta.",
+    "pt": "Comece cada resposta com uma palavra curta (Sim, Claro, Tá, Hmm), depois a resposta.",
+}
+
+
+def _lang_code_for(axon) -> str:
+    return (axon.language if axon and getattr(axon, "language", None) else "").lower()
+
+
+def _apply_language_lock(instructions: str, axon) -> str:
+    """Append a strict language directive when the persona has a declared
+    language. Stops the LLM from following STT-misread language hints
+    (the EN → DE → FR drift seen in production)."""
+    code = _lang_code_for(axon)
+    if code not in _LANG_NAMES:
+        return instructions
+    label = _LANG_NAMES[code]
+    return (
+        f"{instructions}\n\n"
+        f"RÈGLE ABSOLUE DE LANGUE : tu réponds EXCLUSIVEMENT en {label}, "
+        f"sans aucune exception. Si tu entends une autre langue, demande "
+        f"poliment à l'interlocuteur de continuer en {label}. "
+        f"Ne traduis jamais, ne mélange jamais les langues, même si le "
+        f"transcript semble suggérer une autre langue."
+    )
+
+
+def _quick_ack_directive(axon) -> str:
+    code = _lang_code_for(axon)
+    return _QUICK_ACK_BY_LANG.get(code, _QUICK_ACK_BY_LANG["fr"])
+
+
 def _assemble_agent_runtime(
     axon: AxonAgent,
     *,
@@ -644,12 +686,9 @@ def _assemble_agent_runtime(
             f"{instructions}\n\nStyle et ton à adopter : {axon.voice_style}. "
             "Reste naturel et conversationnel."
         )
+    instructions = _apply_language_lock(instructions, axon)
     if os.getenv("QUICK_ACK", "true").lower() not in ("false", "0", "no"):
-        instructions = (
-            f"{instructions}\n"
-            "Commence chaque réponse par un mot court (Oui, D'accord, "
-            "Bien sûr, Hmm), puis la réponse."
-        )
+        instructions = f"{instructions}\n{_quick_ack_directive(axon)}"
     instructions = render_template(instructions, template_vars)
     greeting = render_template(axon.greeting or "", template_vars)
 
@@ -730,12 +769,19 @@ def _install_team_handoff_watcher(
                 session.tts = next_tts
             except Exception:
                 pass
-            await session.update_agent(
+            # livekit-agents 1.5.x: session.update_agent(...) is synchronous and
+            # returns None. Earlier versions returned a coroutine, so we accept
+            # both shapes here. Wrapping unconditionally with `await` raises
+            # `TypeError: object NoneType can't be used in 'await' expression`
+            # and breaks the Charlotte → Isabelle handoff.
+            _ret = session.update_agent(
                 AxonVoiceAgent(
                     instructions=instr, tools=tools, greeting=greet,
                     llm=next_llm, tts=next_tts,
                 )
             )
+            if asyncio.iscoroutine(_ret):
+                await _ret
             clog.info(
                 "handoff: FULL swap -> %s (%s) voice=%s model=%s, %d tools",
                 axon_next.id, axon_next.name, axon_next.tts_voice_id, axon_next.llm_model, len(tools),
@@ -1312,17 +1358,14 @@ async def entrypoint(ctx: JobContext) -> None:
             call_id, len(template_vars), sorted(template_vars.keys()),
         )
 
-    # Perceived-latency trick used by Retell / Vapi / ElevenLabs Conversational:
-    # force the LLM to ALWAYS start its replies with a 1-2 word acknowledgement
-    # so TTS streaming begins on the very first token. Kept as short as
-    # possible (~15 tokens) so it doesn't bloat the system prompt and trash
-    # the DeepSeek prefix cache (every byte change = miss).
+    # Language lock + quick-ack now centralized in helpers so the wording stays
+    # in sync between this entrypoint and _assemble_agent_runtime (used on
+    # handoff). The previous code path injected French fillers regardless of
+    # the persona's declared language, which was one cause of the EN/DE/FR
+    # drift observed in the Fly logs.
+    instructions = _apply_language_lock(instructions, axon)
     if os.getenv("QUICK_ACK", "true").lower() not in ("false", "0", "no"):
-        instructions = (
-            f"{instructions}\n"
-            "Commence chaque réponse par un mot court (Oui, D'accord, "
-            "Bien sûr, Hmm), puis la réponse."
-        )
+        instructions = f"{instructions}\n{_quick_ack_directive(axon)}"
 
     # Reuse the VAD loaded once at worker startup (prewarm) instead of paying
     # the model-load cost on every single call — that load was part of the
@@ -1382,7 +1425,16 @@ async def entrypoint(ctx: JobContext) -> None:
     # `turn_handling=TurnHandlingOptions(...)` now. We try the new API first
     # and fall back to the old kwargs otherwise. Either way, signature-filter
     # so unknown kwargs are dropped instead of crashing.
-    min_endp = float(os.getenv("MIN_ENDPOINTING_DELAY", "0.10"))
+    #
+    # Default raised from 0.10s → 0.80s after a real-world OCC call where the
+    # patient gave their name and date of birth as 3 separate fragments
+    # ("Megan, Claudia, Kenneth" / pause / "17 more" / pause / "1993").
+    # At 0.10s each pause looked like an end-of-turn and the LLM started a new
+    # turn, cancelling the previous one. After 3 cancellations the pipeline
+    # got wedged and Victoria stopped responding entirely. 0.80s groups
+    # natural fragmented speech into a single turn while still feeling
+    # conversational. Override via MIN_ENDPOINTING_DELAY env var if needed.
+    min_endp = float(os.getenv("MIN_ENDPOINTING_DELAY", "0.8"))
 
     new_api_applied = False
     try:

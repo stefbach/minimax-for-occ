@@ -32,6 +32,26 @@ export async function GET(request: Request) {
 
   const admin = supabaseServer();
 
+  // Opportunistic sweep: any call left in an active state for > 5 min without
+  // a terminal event is almost certainly orphaned (LiveKit room died, TTS quota
+  // hit, worker crashed, etc.). Mark them failed so the "Appels actifs" panel
+  // doesn't show ghosts at 11:44+ minutes. Cheap UPDATE — runs each list view.
+  try {
+    const cutoff = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    await admin
+      .from("calls")
+      .update({
+        state: "failed",
+        ended_at: new Date().toISOString(),
+        disposition: "stale_no_terminal_event",
+      })
+      .eq("org_id", orgId)
+      .in("state", ["queued", "ringing", "ivr", "in_progress"])
+      .lt("started_at", cutoff);
+  } catch {
+    /* sweep is best-effort — don't fail the list query if it errors */
+  }
+
   let q = admin
     .from("calls")
     .select(
