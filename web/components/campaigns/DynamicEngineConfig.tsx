@@ -50,12 +50,85 @@ const TIMEZONES = [
   "Europe/London", "Europe/Paris", "Indian/Mauritius", "America/New_York", "UTC",
 ];
 
+// Detect retry-phase column pairs by name, so the user doesn't have to pick
+// them from dropdowns when their table follows the OCC-style convention
+// (or one of a few common variants). Returns a list of phases ready to drop
+// into cadence.phases.
+//
+// Patterns recognised (case-insensitive):
+//   date_j{N}              ↔ j{N}_attempts                 (OCC prod)
+//   appel_j{N}             ↔ tentatives_j{N}               (FR variant)
+//   phase{N}_called_at     ↔ phase{N}_attempts             (EN variant)
+//   relance_{N}_date       ↔ relance_{N}_count             (recouvrement-style)
+//   j{N}_called_at         ↔ j{N}_attempts                 (Axon default)
+function detectPhases(columns: Column[]): PhaseConfig[] {
+  const cols = columns.map((c) => c.key);
+
+  // Each pattern: regex that captures the phase number on the DATE column,
+  // and a builder for the matching ATTEMPTS column name.
+  const patterns: { dateRe: RegExp; attemptsFor: (n: string) => string[] }[] = [
+    { dateRe: /^date_j(\d+)$/i,            attemptsFor: (n) => [`j${n}_attempts`, `tentatives_j${n}`] },
+    { dateRe: /^j(\d+)_called_at$/i,       attemptsFor: (n) => [`j${n}_attempts`] },
+    { dateRe: /^appel_j(\d+)$/i,           attemptsFor: (n) => [`tentatives_j${n}`, `j${n}_attempts`] },
+    { dateRe: /^phase(\d+)_called_at$/i,   attemptsFor: (n) => [`phase${n}_attempts`] },
+    { dateRe: /^relance_(\d+)_date$/i,     attemptsFor: (n) => [`relance_${n}_count`, `relance_${n}_attempts`] },
+  ];
+
+  const matches = new Map<string, { dateCol: string; attemptsCol: string }>();
+  for (const col of cols) {
+    for (const p of patterns) {
+      const m = col.match(p.dateRe);
+      if (!m) continue;
+      const phaseNumber = m[1];
+      // Skip if we already mapped this phase under a different pattern.
+      if (matches.has(phaseNumber)) continue;
+      const candidates = p.attemptsFor(phaseNumber);
+      const attemptsCol = candidates.find((cand) => cols.includes(cand));
+      if (!attemptsCol) continue;
+      matches.set(phaseNumber, { dateCol: col, attemptsCol });
+      break;
+    }
+  }
+
+  if (matches.size === 0) return [];
+
+  // Sort phases by their numeric label so J1 comes before J3 etc.
+  const sorted = Array.from(matches.entries()).sort(
+    (a, b) => Number(a[0]) - Number(b[0]),
+  );
+
+  // Wait_business_days suggestion: cumulative day count following the phase
+  // label. For J1/J3/J5 that gives 0 / 2 / 2 (delta between phases).
+  return sorted.map(([n, { dateCol, attemptsCol }], idx) => {
+    const days = Number(n);
+    const prevDays = idx === 0 ? 0 : Number(sorted[idx - 1][0]);
+    return {
+      name: `J${n}`,
+      date_column: dateCol,
+      attempts_column: attemptsCol,
+      wait_business_days: idx === 0 ? 0 : days - prevDays,
+    };
+  });
+}
+
 export function defaultEngineConfig(columns: Column[], phoneColumn: string): EngineConfig {
   const textCols = columns.filter((c) => c.type === "text");
   const dateCols = columns.filter((c) => c.type === "date" || c.type === "datetime");
   const numCols = columns.filter((c) => c.type === "number");
   const statusCol = textCols.find((c) => /qualif|status|statut|stage/i.test(c.key))?.key ?? textCols[0]?.key ?? "";
   const cbCol = dateCols.find((c) => /rappel|callback|recall/i.test(c.key))?.key ?? "";
+
+  // Try the pattern-based auto-detection first. If nothing matches, fall back
+  // to a single placeholder phase using the first date + first number column
+  // (the user will then need to fix the dropdowns manually — but at least the
+  // form isn't empty).
+  const detectedPhases = detectPhases(columns);
+  const phases: PhaseConfig[] = detectedPhases.length > 0
+    ? detectedPhases
+    : dateCols.length >= 1
+      ? [{ name: "J1", date_column: dateCols[0]?.key ?? "", attempts_column: numCols[0]?.key ?? "", wait_business_days: 0 }]
+      : [];
+
   return {
     selection: {
       status_column: statusCol,
@@ -66,12 +139,12 @@ export function defaultEngineConfig(columns: Column[], phoneColumn: string): Eng
     },
     callback: { enabled: Boolean(cbCol), status_value: "RAPPEL", datetime_column: cbCol },
     cadence: {
-      enabled: false,
+      // Auto-enable the cadence when we successfully detected named phases —
+      // the user clearly has a table designed for multi-phase retries.
+      enabled: detectedPhases.length > 0,
       business_days_only: true,
       max_attempts_per_phase: 3,
-      phases: dateCols.length >= 1
-        ? [{ name: "J1", date_column: dateCols[0]?.key ?? "", attempts_column: numCols[0]?.key ?? "", wait_business_days: 0 }]
-        : [],
+      phases,
     },
     slots: { days: [1, 2, 3, 4, 5], hours: ["09:00"], timezone: "Europe/London" },
     volume: { max_new_per_day: 200, wave_size: 15, wave_pause_secs: 60 },
@@ -197,6 +270,14 @@ export function DynamicEngineConfig({ columns, value, onChange, hideSlots = fals
               <label>Phases de relance</label>
               <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>
                 Chaque phase note la date d&apos;appel et le nombre de tentatives dans VOS colonnes.
+                {value.cadence.phases.length > 0 &&
+                  value.cadence.phases.every((p) =>
+                    /^date_j\d+$|^j\d+_called_at$|^appel_j\d+$|^phase\d+_called_at$|^relance_\d+_date$/i.test(p.date_column),
+                  ) && (
+                    <span style={{ marginLeft: 6, color: "var(--good)" }}>
+                      ✓ Colonnes auto-détectées d&apos;après les noms de ta table.
+                    </span>
+                  )}
               </div>
               <div style={{ display: "grid", gap: 8 }}>
                 {value.cadence.phases.map((p, i) => (

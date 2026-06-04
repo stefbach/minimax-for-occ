@@ -1187,6 +1187,18 @@ async def entrypoint(ctx: JobContext) -> None:
     if target_id and str(target_id).startswith("X-LK-"):
         target_id = None
 
+    # agent_handle_id: identifies the persona slot in the team org chart. The
+    # `transfer_to_human` tool stamps this on the callback task so the desk can
+    # audit which agent triggered the transfer. Same forwarded-SIP-header
+    # gotcha as agent_id / target_id.
+    agent_handle_id = (
+        p_attrs.get("sip.h.x-lk-agent-handle-id")
+        or p_attrs.get("agent_handle_id")
+        or p_attrs.get("axon.agent_handle_id")
+    )
+    if agent_handle_id and str(agent_handle_id).startswith("X-LK-"):
+        agent_handle_id = None
+
     # Simulation: the in-app "Tester ce script" UI passes a script_id directly
     # (no campaign). We render that script into the prompt so the tester can run
     # the full flow — including multi-agent handoffs — without a campaign.
@@ -1470,6 +1482,26 @@ async def entrypoint(ctx: JobContext) -> None:
         if handoff_tool is not None:
             tools.append(handoff_tool)
             clog.info("swarm: handoff_to_handle tool enabled")
+        # transfer_to_human: when the AI decides the patient needs a human
+        # follow-up (RDV booking, complex objection, callback request), this
+        # tool POSTs to the web app which creates a human_callback_task
+        # scheduled for the next business day. Returns None (and logs) if
+        # env vars (INTERNAL_AGENT_API_TOKEN, NEXT_PUBLIC_APP_URL) or org_id
+        # are missing — so older deployments don't crash.
+        try:
+            from tools_transfer import build_transfer_to_human_tool
+            transfer_human_tool = build_transfer_to_human_tool(
+                org_id=(axon.org_id if axon else None),
+                contact_id=target_vars.get("__contact_id__"),
+                call_id=call_id,
+                agent_handle_id=agent_handle_id,
+            )
+        except Exception:
+            clog.exception("transfer_to_human tool build failed")
+            transfer_human_tool = None
+        if transfer_human_tool is not None:
+            tools.append(transfer_human_tool)
+            clog.info("transfer_to_human tool enabled")
     else:
         # legacy path: env-only n8n tools
         if os.getenv("N8N_BASE_URL") and os.getenv("N8N_API_KEY"):
