@@ -32,7 +32,10 @@ export const CAMPAIGN_TEMPLATES: CampaignTemplate[] = [
     title: "Prospection / Vente sortante",
     subtitle: "Acquérir de nouveaux clients ou leads.",
     defaults: {
-      maxConcurrency: 10, maxAttempts: 4, retryDelayMin: 60, amdEnabled: true,
+      // Concurrency capped at the AssemblyAI free-tier ceiling (5 simultaneous
+      // streams). Raise once the org upgrades — and bump
+      // NEXT_PUBLIC_STT_CONCURRENT_LIMIT to silence the wizard warning.
+      maxConcurrency: 5, maxAttempts: 4, retryDelayMin: 60, amdEnabled: true,
       days: [1, 2, 3, 4, 5], timezone: TZ_DEFAULT, hourStart: "10:00", hourEnd: "19:00",
     },
   },
@@ -52,7 +55,7 @@ export const CAMPAIGN_TEMPLATES: CampaignTemplate[] = [
     title: "Relance non-décrochés",
     subtitle: "Recibler une campagne précédente.",
     defaults: {
-      maxConcurrency: 8, maxAttempts: 3, retryDelayMin: 240, amdEnabled: true,
+      maxConcurrency: 5, maxAttempts: 3, retryDelayMin: 240, amdEnabled: true,
       days: [1, 2, 3, 4, 5], timezone: TZ_DEFAULT, hourStart: "11:00", hourEnd: "19:00",
     },
   },
@@ -82,7 +85,7 @@ export const CAMPAIGN_TEMPLATES: CampaignTemplate[] = [
     title: "Notification de masse",
     subtitle: "Information massive et courte.",
     defaults: {
-      maxConcurrency: 20, maxAttempts: 1, retryDelayMin: 60, amdEnabled: true,
+      maxConcurrency: 5, maxAttempts: 1, retryDelayMin: 60, amdEnabled: true,
       days: [1, 2, 3, 4, 5], timezone: TZ_DEFAULT, hourStart: "10:00", hourEnd: "18:00",
     },
   },
@@ -92,7 +95,7 @@ export const CAMPAIGN_TEMPLATES: CampaignTemplate[] = [
     title: "Permanence entrante",
     subtitle: "Recevoir des appels (l'IA ne passe pas d'appels).",
     defaults: {
-      maxConcurrency: 10, maxAttempts: 1, retryDelayMin: 60, amdEnabled: false,
+      maxConcurrency: 5, maxAttempts: 1, retryDelayMin: 60, amdEnabled: false,
       days: [0, 1, 2, 3, 4, 5, 6], timezone: TZ_DEFAULT, hourStart: "00:00", hourEnd: "23:59",
     },
   },
