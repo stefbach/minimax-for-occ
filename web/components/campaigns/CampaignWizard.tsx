@@ -237,6 +237,7 @@ function parseCsv(text: string): Target[] {
 }
 
 export function CampaignWizard({
+  template = null,
   agents,
   numbers,
   contacts,
@@ -245,6 +246,7 @@ export function CampaignWizard({
   contactLists = [],
   dataTables = [],
 }: {
+  template?: import("@/lib/campaign-templates").CampaignTemplate | null;
   agents: AgentHandleOption[];
   numbers: PhoneNumberOption[];
   contacts: ContactOption[];
@@ -254,6 +256,18 @@ export function CampaignWizard({
   dataTables?: DataTableOption[];
 }) {
   const router = useRouter();
+
+  // Template-driven defaults (fall back to neutral values when no template).
+  const TPL_DEFAULTS = {
+    maxConcurrency: template?.defaults.maxConcurrency ?? 5,
+    maxAttempts: template?.defaults.maxAttempts ?? 3,
+    retryDelayMin: template?.defaults.retryDelayMin ?? 60,
+    amdEnabled: template?.defaults.amdEnabled ?? true,
+    days: template?.defaults.days ?? [1, 2, 3, 4, 5],
+    timezone: template?.defaults.timezone ?? "Indian/Mauritius",
+    hourStart: template?.defaults.hourStart ?? "09:00",
+    hourEnd: template?.defaults.hourEnd ?? "18:00",
+  };
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -300,16 +314,15 @@ export function CampaignWizard({
   const [csvText, setCsvText] = useState("");
   const [pickedContactIds, setPickedContactIds] = useState<Set<string>>(new Set());
   const [contactSearch, setContactSearch] = useState("");
-  const [maxConcurrency, setMaxConcurrency] = useState(5);
-  const [maxAttempts, setMaxAttempts] = useState(3);
-  const [retryDelayMin, setRetryDelayMin] = useState(60);
-  const [amdEnabled, setAmdEnabled] = useState(true);
-  const [days, setDays] = useState<number[]>([1, 2, 3, 4, 5]);
-  // Timezone in which hourStart/hourEnd are expressed. Default = Mauritius
-  // (OCC's market); the wizard converts to UTC before sending to the API.
-  const [timezone, setTimezone] = useState("Indian/Mauritius");
-  const [hourStart, setHourStart] = useState("09:00");
-  const [hourEnd, setHourEnd] = useState("18:00");
+  const [maxConcurrency, setMaxConcurrency] = useState(TPL_DEFAULTS.maxConcurrency);
+  const [maxAttempts, setMaxAttempts] = useState(TPL_DEFAULTS.maxAttempts);
+  const [retryDelayMin, setRetryDelayMin] = useState(TPL_DEFAULTS.retryDelayMin);
+  const [amdEnabled, setAmdEnabled] = useState(TPL_DEFAULTS.amdEnabled);
+  const [days, setDays] = useState<number[]>(TPL_DEFAULTS.days);
+  // Timezone in which hourStart/hourEnd are expressed. Templates may override.
+  const [timezone, setTimezone] = useState(TPL_DEFAULTS.timezone);
+  const [hourStart, setHourStart] = useState(TPL_DEFAULTS.hourStart);
+  const [hourEnd, setHourEnd] = useState(TPL_DEFAULTS.hourEnd);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
