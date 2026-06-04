@@ -611,8 +611,78 @@ function QueueRow({
   );
 }
 
+// ── Patient context (org-specific leads table join) ──────────────────────
+// Shape mirrors /api/desk/patient-context/[contact_id]. Defined here as a
+// local type so this component stays self-contained — the endpoint is the
+// single source of truth and gates each section silently when fields are
+// missing on the org's leads table.
+
+interface PatientContext {
+  identity: { nom: string | null; email: string | null; dob: string | null };
+  clinical: {
+    bmi: number | null;
+    poids: number | null;
+    taille: number | null;
+    allergies: string | null;
+    anesthesia_allergies: string | null;
+    current_medications: string | null;
+    past_surgeries: string | null;
+    other_chronic_conditions: string | null;
+  };
+  nhs: {
+    wmp_status: string | null;
+    wmp_details: string | null;
+    document_status: string | null;
+    received_documents: string | null;
+    missing_documents: string | null;
+  };
+  history: {
+    qualification: string | null;
+    call_count: number;
+    last_call: string | null;
+    last_response: string | null;
+    cycle_status: string | null;
+    current_phase: string | null;
+  };
+  notes: {
+    call_1: string | null;
+    call_2: string | null;
+    call_3: string | null;
+    free: string | null;
+  };
+  source: { source_lead: string | null; form_facebook: string | null };
+}
+
 function PatientCard({ item }: { item: DeskItem | null }) {
   const t = useT();
+  const [ctx, setCtx] = useState<PatientContext | null>(null);
+  // Fetch the org-specific patient context when a row is focused AND has a
+  // contact_id. Orgs without a leads table or contacts not in it just leave
+  // ctx === null, which falls back to the generic view below.
+  useEffect(() => {
+    const contactId = item?.contact_id ?? null;
+    if (!contactId) {
+      setCtx(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(`/api/desk/patient-context/${contactId}`, {
+          cache: "no-store",
+        });
+        if (!r.ok) return;
+        const j = (await r.json()) as { context: PatientContext | null };
+        if (!cancelled) setCtx(j.context ?? null);
+      } catch {
+        if (!cancelled) setCtx(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [item?.contact_id]);
+
   if (!item) {
     return (
       <div
@@ -641,52 +711,373 @@ function PatientCard({ item }: { item: DeskItem | null }) {
       </div>
     );
   }
+
+  // Generic (no-leads-table) fallback shape is preserved below. When the
+  // patient-context endpoint returns a non-null context we render enriched
+  // collapsible sections on top of it.
   return (
-    <div className="card" style={{ display: "grid", gap: 8 }}>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-        <h3 style={{ margin: 0 }}>{item.display_name ?? t("Patient")}</h3>
+    <div className="card" style={{ display: "grid", gap: 10 }}>
+      {/* Identité & contact (always visible) */}
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+        <h3 style={{ margin: 0 }}>
+          {ctx?.identity.nom || item.display_name || t("Patient")}
+        </h3>
         <span className="kbd" style={{ fontSize: 12 }}>{item.e164 ?? "—"}</span>
       </div>
       <div className="muted" style={{ fontSize: 12 }}>
-        {item.call_count} {t("appels")}
+        {(ctx?.history.call_count ?? item.call_count)} {t("appels")}
         {item.scheduled_for ? ` · ${t("Rappeler le")} ${formatDateTime(item.scheduled_for)}` : ""}
+        {ctx?.identity.email ? ` · ${ctx.identity.email}` : ""}
+        {ctx?.identity.dob ? ` · ${t("DDN")} ${ctx.identity.dob}` : ""}
       </div>
-      {item.qualification && (
-        <div>
-          <span className="muted" style={{ fontSize: 12 }}>
-            {t("Qualification")}:
-          </span>{" "}
-          <span className="tag" style={{ fontSize: 11 }}>
-            {item.qualification}
+
+      {/* ── Clinique (open by default) ───────────────────────────────── */}
+      {ctx && hasClinical(ctx) && (
+        <details open style={sectionStyle()}>
+          <summary style={summaryStyle()}>{t("Clinique")}</summary>
+          <ClinicalSection ctx={ctx} />
+        </details>
+      )}
+
+      {/* ── NHS S2 ───────────────────────────────────────────────────── */}
+      {ctx && hasNhs(ctx) && (
+        <details style={sectionStyle()}>
+          <summary style={summaryStyle()}>{t("NHS S2")}</summary>
+          <NhsSection ctx={ctx} />
+        </details>
+      )}
+
+      {/* ── Historique (open by default) ─────────────────────────────── */}
+      <details open style={sectionStyle()}>
+        <summary style={summaryStyle()}>{t("Historique")}</summary>
+        <HistorySection item={item} ctx={ctx} />
+      </details>
+
+      {/* ── Notes (call_1/2/3 + free) ────────────────────────────────── */}
+      {(ctx && hasNotes(ctx)) || item.last_note || item.original_call_summary ? (
+        <details style={sectionStyle()}>
+          <summary style={summaryStyle()}>{t("Notes")}</summary>
+          <NotesSection item={item} ctx={ctx} />
+        </details>
+      ) : null}
+
+      {/* ── Source (footer) ──────────────────────────────────────────── */}
+      {ctx && (ctx.source.source_lead || ctx.source.form_facebook) && (
+        <details style={sectionStyle()}>
+          <summary style={summaryStyle()}>{t("Source")}</summary>
+          <div className="muted" style={{ fontSize: 12, paddingTop: 6 }}>
+            {ctx.source.source_lead && (
+              <div>
+                {t("Source lead")}: {ctx.source.source_lead}
+              </div>
+            )}
+            {ctx.source.form_facebook && (
+              <div>
+                {t("Formulaire Facebook")}: {ctx.source.form_facebook}
+              </div>
+            )}
+          </div>
+        </details>
+      )}
+    </div>
+  );
+}
+
+// ── Section helpers (purely presentational, share Axon CSS vars) ────────
+
+function sectionStyle(): React.CSSProperties {
+  return {
+    borderTop: "1px solid var(--border)",
+    paddingTop: 8,
+  };
+}
+function summaryStyle(): React.CSSProperties {
+  return {
+    cursor: "pointer",
+    fontSize: 12,
+    fontWeight: 600,
+    color: "var(--muted)",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+    listStyle: "revert",
+  };
+}
+
+function hasClinical(c: PatientContext): boolean {
+  const x = c.clinical;
+  return Boolean(
+    x.bmi !== null ||
+      x.poids !== null ||
+      x.taille !== null ||
+      x.allergies ||
+      x.anesthesia_allergies ||
+      x.current_medications ||
+      x.past_surgeries ||
+      x.other_chronic_conditions,
+  );
+}
+function hasNhs(c: PatientContext): boolean {
+  const x = c.nhs;
+  return Boolean(
+    x.wmp_status ||
+      x.wmp_details ||
+      x.document_status ||
+      x.received_documents ||
+      x.missing_documents,
+  );
+}
+function hasNotes(c: PatientContext): boolean {
+  const x = c.notes;
+  return Boolean(x.call_1 || x.call_2 || x.call_3 || x.free);
+}
+
+function ClinicalSection({ ctx }: { ctx: PatientContext }) {
+  const t = useT();
+  const c = ctx.clinical;
+  return (
+    <div style={{ display: "grid", gap: 8, paddingTop: 8 }}>
+      {c.bmi !== null && (
+        <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+          <span
+            style={{
+              fontSize: 28,
+              fontWeight: 700,
+              color: bmiColor(c.bmi),
+              lineHeight: 1,
+            }}
+          >
+            {c.bmi}
+          </span>
+          <span className="muted" style={{ fontSize: 11 }}>
+            {t("BMI")}
+            {c.poids !== null ? ` · ${c.poids} kg` : ""}
+            {c.taille !== null ? ` · ${c.taille} cm` : ""}
           </span>
         </div>
       )}
-      {item.transfer_reason && (
-        <div style={{ fontSize: 13 }}>
-          <div className="muted" style={{ fontSize: 12 }}>
-            {t("Raison du transfert")}:
-          </div>
-          <div>{item.transfer_reason}</div>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr",
+          gap: 8,
+        }}
+      >
+        <Field label={t("Allergies")} value={c.allergies} />
+        <Field label={t("Allergies anesthésie")} value={c.anesthesia_allergies} />
+        <Field label={t("Traitements en cours")} value={c.current_medications} />
+        <Field label={t("Antécédents chirurgicaux")} value={c.past_surgeries} />
+        <Field
+          label={t("Autres antécédents")}
+          value={c.other_chronic_conditions}
+          full
+        />
+      </div>
+    </div>
+  );
+}
+
+function NhsSection({ ctx }: { ctx: PatientContext }) {
+  const t = useT();
+  const n = ctx.nhs;
+  const received = splitDocList(n.received_documents);
+  const missing = splitDocList(n.missing_documents);
+  return (
+    <div style={{ display: "grid", gap: 8, paddingTop: 8, fontSize: 13 }}>
+      {n.wmp_status && (
+        <div>
+          <span className="muted" style={{ fontSize: 11 }}>
+            {t("Statut WMP")}:
+          </span>{" "}
+          <span className="tag" style={{ fontSize: 11 }}>
+            {n.wmp_status}
+          </span>
         </div>
       )}
-      {item.original_call_summary && (
-        <div style={{ fontSize: 13 }}>
-          <div className="muted" style={{ fontSize: 12 }}>
-            {t("Résumé de l'appel IA")}:
-          </div>
-          <div style={{ fontStyle: "italic" }}>{item.original_call_summary}</div>
+      {n.wmp_details && <div style={{ fontStyle: "italic" }}>{n.wmp_details}</div>}
+      {n.document_status && (
+        <div>
+          <span className="muted" style={{ fontSize: 11 }}>
+            {t("Dossier")}:
+          </span>{" "}
+          {n.document_status}
         </div>
       )}
-      {item.last_note && (
-        <div style={{ fontSize: 13 }}>
-          <div className="muted" style={{ fontSize: 12 }}>
-            {t("Notes récentes")}:
+      {received.length > 0 && (
+        <div>
+          <div className="muted" style={{ fontSize: 11 }}>
+            {t("Documents reçus")}
           </div>
-          <div style={{ fontStyle: "italic" }}>{item.last_note}</div>
+          <ul style={{ margin: "2px 0 0 16px", padding: 0, fontSize: 12 }}>
+            {received.map((d, i) => (
+              <li key={`r-${i}`}>{d}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {missing.length > 0 && (
+        <div>
+          <div className="muted" style={{ fontSize: 11 }}>
+            {t("Documents manquants")}
+          </div>
+          <ul style={{ margin: "2px 0 0 16px", padding: 0, fontSize: 12 }}>
+            {missing.map((d, i) => (
+              <li key={`m-${i}`}>{d}</li>
+            ))}
+          </ul>
         </div>
       )}
     </div>
   );
+}
+
+function HistorySection({ item, ctx }: { item: DeskItem; ctx: PatientContext | null }) {
+  const t = useT();
+  const qualification = ctx?.history.qualification ?? item.qualification;
+  const callCount = ctx?.history.call_count ?? item.call_count;
+  const lastCall = ctx?.history.last_call ?? null;
+  const lastResponse = ctx?.history.last_response ?? null;
+  const cycleStatus = ctx?.history.cycle_status ?? null;
+  const currentPhase = ctx?.history.current_phase ?? null;
+  return (
+    <div style={{ display: "grid", gap: 6, paddingTop: 8, fontSize: 13 }}>
+      {qualification && (
+        <div>
+          <span className="muted" style={{ fontSize: 11 }}>
+            {t("Qualification")}:
+          </span>{" "}
+          <span className="tag" style={{ fontSize: 11 }}>
+            {qualification}
+          </span>
+        </div>
+      )}
+      <div className="muted" style={{ fontSize: 12 }}>
+        {callCount} {t("appels")}
+      </div>
+      {lastCall && (
+        <div>
+          <span className="muted" style={{ fontSize: 11 }}>
+            {t("Dernier appel")}:
+          </span>{" "}
+          {formatDateTime(lastCall)}
+        </div>
+      )}
+      {lastResponse && (
+        <div>
+          <span className="muted" style={{ fontSize: 11 }}>
+            {t("Dernière réponse")}:
+          </span>{" "}
+          {formatDateTime(lastResponse)}
+        </div>
+      )}
+      {(cycleStatus || currentPhase) && (
+        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+          {cycleStatus && (
+            <>
+              <span className="muted" style={{ fontSize: 11 }}>
+                {t("Cycle")}:
+              </span>
+              <span className="tag" style={{ fontSize: 11 }}>
+                {cycleStatus}
+              </span>
+            </>
+          )}
+          {currentPhase && (
+            <>
+              <span className="muted" style={{ fontSize: 11 }}>
+                {t("Phase")}:
+              </span>
+              <span className="tag" style={{ fontSize: 11 }}>
+                {currentPhase}
+              </span>
+            </>
+          )}
+        </div>
+      )}
+      {item.transfer_reason && (
+        <div>
+          <div className="muted" style={{ fontSize: 11 }}>
+            {t("Raison du transfert")}
+          </div>
+          <div>{item.transfer_reason}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function NotesSection({ item, ctx }: { item: DeskItem; ctx: PatientContext | null }) {
+  const t = useT();
+  // Timeline-style: each call_n_note becomes a step. We render in order so
+  // the agent reads top-to-bottom (call 1 → call 3).
+  const steps: Array<{ label: string; text: string }> = [];
+  if (ctx?.notes.call_1) steps.push({ label: t("Appel 1"), text: ctx.notes.call_1 });
+  if (ctx?.notes.call_2) steps.push({ label: t("Appel 2"), text: ctx.notes.call_2 });
+  if (ctx?.notes.call_3) steps.push({ label: t("Appel 3"), text: ctx.notes.call_3 });
+  if (ctx?.notes.free) steps.push({ label: t("Note libre"), text: ctx.notes.free });
+  // Fallbacks from the generic queue row (works without a leads table).
+  if (steps.length === 0 && item.last_note) {
+    steps.push({ label: t("Notes récentes"), text: item.last_note });
+  }
+  return (
+    <div style={{ display: "grid", gap: 6, paddingTop: 8 }}>
+      {item.original_call_summary && (
+        <div style={{ fontSize: 13 }}>
+          <div className="muted" style={{ fontSize: 11 }}>
+            {t("Résumé de l'appel IA")}
+          </div>
+          <div style={{ fontStyle: "italic" }}>{item.original_call_summary}</div>
+        </div>
+      )}
+      {steps.map((s, i) => (
+        <div
+          key={`step-${i}`}
+          style={{
+            borderLeft: "2px solid var(--border)",
+            paddingLeft: 8,
+            fontSize: 13,
+          }}
+        >
+          <div className="muted" style={{ fontSize: 11 }}>{s.label}</div>
+          <div style={{ fontStyle: "italic" }}>{s.text}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Field({
+  label,
+  value,
+  full,
+}: {
+  label: string;
+  value: string | null;
+  full?: boolean;
+}) {
+  if (!value) return null;
+  return (
+    <div style={{ gridColumn: full ? "1 / -1" : undefined }}>
+      <div className="muted" style={{ fontSize: 11 }}>{label}</div>
+      <div style={{ fontSize: 13 }}>{value}</div>
+    </div>
+  );
+}
+
+function splitDocList(s: string | null): string[] {
+  if (!s) return [];
+  // OCC prod stores docs as comma- or newline-separated free text. Split
+  // on either, trim, drop empties.
+  return s
+    .split(/[,\n;]+/)
+    .map((x) => x.trim())
+    .filter((x) => x.length > 0);
+}
+
+function bmiColor(bmi: number): string {
+  // Healthy: <25, overweight: 25-29, obese ≥30 (UK NHS thresholds).
+  if (bmi >= 30) return "var(--bad, #c53030)";
+  if (bmi >= 25) return "var(--warn, #b7791f)";
+  return "var(--good, #2f855a)";
 }
 
 function DispositionForm({
