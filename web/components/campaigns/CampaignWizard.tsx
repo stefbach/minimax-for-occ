@@ -585,8 +585,23 @@ export function CampaignWizard({
 
   return (
     <div style={{ display: "grid", gap: 16, maxWidth: 900 }}>
+      {/* Below 760px the wizard's multi-column input grids collapse to a
+          single column, and the stepper buttons wrap their labels under
+          the step number so they remain tappable on phones. */}
+      <style>{`
+        .wizard-row-2, .wizard-row-3 { display: grid; gap: 12px; }
+        .wizard-row-2 { grid-template-columns: 1fr 1fr; }
+        .wizard-row-3 { grid-template-columns: 1fr 1fr 1fr; }
+        @media (max-width: 760px) {
+          .wizard-row-2, .wizard-row-3 { grid-template-columns: 1fr; }
+          .wizard-stepper { flex-wrap: wrap; }
+          .wizard-stepper > button { flex: 1 1 100%; justify-content: flex-start !important; }
+          .wizard-nav { flex-wrap: wrap; gap: 8px; }
+          .wizard-nav > .wizard-nav-label { order: 3; flex: 1 1 100%; text-align: center; }
+        }
+      `}</style>
       {/* Stepper */}
-      <div className="card" style={{ display: "flex", gap: 8, padding: 10, alignItems: "stretch" }}>
+      <div className="card wizard-stepper" style={{ display: "flex", gap: 8, padding: 10, alignItems: "stretch" }}>
         {STEPS.map((s, i) => {
           const isCurrent = currentStep === s.n;
           const isDone = currentStep > s.n;
@@ -667,7 +682,7 @@ export function CampaignWizard({
         ) : (
           <>
             {/* Mode selector — two clear radio cards. */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
+            <div className="wizard-row-2" style={{ marginBottom: 16 }}>
               <label
                 style={{
                   display: "flex", gap: 10, alignItems: "flex-start", cursor: "pointer",
@@ -813,7 +828,7 @@ export function CampaignWizard({
         <div className="muted" style={{ fontSize: 12, marginTop: -6, marginBottom: 10 }}>
           Le numéro qui s&apos;affiche sur le téléphone de la personne appelée.
         </div>
-        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1fr 1fr" }}>
+        <div className="wizard-row-2">
           <div>
             <label>Numéro Twilio</label>
             <select
@@ -876,7 +891,7 @@ export function CampaignWizard({
               {selectedDataTable && (
                 <div>
                   <label>Type de campagne</label>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  <div className="wizard-row-2">
                     <label
                       style={{
                         display: "flex", gap: 10, alignItems: "flex-start", cursor: "pointer",
@@ -1023,7 +1038,7 @@ export function CampaignWizard({
           Jours, plage horaire et cadence d&apos;appel — une seule source de vérité.
         </div>
         {showAdvanced && (<>
-        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1fr 1fr 1fr" }}>
+        <div className="wizard-row-3">
           <div>
             <label>Appels simultanés (max)</label>
             <input
@@ -1254,7 +1269,7 @@ export function CampaignWizard({
       </>)}
 
       {/* ─── Step navigation footer ───────────────────────────────────── */}
-      <div className="card" style={{ display: "flex", gap: 10, padding: 12, alignItems: "center", justifyContent: "space-between" }}>
+      <div className="card wizard-nav" style={{ display: "flex", gap: 10, padding: 12, alignItems: "center", justifyContent: "space-between" }}>
         <button
           type="button"
           className="ghost"
@@ -1263,7 +1278,7 @@ export function CampaignWizard({
         >
           ← Précédent
         </button>
-        <div className="muted" style={{ fontSize: 12 }}>
+        <div className="muted wizard-nav-label" style={{ fontSize: 12 }}>
           Étape {currentStep} / 3 — {STEPS.find((s) => s.n === currentStep)?.label}
         </div>
         {currentStep < 3 ? (
