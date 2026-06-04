@@ -1267,9 +1267,9 @@ export function CampaignWizard({
           </li>
           {dynamicMode && engineConfig ? (
             <li>
-              Créneaux ({engineConfig.slots.timezone}) : {(engineConfig.slots.days ?? []).map((d) => DAYS.find((x) => x.id === d)?.label).filter(Boolean).join(", ") || "—"}
+              Créneaux ({TZ_LABEL_BY_ID[timezone] ?? timezone}) : {days.map((d) => DAYS.find((x) => x.id === d)?.label).filter(Boolean).join(", ") || "—"}
               {" · "}
-              {(engineConfig.slots.hours ?? []).join(", ") || "—"}
+              {hourRanges.map((r) => `${r.start}–${r.end}`).join(" + ") || "—"}
               {" · max "}
               {engineConfig.volume.max_new_per_day} nouveaux/créneau
             </li>
