@@ -105,6 +105,10 @@ export async function POST(req: Request) {
   // ── Branch 2 — Queue attached ───────────────────────────────────────────
   if (numberRow.queue_id) {
     // Fetch the queue name (used as the Twilio queue name).
+    // NB: queues today has no `metadata` jsonb column, so we can't read a
+    // per-queue preferred language; we default to fr. If/when a metadata
+    // column is added, switch the lang derivation below to read
+    // queueRow.metadata?.lang.
     const { data: queueRow } = await sb
       .from("queues")
       .select("id, name, fallback_voicemail")
@@ -113,6 +117,7 @@ export async function POST(req: Request) {
       .maybeSingle();
 
     const queueName = queueRow?.name ?? "default";
+    const queueLang = "fr";
 
     // Pre-create the calls row so the desk UI sees the inbound immediately.
     // Twilio's status webhook will later patch state/duration on the same
@@ -138,9 +143,15 @@ export async function POST(req: Request) {
       }
     }
 
+    // waitUrl: Twilio polls this URL to get the hold-music + greeting TwiML
+    // to play to the caller while they wait. See /api/twilio/queue-wait.
+    const waitUrl = absoluteUrl(
+      req,
+      `/api/twilio/queue-wait?lang=${encodeURIComponent(queueLang)}`,
+    );
     return twiml(
       `<Say language="fr-FR">Bonjour, un agent va vous répondre.</Say>` +
-        `<Enqueue>${escapeXml(queueName)}</Enqueue>`,
+        `<Enqueue waitUrl="${escapeXml(waitUrl)}" waitUrlMethod="POST">${escapeXml(queueName)}</Enqueue>`,
     );
   }
 
