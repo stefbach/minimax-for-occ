@@ -483,6 +483,18 @@ function PendingSection({
   );
 }
 
+// Generate a memorable but strong default password the owner can edit/keep:
+// 3 short words + 2 digits. Avoids look-alike chars. Owner shares it manually.
+function suggestPassword(): string {
+  const words = [
+    "ocean", "delta", "river", "forest", "moon", "stone", "wave", "bridge",
+    "tiger", "comet", "alpha", "zebra", "north", "amber", "pixel", "quartz",
+  ];
+  const pick = () => words[Math.floor(Math.random() * words.length)];
+  const num = Math.floor(10 + Math.random() * 90);
+  return `${pick()}-${pick()}-${pick()}-${num}`;
+}
+
 function InviteModal({
   onClose,
   onSent,
@@ -494,30 +506,31 @@ function InviteModal({
 }) {
   const t = useT();
   const [email, setEmail] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [password, setPassword] = useState(() => suggestPassword());
   const [role, setRole] = useState<(typeof INVITE_ROLES)[number]>("agent");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [createdUrl, setCreatedUrl] = useState<string | null>(null);
+  const [created, setCreated] = useState<{ email: string; password: string } | null>(null);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     setErr(null);
     try {
-      const r = await fetch("/api/team/invites", {
+      const r = await fetch("/api/team/users", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email: email.trim().toLowerCase(), role }),
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          password,
+          role,
+          display_name: displayName.trim() || undefined,
+        }),
       });
       const j = await r.json().catch(() => ({}));
-      if (r.status === 409 && j.accept_url) {
-        // Existing pending invitation: show its URL.
-        setCreatedUrl(j.accept_url);
-        onSent();
-        return;
-      }
       if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
-      setCreatedUrl(j.accept_url);
+      setCreated({ email: email.trim().toLowerCase(), password });
       onSent();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "error");
@@ -526,13 +539,14 @@ function InviteModal({
     }
   }
 
-  async function copy() {
-    if (!createdUrl) return;
+  async function copyCredentials() {
+    if (!created) return;
+    const text = `${t("Email")}: ${created.email}\n${t("Mot de passe")}: ${created.password}`;
     try {
-      await navigator.clipboard.writeText(createdUrl);
-      onToast("ok", t("Lien copié dans le presse-papiers."));
+      await navigator.clipboard.writeText(text);
+      onToast("ok", t("Identifiants copiés."));
     } catch {
-      onToast("err", t("Impossible de copier le lien."));
+      onToast("err", t("Impossible de copier."));
     }
   }
 
@@ -556,11 +570,11 @@ function InviteModal({
         style={{ width: "min(480px, 100%)", display: "grid", gap: 14 }}
       >
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
-          <h3 style={{ margin: 0 }}>{t("Inviter un utilisateur")}</h3>
+          <h3 style={{ margin: 0 }}>{t("Créer un utilisateur")}</h3>
           <button className="ghost" onClick={onClose} style={{ padding: "2px 8px" }}>×</button>
         </div>
 
-        {!createdUrl ? (
+        {!created ? (
           <form onSubmit={submit} style={{ display: "grid", gap: 12 }}>
             <div>
               <label>{t("Email")}</label>
@@ -572,6 +586,40 @@ function InviteModal({
                 placeholder="nom@exemple.com"
                 autoFocus
               />
+            </div>
+            <div>
+              <label>{t("Nom (optionnel)")}</label>
+              <input
+                type="text"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                placeholder={t("Prénom Nom")}
+              />
+            </div>
+            <div>
+              <label>{t("Mot de passe")}</label>
+              <div style={{ display: "flex", gap: 6 }}>
+                <input
+                  type="text"
+                  required
+                  minLength={8}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  style={{ flex: 1, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}
+                />
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => setPassword(suggestPassword())}
+                  title={t("Générer un autre mot de passe")}
+                  style={{ padding: "4px 10px" }}
+                >
+                  ↻
+                </button>
+              </div>
+              <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+                {t("Minimum 8 caractères. Tu transmets ce mot de passe à la personne — elle pourra le changer plus tard.")}
+              </div>
             </div>
             <div>
               <label>{t("Rôle")}</label>
@@ -588,38 +636,40 @@ function InviteModal({
               <button type="button" className="ghost" onClick={onClose} disabled={busy}>
                 {t("Annuler")}
               </button>
-              <button type="submit" disabled={busy || !email}>
-                {busy ? t("Envoi…") : t("Envoyer l'invitation")}
+              <button type="submit" disabled={busy || !email || password.length < 8}>
+                {busy ? t("Création…") : t("Créer le compte")}
               </button>
             </div>
           </form>
         ) : (
           <div style={{ display: "grid", gap: 12 }}>
             <div className="tag good" style={{ width: "fit-content" }}>
-              {t("Invitation créée")}
+              {t("Compte créé")}
             </div>
             <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-              {t("Aucun email automatique pour l'instant — partage le lien à la personne.")}
+              {t("Transmets ces identifiants à la personne — c'est la seule fois où le mot de passe est affiché en clair.")}
             </p>
             <div
               style={{
-                padding: "8px 10px",
+                padding: "10px 12px",
                 background: "var(--bg-2)",
                 border: "1px solid var(--border)",
                 borderRadius: 8,
-                fontSize: 12,
-                wordBreak: "break-all",
+                fontSize: 13,
                 fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                display: "grid",
+                gap: 4,
               }}
             >
-              {createdUrl}
+              <div><strong>{t("Email")} :</strong> {created.email}</div>
+              <div><strong>{t("Mot de passe")} :</strong> {created.password}</div>
             </div>
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
               <button type="button" className="ghost" onClick={onClose}>
                 {t("Fermer")}
               </button>
-              <button type="button" onClick={copy}>
-                {t("Copier le lien")}
+              <button type="button" onClick={copyCredentials}>
+                {t("Copier les identifiants")}
               </button>
             </div>
           </div>
