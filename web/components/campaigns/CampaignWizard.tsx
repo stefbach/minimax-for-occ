@@ -276,7 +276,13 @@ export function CampaignWizard({
     hourEnd: template?.defaults.hourEnd ?? "18:00",
   };
 
-  const [name, setName] = useState("");
+  // Pre-fill the name from the chosen template + the current month so the
+  // user gets a sensible default like "Confirmation de RDV — Juin 2026".
+  // Users routinely rename it; this just removes the empty-field friction.
+  const defaultName = template
+    ? `${template.title} — ${new Date().toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}`
+    : "";
+  const [name, setName] = useState(defaultName);
   const [description, setDescription] = useState("");
   // The user picks EITHER a Team (multi-agent journey, auto-resolves to
   // the lead's handle) OR a single Agent handle. Team takes precedence.
@@ -955,6 +961,7 @@ export function CampaignWizard({
         <div className="muted" style={{ fontSize: 12, marginTop: -6, marginBottom: 10 }}>
           Jours, plage horaire et cadence d&apos;appel — une seule source de vérité.
         </div>
+        {showAdvanced && (<>
         <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1fr 1fr 1fr" }}>
           <div>
             <label>Appels simultanés (max)</label>
@@ -1021,6 +1028,7 @@ export function CampaignWizard({
             Détection de répondeur (AMD)
           </label>
         </div>
+        </>)}
 
         {/* Single créneaux editor — always visible. In dynamic mode the
             values below are also synced into engineConfig.slots at submit
@@ -1106,6 +1114,22 @@ export function CampaignWizard({
           </div>
         </div>
           </>
+
+        {/* Réglages avancés — collapsed by default; the template provides
+            sensible defaults so most users never need to open this. */}
+        <button
+          type="button"
+          className="ghost"
+          onClick={() => setShowAdvanced((v) => !v)}
+          style={{ marginTop: 14, padding: "8px 12px", display: "flex", alignItems: "center", gap: 8, width: "100%", justifyContent: "space-between" }}
+        >
+          <span>
+            {showAdvanced ? "▾" : "▸"} Réglages avancés
+          </span>
+          <span className="muted" style={{ fontSize: 12 }}>
+            {maxConcurrency} simultanés · {maxAttempts} tentative{maxAttempts > 1 ? "s" : ""} · retry {retryDelayMin} min · AMD {amdEnabled ? "on" : "off"}
+          </span>
+        </button>
       </section>
 
       {/* 6. Récap */}
