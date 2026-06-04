@@ -6,6 +6,8 @@ import {
   buildRenderCtx,
   escapeXml,
   renderStep,
+  resolveDtmfNext,
+  resolveSpeechNext,
   wrapResponse,
   type FlowEdge,
   type FlowStep,
@@ -15,23 +17,17 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * POST /api/flows/[id]/twiml/start
+ * POST /api/flows/[id]/twiml/handle?from={step_id}
  *
- * Real IVR runtime entrypoint. Loads the whole flow graph (steps + edges)
- * for the given flow id, picks the start step (`flow.start_step_id` or
- * earliest by created_at as a fallback) and renders TwiML via the
- * shared renderer in `@/lib/flow-twiml`.
+ * Continuation endpoint for branching IVR steps (menu_dtmf, gather_speech).
+ * Twilio posts back the caller's `Digits` or `SpeechResult`; we resolve
+ * the next step via flow_edges conditions (or config.options for legacy
+ * DTMF), then render TwiML for it.
  *
- * Multi-tenant: Twilio calls us unauthenticated. We trust that the flow
- * id, once routed via phone_numbers in /api/twilio/voice-inbound, scopes
- * to that org. We still validate the X-Twilio-Signature so the endpoint
- * isn't openly callable, and the load only touches rows for this flow.
- *
- * Schema notes:
- *   flows(id, org_id, name, start_step_id, metadata, …)
- *   flow_steps(id, flow_id, kind, label, config jsonb, position jsonb, …)
- *   flow_edges(id, flow_id, from_step_id, to_step_id, condition jsonb, position, …)
- *   queues — no `metadata` column today, so language defaults to fr.
+ * `from=__chain__` + `next={step_id}` is an internal escape hatch from
+ * the renderer when its inline-recursion depth budget is exceeded — it
+ * lets a deep chain of welcome steps continue without exploding the
+ * TwiML payload.
  */
 export async function POST(
   req: Request,
@@ -46,22 +42,21 @@ export async function POST(
 
   const { id } = await ctx.params;
   if (!id) return rejectTwiml("Flow introuvable.", 404);
-
   if (!hasSupabase()) return rejectTwiml("Configuration manquante.", 500);
+
+  const url = new URL(req.url);
+  const fromStepId = url.searchParams.get("from") ?? "";
+  const chainNextId = url.searchParams.get("next") ?? "";
 
   const sb = supabaseServer();
 
-  // Load the flow row (we only need the start_step_id + metadata for voice).
   const { data: flow } = await sb
     .from("flows")
     .select("id, org_id, name, start_step_id, metadata")
     .eq("id", id)
     .maybeSingle();
-
   if (!flow) return rejectTwiml("Flow introuvable.", 404);
 
-  // Load steps + edges for this flow in parallel. Both are scoped by
-  // flow_id, which is itself scoped to a single org via FK.
   const [stepsRes, edgesRes] = await Promise.all([
     sb
       .from("flow_steps")
@@ -84,20 +79,6 @@ export async function POST(
     condition: (e.condition ?? {}) as Record<string, unknown>,
   }));
 
-  if (steps.length === 0) {
-    return twiml(
-      `<Say language="fr-FR">Ce flux n'a aucune étape configurée.</Say><Hangup/>`,
-    );
-  }
-
-  // Pick the start step.
-  let start: FlowStep | undefined;
-  if (flow.start_step_id) start = steps.find((s) => s.id === flow.start_step_id);
-  if (!start) start = steps[0];
-
-  if (!start) return rejectTwiml("Étape de départ introuvable.", 404);
-
-  // Voice + language from flow.metadata if present.
   const meta = (flow.metadata ?? {}) as Record<string, unknown>;
   const voice = typeof meta.voice === "string" ? (meta.voice as string) : "alice";
   const language =
@@ -112,7 +93,37 @@ export async function POST(
     edges,
   });
 
-  return twiml(renderStep(start, rctx));
+  // ── Internal chain continuation ─────────────────────────────────────
+  if (fromStepId === "__chain__" && chainNextId) {
+    const nextStep = rctx.stepsById.get(chainNextId);
+    if (!nextStep) return rejectTwiml("Étape introuvable.", 404);
+    return twiml(renderStep(nextStep, rctx));
+  }
+
+  // ── Branching step resolution ───────────────────────────────────────
+  const fromStep = rctx.stepsById.get(fromStepId);
+  if (!fromStep) return rejectTwiml("Étape source introuvable.", 404);
+
+  const digits = (form.get("Digits") ?? "").trim();
+  const speech = (form.get("SpeechResult") ?? "").trim();
+
+  let next: FlowStep | null = null;
+  if (digits) {
+    next = resolveDtmfNext(fromStep, digits, rctx);
+  } else if (speech) {
+    next = resolveSpeechNext(fromStep, speech, rctx);
+  } else {
+    // No input — likely a timeout. Try the "always" successor / fall through.
+    next = resolveDtmfNext(fromStep, "", rctx);
+  }
+
+  if (!next) {
+    return twiml(
+      `<Say voice="${escapeXml(voice)}" language="${escapeXml(language)}">Choix non reconnu. Au revoir.</Say><Hangup/>`,
+    );
+  }
+
+  return twiml(renderStep(next, rctx));
 }
 
 /* ─── helpers ─────────────────────────────────────────────────────────── */
