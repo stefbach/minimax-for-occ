@@ -301,15 +301,21 @@ export function Softphone() {
   // ?call=<e164>[&name=…], pre-fill the dial pad and fire the call as soon
   // as the agent_handle is loaded. autoDialedRef prevents re-dialing on
   // re-renders / handle refreshes after the first attempt.
+  //
+  // ?prefill=<e164>[&name=…] also fills the dial pad but does NOT auto-dial
+  // — used by /desk's queue panes so the agent reviews context before
+  // clicking ☎ Appeler explicitly.
   const autoDialedRef = useRef(false);
   useEffect(() => {
     const callParam = searchParams?.get("call");
-    if (!callParam) return;
-    if (!/^\+\d{6,15}$/.test(callParam)) return;
-    setDialNumber(callParam);
+    const prefillParam = searchParams?.get("prefill");
+    const target = callParam ?? prefillParam;
+    if (!target) return;
+    if (!/^\+\d{6,15}$/.test(target)) return;
+    setDialNumber(target);
     const nameParam = searchParams?.get("name");
     if (nameParam) setDialContactName(nameParam);
-    if (handle && !autoDialedRef.current) {
+    if (callParam && handle && !autoDialedRef.current) {
       autoDialedRef.current = true;
       void dial();
     }
