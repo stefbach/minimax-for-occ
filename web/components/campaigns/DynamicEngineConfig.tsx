@@ -83,9 +83,12 @@ interface Props {
   phoneColumn: string;
   value: EngineConfig;
   onChange: (cfg: EngineConfig) => void;
+  /** When true, the créneaux (days/hours/timezone) block is hidden — the
+   *  wizard renders a single, unified créneaux editor in step 3 instead. */
+  hideSlots?: boolean;
 }
 
-export function DynamicEngineConfig({ columns, value, onChange }: Props) {
+export function DynamicEngineConfig({ columns, value, onChange, hideSlots = false }: Props) {
   const [statusInput, setStatusInput] = useState("");
   const textCols = columns.filter((c) => c.type === "text");
   const dateCols = columns.filter((c) => c.type === "date" || c.type === "datetime");
@@ -241,6 +244,7 @@ export function DynamicEngineConfig({ columns, value, onChange }: Props) {
       </div>
 
       {/* ── Créneaux ── */}
+      {!hideSlots && (
       <div style={box}>
         <h4 style={h4}>Créneaux (quand appeler)</h4>
         <div>
@@ -282,6 +286,7 @@ export function DynamicEngineConfig({ columns, value, onChange }: Props) {
           </div>
         </div>
       </div>
+      )}
 
       {/* ── Volume ── */}
       <div style={box}>

@@ -74,6 +74,13 @@ const DAYS = [
 
 const STORAGE_KEY = "axon.campaign.wizard.draft";
 
+// Concurrent-stream ceiling imposed by the upstream STT provider's plan
+// (AssemblyAI). Surface a warning when the user picks a higher concurrency.
+// Free tier = 5; bump via env when the org upgrades.
+const PLAN_CONCURRENCY_LIMIT = Number(
+  process.env.NEXT_PUBLIC_STT_CONCURRENT_LIMIT ?? 5,
+);
+
 // Timezone-aware schedule: the dialer compares with UTC, but users think in
 // local time. The wizard lets them pick a timezone, enter HH:MM in that local
 // time, and converts to UTC on submit. Grouped by region for fast lookup.
@@ -326,6 +333,10 @@ export function CampaignWizard({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Step navigation: 1 = Qui appelle, 2 = Qui appeler, 3 = Quand.
+  const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
   const selectedAgent = agents.find((a) => a.id === agentHandleId) ?? null;
   const selectedNumber = numbers.find((n) => n.id === phoneNumberId) ?? null;
 
@@ -416,6 +427,23 @@ export function CampaignWizard({
         end: localToUtc(hourEnd, timezone),
       },
     };
+
+    // Single créneaux source of truth: when dynamic mode is on, mirror the
+    // step-3 days/timezone into engineConfig.slots so the continuous engine
+    // fires inside the same window the user just configured. Hours stay
+    // engine-defined (precise shot times) unless empty, in which case we seed
+    // them with the user's start time.
+    const finalEngine = dynamicMode && dataTableId && engineConfig
+      ? {
+          ...engineConfig,
+          slots: {
+            ...engineConfig.slots,
+            days,
+            timezone,
+            hours: engineConfig.slots.hours.length > 0 ? engineConfig.slots.hours : [hourStart],
+          },
+        }
+      : null;
     try {
       const res = await fetch("/api/campaigns", {
         method: "POST",
@@ -429,7 +457,7 @@ export function CampaignWizard({
           contact_list_id: contactListId || null,
           data_table_id: dataTableId || null,
           mode: dynamicMode && dataTableId ? "dynamic" : "static",
-          engine: dynamicMode && dataTableId && engineConfig ? engineConfig : null,
+          engine: finalEngine,
           phone_number_id: phoneNumberId || null,
           caller_id_e164: callerIdOverride.trim() || null,
           schedule,
@@ -456,8 +484,61 @@ export function CampaignWizard({
     }
   }
 
+  // Per-step validation: gate the "Suivant" button so users don't
+  // skip ahead with missing fields.
+  const step1Valid = name.trim().length > 0 && Boolean(effectiveHandleId) && Boolean(phoneNumberId || callerIdOverride);
+  const step2Valid = Boolean(dataTableId || contactListId || (csvText.trim().length > 0) || pickedContactIds.size > 0);
+
+  const STEPS: { n: 1 | 2 | 3; label: string; icon: string }[] = [
+    { n: 1, label: "Qui appelle ?", icon: "🎙" },
+    { n: 2, label: "Qui appeler ?", icon: "👥" },
+    { n: 3, label: "Quand ?", icon: "🕒" },
+  ];
+
   return (
     <div style={{ display: "grid", gap: 16, maxWidth: 900 }}>
+      {/* Stepper */}
+      <div className="card" style={{ display: "flex", gap: 8, padding: 10, alignItems: "stretch" }}>
+        {STEPS.map((s, i) => {
+          const isCurrent = currentStep === s.n;
+          const isDone = currentStep > s.n;
+          return (
+            <button
+              key={s.n}
+              type="button"
+              onClick={() => setCurrentStep(s.n)}
+              className={isCurrent || isDone ? "" : "ghost"}
+              style={{
+                flex: 1,
+                padding: "8px 10px",
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                justifyContent: "center",
+                borderColor: isCurrent ? "var(--accent)" : undefined,
+                opacity: isDone ? 0.85 : 1,
+              }}
+              aria-current={isCurrent ? "step" : undefined}
+            >
+              <span
+                style={{
+                  width: 22, height: 22, borderRadius: "50%",
+                  background: isCurrent ? "var(--accent)" : isDone ? "var(--good)" : "var(--bg-2)",
+                  color: isCurrent || isDone ? "#fff" : "var(--text)",
+                  display: "inline-flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 12, fontWeight: 700,
+                }}
+              >
+                {isDone ? "✓" : s.n}
+              </span>
+              <span style={{ fontSize: 13 }}>{s.icon} {s.label}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* ─── STEP 1: Qui appelle ? ────────────────────────────────────── */}
+      {currentStep === 1 && (<>
       {/* 1. Identité */}
       <section className="card">
         <h3>1. Nom de la campagne</h3>
@@ -674,7 +755,10 @@ export function CampaignWizard({
           </div>
         )}
       </section>
+      </>)}
 
+      {/* ─── STEP 2: Qui appeler ? ────────────────────────────────────── */}
+      {currentStep === 2 && (<>
       {/* 4. Cibles */}
       <section className="card">
         <h3>4. Qui appeler ?</h3>
@@ -750,6 +834,9 @@ export function CampaignWizard({
                   phoneColumn={selectedDataTable.phone_column}
                   value={engineConfig}
                   onChange={setEngineConfig}
+                  // Créneaux are configured once in step 3 (single source of
+                  // truth — no more dual UI between engine + planning).
+                  hideSlots
                 />
               )}
             </div>
@@ -837,14 +924,15 @@ export function CampaignWizard({
           )}
         </div>
       </section>
+      </>)}
 
+      {/* ─── STEP 3: Quand ? ──────────────────────────────────────────── */}
+      {currentStep === 3 && (<>
       {/* 5. Planning */}
       <section className="card">
-        <h3>5. {dynamicMode && selectedDataTable ? "Réglages d'appel" : "Planning des appels"}</h3>
+        <h3>5. Créneaux & cadence</h3>
         <div className="muted" style={{ fontSize: 12, marginTop: -6, marginBottom: 10 }}>
-          {dynamicMode && selectedDataTable
-            ? "Cadence technique (les jours et créneaux sont définis plus haut, dans « Créneaux »)."
-            : "Quand passer les appels et à quelle cadence."}
+          Jours, plage horaire et cadence d&apos;appel — une seule source de vérité.
         </div>
         <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1fr 1fr 1fr" }}>
           <div>
@@ -859,6 +947,20 @@ export function CampaignWizard({
             <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
               Nb d&apos;appels passés en même temps. Plus élevé = plus rapide, mais plus d&apos;agents occupés.
             </div>
+            {maxConcurrency > PLAN_CONCURRENCY_LIMIT && (
+              <div
+                style={{
+                  fontSize: 11, marginTop: 6, padding: "6px 8px", borderRadius: 6,
+                  background: "color-mix(in srgb, var(--warn) 12%, var(--bg-2))",
+                  color: "var(--warn)", border: "1px solid var(--warn)",
+                }}
+              >
+                ⚠️ Ton plan actuel limite la transcription temps réel à
+                <strong> {PLAN_CONCURRENCY_LIMIT} appels simultanés</strong> (AssemblyAI).
+                Les appels au-delà attendront leur tour — passe sur un plan supérieur
+                pour lever la limite.
+              </div>
+            )}
           </div>
           <div>
             <label>Tentatives max</label>
@@ -899,17 +1001,10 @@ export function CampaignWizard({
           </label>
         </div>
 
-        {dynamicMode && selectedDataTable ? (
-          // In dynamic mode the engine above already controls days / slots /
-          // timezone (per-slot fires, not a window). Re-showing them here only
-          // creates confusion + double-source-of-truth. Hide them entirely.
-          <div className="muted" style={{ fontSize: 12, marginTop: 14, padding: 10, background: "var(--bg-2)", borderRadius: 8, lineHeight: 1.5 }}>
-            ℹ️ Jours, créneaux et fuseau horaire sont configurés ci-dessus dans
-            <strong> « Créneaux »</strong> du moteur (Campagne continue). Cette campagne tirera
-            uniquement aux heures précises que tu y as définies.
-          </div>
-        ) : (
-          <>
+        {/* Single créneaux editor — always visible. In dynamic mode the
+            values below are also synced into engineConfig.slots at submit
+            time so the continuous engine fires inside this window. */}
+        <>
             <div style={{ marginTop: 12 }}>
               <label>Jours autorisés</label>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -966,7 +1061,6 @@ export function CampaignWizard({
           en UTC pour le serveur d&apos;appels — l&apos;équivalent UTC est affiché sous chaque champ.
         </div>
           </>
-        )}
       </section>
 
       {/* 6. Récap */}
@@ -1020,6 +1114,40 @@ export function CampaignWizard({
           </button>
         </div>
       </section>
+      </>)}
+
+      {/* ─── Step navigation footer ───────────────────────────────────── */}
+      <div className="card" style={{ display: "flex", gap: 10, padding: 12, alignItems: "center", justifyContent: "space-between" }}>
+        <button
+          type="button"
+          className="ghost"
+          onClick={() => setCurrentStep((s) => (s > 1 ? ((s - 1) as 1 | 2 | 3) : s))}
+          disabled={currentStep === 1}
+        >
+          ← Précédent
+        </button>
+        <div className="muted" style={{ fontSize: 12 }}>
+          Étape {currentStep} / 3 — {STEPS.find((s) => s.n === currentStep)?.label}
+        </div>
+        {currentStep < 3 ? (
+          <button
+            type="button"
+            onClick={() => setCurrentStep((s) => (s < 3 ? ((s + 1) as 1 | 2 | 3) : s))}
+            disabled={(currentStep === 1 && !step1Valid) || (currentStep === 2 && !step2Valid)}
+            title={
+              currentStep === 1 && !step1Valid
+                ? "Renseigne le nom, l'agent et le numéro pour continuer."
+                : currentStep === 2 && !step2Valid
+                  ? "Choisis une source de contacts pour continuer."
+                  : ""
+            }
+          >
+            Suivant →
+          </button>
+        ) : (
+          <div className="muted" style={{ fontSize: 12 }}>↓ Vérifie le récap puis crée</div>
+        )}
+      </div>
     </div>
   );
 }
