@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useT } from "@/lib/i18n";
 
@@ -13,6 +13,9 @@ const RECENT_STATES = "ended,failed";
 const ACTIVE_POLL_MS = 5000;
 const RECENT_POLL_MS = 15000;
 
+const VOICEMAIL_RE = /repondeur|répondeur|voicemail|voice mail|mailbox/i;
+const ROBOT_RE = /robot|automate|automatique|bot/i;
+
 interface CallRow {
   id: string;
   direction: "inbound" | "outbound" | string;
@@ -24,8 +27,18 @@ interface CallRow {
   ended_at: string | null;
   duration_secs: number | null;
   disposition: string | null;
+  metadata?: Record<string, unknown> | null;
   agent_handles: { display_name: string | null; kind: string | null } | null;
   contacts: { e164: string | null; display_name: string | null } | null;
+}
+
+type AlertTone = "short" | "voicemail" | "robot";
+interface RealtimeAlert {
+  id: string; // call_id + tone — dedupes per session
+  tone: AlertTone;
+  name: string;
+  message: string;
+  at: string; // HH:MM
 }
 
 const STATE_LABEL: Record<string, string> = {
@@ -53,6 +66,20 @@ function fmtClock(iso: string | null): string {
   if (!iso) return "—";
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? "—" : d.toLocaleTimeString();
+}
+
+function fmtHMS(iso: string | null): string {
+  if (!iso) return "--:--:--";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "--:--:--";
+  return d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function fmtHM(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime())
+    ? "--:--"
+    : d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
 }
 
 function LiveCallCard({ call, now }: { call: CallRow; now: number }) {
@@ -101,6 +128,12 @@ export function LiveMonitorClient() {
   const [error, setError] = useState<string | null>(null);
   const [lastCheck, setLastCheck] = useState<Date | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  // Stream of ended calls captured in this session (oldest first; newest at bottom).
+  const [stream, setStream] = useState<CallRow[]>([]);
+  // Alerts captured in this session (newest first).
+  const [alerts, setAlerts] = useState<RealtimeAlert[]>([]);
+  const seenEndedIds = useRef<Set<string>>(new Set());
+  const seenAlertIds = useRef<Set<string>>(new Set());
   const mounted = useRef(true);
 
   const fetchActive = useCallback(async () => {
@@ -120,13 +153,69 @@ export function LiveMonitorClient() {
 
   const fetchRecent = useCallback(async () => {
     try {
-      const r = await fetch(`/api/calls?state=${RECENT_STATES}&limit=25`, { cache: "no-store" });
+      const r = await fetch(`/api/calls?state=${RECENT_STATES}&limit=40`, { cache: "no-store" });
       const j = await r.json();
-      if (r.ok && mounted.current) setRecent(Array.isArray(j) ? j : []);
+      if (r.ok && mounted.current) {
+        const rows: CallRow[] = Array.isArray(j) ? j : [];
+        setRecent(rows);
+        // Append newly-ended calls to the session stream (newest at bottom).
+        const fresh = rows
+          .filter((row) => !seenEndedIds.current.has(row.id))
+          // Sort oldest→newest so they append in chronological order.
+          .sort((a, b) => {
+            const ta = a.ended_at ? new Date(a.ended_at).getTime() : 0;
+            const tb = b.ended_at ? new Date(b.ended_at).getTime() : 0;
+            return ta - tb;
+          });
+        if (fresh.length > 0) {
+          for (const row of fresh) seenEndedIds.current.add(row.id);
+          setStream((prev) => {
+            const merged = [...prev, ...fresh];
+            return merged.slice(-40);
+          });
+          // Detect anomalies on each fresh ended call.
+          const newAlerts: RealtimeAlert[] = [];
+          for (const row of fresh) {
+            const name = counterparty(row);
+            const dispRaw = (row.disposition || "").toString();
+            const at = row.ended_at || row.started_at || new Date().toISOString();
+            const meta = (row.metadata ?? {}) as Record<string, unknown>;
+            const robotFlag = meta.robot_awareness === "true" || meta.robot_awareness === true;
+            if (ROBOT_RE.test(dispRaw) || robotFlag) {
+              const aid = `${row.id}:robot`;
+              if (!seenAlertIds.current.has(aid)) {
+                seenAlertIds.current.add(aid);
+                newAlerts.push({ id: aid, tone: "robot", name, message: t("Robot awareness"), at: fmtHM(at) });
+              }
+            } else if (VOICEMAIL_RE.test(dispRaw)) {
+              const aid = `${row.id}:vm`;
+              if (!seenAlertIds.current.has(aid)) {
+                seenAlertIds.current.add(aid);
+                newAlerts.push({ id: aid, tone: "voicemail", name, message: t("Voicemail détecté"), at: fmtHM(at) });
+              }
+            } else if ((row.duration_secs ?? 0) < 5 && row.state === "ended") {
+              const aid = `${row.id}:short`;
+              if (!seenAlertIds.current.has(aid)) {
+                seenAlertIds.current.add(aid);
+                newAlerts.push({
+                  id: aid,
+                  tone: "short",
+                  name,
+                  message: `${t("Appel anormalement court")} (${row.duration_secs ?? 0}s)`,
+                  at: fmtHM(at),
+                });
+              }
+            }
+          }
+          if (newAlerts.length > 0) {
+            setAlerts((prev) => [...newAlerts.reverse(), ...prev].slice(0, 30));
+          }
+        }
+      }
     } catch {
       /* recent feed is best-effort */
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     mounted.current = true;
@@ -143,6 +232,8 @@ export function LiveMonitorClient() {
     };
   }, [fetchActive, fetchRecent]);
 
+  const heartbeat = useMemo(() => fmtHMS(lastCheck?.toISOString() ?? null), [lastCheck]);
+
   return (
     <>
       <style>{`@keyframes ping{75%,100%{transform:scale(2);opacity:0}}`}</style>
@@ -152,9 +243,11 @@ export function LiveMonitorClient() {
           <h1>{t("Live Monitor")}</h1>
           <div className="subtitle">
             {active.length} · {t("En cours")}
-            {lastCheck && (
-              <span className="muted"> · {lastCheck.toLocaleTimeString()}</span>
-            )}
+            <span className="muted" style={{ marginLeft: 8 }}>
+              ·{" "}
+              <span style={{ color: lastCheck ? "var(--good)" : "var(--muted)" }}>●</span>{" "}
+              {t("Connecté · vérifié à")} {heartbeat}
+            </span>
           </div>
         </div>
         <Link href="/calls"><button className="ghost">{t("Historique des appels →")}</button></Link>
@@ -166,22 +259,143 @@ export function LiveMonitorClient() {
         </div>
       )}
 
-      {active.length === 0 ? (
-        <div className="card" style={{ textAlign: "center", padding: 32 }}>
-          <div style={{ fontSize: 28, marginBottom: 8 }}>📡</div>
-          <p className="muted" style={{ margin: 0 }}>
-            {t("Aucun appel en cours pour le moment. Cette vue se met à jour automatiquement.")}
-          </p>
-        </div>
-      ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 12, marginBottom: 20 }}>
-          {active.map((c) => (
-            <LiveCallCard key={c.id} call={c} now={now} />
-          ))}
-        </div>
-      )}
+      <div
+        className="live-grid"
+        style={{ display: "flex", gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}
+      >
+        <style>{`
+          @media (max-width: 980px) {
+            .live-grid { flex-direction: column; }
+            .live-grid > * { width: 100% !important; flex: 1 1 100% !important; }
+          }
+        `}</style>
 
-      <div className="page-header" style={{ marginTop: 8 }}>
+        {/* Left column — Active calls cards */}
+        <div style={{ flex: 2, minWidth: 0 }}>
+          {active.length === 0 ? (
+            <div className="card" style={{ textAlign: "center", padding: 32 }}>
+              <div style={{ fontSize: 28, marginBottom: 8 }}>📡</div>
+              <p className="muted" style={{ margin: 0 }}>
+                {t("Aucun appel en cours pour le moment. Cette vue se met à jour automatiquement.")}
+              </p>
+            </div>
+          ) : (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 }}>
+              {active.map((c) => (
+                <LiveCallCard key={c.id} call={c} now={now} />
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Right column — completed call stream + realtime alerts */}
+        <div style={{ flex: 1, minWidth: 280, display: "flex", flexDirection: "column", gap: 12 }}>
+          <div className="card" style={{ padding: 12 }}>
+            <div
+              className="muted"
+              style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 8 }}
+            >
+              ⏵ {t("Flux des appels terminés")}
+            </div>
+            {stream.length === 0 ? (
+              <p className="muted" style={{ margin: 0, fontSize: 12 }}>
+                {t("Aucun appel terminé pour le moment.")}
+              </p>
+            ) : (
+              <div
+                style={{
+                  display: "grid",
+                  gap: 4,
+                  fontSize: 12,
+                  fontFamily: "ui-monospace, monospace",
+                  maxHeight: 260,
+                  overflowY: "auto",
+                }}
+              >
+                {stream.map((c) => {
+                  const name = counterparty(c) || t("Inconnu");
+                  const qual = c.disposition || (c.state === "failed" ? "failed" : "—");
+                  const dur = c.duration_secs ?? 0;
+                  const agent = c.agent_handles?.display_name ?? "—";
+                  const ts = c.ended_at ? new Date(c.ended_at) : null;
+                  const hms = ts && !Number.isNaN(ts.getTime())
+                    ? ts.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+                    : "--:--:--";
+                  return (
+                    <div key={c.id} style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      <span className="muted">[{hms}]</span>{" "}
+                      <span>{name}</span>{" "}
+                      <span className="muted">—</span>{" "}
+                      <span>{qual}</span>{" "}
+                      <span className="muted">— {dur}s — {agent}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <div className="card" style={{ padding: 12 }}>
+            <div
+              className="muted"
+              style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 8 }}
+            >
+              ⚡ {t("Alertes temps réel")}
+            </div>
+            {alerts.length === 0 ? (
+              <p className="muted" style={{ margin: 0, fontSize: 12 }}>
+                {t("Aucune alerte pour le moment.")}
+              </p>
+            ) : (
+              <div style={{ display: "grid", gap: 6, maxHeight: 320, overflowY: "auto" }}>
+                {alerts.map((a) => {
+                  const palette: Record<AlertTone, { bg: string; border: string; color: string }> = {
+                    short: {
+                      bg: "color-mix(in srgb, var(--warn) 12%, var(--panel))",
+                      border: "color-mix(in srgb, var(--warn) 40%, var(--border))",
+                      color: "var(--warn)",
+                    },
+                    voicemail: {
+                      bg: "color-mix(in srgb, var(--info) 12%, var(--panel))",
+                      border: "color-mix(in srgb, var(--info) 40%, var(--border))",
+                      color: "var(--info)",
+                    },
+                    robot: {
+                      bg: "color-mix(in srgb, var(--bad) 12%, var(--panel))",
+                      border: "color-mix(in srgb, var(--bad) 40%, var(--border))",
+                      color: "var(--bad)",
+                    },
+                  };
+                  const p = palette[a.tone];
+                  return (
+                    <div
+                      key={a.id}
+                      style={{
+                        padding: "6px 8px",
+                        borderRadius: 6,
+                        background: p.bg,
+                        border: `1px solid ${p.border}`,
+                        fontSize: 12,
+                        display: "flex",
+                        gap: 8,
+                        alignItems: "center",
+                      }}
+                    >
+                      <span style={{ color: p.color, fontWeight: 600, whiteSpace: "nowrap" }}>{a.message}</span>
+                      <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {a.name || t("Inconnu")}
+                      </span>
+                      <span className="muted" style={{ whiteSpace: "nowrap" }}>{a.at}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="page-header" style={{ marginTop: 24 }}>
         <h2 style={{ fontSize: 18, margin: 0 }}>{t("Activité récente")}</h2>
       </div>
       {recent.length === 0 ? (

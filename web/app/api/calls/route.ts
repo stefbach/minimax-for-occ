@@ -35,7 +35,7 @@ export async function GET(request: Request) {
   let q = admin
     .from("calls")
     .select(
-      "id, org_id, direction, state, from_e164, to_e164, room_id, started_at, answered_at, ended_at, duration_secs, disposition, recording_url, transcript_url, agent_handle_id, contact_id, agent_handles(id, display_name, kind), contacts(id, e164, display_name)",
+      "id, org_id, direction, state, from_e164, to_e164, room_id, started_at, answered_at, ended_at, duration_secs, disposition, recording_url, transcript_url, agent_handle_id, contact_id, metadata, agent_handles(id, display_name, kind), contacts(id, e164, display_name)",
     )
     .eq("org_id", orgId)
     .order("started_at", { ascending: false })

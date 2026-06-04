@@ -34,6 +34,7 @@ interface NavItem {
 
 // Reusable role buckets.
 const MGMT: Role[] = ["super_admin", "admin", "owner", "manager"];
+const OWNER_ADMIN: Role[] = ["super_admin", "owner", "admin"];
 const OPS: Role[] = ["super_admin", "admin", "owner", "manager", "supervisor", "analyst", "viewer"];
 
 const NAV: NavItem[] = [
@@ -64,6 +65,7 @@ const NAV: NavItem[] = [
   { href: "/numbers/health", label: "Santé des numéros",   icon: "♥", group: "Données", roles: MGMT },
 
   // ─── COMPTE ───
+  { href: "/team",      label: "Équipe",          icon: "◉", group: "Compte", roles: OWNER_ADMIN },
   { href: "/settings",  label: "Paramètres",      icon: "⚙", group: "Compte", roles: MGMT },
   { href: "/help",      label: "Guide",           icon: "?", group: "Compte" },
 ];
