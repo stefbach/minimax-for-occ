@@ -426,7 +426,28 @@ export function CampaignDetailClient({
 
       {targets.length === 0 ? (
         <div className="card">
-          <p className="muted" style={{ margin: 0 }}>Aucune cible pour cette campagne.</p>
+          {campaign.mode === "dynamic" ? (
+            <>
+              <p style={{ margin: 0, fontWeight: 600 }}>
+                ⟳ Sélection automatique à chaque créneau
+              </p>
+              <p className="muted" style={{ margin: "6px 0 0 0", fontSize: 13, lineHeight: 1.5 }}>
+                Cette campagne est en mode <strong>continu</strong> : le moteur tire les contacts
+                directement depuis ta table à chaque créneau horaire, selon les règles que tu as
+                définies (statuts ciblés, relances J+X, plafond par jour). La file n&apos;est
+                jamais figée à l&apos;avance — elle se renouvelle automatiquement.
+              </p>
+              <p className="muted" style={{ margin: "8px 0 0 0", fontSize: 12 }}>
+                Une fois la campagne <strong>démarrée</strong>, l&apos;historique des passages
+                ci-dessus se remplira au fur et à mesure (créneau, nombre tiré, lancés).
+              </p>
+            </>
+          ) : (
+            <p className="muted" style={{ margin: 0 }}>
+              Aucune cible pour cette campagne. Utilise « Ajouter des cibles » pour importer
+              un CSV ou sélectionner des contacts.
+            </p>
+          )}
         </div>
       ) : (
         <div className="card" style={{ padding: 0, overflow: "hidden" }}>
