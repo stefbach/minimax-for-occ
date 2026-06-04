@@ -9,6 +9,10 @@ import { ThemeLangSwitcher } from "./ThemeLangSwitcher";
 import { useT } from "@/lib/i18n";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
+// Width below which the sidebar morphs into a slide-in drawer. Kept in sync
+// with the `.mobile-nav-toggle` media query in globals.css.
+const MOBILE_BREAKPOINT = 980;
+
 type Role =
   | "super_admin"
   | "admin"
@@ -80,6 +84,38 @@ export function ClientSidebar() {
   const [role, setRole] = useState<Role | null>(null);
   const [loadedRole, setLoadedRole] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  // Mobile drawer state — only meaningful below MOBILE_BREAKPOINT; ignored
+  // by the CSS on desktop where the sidebar is permanently visible.
+  const [drawerOpen, setDrawerOpen] = useState(false);
+
+  // Close the drawer whenever the route changes — otherwise a user who taps a
+  // nav link sees the overlay linger on top of the destination page.
+  useEffect(() => {
+    setDrawerOpen(false);
+  }, [pathname]);
+
+  // Re-snap to "closed" when the viewport crosses the breakpoint upward, so
+  // returning to desktop never leaves a stale `.open` class around.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia(`(min-width: ${MOBILE_BREAKPOINT}px)`);
+    const onChange = () => {
+      if (mq.matches) setDrawerOpen(false);
+    };
+    mq.addEventListener?.("change", onChange);
+    return () => mq.removeEventListener?.("change", onChange);
+  }, []);
+
+  // Lock body scroll while the drawer overlay is open — otherwise the page
+  // behind continues to scroll under the user's finger.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    if (drawerOpen) {
+      const prev = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+      return () => { document.body.style.overflow = prev; };
+    }
+  }, [drawerOpen]);
 
   useEffect(() => {
     const sb = supabaseBrowser();
@@ -127,6 +163,7 @@ export function ClientSidebar() {
         className={`nav-link ${active ? "active" : ""}`}
         aria-label={n.label}
         aria-current={active ? "page" : undefined}
+        onClick={() => setDrawerOpen(false)}
       >
         <span aria-hidden="true" style={{ width: 16, opacity: 0.7 }}>{n.icon}</span>
         <span>{t(n.label)}</span>
@@ -135,8 +172,35 @@ export function ClientSidebar() {
   };
 
   return (
-    <nav className="sidebar">
-      <Link href="/" className="brand">
+    <>
+      {/* Mobile-only hamburger. CSS keeps this hidden ≥980px so desktop is
+          untouched; on phones/tablets it floats top-left and toggles the
+          drawer. aria-expanded mirrors state for screen readers. */}
+      <button
+        type="button"
+        className="mobile-nav-toggle"
+        aria-label={drawerOpen ? t("Fermer le menu") : t("Ouvrir le menu")}
+        aria-expanded={drawerOpen}
+        aria-controls="client-sidebar"
+        onClick={() => setDrawerOpen((v) => !v)}
+      >
+        {drawerOpen ? "✕" : "☰"}
+      </button>
+
+      {/* Backdrop — tap-to-close. `display: none` by default; the media
+          query in globals.css makes it `block` only on mobile when open. */}
+      <div
+        className={`mobile-nav-backdrop${drawerOpen ? " open" : ""}`}
+        onClick={() => setDrawerOpen(false)}
+        aria-hidden="true"
+      />
+
+      <nav
+        id="client-sidebar"
+        className={`sidebar${drawerOpen ? " open" : ""}`}
+        aria-label={t("Navigation principale")}
+      >
+      <Link href="/" className="brand" onClick={() => setDrawerOpen(false)}>
         <Brand size={18} />
       </Link>
 
@@ -254,6 +318,7 @@ export function ClientSidebar() {
           <span style={{ fontSize: 11, color: "var(--muted-2)" }}>Axon · v2</span>
         </div>
       </div>
-    </nav>
+      </nav>
+    </>
   );
 }
