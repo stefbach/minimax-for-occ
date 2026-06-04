@@ -136,7 +136,7 @@ export async function GET(request: Request) {
       const robotFlag =
         (r.metadata && (r.metadata as Record<string, unknown>).robot_awareness === "true") ||
         (r.metadata && (r.metadata as Record<string, unknown>).robot_awareness === true);
-      const e164 = r.direction === "inbound" ? r.from_e164 : r.to_e164;
+      const e164 = (r.direction === "in" || r.direction === "inbound") ? r.from_e164 : r.to_e164;
       const contact = Array.isArray(r.contacts) ? r.contacts[0] ?? null : r.contacts;
       const name = contact?.display_name ?? null;
       if (ROBOT_RE.test(disp) || robotFlag) {
@@ -177,7 +177,7 @@ export async function GET(request: Request) {
       .from("calls")
       .select("to_e164, contact_id, answered_at, direction")
       .eq("org_id", orgId)
-      .eq("direction", "outbound")
+      .eq("direction", "out")
       .gte("started_at", lookback)
       .limit(20000);
     for (const r of (callsData ?? []) as Array<{

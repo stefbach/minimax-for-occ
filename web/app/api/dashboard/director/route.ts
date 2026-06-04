@@ -3,6 +3,7 @@ import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { requestOrgId } from "@/lib/request-org";
 import { requireModule } from "@/lib/permissions-server";
 import { bucketForCall, QUAL_BUCKETS, type QualBucket } from "@/lib/qualification";
+import { isInbound, normalizeDirectionForDb } from "@/lib/call-direction";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -123,7 +124,8 @@ export async function GET(request: Request) {
     .gte("started_at", from.toISOString())
     .lte("started_at", to.toISOString())
     .limit(20000);
-  if (direction === "inbound" || direction === "outbound") q = q.eq("direction", direction);
+  const dbDirection = normalizeDirectionForDb(direction);
+  if (dbDirection) q = q.eq("direction", dbDirection);
   const { data, error } = await q;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
@@ -154,7 +156,7 @@ export async function GET(request: Request) {
   }
 
   // Inbound block — independent of the direction filter for this card.
-  const inboundRows = rows.filter((r) => r.direction === "inbound" || r.direction === "in");
+  const inboundRows = rows.filter((r) => isInbound(r.direction));
   const inbound = {
     total: inboundRows.length,
     answered: inboundRows.filter((r) => r.answered_at).length,

@@ -61,7 +61,7 @@ function counterpartyName(c: CallRow): string {
   return c.contacts?.display_name || "Inconnu";
 }
 function counterpartyNumber(c: CallRow): string | null {
-  return c.direction === "inbound" ? c.from_e164 : c.to_e164;
+  return (c.direction === "inbound" || c.direction === "in") ? c.from_e164 : c.to_e164;
 }
 // Pick a tone for the qualification tag — green for positives, red for hard
 // negatives, neutral grey for everything else. Pattern-based so it works
@@ -180,8 +180,8 @@ export function CallLogsTab({ from, to, direction }: { from: string; to: string;
                   <Fragment key={c.id}>
                     <tr>
                       <td>
-                        <span style={{ color: c.direction === "inbound" ? "var(--info)" : "var(--muted)", marginRight: 4 }}>
-                          {c.direction === "inbound" ? "↘" : "↗"}
+                        <span style={{ color: (c.direction === "inbound" || c.direction === "in") ? "var(--info)" : "var(--muted)", marginRight: 4 }}>
+                          {(c.direction === "inbound" || c.direction === "in") ? "↘" : "↗"}
                         </span>
                         {counterpartyName(c)}
                       </td>

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { requestOrgId } from "@/lib/request-org";
+import { isInbound, isOutbound, normalizeDirectionForDb } from "@/lib/call-direction";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -111,7 +112,8 @@ export async function GET(request: Request) {
     .lte("started_at", to.toISOString())
     .order("started_at", { ascending: true })
     .limit(ROW_CAP + 1);
-  if (direction === "inbound" || direction === "outbound") q = q.eq("direction", direction);
+  const dbDirection = normalizeDirectionForDb(direction);
+  if (dbDirection) q = q.eq("direction", dbDirection);
 
   const { data, error } = await q;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -131,8 +133,8 @@ export async function GET(request: Request) {
   const answered = rows.filter(isAnswered).length;
   const durSum = rows.reduce((a, r) => a + (r.duration_secs ?? 0), 0);
   const answeredDurSum = rows.filter(isAnswered).reduce((a, r) => a + (r.duration_secs ?? 0), 0);
-  const inbound = rows.filter((r) => r.direction === "inbound").length;
-  const outbound = rows.filter((r) => r.direction === "outbound").length;
+  const inbound = rows.filter((r) => isInbound(r.direction)).length;
+  const outbound = rows.filter((r) => isOutbound(r.direction)).length;
 
   // Real cost from recorded usage (telephony minutes + LLM tokens + TTS chars +
   // STT minutes), summed over the period. cost_cents is fractional cents.

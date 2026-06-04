@@ -71,7 +71,8 @@ export async function GET(request: Request) {
   if (from) q = q.gte("started_at", from);
   if (to) q = q.lte("started_at", to);
   const dir = searchParams.get("direction");
-  if (dir === "inbound" || dir === "outbound") q = q.eq("direction", dir);
+  if (dir === "inbound" || dir === "in") q = q.eq("direction", "in");
+  else if (dir === "outbound" || dir === "out") q = q.eq("direction", "out");
 
   const { data, error } = await q;
   if (error) {

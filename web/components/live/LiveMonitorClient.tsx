@@ -51,7 +51,7 @@ const STATE_LABEL: Record<string, string> = {
 };
 
 function counterparty(c: CallRow): string {
-  const num = c.direction === "inbound" ? c.from_e164 : c.to_e164;
+  const num = (c.direction === "inbound" || c.direction === "in") ? c.from_e164 : c.to_e164;
   return c.contacts?.display_name || num || "—";
 }
 
@@ -87,7 +87,7 @@ function LiveCallCard({ call, now }: { call: CallRow; now: number }) {
   // Tick from answered_at (talk time) when available, else from started_at.
   const anchor = call.answered_at || call.started_at;
   const elapsed = anchor ? Math.floor((now - new Date(anchor).getTime()) / 1000) : 0;
-  const isInbound = call.direction === "inbound";
+  const isInbound = (call.direction === "inbound" || call.direction === "in");
 
   return (
     <div className="card" style={{ position: "relative", overflow: "hidden", padding: 16 }}>
@@ -419,7 +419,7 @@ export function LiveMonitorClient() {
                 <tr key={c.id}>
                   <td className="muted">{fmtClock(c.started_at)}</td>
                   <td>{counterparty(c)}</td>
-                  <td>{c.direction === "inbound" ? t("↘ Entrants") : t("↗ Sortants")}</td>
+                  <td>{(c.direction === "inbound" || c.direction === "in") ? t("↘ Entrants") : t("↗ Sortants")}</td>
                   <td className="muted">{c.agent_handles?.display_name ?? "—"}</td>
                   <td>{fmtDuration(c.duration_secs ?? 0)}</td>
                   <td>
