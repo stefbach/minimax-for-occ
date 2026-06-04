@@ -274,6 +274,7 @@ const EN: Record<string, string> = {
   "Au moins un owner requis": "At least one owner is required",
   "Vous ne pouvez pas modifier votre propre rôle.":
     "You cannot edit your own role.",
+  "vous": "you",
   // ── Number detail / inbound routing ──
   "Lorsqu'un appel entrant arrive": "When an inbound call arrives",
   "Choisissez ce qui se passe quand quelqu'un appelle ce numéro. Vous pouvez changer à tout moment — les appels en cours ne sont pas affectés.":

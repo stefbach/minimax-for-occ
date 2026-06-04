@@ -111,7 +111,7 @@ export function TeamList({ inviteOpenSignal = 0 }: { inviteOpenSignal?: number }
         />
       )}
 
-      <MembersTable members={members} />
+      <MembersTable members={members} onChanged={reload} onToast={showToast} />
 
       {inviteOpen && (
         <InviteModal
@@ -126,7 +126,15 @@ export function TeamList({ inviteOpenSignal = 0 }: { inviteOpenSignal?: number }
   );
 }
 
-function MembersTable({ members }: { members: TeamMember[] }) {
+function MembersTable({
+  members,
+  onChanged,
+  onToast,
+}: {
+  members: TeamMember[];
+  onChanged: () => void;
+  onToast: (k: "ok" | "err", m: string) => void;
+}) {
   const t = useT();
   if (members.length === 0) {
     return (
@@ -150,39 +158,213 @@ function MembersTable({ members }: { members: TeamMember[] }) {
           </tr>
         </thead>
         <tbody>
-          {members.map((m) => {
-            const roleInfo = ROLE_LABEL[m.role] ?? { label: m.role, tone: "var(--muted)" };
-            return (
-              <tr key={m.user_id}>
-                <td>
-                  <div style={{ fontWeight: 500 }}>{m.display_name || m.email || "—"}</div>
-                  {m.email && m.display_name && (
-                    <div className="muted" style={{ fontSize: 12 }}>{m.email}</div>
-                  )}
-                </td>
-                <td>
-                  <span className="tag" style={{ color: roleInfo.tone, borderColor: roleInfo.tone }}>
-                    {t(roleInfo.label)}
-                  </span>
-                </td>
-                <td>
-                  <span
-                    className={`tag ${m.status === "active" ? "good" : ""}`}
-                    style={m.status === "disabled" ? { color: "var(--muted)" } : {}}
-                  >
-                    {m.status === "active" ? t("Actif") : t("Désactivé")}
-                  </span>
-                </td>
-                <td className="muted" style={{ fontSize: 12 }}>{fmtDate(m.created_at)}</td>
-                <td style={{ textAlign: "right" }}>
-                  <button className="ghost" disabled title={t("Édition à venir")} style={{ padding: "4px 10px" }}>⋯</button>
-                </td>
-              </tr>
-            );
-          })}
+          {members.map((m) => (
+            <MemberRow key={m.user_id} member={m} onChanged={onChanged} onToast={onToast} />
+          ))}
         </tbody>
       </table>
     </div>
+  );
+}
+
+function MemberRow({
+  member: m,
+  onChanged,
+  onToast,
+}: {
+  member: TeamMember;
+  onChanged: () => void;
+  onToast: (k: "ok" | "err", msg: string) => void;
+}) {
+  const t = useT();
+  const roleInfo = ROLE_LABEL[m.role] ?? { label: m.role, tone: "var(--muted)" };
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [editingRole, setEditingRole] = useState(false);
+  const [newRole, setNewRole] = useState<string>(m.role);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      const el = e.target as HTMLElement;
+      if (!el.closest(`[data-row-menu="${m.user_id}"]`)) setMenuOpen(false);
+    };
+    document.addEventListener("click", onDoc);
+    return () => document.removeEventListener("click", onDoc);
+  }, [menuOpen, m.user_id]);
+
+  async function saveRole() {
+    if (newRole === m.role) {
+      setEditingRole(false);
+      return;
+    }
+    setBusy(true);
+    try {
+      const r = await fetch(`/api/team/members/${m.user_id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ role: newRole }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      onToast("ok", t("Rôle mis à jour."));
+      setEditingRole(false);
+      onChanged();
+    } catch (e) {
+      onToast("err", e instanceof Error ? e.message : "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function toggleActive() {
+    const willDisable = m.status === "active";
+    const msg = willDisable ? t("Désactiver ce membre ?") : t("Réactiver ce membre ?");
+    if (!window.confirm(msg)) return;
+    setBusy(true);
+    setMenuOpen(false);
+    try {
+      const r = await fetch(`/api/team/members/${m.user_id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ is_active: !willDisable }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      onToast("ok", willDisable ? t("Membre désactivé.") : t("Membre réactivé."));
+      onChanged();
+    } catch (e) {
+      onToast("err", e instanceof Error ? e.message : "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <tr>
+      <td>
+        <div style={{ fontWeight: 500 }}>
+          {m.display_name || m.email || "—"}
+          {m.is_self && (
+            <span className="muted" style={{ fontSize: 11, marginLeft: 6 }}>
+              ({t("vous")})
+            </span>
+          )}
+        </div>
+        {m.email && m.display_name && (
+          <div className="muted" style={{ fontSize: 12 }}>{m.email}</div>
+        )}
+      </td>
+      <td>
+        {editingRole ? (
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <select
+              value={newRole}
+              onChange={(e) => setNewRole(e.target.value)}
+              disabled={busy}
+              style={{ padding: "4px 6px", fontSize: 12 }}
+            >
+              {INVITE_ROLES.map((r) => (
+                <option key={r} value={r}>
+                  {t(ROLE_LABEL[r]?.label ?? r)}
+                </option>
+              ))}
+            </select>
+            <button
+              className="ghost"
+              onClick={saveRole}
+              disabled={busy}
+              style={{ padding: "2px 8px", fontSize: 12 }}
+            >
+              {t("Enregistrer")}
+            </button>
+            <button
+              className="ghost"
+              onClick={() => {
+                setEditingRole(false);
+                setNewRole(m.role);
+              }}
+              disabled={busy}
+              style={{ padding: "2px 8px", fontSize: 12 }}
+            >
+              {t("Annuler")}
+            </button>
+          </div>
+        ) : (
+          <span className="tag" style={{ color: roleInfo.tone, borderColor: roleInfo.tone }}>
+            {t(roleInfo.label)}
+          </span>
+        )}
+      </td>
+      <td>
+        <span
+          className={`tag ${m.status === "active" ? "good" : ""}`}
+          style={m.status === "disabled" ? { color: "var(--muted)" } : {}}
+        >
+          {m.status === "active" ? t("Actif") : t("Désactivé")}
+        </span>
+      </td>
+      <td className="muted" style={{ fontSize: 12 }}>{fmtDate(m.created_at)}</td>
+      <td style={{ textAlign: "right", position: "relative" }} data-row-menu={m.user_id}>
+        <button
+          className="ghost"
+          onClick={(e) => {
+            e.stopPropagation();
+            setMenuOpen((v) => !v);
+          }}
+          disabled={busy || m.is_self}
+          title={m.is_self ? t("Vous ne pouvez pas modifier votre propre rôle.") : ""}
+          style={{ padding: "4px 10px" }}
+        >
+          ⋯
+        </button>
+        {menuOpen && !m.is_self && (
+          <div
+            style={{
+              position: "absolute",
+              right: 8,
+              top: "100%",
+              marginTop: 4,
+              background: "var(--panel)",
+              border: "1px solid var(--border)",
+              borderRadius: 8,
+              padding: 4,
+              minWidth: 180,
+              zIndex: 20,
+              boxShadow: "0 4px 12px rgba(0,0,0,0.25)",
+              textAlign: "left",
+            }}
+          >
+            <button
+              className="ghost"
+              onClick={() => {
+                setEditingRole(true);
+                setMenuOpen(false);
+                setNewRole(m.role);
+              }}
+              style={{ display: "block", width: "100%", textAlign: "left", padding: "6px 10px", border: "none", background: "transparent" }}
+            >
+              {t("Changer le rôle")}
+            </button>
+            <button
+              className="ghost"
+              onClick={toggleActive}
+              style={{
+                display: "block",
+                width: "100%",
+                textAlign: "left",
+                padding: "6px 10px",
+                border: "none",
+                background: "transparent",
+                color: m.status === "active" ? "var(--bad)" : "var(--good)",
+              }}
+            >
+              {m.status === "active" ? t("Désactiver") : t("Réactiver")}
+            </button>
+          </div>
+        )}
+      </td>
+    </tr>
   );
 }
 

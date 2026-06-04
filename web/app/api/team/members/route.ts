@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
-import { currentOrgIdForServer, currentRoleInOrg } from "@/lib/supabase-auth";
+import { currentOrgIdForServer, currentRoleInOrg, currentUser } from "@/lib/supabase-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,8 +21,9 @@ export type TeamMember = {
   role: string;
   status: "active" | "disabled";
   created_at: string | null;
+  is_self: boolean;
 };
-export type TeamMembersResponse = { members: TeamMember[] };
+export type TeamMembersResponse = { members: TeamMember[]; current_user_id: string | null };
 
 export async function GET() {
   if (!hasSupabase()) {
@@ -33,6 +34,8 @@ export async function GET() {
   if (!role || !MANAGER_ROLES.has(role)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
+  const me = await currentUser();
+  const meId = me?.id ?? null;
   const sb = supabaseServer();
 
   const { data: msRows, error: msErr } = await sb
@@ -66,8 +69,9 @@ export async function GET() {
       role: m.role || "agent",
       status: p?.is_active === false ? "disabled" : "active",
       created_at: m.created_at,
+      is_self: meId !== null && m.user_id === meId,
     };
   });
 
-  return NextResponse.json({ members });
+  return NextResponse.json({ members, current_user_id: meId });
 }
