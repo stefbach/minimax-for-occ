@@ -123,14 +123,23 @@ export async function GET(request: Request) {
       })
     : 0;
 
-  const emailJ0 = colSet.has("first_mail")
-    ? await countOf((q) => q.not("first_mail", "is", null))
+  // OCC production names the J0 and J+2 email columns `1st_mail` / `2nd_mail`
+  // (yes, identifiers starting with a digit — they're quoted in SQL). We also
+  // accept the demo names `first_mail` / `second_mail` so the dashboard still
+  // works on legacy tables that haven't been migrated.
+  const mailJ0Col = colSet.has("1st_mail") ? "1st_mail" : colSet.has("first_mail") ? "first_mail" : null;
+  const mailJ2Col = colSet.has("2nd_mail") ? "2nd_mail" : colSet.has("second_mail") ? "second_mail" : null;
+
+  const emailJ0 = mailJ0Col
+    ? await countOf((q) => q.not(mailJ0Col, "is", null))
     : colSet.has("email_sent")
       ? await countOf((q) => q.eq("email_sent", true))
       : 0;
-  const emailJ2 = colSet.has("second_mail")
-    ? await countOf((q) => q.not("second_mail", "is", null))
-    : 0;
+  const emailJ2 = mailJ2Col
+    ? await countOf((q) => q.not(mailJ2Col, "is", null))
+    : colSet.has("relance_email_sent")
+      ? await countOf((q) => q.eq("relance_email_sent", true))
+      : 0;
   const whatsapp = colSet.has("whatsapp_sent")
     ? await countOf((q) => q.eq("whatsapp_sent", true))
     : 0;
@@ -141,11 +150,14 @@ export async function GET(request: Request) {
     : 0;
 
   // ── File status (4 tuiles) ─────────────────────────────────────────────
-  // "Aucun document" — first_mail sent but no doc-tracking columns filled.
-  const noDocument =
-    colSet.has("first_mail")
+  // "Aucun document" — initial email sent (1st_mail / first_mail) but no
+  // doc-tracking columns filled. On OCC prod, `document_status` already tracks
+  // this explicitly; prefer that signal when present.
+  const noDocument = colSet.has("document_status")
+    ? await countOf((q) => q.or("document_status.is.null,document_status.ilike.%aucun%"))
+    : mailJ0Col
       ? await countOf((q) => {
-          let qq = q.not("first_mail", "is", null);
+          let qq = q.not(mailJ0Col, "is", null);
           if (colSet.has("nhs_wmp_status")) qq = qq.is("nhs_wmp_status", null);
           if (colSet.has("nhs_wmp_details")) qq = qq.is("nhs_wmp_details", null);
           return qq;
@@ -223,17 +235,19 @@ export async function GET(request: Request) {
   const stepInitialCall = colSet.has("last_call_datetime")
     ? await countOf((q) => q.not("last_call_datetime", "is", null))
     : 0;
-  const stepEmailReminder = colSet.has("second_mail")
-    ? await countOf((q) => q.not("second_mail", "is", null))
-    : 0;
-  // "Réponse reçue" proxy: last_qualification_update > first_mail. Postgres
-  // doesn't support column-to-column comparison in PostgREST filters, so we
-  // approximate with last_qualification_update NOT NULL AND first_mail NOT
-  // NULL — refined heuristic when both timestamps exist.
-  const stepResponseReceived =
-    colSet.has("last_qualification_update") && colSet.has("first_mail")
+  const stepEmailReminder = mailJ2Col
+    ? await countOf((q) => q.not(mailJ2Col, "is", null))
+    : colSet.has("relance_email_sent")
+      ? await countOf((q) => q.eq("relance_email_sent", true))
+      : 0;
+  // "Réponse reçue" proxy: OCC prod tracks the actual response timestamp in
+  // `last_response_date`. When present, that's the strongest signal. Fall back
+  // to last_qualification_update + email-sent heuristic for legacy tables.
+  const stepResponseReceived = colSet.has("last_response_date")
+    ? await countOf((q) => q.not("last_response_date", "is", null))
+    : colSet.has("last_qualification_update") && mailJ0Col
       ? await countOf((q) =>
-          q.not("last_qualification_update", "is", null).not("first_mail", "is", null),
+          q.not("last_qualification_update", "is", null).not(mailJ0Col, "is", null),
         )
       : colSet.has("last_qualification_update")
         ? await countOf((q) => q.not("last_qualification_update", "is", null))
