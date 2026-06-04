@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { currentOrgIdForServer, currentRoleInOrg } from "@/lib/supabase-auth";
+import { isModuleId, type ModuleId } from "@/lib/permissions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

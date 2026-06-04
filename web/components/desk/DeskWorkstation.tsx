@@ -4,7 +4,68 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Softphone } from "@/components/voice/Softphone";
 import { useT } from "@/lib/i18n";
 
-interface DeskCall {
+/**
+ * Two underlying data sources feed this UI:
+ *
+ *  1. `/api/desk/tasks` — the new "Appels du jour" queue based on the
+ *     human_callback_tasks table. Each row is a TASK created by the IA
+ *     agent (or manually by an admin) telling a human to call the
+ *     patient back the next business day.
+ *
+ *  2. `/api/desk/queue` — the legacy "anything with a humain/rappel
+ *     disposition" queue, materialized from calls.metadata. Kept for
+ *     backwards compatibility with calls created before the task-based
+ *     workflow shipped; rendered alongside the new tasks in the same
+ *     panes.
+ *
+ * Both shapes are normalized to `DeskItem` for rendering. `kind`
+ * distinguishes them so we hit the right endpoints on claim / release /
+ * complete.
+ */
+
+interface DeskItem {
+  kind: "task" | "legacy";
+  id: string; // task_id OR call_id
+  e164: string | null;
+  display_name: string | null;
+  call_count: number;
+  qualification: string | null;
+  transfer_reason: string | null; // task-only
+  scheduled_for: string | null; // task-only
+  assigned_to: string | null;
+  status: string | null; // task-only
+  last_note: string | null;
+  original_call_id: string | null;
+  original_call_summary: string | null;
+  contact_id: string | null;
+}
+
+interface TasksResponse {
+  personal: TaskRow[];
+  shared: TaskRow[];
+  done_today: TaskRow[];
+}
+interface TaskRow {
+  id: string;
+  contact: { id: string | null; display_name: string | null; e164: string | null };
+  qualification: string | null;
+  transfer_reason: string | null;
+  scheduled_for: string;
+  assigned_to: string | null;
+  status: string;
+  notes: string | null;
+  outcome_disposition: string | null;
+  call_count: number;
+  original_call_summary: string | null;
+  original_call_id: string | null;
+  last_note: string | null;
+}
+
+interface LegacyQueueResponse {
+  personal: LegacyCall[];
+  shared: LegacyCall[];
+}
+interface LegacyCall {
   id: string;
   e164: string | null;
   display_name: string | null;
@@ -17,15 +78,9 @@ interface DeskCall {
   assigned_to: string | null;
 }
 
-interface QueueResponse {
-  personal: DeskCall[];
-  shared: DeskCall[];
-}
-
 const QUALIFICATIONS = [
-  "rappel_humain",
-  "rappel_planifie",
-  "transfert_humain",
+  "rdv_pris",
+  "rdv_reporte",
   "non_qualifie",
   "qualifie_chaud",
   "qualifie_tiede",
@@ -39,8 +94,8 @@ const QUALIFICATIONS = [
  * /desk re-built as a 3-pane workstation:
  *
  *   ┌────────────┬──────────────────────┬────────────┐
- *   │ Ma file    │ Patient + Softphone  │ Pool       │
- *   │ (personal) │ + Disposition form   │ partagé    │
+ *   │ Appels du  │ Patient + Softphone  │ Pool       │
+ *   │  jour      │ + Disposition form   │ partagé    │
  *   └────────────┴──────────────────────┴────────────┘
  *
  * The Softphone component stays the single source of truth for outbound
@@ -53,45 +108,87 @@ const QUALIFICATIONS = [
  */
 export function DeskWorkstation() {
   const t = useT();
-  const [data, setData] = useState<QueueResponse>({ personal: [], shared: [] });
+  const [tasks, setTasks] = useState<TasksResponse>({
+    personal: [],
+    shared: [],
+    done_today: [],
+  });
+  const [legacy, setLegacy] = useState<LegacyQueueResponse>({
+    personal: [],
+    shared: [],
+  });
   const [loading, setLoading] = useState(true);
-  const [focusedId, setFocusedId] = useState<string | null>(null);
+  const [focused, setFocused] = useState<{ kind: DeskItem["kind"]; id: string } | null>(null);
   const [mobileView, setMobileView] = useState<"personal" | "shared">("personal");
   const [claimBusy, setClaimBusy] = useState<string | null>(null);
   const [releaseBusy, setReleaseBusy] = useState<string | null>(null);
   const [actionErr, setActionErr] = useState<string | null>(null);
+  const [doneOpen, setDoneOpen] = useState(false);
 
-  // Pre-load the dial pad whenever a row is focused — synced via the URL so
-  // the Softphone (already mounted) picks it up via useSearchParams.
-  const focused = useMemo(() => {
-    const all = [...data.personal, ...data.shared];
-    return all.find((c) => c.id === focusedId) ?? null;
-  }, [data, focusedId]);
+  // ── Normalize both sources into a single render shape ─────────────────
+  const personal: DeskItem[] = useMemo(() => {
+    return [
+      ...tasks.personal.map(taskToItem),
+      ...legacy.personal.map(legacyToItem),
+    ];
+  }, [tasks.personal, legacy.personal]);
+  const shared: DeskItem[] = useMemo(() => {
+    return [
+      ...tasks.shared.map(taskToItem),
+      ...legacy.shared.map(legacyToItem),
+    ];
+  }, [tasks.shared, legacy.shared]);
+  const doneToday: DeskItem[] = useMemo(
+    () => tasks.done_today.map(taskToItem),
+    [tasks.done_today],
+  );
 
+  const focusedItem = useMemo(() => {
+    if (!focused) return null;
+    const all = [...personal, ...shared, ...doneToday];
+    return all.find((c) => c.kind === focused.kind && c.id === focused.id) ?? null;
+  }, [personal, shared, doneToday, focused]);
+
+  // ── Sync the dial pad prefill to the focused row ──────────────────────
   useEffect(() => {
-    if (!focused?.e164) return;
+    if (!focusedItem?.e164) return;
     const sp = new URLSearchParams(window.location.search);
-    sp.set("prefill", focused.e164);
-    if (focused.display_name) sp.set("name", focused.display_name);
+    sp.set("prefill", focusedItem.e164);
+    if (focusedItem.display_name) sp.set("name", focusedItem.display_name);
     else sp.delete("name");
-    sp.delete("call"); // never auto-dial from focusing a row
+    sp.delete("call");
     const url = `${window.location.pathname}?${sp.toString()}`;
     window.history.replaceState(null, "", url);
-    // Manually fire a popstate so Softphone's useSearchParams updates.
     window.dispatchEvent(new PopStateEvent("popstate"));
-  }, [focused?.id, focused?.e164, focused?.display_name]);
+  }, [focusedItem?.id, focusedItem?.e164, focusedItem?.display_name]);
 
+  // ── Refresh both endpoints ────────────────────────────────────────────
   const refresh = useCallback(async () => {
     try {
-      const r = await fetch("/api/desk/queue", { cache: "no-store" });
-      if (!r.ok) return;
-      const j = (await r.json()) as QueueResponse;
-      setData(j);
+      const [t1, t2] = await Promise.all([
+        fetch("/api/desk/tasks", { cache: "no-store" }),
+        fetch("/api/desk/queue", { cache: "no-store" }),
+      ]);
+      if (t1.ok) {
+        const j = (await t1.json()) as TasksResponse;
+        setTasks(j);
+      }
+      if (t2.ok) {
+        const j = (await t2.json()) as LegacyQueueResponse;
+        setLegacy(j);
+      }
     } catch {
-      /* ignore — best-effort */
+      /* best-effort */
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  // Trigger the morning round-robin distribution once per session — the
+  // server endpoint is idempotent (debounced per UTC day) so calling it
+  // unconditionally is safe and silent.
+  useEffect(() => {
+    fetch("/api/desk/tasks/auto-distribute", { method: "POST" }).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -100,18 +197,24 @@ export function DeskWorkstation() {
     return () => clearInterval(t);
   }, [refresh]);
 
-  async function claim(callId: string) {
-    setClaimBusy(callId);
+  async function claim(item: DeskItem) {
+    setClaimBusy(item.id);
     setActionErr(null);
     try {
-      const r = await fetch("/api/desk/claim", {
+      const url =
+        item.kind === "task"
+          ? `/api/desk/tasks/${item.id}/claim`
+          : "/api/desk/claim";
+      const body =
+        item.kind === "task" ? undefined : JSON.stringify({ call_id: item.id });
+      const r = await fetch(url, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ call_id: callId }),
+        body,
       });
       const j = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
-      setFocusedId(callId);
+      if (!r.ok) throw new Error((j as { error?: string }).error ?? `HTTP ${r.status}`);
+      setFocused({ kind: item.kind, id: item.id });
       await refresh();
     } catch (e) {
       setActionErr(e instanceof Error ? e.message : String(e));
@@ -120,18 +223,24 @@ export function DeskWorkstation() {
     }
   }
 
-  async function release(callId: string) {
-    setReleaseBusy(callId);
+  async function release(item: DeskItem) {
+    setReleaseBusy(item.id);
     setActionErr(null);
     try {
-      const r = await fetch("/api/desk/release", {
+      const url =
+        item.kind === "task"
+          ? `/api/desk/tasks/${item.id}/release`
+          : "/api/desk/release";
+      const body =
+        item.kind === "task" ? undefined : JSON.stringify({ call_id: item.id });
+      const r = await fetch(url, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ call_id: callId }),
+        body,
       });
       const j = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
-      if (focusedId === callId) setFocusedId(null);
+      if (!r.ok) throw new Error((j as { error?: string }).error ?? `HTTP ${r.status}`);
+      if (focused?.id === item.id) setFocused(null);
       await refresh();
     } catch (e) {
       setActionErr(e instanceof Error ? e.message : String(e));
@@ -139,6 +248,10 @@ export function DeskWorkstation() {
       setReleaseBusy(null);
     }
   }
+
+  const personalCount = personal.length;
+  const sharedCount = shared.length;
+  const doneCount = doneToday.length;
 
   return (
     <div style={{ display: "grid", gap: 14 }}>
@@ -151,13 +264,13 @@ export function DeskWorkstation() {
           className={mobileView === "personal" ? "" : "ghost"}
           onClick={() => setMobileView("personal")}
         >
-          {t("Mes appels")} ({data.personal.length})
+          {t("Mes appels")} ({personalCount})
         </button>
         <button
           className={mobileView === "shared" ? "" : "ghost"}
           onClick={() => setMobileView("shared")}
         >
-          {t("File équipe")} ({data.shared.length})
+          {t("File équipe")} ({sharedCount})
         </button>
       </div>
 
@@ -168,7 +281,7 @@ export function DeskWorkstation() {
       )}
 
       <div className="desk-3pane">
-        {/* LEFT — personal queue */}
+        {/* LEFT — personal queue ("Appels du jour") */}
         <aside
           className="card desk-pane"
           data-pane="personal"
@@ -180,14 +293,14 @@ export function DeskWorkstation() {
           }}
         >
           <h3 style={{ margin: 0 }}>
-            {t("Ma file")} ({data.personal.length})
+            {t("Appels du jour")} ({personalCount + doneCount})
           </h3>
           <div className="muted" style={{ fontSize: 12 }}>
-            {t("Mes appels du jour")}
+            {t("À traiter")} ({personalCount})
           </div>
-          {loading && data.personal.length === 0 ? (
+          {loading && personal.length === 0 ? (
             <div className="muted" style={{ fontSize: 13 }}>{t("Chargement…")}</div>
-          ) : data.personal.length === 0 ? (
+          ) : personal.length === 0 ? (
             <div
               style={{
                 padding: "14px 8px",
@@ -205,12 +318,12 @@ export function DeskWorkstation() {
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {data.personal.map((c) => (
+              {personal.map((c) => (
                 <QueueRow
-                  key={c.id}
-                  call={c}
-                  active={c.id === focusedId}
-                  onClick={() => setFocusedId(c.id)}
+                  key={`${c.kind}:${c.id}`}
+                  item={c}
+                  active={focused?.kind === c.kind && focused?.id === c.id}
+                  onClick={() => setFocused({ kind: c.kind, id: c.id })}
                   trailing={
                     <button
                       className="ghost"
@@ -218,7 +331,7 @@ export function DeskWorkstation() {
                       disabled={releaseBusy === c.id}
                       onClick={(e) => {
                         e.stopPropagation();
-                        void release(c.id);
+                        void release(c);
                       }}
                     >
                       {releaseBusy === c.id ? "…" : t("Relâcher")}
@@ -228,6 +341,45 @@ export function DeskWorkstation() {
               ))}
             </div>
           )}
+
+          {/* Faits aujourd'hui — collapsible */}
+          {doneCount > 0 && (
+            <div style={{ marginTop: 6, borderTop: "1px solid var(--border)", paddingTop: 8 }}>
+              <button
+                className="ghost"
+                style={{
+                  width: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "6px 8px",
+                  fontSize: 12,
+                }}
+                onClick={() => setDoneOpen((v) => !v)}
+                aria-expanded={doneOpen}
+              >
+                <span>
+                  {t("Faits aujourd'hui")} ({doneCount})
+                </span>
+                <span aria-hidden style={{ opacity: 0.7 }}>
+                  {doneOpen ? "▾" : "▸"}
+                </span>
+              </button>
+              {doneOpen && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
+                  {doneToday.map((c) => (
+                    <QueueRow
+                      key={`done:${c.id}`}
+                      item={c}
+                      active={focused?.kind === c.kind && focused?.id === c.id}
+                      onClick={() => setFocused({ kind: c.kind, id: c.id })}
+                      dimmed
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </aside>
 
         {/* CENTER — patient context + softphone + disposition */}
@@ -235,10 +387,18 @@ export function DeskWorkstation() {
           className="desk-pane desk-center"
           style={{ display: "grid", gap: 12 }}
         >
-          <PatientCard call={focused} />
-          {/* The Softphone takes over for the actual dial / hangup / mute. */}
+          <PatientCard item={focusedItem} />
+          {/* Softphone stays the source of truth for the dial / hangup. */}
           <Softphone />
-          {focused && <DispositionForm callId={focused.id} onSaved={refresh} />}
+          {focusedItem && (
+            <DispositionForm
+              item={focusedItem}
+              onSaved={() => {
+                setFocused(null);
+                void refresh();
+              }}
+            />
+          )}
         </section>
 
         {/* RIGHT — shared pool */}
@@ -253,14 +413,14 @@ export function DeskWorkstation() {
           }}
         >
           <h3 style={{ margin: 0 }}>
-            {t("Pool partagé")} ({data.shared.length})
+            {t("Pool partagé")} ({sharedCount})
           </h3>
           <div className="muted" style={{ fontSize: 12 }}>
             {t("File équipe")}
           </div>
-          {loading && data.shared.length === 0 ? (
+          {loading && shared.length === 0 ? (
             <div className="muted" style={{ fontSize: 13 }}>{t("Chargement…")}</div>
-          ) : data.shared.length === 0 ? (
+          ) : shared.length === 0 ? (
             <div
               style={{
                 padding: "14px 8px",
@@ -276,19 +436,19 @@ export function DeskWorkstation() {
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {data.shared.map((c) => (
+              {shared.map((c) => (
                 <QueueRow
-                  key={c.id}
-                  call={c}
-                  active={c.id === focusedId}
-                  onClick={() => setFocusedId(c.id)}
+                  key={`${c.kind}:${c.id}`}
+                  item={c}
+                  active={focused?.kind === c.kind && focused?.id === c.id}
+                  onClick={() => setFocused({ kind: c.kind, id: c.id })}
                   trailing={
                     <button
                       style={{ padding: "4px 10px", fontSize: 11 }}
                       disabled={claimBusy === c.id}
                       onClick={(e) => {
                         e.stopPropagation();
-                        void claim(c.id);
+                        void claim(c);
                       }}
                     >
                       {claimBusy === c.id ? "…" : t("Prendre")}
@@ -347,19 +507,60 @@ export function DeskWorkstation() {
   );
 }
 
+// ── Helpers ────────────────────────────────────────────────────────────
+
+function taskToItem(t: TaskRow): DeskItem {
+  return {
+    kind: "task",
+    id: t.id,
+    e164: t.contact.e164,
+    display_name: t.contact.display_name,
+    call_count: t.call_count,
+    qualification: t.qualification,
+    transfer_reason: t.transfer_reason,
+    scheduled_for: t.scheduled_for,
+    assigned_to: t.assigned_to,
+    status: t.status,
+    last_note: t.last_note ?? t.notes ?? null,
+    original_call_id: t.original_call_id,
+    original_call_summary: t.original_call_summary,
+    contact_id: t.contact.id,
+  };
+}
+function legacyToItem(c: LegacyCall): DeskItem {
+  return {
+    kind: "legacy",
+    id: c.id,
+    e164: c.e164,
+    display_name: c.display_name,
+    call_count: c.call_count,
+    qualification: c.qualification,
+    transfer_reason: null,
+    scheduled_for: c.human_callback_at,
+    assigned_to: c.assigned_to,
+    status: null,
+    last_note: c.last_note,
+    original_call_id: c.id,
+    original_call_summary: null,
+    contact_id: null,
+  };
+}
+
 function QueueRow({
-  call,
+  item,
   active,
   onClick,
   trailing,
+  dimmed,
 }: {
-  call: DeskCall;
+  item: DeskItem;
   active: boolean;
   onClick: () => void;
   trailing?: React.ReactNode;
+  dimmed?: boolean;
 }) {
   const t = useT();
-  const title = call.display_name || call.e164 || "—";
+  const title = item.display_name || item.e164 || "—";
   return (
     <button
       className="ghost"
@@ -369,6 +570,7 @@ function QueueRow({
         padding: "10px 12px",
         borderColor: active ? "var(--accent)" : "var(--border)",
         background: active ? "var(--bg-2)" : "transparent",
+        opacity: dimmed ? 0.7 : 1,
         display: "flex",
         flexDirection: "column",
         gap: 4,
@@ -387,31 +589,31 @@ function QueueRow({
         {trailing}
       </div>
       <div className="muted" style={{ fontSize: 11 }}>
-        {call.e164 ?? "—"}
-        {call.call_count > 1 ? ` · ${call.call_count} ${t("appels")}` : ""}
+        {item.e164 ?? "—"}
+        {item.call_count > 1 ? ` · ${item.call_count} ${t("appels")}` : ""}
       </div>
-      {call.qualification && (
+      {item.qualification && (
         <span className="tag" style={{ fontSize: 10, alignSelf: "flex-start" }}>
-          {call.qualification}
+          {item.qualification}
         </span>
       )}
-      {call.last_note && (
+      {item.last_note && (
         <div className="muted" style={{ fontSize: 11, fontStyle: "italic" }}>
-          “{truncate(call.last_note, 60)}”
+          “{truncate(item.last_note, 60)}”
         </div>
       )}
-      {call.human_callback_at && (
+      {item.scheduled_for && (
         <div className="muted" style={{ fontSize: 11 }}>
-          {t("Rappeler le")} {formatDateTime(call.human_callback_at)}
+          {t("Rappeler le")} {formatDateTime(item.scheduled_for)}
         </div>
       )}
     </button>
   );
 }
 
-function PatientCard({ call }: { call: DeskCall | null }) {
+function PatientCard({ item }: { item: DeskItem | null }) {
   const t = useT();
-  if (!call) {
+  if (!item) {
     return (
       <div
         className="card"
@@ -442,29 +644,45 @@ function PatientCard({ call }: { call: DeskCall | null }) {
   return (
     <div className="card" style={{ display: "grid", gap: 8 }}>
       <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-        <h3 style={{ margin: 0 }}>{call.display_name ?? t("Patient")}</h3>
-        <span className="kbd" style={{ fontSize: 12 }}>{call.e164 ?? "—"}</span>
+        <h3 style={{ margin: 0 }}>{item.display_name ?? t("Patient")}</h3>
+        <span className="kbd" style={{ fontSize: 12 }}>{item.e164 ?? "—"}</span>
       </div>
       <div className="muted" style={{ fontSize: 12 }}>
-        {t("Dernier appel")}: {formatDateTime(call.last_call_at)} ·{" "}
-        {call.call_count} {t("appels")}
+        {item.call_count} {t("appels")}
+        {item.scheduled_for ? ` · ${t("Rappeler le")} ${formatDateTime(item.scheduled_for)}` : ""}
       </div>
-      {call.qualification && (
+      {item.qualification && (
         <div>
           <span className="muted" style={{ fontSize: 12 }}>
             {t("Qualification")}:
           </span>{" "}
           <span className="tag" style={{ fontSize: 11 }}>
-            {call.qualification}
+            {item.qualification}
           </span>
         </div>
       )}
-      {call.last_note && (
+      {item.transfer_reason && (
+        <div style={{ fontSize: 13 }}>
+          <div className="muted" style={{ fontSize: 12 }}>
+            {t("Raison du transfert")}:
+          </div>
+          <div>{item.transfer_reason}</div>
+        </div>
+      )}
+      {item.original_call_summary && (
+        <div style={{ fontSize: 13 }}>
+          <div className="muted" style={{ fontSize: 12 }}>
+            {t("Résumé de l'appel IA")}:
+          </div>
+          <div style={{ fontStyle: "italic" }}>{item.original_call_summary}</div>
+        </div>
+      )}
+      {item.last_note && (
         <div style={{ fontSize: 13 }}>
           <div className="muted" style={{ fontSize: 12 }}>
             {t("Notes récentes")}:
           </div>
-          <div style={{ fontStyle: "italic" }}>{call.last_note}</div>
+          <div style={{ fontStyle: "italic" }}>{item.last_note}</div>
         </div>
       )}
     </div>
@@ -472,47 +690,66 @@ function PatientCard({ call }: { call: DeskCall | null }) {
 }
 
 function DispositionForm({
-  callId,
+  item,
   onSaved,
 }: {
-  callId: string;
+  item: DeskItem;
   onSaved: () => void;
 }) {
   const t = useT();
   const [qualification, setQualification] = useState("");
   const [note, setNote] = useState("");
   const [callbackAt, setCallbackAt] = useState("");
+  const [rescheduleTomorrow, setRescheduleTomorrow] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
 
-  // Reset form when the focused call changes.
+  // Reset form when the focused row changes.
   useEffect(() => {
     setQualification("");
     setNote("");
     setCallbackAt("");
+    setRescheduleTomorrow(false);
     setErr(null);
     setOk(null);
-  }, [callId]);
+  }, [item.id, item.kind]);
 
   async function save() {
     setBusy(true);
     setErr(null);
     setOk(null);
     try {
-      const r = await fetch("/api/desk/disposition", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          call_id: callId,
-          disposition: qualification || undefined,
-          qualification: qualification || undefined,
-          note: note || undefined,
-          next_callback_at: callbackAt || undefined,
-        }),
-      });
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
+      if (item.kind === "task") {
+        const r = await fetch(`/api/desk/tasks/${item.id}/complete`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            outcome_disposition: qualification || undefined,
+            notes: note || undefined,
+            next_callback_at: rescheduleTomorrow
+              ? "next_business_day"
+              : callbackAt || undefined,
+          }),
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error((j as { error?: string }).error ?? `HTTP ${r.status}`);
+      } else {
+        // Legacy path — preserve the previous disposition behavior.
+        const r = await fetch("/api/desk/disposition", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            call_id: item.id,
+            disposition: qualification || undefined,
+            qualification: qualification || undefined,
+            note: note || undefined,
+            next_callback_at: callbackAt || undefined,
+          }),
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error((j as { error?: string }).error ?? `HTTP ${r.status}`);
+      }
       setOk(t("Enregistré."));
       setNote("");
       onSaved();
@@ -551,21 +788,37 @@ function DispositionForm({
           placeholder=""
         />
       </div>
-      <div style={{ display: "grid", gap: 6 }}>
-        <label style={{ fontSize: 12, color: "var(--muted)" }}>
-          {t("Rappeler le")}
+      {item.kind === "task" && (
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
+          <input
+            type="checkbox"
+            checked={rescheduleTomorrow}
+            onChange={(e) => setRescheduleTomorrow(e.target.checked)}
+          />
+          {t("Reprogrammer demain (prochain jour ouvré)")}
         </label>
-        <input
-          type="datetime-local"
-          value={callbackAt}
-          onChange={(e) => setCallbackAt(e.target.value)}
-        />
-      </div>
+      )}
+      {!rescheduleTomorrow && (
+        <div style={{ display: "grid", gap: 6 }}>
+          <label style={{ fontSize: 12, color: "var(--muted)" }}>
+            {t("Rappeler le")}
+          </label>
+          <input
+            type="datetime-local"
+            value={callbackAt}
+            onChange={(e) => setCallbackAt(e.target.value)}
+          />
+        </div>
+      )}
       {err && <div style={{ color: "var(--bad)", fontSize: 13 }}>{err}</div>}
       {ok && <div className="muted" style={{ fontSize: 13 }}>{ok}</div>}
       <div>
         <button onClick={save} disabled={busy}>
-          {busy ? t("Enregistrement…") : t("Sauvegarder")}
+          {busy
+            ? t("Enregistrement…")
+            : rescheduleTomorrow
+              ? t("Reprogrammer")
+              : t("Marquer terminé")}
         </button>
       </div>
     </div>
