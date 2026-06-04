@@ -14,15 +14,17 @@ import { CallLogsTab } from "./CallLogsTab";
 import { StatsTab } from "./StatsTab";
 import { DirectorTab } from "./DirectorTab";
 import { NhsSuiviTab } from "./NhsSuiviTab";
+import { ErrorsAlertsTab } from "./ErrorsAlertsTab";
 import { PeriodBar, presetToRange, type Period, type Filters } from "./PeriodBar";
 import { useT } from "@/lib/i18n";
 
-type TabId = "overview" | "stats" | "logs" | "live" | "nhs";
+type TabId = "overview" | "stats" | "logs" | "live" | "errors" | "nhs";
 const ALL_TABS: { id: TabId; label: string; icon: string }[] = [
   { id: "overview", label: "Directeur", icon: "🏠" },
   { id: "stats", label: "Statistiques", icon: "📊" },
   { id: "logs", label: "Call Logs", icon: "📋" },
   { id: "live", label: "Live", icon: "🔴" },
+  { id: "errors", label: "Erreurs & Alertes", icon: "⚠️" },
   { id: "nhs", label: "Suivi NHS S2", icon: "🏥" },
 ];
 
@@ -166,6 +168,8 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
         )}
 
         {tab === "live" && <LiveMonitorClient />}
+
+        {tab === "errors" && <ErrorsAlertsTab />}
 
         {tab === "nhs" && showNhs && <NhsSuiviTab />}
       </div>
