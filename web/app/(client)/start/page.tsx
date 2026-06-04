@@ -10,11 +10,12 @@ export const dynamic = "force-dynamic";
 
 type StepKey =
   | "agent" | "contacts" | "scripts" | "number" | "campaign"
-  | "ivr" | "transfer" | "live" | "simulation";
+  | "campaigns_list" | "ivr" | "transfer" | "live" | "simulation"
+  | "monitor" | "schedule";
 
 type Counts = {
   agents: number; tables: number; contacts: number;
-  campaigns: number; numbers: number; flows: number;
+  campaigns: number; numbers: number; flows: number; scripts: number;
 };
 
 async function count(table: string, orgId: string, extra?: (q: any) => any): Promise<number> {
@@ -35,27 +36,27 @@ function stepFor(key: StepKey, c: Counts): {
   switch (key) {
     case "agent":
       return {
-        title: "Créer vos agents IA",
-        desc: "Définissez la voix, la langue et la personnalité des agents qui appelleront.",
-        href: "/agents", cta: "Aller aux Agents", done: c.agents > 0,
+        title: "Créer ou sélectionner vos agents IA",
+        desc: "Choisissez un agent existant ou créez-en un nouveau (voix, langue, personnalité).",
+        href: "/agents", cta: c.agents > 0 ? "Voir les agents" : "Créer un agent", done: c.agents > 0,
       };
     case "contacts":
       return {
-        title: "Ajouter vos contacts",
-        desc: "Connectez une table de données (ex. vos leads) ou importez une liste de contacts.",
-        href: "/contacts", cta: "Gérer les contacts", done: c.tables > 0 || c.contacts > 0,
+        title: "Ajouter ou sélectionner des contacts",
+        desc: "Connectez une table de données existante ou importez une nouvelle liste de contacts.",
+        href: "/contacts", cta: c.tables + c.contacts > 0 ? "Voir les contacts" : "Importer", done: c.tables > 0 || c.contacts > 0,
       };
     case "scripts":
       return {
-        title: "Écrire un script (optionnel)",
-        desc: "Donnez à l'agent une trame de conversation. Vous pouvez la tester en simulation directement.",
-        href: "/scripts", cta: "Ouvrir les Scripts", done: false, optional: true,
+        title: "Écrire ou sélectionner un script",
+        desc: "Donnez à l'agent une trame de conversation, ou réutilisez un script existant.",
+        href: "/scripts", cta: c.scripts > 0 ? "Voir les scripts" : "Nouveau script", done: c.scripts > 0, optional: true,
       };
     case "number":
       return {
-        title: "Assigner un numéro émetteur",
-        desc: "Le numéro qui s'affiche chez la personne appelée.",
-        href: "/settings", cta: "Paramètres", done: c.numbers > 0,
+        title: "Prendre ou assigner un numéro",
+        desc: "Achetez un numéro depuis la marketplace ou utilisez un numéro existant.",
+        href: "/numbers", cta: c.numbers > 0 ? "Voir les numéros" : "Prendre un numéro", done: c.numbers > 0,
       };
     case "campaign":
       return {
@@ -63,11 +64,29 @@ function stepFor(key: StepKey, c: Counts): {
         desc: "Choisissez l'agent, la table, les créneaux et les règles de relance — puis lancez.",
         href: "/campaigns/new", cta: "Nouvelle campagne", done: c.campaigns > 0,
       };
+    case "campaigns_list":
+      return {
+        title: "Reprendre ou cloner une campagne",
+        desc: "Repartez d'une campagne existante : reprise après pause, ou duplication pour relance.",
+        href: "/campaigns", cta: "Voir les campagnes", done: false,
+      };
+    case "schedule":
+      return {
+        title: "Programmer la fenêtre d'appel",
+        desc: "Définissez les créneaux autorisés (jours, heures, fuseau horaire) sur la campagne.",
+        href: "/campaigns", cta: "Programmer", done: false, optional: true,
+      };
+    case "monitor":
+      return {
+        title: "Suivre l'activité depuis le tableau de bord",
+        desc: "KPIs, qualifications, coût, performance par agent — sur la période choisie.",
+        href: "/dashboard", cta: "Ouvrir le tableau de bord", done: false,
+      };
     case "ivr":
       return {
         title: "Construire un flow / IVR",
         desc: "Routez vos appels entrants vers le bon agent ou la bonne file d'attente.",
-        href: "/flows", cta: "Ouvrir Flows / IVR", done: c.flows > 0,
+        href: "/flows", cta: c.flows > 0 ? "Voir les flows" : "Créer un flow", done: c.flows > 0,
       };
     case "transfer":
       return {
@@ -99,26 +118,64 @@ type Scenario = {
 };
 
 const SCENARIOS: Scenario[] = [
+  // ─── Scénarios validés patron ────────────────────────────────────────────
   {
     id: "campaign",
     emoji: "🚀",
     title: "Lancer ma 1ère campagne",
-    subtitle: "Parcours complet : agent → contacts → numéro → campagne → live.",
-    steps: ["agent", "contacts", "scripts", "number", "campaign", "live"],
+    subtitle: "Création de campagne → agents → contacts → script → numéro → live.",
+    steps: ["campaign", "agent", "contacts", "scripts", "number", "live"],
   },
   {
     id: "agents",
     emoji: "🤖",
-    title: "Créer mes 1ers agents IA",
-    subtitle: "Concentrez-vous sur la conception des agents et leur test.",
-    steps: ["agent", "scripts", "simulation"],
+    title: "Démarrer côté agent IA",
+    subtitle: "Création d'agent → contacts → script → numéro → live.",
+    steps: ["agent", "contacts", "scripts", "number", "live"],
   },
+
+  // ─── Scénarios centre d'appel ────────────────────────────────────────────
   {
     id: "import",
     emoji: "📇",
-    title: "Importer mes contacts",
-    subtitle: "Connecter une table existante ou importer une liste.",
-    steps: ["contacts", "agent", "campaign"],
+    title: "Importer un fichier de leads et l'attaquer",
+    subtitle: "J'ai un CSV/Excel à appeler dès aujourd'hui.",
+    steps: ["contacts", "agent", "scripts", "number", "campaign", "live"],
+  },
+  {
+    id: "callback",
+    emoji: "🔁",
+    title: "Relancer mes non-décrochés",
+    subtitle: "Cibler les contacts non joints d'une campagne précédente.",
+    steps: ["campaigns_list", "agent", "schedule", "live"],
+  },
+  {
+    id: "reminder",
+    emoji: "📅",
+    title: "Confirmer des RDV (rappels)",
+    subtitle: "Appels courts de confirmation depuis votre table de RDV.",
+    steps: ["contacts", "agent", "scripts", "number", "campaign", "live"],
+  },
+  {
+    id: "schedule",
+    emoji: "🕒",
+    title: "Programmer une campagne pour plus tard",
+    subtitle: "Préparer maintenant, lancer aux créneaux autorisés.",
+    steps: ["agent", "contacts", "scripts", "number", "campaign", "schedule"],
+  },
+  {
+    id: "clone",
+    emoji: "🔄",
+    title: "Cloner une campagne qui marche",
+    subtitle: "Repartir d'une campagne existante et changer la cible/agent.",
+    steps: ["campaigns_list", "contacts", "campaign", "live"],
+  },
+  {
+    id: "ab",
+    emoji: "🧪",
+    title: "A/B tester deux agents",
+    subtitle: "Comparer deux scripts/voix sur la même cible.",
+    steps: ["agent", "scripts", "contacts", "campaign", "monitor"],
   },
   {
     id: "inbound",
@@ -128,8 +185,22 @@ const SCENARIOS: Scenario[] = [
     steps: ["number", "agent", "ivr", "transfer", "live"],
   },
   {
+    id: "overflow",
+    emoji: "🌙",
+    title: "Permanence hors-heures / débordement",
+    subtitle: "L'IA prend le relais quand l'équipe humaine n'est pas là.",
+    steps: ["number", "agent", "ivr", "transfer", "monitor"],
+  },
+  {
+    id: "monitor",
+    emoji: "📊",
+    title: "Suivre la performance de mon équipe",
+    subtitle: "Aucune création — pilotage et reporting depuis le tableau de bord.",
+    steps: ["monitor", "live"],
+  },
+  {
     id: "test",
-    emoji: "🧪",
+    emoji: "🛠",
     title: "Tester sans dépenser un appel",
     subtitle: "Conception et simulation seulement — aucun appel réel.",
     steps: ["agent", "scripts", "simulation"],
@@ -142,18 +213,19 @@ export default async function GuidedStartPage({
   searchParams?: Promise<{ scenario?: string }>;
 }) {
   const sp = (await searchParams) ?? {};
-  const counts: Counts = { agents: 0, tables: 0, contacts: 0, campaigns: 0, numbers: 0, flows: 0 };
+  const counts: Counts = { agents: 0, tables: 0, contacts: 0, campaigns: 0, numbers: 0, flows: 0, scripts: 0 };
   if (hasSupabase()) {
     const orgId = await currentOrgIdForServer();
-    const [agents, tables, contacts, campaigns, numbers, flows] = await Promise.all([
+    const [agents, tables, contacts, campaigns, numbers, flows, scripts] = await Promise.all([
       count("agent_handles", orgId, (q) => q.eq("kind", "ai").eq("active", true)),
       count("tenant_data_tables", orgId),
       count("contacts", orgId),
       count("campaigns", orgId),
       count("phone_numbers", orgId),
       count("flows", orgId),
+      count("scripts", orgId),
     ]);
-    Object.assign(counts, { agents, tables, contacts, campaigns, numbers, flows });
+    Object.assign(counts, { agents, tables, contacts, campaigns, numbers, flows, scripts });
   }
 
   const selectedId = sp.scenario ?? "campaign";
