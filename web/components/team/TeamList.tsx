@@ -1,9 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useT } from "@/lib/i18n";
 import type { TeamMember, TeamMembersResponse } from "@/app/api/team/members/route";
 import type { PendingInvitation, InvitesListResponse } from "@/app/api/team/invites/route";
+import {
+  MODULE_IDS,
+  MODULE_LABELS,
+  defaultModulesForRole,
+  effectiveModules,
+  type ModuleId,
+} from "@/lib/permissions";
 
 const ROLE_LABEL: Record<string, { label: string; tone: string }> = {
   super_admin: { label: "Super admin", tone: "var(--bad)" },
@@ -202,6 +209,7 @@ function MemberCard({
   const roleInfo = ROLE_LABEL[m.role] ?? { label: m.role, tone: "var(--muted)" };
   const [menuOpen, setMenuOpen] = useState(false);
   const [editingRole, setEditingRole] = useState(false);
+  const [permissionsOpen, setPermissionsOpen] = useState(false);
   const [newRole, setNewRole] = useState<string>(m.role);
   const [busy, setBusy] = useState(false);
 
@@ -351,6 +359,13 @@ function MemberCard({
           </button>
           <button
             className="ghost"
+            onClick={() => { setPermissionsOpen(true); setMenuOpen(false); }}
+            style={{ display: "block", width: "100%", textAlign: "left", padding: "6px 10px", border: "none", background: "transparent" }}
+          >
+            {t("Permissions")}
+          </button>
+          <button
+            className="ghost"
             onClick={toggleActive}
             style={{
               display: "block",
@@ -365,6 +380,14 @@ function MemberCard({
             {m.status === "active" ? t("Désactiver") : t("Réactiver")}
           </button>
         </div>
+      )}
+      {permissionsOpen && (
+        <PermissionsModal
+          member={m}
+          onClose={() => setPermissionsOpen(false)}
+          onSaved={onChanged}
+          onToast={onToast}
+        />
       )}
     </div>
   );
@@ -383,6 +406,7 @@ function MemberRow({
   const roleInfo = ROLE_LABEL[m.role] ?? { label: m.role, tone: "var(--muted)" };
   const [menuOpen, setMenuOpen] = useState(false);
   const [editingRole, setEditingRole] = useState(false);
+  const [permissionsOpen, setPermissionsOpen] = useState(false);
   const [newRole, setNewRole] = useState<string>(m.role);
   const [busy, setBusy] = useState(false);
 
@@ -551,6 +575,13 @@ function MemberRow({
             </button>
             <button
               className="ghost"
+              onClick={() => { setPermissionsOpen(true); setMenuOpen(false); }}
+              style={{ display: "block", width: "100%", textAlign: "left", padding: "6px 10px", border: "none", background: "transparent" }}
+            >
+              {t("Permissions")}
+            </button>
+            <button
+              className="ghost"
               onClick={toggleActive}
               style={{
                 display: "block",
@@ -565,6 +596,14 @@ function MemberRow({
               {m.status === "active" ? t("Désactiver") : t("Réactiver")}
             </button>
           </div>
+        )}
+        {permissionsOpen && (
+          <PermissionsModal
+            member={m}
+            onClose={() => setPermissionsOpen(false)}
+            onSaved={onChanged}
+            onToast={onToast}
+          />
         )}
       </td>
     </tr>
@@ -686,6 +725,172 @@ function PendingSection({
   );
 }
 
+// Shared module checkbox grid (2 columns). Used by both the create-user
+// modal and the per-member Permissions modal so the two surfaces stay in
+// lock-step visually.
+function ModulesPicker({
+  selected,
+  onToggle,
+  disabled,
+}: {
+  selected: ModuleId[];
+  onToggle: (m: ModuleId, next: boolean) => void;
+  disabled?: boolean;
+}) {
+  const t = useT();
+  const set = new Set(selected);
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "1fr 1fr",
+        gap: 6,
+      }}
+    >
+      {MODULE_IDS.map((m) => {
+        const checked = set.has(m);
+        return (
+          <label
+            key={m}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "6px 8px",
+              border: "1px solid var(--border)",
+              borderRadius: 6,
+              background: checked ? "var(--bg-2)" : "transparent",
+              cursor: disabled ? "not-allowed" : "pointer",
+              fontSize: 13,
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={checked}
+              disabled={disabled}
+              onChange={(e) => onToggle(m, e.target.checked)}
+            />
+            <span>{t(MODULE_LABELS[m])}</span>
+          </label>
+        );
+      })}
+    </div>
+  );
+}
+
+function PermissionsModal({
+  member,
+  onClose,
+  onSaved,
+  onToast,
+}: {
+  member: TeamMember;
+  onClose: () => void;
+  onSaved: () => void;
+  onToast: (k: "ok" | "err", m: string) => void;
+}) {
+  const t = useT();
+  // Seed with the user's current EFFECTIVE modules so unchecking starts from
+  // what they can see today, not from an empty list.
+  const initial = useMemo(
+    () => effectiveModules({ role: member.role, visible_modules: member.visible_modules }),
+    [member.role, member.visible_modules],
+  );
+  const [selected, setSelected] = useState<ModuleId[]>(initial);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  function toggle(m: ModuleId, next: boolean) {
+    setSelected((cur) => {
+      if (next) return cur.includes(m) ? cur : [...cur, m];
+      return cur.filter((x) => x !== m);
+    });
+  }
+
+  async function save(reset: boolean) {
+    setBusy(true);
+    setErr(null);
+    try {
+      const body = reset
+        ? { visible_modules: null }
+        : { visible_modules: selected };
+      const r = await fetch(`/api/team/members/${member.user_id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      onToast("ok", t("Permissions enregistrées."));
+      onSaved();
+      onClose();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.55)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 60,
+        padding: 16,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="card modal-card"
+        style={{ width: "min(560px, 100%)", display: "grid", gap: 14 }}
+      >
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
+          <h3 style={{ margin: 0 }}>{t("Permissions")}</h3>
+          <button className="ghost" onClick={onClose} style={{ padding: "2px 8px" }} disabled={busy}>×</button>
+        </div>
+        <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+          {member.display_name || member.email || member.user_id} ·{" "}
+          {t("Rôle")}: <span className="tag" style={{ marginLeft: 4 }}>{member.role}</span>
+        </p>
+        <p className="muted" style={{ margin: 0, fontSize: 12 }}>
+          {t("Coche uniquement les modules visibles pour ce membre. Décoche pour les soustraire de son rôle par défaut.")}
+        </p>
+        <ModulesPicker selected={selected} onToggle={toggle} disabled={busy} />
+        {err && <div style={{ color: "var(--bad)", fontSize: 13 }}>{err}</div>}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "space-between" }}>
+          <button
+            type="button"
+            className="ghost"
+            onClick={() => void save(true)}
+            disabled={busy}
+            title={t("Réinitialise à la liste par défaut du rôle.")}
+          >
+            {t("Restaurer les valeurs par défaut")}
+          </button>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button type="button" className="ghost" onClick={onClose} disabled={busy}>
+              {t("Annuler")}
+            </button>
+            <button
+              type="button"
+              onClick={() => void save(false)}
+              disabled={busy || selected.length === 0}
+            >
+              {busy ? t("Enregistrement…") : t("Enregistrer")}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Generate a memorable but strong default password the owner can edit/keep:
 // 3 short words + 2 digits. Avoids look-alike chars. Owner shares it manually.
 function suggestPassword(): string {
@@ -712,24 +917,52 @@ function InviteModal({
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState(() => suggestPassword());
   const [role, setRole] = useState<(typeof INVITE_ROLES)[number]>("agent");
+  const [selectedModules, setSelectedModules] = useState<ModuleId[]>(() =>
+    defaultModulesForRole("agent"),
+  );
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [created, setCreated] = useState<{ email: string; password: string } | null>(null);
+
+  function handleRoleChange(next: (typeof INVITE_ROLES)[number]) {
+    setRole(next);
+    setSelectedModules(defaultModulesForRole(next));
+  }
+
+  function toggleModule(m: ModuleId, next: boolean) {
+    setSelectedModules((cur) => {
+      if (next) return cur.includes(m) ? cur : [...cur, m];
+      return cur.filter((x) => x !== m);
+    });
+  }
+
+  const defaults = defaultModulesForRole(role);
+  const isDefault =
+    selectedModules.length === defaults.length &&
+    selectedModules.every((m) => defaults.includes(m));
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     setErr(null);
     try {
+      const payload: {
+        email: string;
+        password: string;
+        role: string;
+        display_name?: string;
+        visible_modules?: ModuleId[];
+      } = {
+        email: email.trim().toLowerCase(),
+        password,
+        role,
+        display_name: displayName.trim() || undefined,
+      };
+      if (!isDefault) payload.visible_modules = selectedModules;
       const r = await fetch("/api/team/users", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          email: email.trim().toLowerCase(),
-          password,
-          role,
-          display_name: displayName.trim() || undefined,
-        }),
+        body: JSON.stringify(payload),
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
@@ -826,13 +1059,35 @@ function InviteModal({
             </div>
             <div>
               <label>{t("Rôle")}</label>
-              <select value={role} onChange={(e) => setRole(e.target.value as (typeof INVITE_ROLES)[number])}>
+              <select
+                value={role}
+                onChange={(e) => handleRoleChange(e.target.value as (typeof INVITE_ROLES)[number])}
+              >
                 {INVITE_ROLES.map((r) => (
                   <option key={r} value={r}>
                     {t(ROLE_LABEL[r]?.label ?? r)}
                   </option>
                 ))}
               </select>
+            </div>
+            <div>
+              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>
+                <label style={{ margin: 0 }}>{t("Accès")}</label>
+                {!isDefault && (
+                  <button
+                    type="button"
+                    className="ghost"
+                    onClick={() => setSelectedModules(defaultModulesForRole(role))}
+                    style={{ padding: "2px 8px", fontSize: 12 }}
+                  >
+                    {t("Accès complet du rôle")}
+                  </button>
+                )}
+              </div>
+              <div className="muted" style={{ fontSize: 11, marginTop: 4, marginBottom: 6 }}>
+                {t("Coche uniquement les modules visibles pour cet utilisateur.")}
+              </div>
+              <ModulesPicker selected={selectedModules} onToggle={toggleModule} disabled={busy} />
             </div>
             {err && <div style={{ color: "var(--bad)", fontSize: 13 }}>{err}</div>}
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
