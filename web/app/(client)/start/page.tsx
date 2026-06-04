@@ -129,9 +129,9 @@ const SCENARIOS: Scenario[] = [
   {
     id: "agents",
     emoji: "🤖",
-    title: "Démarrer côté agent IA",
-    subtitle: "Création d'agent → contacts → script → numéro → live.",
-    steps: ["agent", "contacts", "scripts", "number", "live"],
+    title: "Création d'un agent IA",
+    subtitle: "Je pars de l'agent : agent → contacts → script → numéro → campagne → live.",
+    steps: ["agent", "contacts", "scripts", "number", "campaign", "live"],
   },
 
   // ─── Scénarios centre d'appel ────────────────────────────────────────────
@@ -139,7 +139,7 @@ const SCENARIOS: Scenario[] = [
     id: "import",
     emoji: "📇",
     title: "Importer un fichier de leads et l'attaquer",
-    subtitle: "J'ai un CSV/Excel à appeler dès aujourd'hui.",
+    subtitle: "Je pars des contacts : j'ai déjà une liste à appeler aujourd'hui.",
     steps: ["contacts", "agent", "scripts", "number", "campaign", "live"],
   },
   {
