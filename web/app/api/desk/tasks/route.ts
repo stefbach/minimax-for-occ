@@ -1,7 +1,15 @@
 import { NextResponse } from "next/server";
-import { supabaseSession } from "@/lib/supabase-auth";
+import { supabaseSession, currentRoleInOrg } from "@/lib/supabase-auth";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { requestOrgId } from "@/lib/request-org";
+
+const SUPERVISOR_ROLES = new Set([
+  "super_admin",
+  "owner",
+  "admin",
+  "manager",
+  "supervisor",
+]);
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -58,6 +66,7 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url);
   const dateParam = url.searchParams.get("date");
+  const scope = url.searchParams.get("scope"); // "all" → supervisor view
   const date = parseDate(dateParam) ?? utcTodayDate();
   const dayStart = startOfDayUtc(date);
   const dayEnd = endOfDayUtc(date);
@@ -65,6 +74,24 @@ export async function GET(req: Request) {
   const todayEnd = endOfDayUtc(utcTodayDate());
 
   const admin = supabaseServer();
+
+  // ── supervisor "all" view ─────────────────────────────────────────────
+  if (scope === "all") {
+    const role = await currentRoleInOrg(orgId);
+    if (!role || !SUPERVISOR_ROLES.has(role)) {
+      return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    }
+    const { data: allRaw, error: aErr } = await admin
+      .from("human_callback_tasks")
+      .select(TASK_SELECT)
+      .eq("org_id", orgId)
+      .gte("scheduled_for", dayStart.toISOString())
+      .lte("scheduled_for", dayEnd.toISOString())
+      .order("scheduled_for", { ascending: true })
+      .limit(500);
+    if (aErr) return NextResponse.json({ error: aErr.message }, { status: 500 });
+    return NextResponse.json({ all: (allRaw ?? []).map(rowToTask) });
+  }
 
   // ── personal ──────────────────────────────────────────────────────────
   const { data: personalRaw, error: pErr } = await admin
@@ -104,26 +131,6 @@ export async function GET(req: Request) {
     .order("updated_at", { ascending: false })
     .limit(200);
   if (dErr) return NextResponse.json({ error: dErr.message }, { status: 500 });
-
-  type Row = {
-    id: string;
-    org_id: string;
-    contact_id: string | null;
-    original_call_id: string | null;
-    qualification: string | null;
-    transfer_reason: string | null;
-    scheduled_for: string;
-    assigned_to: string | null;
-    status: string;
-    notes: string | null;
-    outcome_disposition: string | null;
-    created_at: string;
-    updated_at: string;
-    contacts:
-      | { id: string; display_name: string | null; e164: string | null }
-      | { id: string; display_name: string | null; e164: string | null }[]
-      | null;
-  };
 
   const allRows = [
     ...(personalRaw ?? []),
@@ -204,6 +211,56 @@ export async function GET(req: Request) {
     shared: (sharedRaw ?? []).map((r) => toTask(r as Row)),
     done_today: (doneRaw ?? []).map((r) => toTask(r as Row)),
   });
+}
+
+type Row = {
+  id: string;
+  org_id: string;
+  contact_id: string | null;
+  original_call_id: string | null;
+  qualification: string | null;
+  transfer_reason: string | null;
+  scheduled_for: string;
+  assigned_to: string | null;
+  status: string;
+  notes: string | null;
+  outcome_disposition: string | null;
+  created_at: string;
+  updated_at: string;
+  contacts:
+    | { id: string; display_name: string | null; e164: string | null }
+    | { id: string; display_name: string | null; e164: string | null }[]
+    | null;
+};
+
+// Lightweight Row → DeskTask conversion for the supervisor "scope=all"
+// view, where we don't need per-contact call counts or original-call
+// summaries to keep the table snappy.
+function rowToTask(raw: unknown): DeskTask {
+  const r = raw as Row;
+  const contact = Array.isArray(r.contacts) ? r.contacts[0] ?? null : r.contacts;
+  return {
+    id: r.id,
+    org_id: r.org_id,
+    contact: {
+      id: contact?.id ?? r.contact_id,
+      display_name: contact?.display_name ?? null,
+      e164: contact?.e164 ?? null,
+    },
+    qualification: r.qualification,
+    transfer_reason: r.transfer_reason,
+    scheduled_for: r.scheduled_for,
+    assigned_to: r.assigned_to,
+    status: r.status,
+    notes: r.notes,
+    outcome_disposition: r.outcome_disposition,
+    call_count: 1,
+    original_call_summary: null,
+    original_call_id: r.original_call_id,
+    last_note: r.notes,
+    created_at: r.created_at,
+    updated_at: r.updated_at,
+  };
 }
 
 function parseDate(s: string | null): Date | null {

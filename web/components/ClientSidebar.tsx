@@ -35,10 +35,18 @@ interface NavItem {
    *  computed via effectiveModules(role, visible_modules) — the owner can
    *  subtract specific modules per-user via memberships.visible_modules. */
   module?: ModuleId;
+  /** Optional fine-grained role gate. Use when an entry sits inside a
+   *  module that ALL roles can see but should itself be restricted (e.g.
+   *  the supervisor sub-view of /desk). super_admin always passes. */
+  requiredRoles?: Role[];
   /** True = lives under the collapsible "Avancé" section (not yet folded into
    *  its parent page). Removed from there as later phases relocate it. */
   advanced?: boolean;
 }
+
+// Roles allowed to see the supervisor-only entries. Mirrors the
+// server-side gate in /api/desk/tasks/:id/reassign.
+const SUPERVISOR_ROLES: Role[] = ["super_admin", "owner", "admin", "manager", "supervisor"];
 
 const NAV: NavItem[] = [
   // ─── OVERVIEW ───
@@ -61,6 +69,11 @@ const NAV: NavItem[] = [
   { href: "/workflows", label: "Automatisation", icon: "⇄", group: "Opérations", module: "workflows" },
   { href: "/flows",     label: "Flows / IVR",    icon: "❖", group: "Opérations", module: "flows" },
   { href: "/queues",    label: "Files d'attente", icon: "≡", group: "Opérations", module: "queues" },
+  // Supervision of the "Appels du jour" task list — sits as a sibling to
+  // /desk so it's intuitive for managers. Uses the desk module for
+  // visibility AND the requiredRoles fine-grained gate (since /desk
+  // itself is open to agents).
+  { href: "/desk/supervise", label: "Supervision Appels du jour", icon: "◷", group: "Opérations", module: "desk", requiredRoles: SUPERVISOR_ROLES },
 
   // ─── DONNÉES ───
   { href: "/contacts",       label: "CRM / Contacts",      icon: "◐", group: "Données", module: "contacts" },
@@ -145,8 +158,13 @@ export function ClientSidebar() {
   const allowedModules = effectiveModules({ role, visible_modules: visibleModules });
   const canSee = (n: NavItem): boolean => {
     if (!loadedRole || !role) return true; // pre-load: show everything to avoid flicker
-    if (!n.module) return true;
-    return allowedModules.includes(n.module);
+    if (n.module && !allowedModules.includes(n.module)) return false;
+    if (n.requiredRoles && !n.requiredRoles.includes(role)) {
+      // super_admin always passes (already in SUPERVISOR_ROLES, but guard
+      // here too in case future entries forget to include it).
+      if (role !== "super_admin") return false;
+    }
+    return true;
   };
 
   const visible = NAV.filter(canSee);
