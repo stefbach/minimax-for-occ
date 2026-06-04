@@ -1,6 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { verifyOrgCookieEdge } from "@/lib/org-cookie-edge";
+import {
+  hasModule,
+  isModuleId,
+  pathToModule,
+  type ModuleId,
+} from "@/lib/permissions";
 
 type Role =
   | "super_admin"
@@ -16,38 +22,6 @@ type Role =
 /** Must match `ORG_COOKIE` from web/lib/supabase-auth.ts. Duplicated here to
  *  avoid pulling next/headers into the Edge middleware bundle. */
 const ORG_COOKIE = "axon.org_id";
-
-/**
- * Path prefix → allowed roles. The longest matching prefix wins. Paths not
- * listed here are allowed for any authenticated user.
- */
-// "owner" is the per-org top role (e.g. the founder of a tenant). It must be
-// granted the same access as "admin" inside its own org. "builder" can edit
-// agent-side configuration. "analyst" and "viewer" are read-only roles.
-const MGMT: Role[] = ["super_admin", "admin", "owner", "manager"];
-const BUILD: Role[] = ["super_admin", "admin", "owner", "manager", "builder"];
-// OPS covers everyone allowed to consult operations data — including
-// human-agent callers. The owner can still subtract individual modules per
-// user via memberships.visible_modules (cf. Wave B). By default agents see
-// /dashboard, /calls, /queues.
-const OPS: Role[] = ["super_admin", "admin", "owner", "manager", "supervisor", "analyst", "viewer", "agent"];
-
-const ROUTE_ROLES: Array<[string, Role[]]> = [
-  ["/admin",     ["super_admin", "admin"]],
-  ["/agents",    BUILD],
-  ["/voices",    BUILD],
-  ["/flows",     BUILD],
-  ["/workflows", BUILD],
-  ["/documents", BUILD],
-  ["/numbers",   MGMT],
-  ["/campaigns", MGMT],
-  ["/settings",  MGMT],
-  ["/queues",    OPS],
-  ["/calls",     OPS],
-  ["/dashboard", OPS],
-  ["/analytics", OPS],
-  // /desk and /contacts: open to everyone (no entry → no filter)
-];
 
 function landingFor(role: Role | null): string {
   switch (role) {
@@ -69,28 +43,37 @@ function landingFor(role: Role | null): string {
   }
 }
 
-function isAllowed(path: string, role: Role | null): boolean {
-  if (!role) return false;
-  // longest prefix match
-  let match: Role[] | null = null;
-  let matchLen = 0;
-  for (const [prefix, roles] of ROUTE_ROLES) {
-    if (path === prefix || path.startsWith(prefix + "/")) {
-      if (prefix.length > matchLen) {
-        match = roles;
-        matchLen = prefix.length;
-      }
-    }
+// In-memory cache for (role, visible_modules) lookups. Edge runtime keeps
+// module scope per isolate, so this trims the per-request DB round-trip to
+// at most one hit every TTL_MS for a given user/org pair. Cache is best-effort
+// only — losing it on cold start is fine.
+type CacheEntry = { role: Role | null; modules: ModuleId[] | null; expiresAt: number };
+const TTL_MS = 60_000;
+const CACHE = new Map<string, CacheEntry>();
+
+function readCache(key: string): CacheEntry | null {
+  const hit = CACHE.get(key);
+  if (!hit) return null;
+  if (hit.expiresAt < Date.now()) {
+    CACHE.delete(key);
+    return null;
   }
-  if (!match) return true; // no rule → permissive
-  return match.includes(role);
+  return hit;
+}
+
+function writeCache(key: string, role: Role | null, modules: ModuleId[] | null) {
+  // Keep the map from growing unbounded under load. 500 entries is plenty
+  // for a multi-tenant deploy and stays well under the Edge isolate budget.
+  if (CACHE.size > 500) CACHE.clear();
+  CACHE.set(key, { role, modules, expiresAt: Date.now() + TTL_MS });
 }
 
 /**
  * Refresh the Supabase auth cookie on every request, gate /app routes behind
- * a valid session, and enforce role-based access on sensitive paths. The
- * `(app)` route group is therefore protected; /login, /signup, /api/*, static
- * assets stay public.
+ * a valid session, and enforce per-module access on sensitive paths (with
+ * per-user `visible_modules` overrides taking precedence over role defaults).
+ * The `(app)` route group is therefore protected; /login, /signup, /api/*,
+ * static assets stay public.
  */
 export async function middleware(req: NextRequest) {
   const res = NextResponse.next({ request: req });
@@ -137,32 +120,73 @@ export async function middleware(req: NextRequest) {
   const rawOrgCookie = req.cookies.get(ORG_COOKIE)?.value || null;
   const wantedOrg = await verifyOrgCookieEdge(rawOrgCookie);
 
+  const cacheKey = `${user.id}::${wantedOrg ?? "primary"}`;
   let role: Role | null = null;
-  if (wantedOrg) {
-    const { data: membership } = await supabase
-      .from("memberships")
-      .select("role")
-      .eq("org_id", wantedOrg)
-      .eq("user_id", user.id)
-      .maybeSingle();
-    role = (membership?.role as Role) ?? null;
+  let visibleModules: ModuleId[] | null = null;
+
+  const cached = readCache(cacheKey);
+  if (cached) {
+    role = cached.role;
+    visibleModules = cached.modules;
+  } else {
+    if (wantedOrg) {
+      const { data: membership } = await supabase
+        .from("memberships")
+        .select("role, visible_modules")
+        .eq("org_id", wantedOrg)
+        .eq("user_id", user.id)
+        .maybeSingle();
+      const row = membership as { role?: string; visible_modules?: unknown } | null;
+      role = (row?.role as Role | undefined) ?? null;
+      visibleModules = Array.isArray(row?.visible_modules)
+        ? ((row!.visible_modules as unknown[]).filter(isModuleId) as ModuleId[])
+        : null;
+    }
+
+    if (!role) {
+      const { data: fallback } = await supabase
+        .from("memberships")
+        .select("role, visible_modules")
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      const row = fallback as { role?: string; visible_modules?: unknown } | null;
+      role = (row?.role as Role | undefined) ?? null;
+      visibleModules = Array.isArray(row?.visible_modules)
+        ? ((row!.visible_modules as unknown[]).filter(isModuleId) as ModuleId[])
+        : null;
+    }
+
+    writeCache(cacheKey, role, visibleModules);
   }
 
-  if (!role) {
-    const { data: fallback } = await supabase
-      .from("memberships")
-      .select("role")
-      .order("created_at", { ascending: true })
-      .limit(1)
-      .maybeSingle();
-    role = (fallback?.role as Role) ?? null;
+  // super_admin keeps full platform access; module gating doesn't apply.
+  if (role === "super_admin") {
+    return res;
   }
 
-  if (!isAllowed(path, role)) {
+  // /admin is platform-only. Anyone other than super_admin gets bounced.
+  if (path === "/admin" || path.startsWith("/admin/")) {
     const back = req.nextUrl.clone();
     back.pathname = landingFor(role);
     back.search = "";
     return NextResponse.redirect(back);
+  }
+
+  const module = pathToModule(path);
+  if (module && role) {
+    if (!hasModule({ role, visible_modules: visibleModules }, module)) {
+      const back = req.nextUrl.clone();
+      back.pathname = landingFor(role);
+      back.search = "";
+      return NextResponse.redirect(back);
+    }
+  } else if (module && !role) {
+    // No membership at all — bounce to login.
+    const loginUrl = req.nextUrl.clone();
+    loginUrl.pathname = "/login";
+    loginUrl.searchParams.set("next", path);
+    return NextResponse.redirect(loginUrl);
   }
 
   return res;
