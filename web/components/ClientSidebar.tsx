@@ -39,7 +39,10 @@ interface NavItem {
 // Reusable role buckets.
 const MGMT: Role[] = ["super_admin", "admin", "owner", "manager"];
 const OWNER_ADMIN: Role[] = ["super_admin", "owner", "admin"];
-const OPS: Role[] = ["super_admin", "admin", "owner", "manager", "supervisor", "analyst", "viewer"];
+// OPS = anyone allowed to consult ops surfaces (dashboards, calls, queues).
+// Includes 'agent' so human callers see the analytics tab by default — the
+// owner can subtract individual modules per user via membership permissions.
+const OPS: Role[] = ["super_admin", "admin", "owner", "manager", "supervisor", "analyst", "viewer", "agent"];
 
 const NAV: NavItem[] = [
   // ─── OVERVIEW ───

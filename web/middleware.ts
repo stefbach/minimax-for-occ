@@ -26,7 +26,11 @@ const ORG_COOKIE = "axon.org_id";
 // agent-side configuration. "analyst" and "viewer" are read-only roles.
 const MGMT: Role[] = ["super_admin", "admin", "owner", "manager"];
 const BUILD: Role[] = ["super_admin", "admin", "owner", "manager", "builder"];
-const OPS: Role[] = ["super_admin", "admin", "owner", "manager", "supervisor", "analyst", "viewer"];
+// OPS covers everyone allowed to consult operations data — including
+// human-agent callers. The owner can still subtract individual modules per
+// user via memberships.visible_modules (cf. Wave B). By default agents see
+// /dashboard, /calls, /queues.
+const OPS: Role[] = ["super_admin", "admin", "owner", "manager", "supervisor", "analyst", "viewer", "agent"];
 
 const ROUTE_ROLES: Array<[string, Role[]]> = [
   ["/admin",     ["super_admin", "admin"]],
