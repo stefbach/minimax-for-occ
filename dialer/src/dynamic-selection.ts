@@ -301,14 +301,19 @@ export async function runDynamicSelection(sb: SupabaseClient, campaign: Campaign
 }
 
 function pickDueSlot(hours: string[], nowMinutes: number): string | null {
-  // The latest slot whose time has passed (so a missed earlier slot still fires
-  // once, and we don't double-fire within the same slot window thanks to the
-  // campaign_runs guard).
+  // A slot is "due" if its time has passed AND we're still within the grace
+  // window (default 30 min). This lets the dialer recover from a short
+  // outage but prevents a 09:00 slot from firing at 16:00 if the campaign
+  // was just started — operators set 09:00 expecting morning calls, not a
+  // burst at whatever time they happen to click "Start".
+  const graceMin = Number(process.env.SLOT_GRACE_MINUTES ?? "30");
   let best: { label: string; m: number } | null = null;
   for (const h of hours ?? []) {
     const [hh, mm] = h.split(":").map(Number);
     const m = (hh || 0) * 60 + (mm || 0);
-    if (nowMinutes >= m && (!best || m > best.m)) best = { label: h, m };
+    if (nowMinutes >= m && nowMinutes - m <= graceMin && (!best || m > best.m)) {
+      best = { label: h, m };
+    }
   }
   return best?.label ?? null;
 }

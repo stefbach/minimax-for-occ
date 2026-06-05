@@ -924,7 +924,7 @@ def _install_call_hygiene(
     clog,
     *,
     idle_timeout: float = 30.0,
-    goodbye_grace: float = 5.0,
+    goodbye_grace: float = 2.0,
 ) -> None:
     """Hang up the call automatically to stop the meter when there's no
     point staying connected. Triggers:
