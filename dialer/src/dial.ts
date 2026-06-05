@@ -127,6 +127,21 @@ async function dialViaLiveKit(args: {
     .single();
   if (callErr || !call) throw new Error(`calls insert failed: ${callErr?.message ?? "unknown"}`);
   const callId = call.id as string;
+  // Stamp last_call_id on the campaign_target NOW (don't wait for Twilio's
+  // StatusCallback to land). The agent's _on_shutdown calls /api/calls/[id]/
+  // sync-lead immediately after the call ends, and that endpoint resolves
+  // the data_table row via campaign_targets.last_call_id. If we left it
+  // NULL until the webhook arrived, leads_rdv writes would race and
+  // intermittently drop on fast hangups.
+  try {
+    await sb
+      .from("campaign_targets")
+      .update({ last_call_id: callId, last_attempt_at: new Date().toISOString() })
+      .eq("id", targetId);
+  } catch (e) {
+    // Non-fatal — sync-lead has a phone-based fallback.
+    console.warn(`[dialer] target last_call_id update failed: ${e instanceof Error ? e.message : String(e)}`);
+  }
   const roomName = `campaign-${targetId}-${callId.slice(0, 8)}`;
 
   // Routing metadata the worker resolves from (agent_id + call_id live in room
