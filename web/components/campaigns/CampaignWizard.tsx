@@ -460,10 +460,16 @@ export function CampaignWizard({
     };
 
     // Single créneaux source of truth: when dynamic mode is on, mirror the
-    // step-3 days/timezone into engineConfig.slots so the continuous engine
-    // fires inside the same window the user just configured. Hours stay
-    // engine-defined (precise shot times) unless empty, in which case we seed
-    // them with the user's start time.
+    // step-3 days/timezone/hours into engineConfig.slots so the continuous
+    // engine fires at the times the operator actually configured. The hours
+    // come from the user's hourRanges START times (in the wizard's local
+    // timezone — the engine compares slot times against the same TZ stored
+    // in engine.slots.timezone). The template's default slots are only used
+    // as a fallback if the user somehow saved zero ranges.
+    const userSlotHours = hourRanges
+      .filter((r) => r.start)
+      .map((r) => r.start)
+      .sort();
     const finalEngine = dynamicMode && dataTableId && engineConfig
       ? {
           ...engineConfig,
@@ -471,9 +477,11 @@ export function CampaignWizard({
             ...engineConfig.slots,
             days,
             timezone,
-            hours: engineConfig.slots.hours.length > 0
-              ? engineConfig.slots.hours
-              : hourRanges.map((r) => r.start),
+            hours: userSlotHours.length > 0
+              ? userSlotHours
+              : (engineConfig.slots.hours.length > 0
+                  ? engineConfig.slots.hours
+                  : ["09:00"]),
           },
         }
       : null;
