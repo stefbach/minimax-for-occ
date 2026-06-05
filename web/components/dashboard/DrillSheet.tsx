@@ -22,6 +22,7 @@ export type DrillFilters = {
   slot?: "matin" | "midi" | "soir" | "hors";
   min_duration?: number;
   inbound_only?: boolean;
+  leads_source?: "prod" | "test";
 };
 
 export type DrillSpec = {
@@ -76,6 +77,7 @@ function buildQS(filters: DrillFilters): string {
   if (filters.slot) qs.set("slot", filters.slot);
   if (filters.min_duration) qs.set("min_duration", String(filters.min_duration));
   if (filters.inbound_only) qs.set("inbound_only", "1");
+  if (filters.leads_source) qs.set("leads_source", filters.leads_source);
   return qs.toString();
 }
 

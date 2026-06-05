@@ -4,6 +4,7 @@ import { requestOrgId } from "@/lib/request-org";
 import { requireModule } from "@/lib/permissions-server";
 import { bucketForCall, type QualBucket } from "@/lib/qualification";
 import { isInbound, normalizeDirectionForDb } from "@/lib/call-direction";
+import { callBelongsToLeadsSource, phoneSetForLeadsSource, type LeadsSource } from "@/lib/leads-source";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -91,6 +92,9 @@ export async function GET(request: Request) {
   const slot = searchParams.get("slot");
   const minDuration = Number(searchParams.get("min_duration") ?? 0);
   const inboundOnly = searchParams.get("inbound_only") === "1";
+  // Same Prod/Test scoping as the rest of the dashboard so a drill-down on
+  // "Prod totals" doesn't list Test calls (and vice-versa).
+  const leadsSource: LeadsSource = searchParams.get("leads_source") === "test" ? "test" : "prod";
 
   const sb = supabaseServer();
 
@@ -111,7 +115,10 @@ export async function GET(request: Request) {
   const { data, error } = await q;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const rows = ((data ?? []) as unknown as Row[]).filter((r) => !ACTIVE.has(r.state ?? ""));
+  const phoneSet = await phoneSetForLeadsSource(leadsSource);
+  const rows = ((data ?? []) as unknown as Row[])
+    .filter((r) => !ACTIVE.has(r.state ?? ""))
+    .filter((r) => callBelongsToLeadsSource(r.to_e164, phoneSet));
 
   // Apply the per-card filters in memory — keeps the SQL universal and the
   // bucketing logic (which is non-trivial) consistent with the rest of the
