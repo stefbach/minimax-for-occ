@@ -161,8 +161,14 @@ async function dialViaLiveKit(args: {
         "axon.target_id": targetId,
         "axon.direction": "out",
       },
-      // sipNumber sets the From on the INVITE; without it Twilio rejects with 403.
-      sipNumber: fromE164 ?? undefined,
+      // fromNumber is the OFFICIAL SDK parameter that sets the SIP From header
+      // on the INVITE LiveKit sends to Twilio. Previously this code used a made-up
+      // `sipNumber` field which the SDK silently dropped, so LK fell back to the
+      // outbound trunk's first registered number (axon-trunk → +447700162160).
+      // Result: every call placed via campaign.phone_number_id=861445 still
+      // displayed +447700162160 to the patient. With `fromNumber` we honour the
+      // per-campaign caller ID, validated against the trunk's `numbers` allow-list.
+      fromNumber: fromE164 ?? undefined,
       // Block until pickup/timeout so we only dispatch the agent on a real answer.
       waitUntilAnswered: true,
       ringingTimeout: 30,

@@ -165,12 +165,14 @@ export async function POST(req: Request) {
     const sipHost = lkUrl.replace(/^wss:/i, "https:").replace(/^ws:/i, "http:");
     const sip = new SipClient(sipHost, lkApiKey, lkApiSecret);
     try {
-      // Build options as `any` so we can pass `sipNumber` even though it
-      // isn't declared in livekit-server-sdk@2.15's TypeScript types — the
-      // underlying gRPC API does accept it (proto field sip_number) and
-      // without it LiveKit sends an empty/default From on the INVITE, which
-      // Twilio rejects with 403 Forbidden regardless of geo permissions or
-      // attached numbers. Type-cast workaround until we bump the SDK.
+      // fromNumber is the OFFICIAL SDK parameter for the SIP From header on
+      // the INVITE LiveKit sends to the carrier. The previous `sipNumber`
+      // field was a guess at an undeclared property that the SDK silently
+      // dropped, causing LiveKit to fall back to the trunk's first registered
+      // number — that's how every desk-initiated outbound was leaking out
+      // through +447700162160 even when the operator picked a different
+      // caller ID. With `fromNumber`, the per-handle / per-org pick is
+      // honoured all the way to the recipient's caller-ID display.
       const sipOptions = {
         participantIdentity: `pstn-${call.id}`,
         participantName: to,
@@ -182,7 +184,7 @@ export async function POST(req: Request) {
         },
         waitUntilAnswered: true,
         ringingTimeout: 30,
-        sipNumber: from,
+        fromNumber: from,
       };
       const participant = await sip.createSipParticipant(
         lkOutboundTrunkId,
