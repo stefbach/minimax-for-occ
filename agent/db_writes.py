@@ -588,12 +588,26 @@ def finalize_call_state(
         logger.exception("finalize_call_state failed (call=%s)", call_id)
 
 
-# Qualifications that imply the lead wants a human follow-up tomorrow.
-# Kept in sync (loosely) with web/lib/qualification.ts buckets.
+# Qualification patterns — kept LOOSELY in sync with the canonical bucket
+# regexes in web/lib/qualification.ts. Centralising in JSON is overkill
+# since Python and TS regex syntax differ slightly; instead this list is
+# DERIVED from the TS one and any drift surfaces in two ways:
+#   (a) /api/calls/[id]/sync-lead writes the AI-set qualification verbatim
+#       to leads_rdv.qualification — the dashboard then uses normalizeQualification
+#       (TS) to bucket it for display, so display drift is self-healing.
+#   (b) _qualification_needs_callback (this file) decides whether to spawn a
+#       human_callback_tasks row. False negatives = a real RDV gets no /desk
+#       task. So the list MUST include every soft positive Charlotte's prompt
+#       can produce.
 _CALLBACK_QUAL_PATTERNS = (
-    "rdv", "rendez", "appointment", "confirm", "booked",
-    "rappel", "callback", "call_back", "call back",
-    "humain", "human", "to_human", "passer",
+    # Hard positives
+    "rdv", "rendez", "appointment", "confirm", "booked", "consultation_booked",
+    # Soft positives (the AI's prompts actually emit these)
+    "interested", "interess", "hot_lead", "hot lead", "warm_lead", "warm lead",
+    "nouveau dossier", "new case", "nouveau_dossier",
+    # Explicit callback / human transfer signals
+    "rappel", "callback", "call_back", "call back", "follow_up", "follow up",
+    "humain", "human", "to_human", "passer", "transferred_to_human",
 )
 
 
