@@ -340,6 +340,11 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _iso_days_ago(n: int) -> str:
+    from datetime import datetime, timedelta, timezone
+    return (datetime.now(timezone.utc) - timedelta(days=int(n))).isoformat()
+
+
 def append_transcript_turn(
     call_id: Optional[str],
     speaker: str,
@@ -667,29 +672,40 @@ def auto_qualify_call(call_id: Optional[str]) -> None:
     wrote one explicitly via save_contact_data. Without this, every short
     voicemail / dropped audio / patient hangup leaves
     calls.metadata.qualification = NULL and the dashboard buckets it as
-    'Autre' instead of REPONDEUR / PAS DE REPONSE / etc. — making the
-    Vue d'ensemble counts useless on the first day of OCC ops.
+    'Autre' instead of REPONDEUR / PAS DE REPONSE / etc.
 
-    Rules (conservative, biased toward 'needs human review'):
-      not answered               → PAS DE REPONSE
-      ≤ 5s + answered            → REPONDEUR (likely AMD voicemail)
-      ≤ 15s                      → PAS DE REPONSE (carrier dropped or hung up)
-      < 30s                      → PAS INTERESSE (engaged then hung up)
-      ≥ 30s + no handoff event   → RAPPEL (real conversation, no resolution)
-      ≥ 30s + handoff event      → A PASSER A L'HUMAIN (specialist couldn't
-                                    finish — human picks up tomorrow)
+    Decision tree — biased toward "let the campaign retry" so we don't
+    permanently exclude patients who were just busy or in a meeting:
+
+      handoff_count > 0                    → A PASSER A L'HUMAIN
+      not answered                         → PAS DE REPONSE
+      duration ≤ 5s                        → REPONDEUR  (likely AMD voicemail)
+      duration ≤ 15s                       → PAS DE REPONSE  (carrier drop)
+      duration < 30s + attempts ≥ N_GIVEUP → PAS INTERESSE
+      duration < 30s + attempts < N_GIVEUP → RAPPEL  (retry later — they
+                                              were maybe just busy)
+      duration ≥ 30s                       → RAPPEL  (real conversation,
+                                              operator follow-up)
+
+    `N_GIVEUP` defaults to 10 and is env-overridable via
+    PAS_INTERESSE_AFTER_N_ATTEMPTS. The point is: a short call alone is
+    not a hard 'no' — the patient might pick up next time. Only after
+    repeated short hangups do we mark them PAS INTERESSE and exclude
+    them from the campaign's reselection (which uses the negative-list
+    filter in dialer/src/dynamic-selection.ts).
 
     Never overrides an explicit qualification already in
     calls.metadata.qualification (so save_contact_data winners win).
     """
     if not call_id or not has_supabase():
         return
+    n_giveup = int(os.getenv("PAS_INTERESSE_AFTER_N_ATTEMPTS", "10"))
     try:
         with httpx.Client(timeout=httpx.Timeout(5.0), headers=_supabase_headers()) as c:
             r = c.get(
                 _supabase_url(
                     f"/rest/v1/calls?id=eq.{call_id}"
-                    "&select=metadata,duration_secs,answered_at"
+                    "&select=metadata,duration_secs,answered_at,to_e164,org_id"
                 ),
             )
             r.raise_for_status()
@@ -707,11 +723,11 @@ def auto_qualify_call(call_id: Optional[str]) -> None:
 
             duration = float(row.get("duration_secs") or 0)
             answered = bool(row.get("answered_at"))
+            to_e164 = row.get("to_e164")
+            org_id = row.get("org_id")
 
-            # Count handoff events recorded for this call. Two kinds the
-            # agent emits: 'handoff_initiated' (full agent swap, e.g.
-            # Charlotte → Isabelle) and 'handoff_to_handle' (specialist
-            # transfer). Both count as "made it past the initial agent".
+            # Handoff events: objective signal that the patient engaged
+            # enough to be transferred to a specialist.
             handoff_count = 0
             try:
                 he = c.get(
@@ -726,12 +742,27 @@ def auto_qualify_call(call_id: Optional[str]) -> None:
             except Exception:
                 pass
 
-            # Priority order matters: a handoff (objective event from the
-            # AI's tool calls) outranks duration. Otherwise a patient who
-            # was engaged enough to be transferred but hung up mid-Isabelle
-            # gets mis-bucketed as PAS INTERESSE because the total session
-            # was short (e.g. test 8: handoff happened but reported
-            # duration was 24s).
+            # Attempts so far on this number: counts every previous Axon-
+            # placed call to the same E.164 for the same org over the
+            # last 90 days. Used only when we'd otherwise mark the lead
+            # PAS INTERESSE — we want repeated rejections before giving
+            # up on a phone number.
+            attempts = 0
+            if to_e164 and org_id:
+                try:
+                    cr = c.get(
+                        _supabase_url(
+                            f"/rest/v1/calls?to_e164=eq.{to_e164}"
+                            f"&org_id=eq.{org_id}"
+                            "&select=id"
+                            "&started_at=gt." + _iso_days_ago(90)
+                        ),
+                    )
+                    if cr.is_success:
+                        attempts = len(cr.json() or [])
+                except Exception:
+                    pass
+
             if handoff_count > 0:
                 qual = "A PASSER A L'HUMAIN"
             elif not answered or duration == 0:
@@ -741,7 +772,9 @@ def auto_qualify_call(call_id: Optional[str]) -> None:
             elif duration <= 15:
                 qual = "PAS DE REPONSE"
             elif duration < 30:
-                qual = "PAS INTERESSE"
+                # Short engagement: don't lock the patient out unless
+                # they've already been bothered N_GIVEUP times.
+                qual = "PAS INTERESSE" if attempts >= n_giveup else "RAPPEL"
             else:
                 qual = "RAPPEL"
 
@@ -761,8 +794,8 @@ def auto_qualify_call(call_id: Optional[str]) -> None:
             )
             r2.raise_for_status()
             logger.info(
-                "auto_qualify_call: %s -> %s (duration=%.0fs answered=%s handoffs=%d)",
-                call_id, qual, duration, answered, handoff_count,
+                "auto_qualify_call: %s -> %s (duration=%.0fs answered=%s handoffs=%d attempts=%d/%d)",
+                call_id, qual, duration, answered, handoff_count, attempts, n_giveup,
             )
     except Exception:
         logger.exception("auto_qualify_call failed (call=%s)", call_id)
