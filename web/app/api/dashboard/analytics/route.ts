@@ -3,7 +3,7 @@ import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { requestOrgId } from "@/lib/request-org";
 import { isInbound, isOutbound, normalizeDirectionForDb } from "@/lib/call-direction";
 import { bucketForCall, QUAL_BUCKETS, type QualBucket } from "@/lib/qualification";
-import { callBelongsToLeadsSource, leadsTableFor, phoneSetForLeadsSource, type LeadsSource } from "@/lib/leads-source";
+import { callInLeadsScope, leadsTableFor, leadsScopeFor, type LeadsSource } from "@/lib/leads-source";
 import { fetchAllPaged, type Rangeable } from "@/lib/supabase-page";
 import { callMatchesSystem, parseCallSystem } from "@/lib/call-system";
 
@@ -148,12 +148,12 @@ export async function GET(request: Request) {
   // Same leads-source scoping as Vue d'ensemble: when the operator picked
   // Prod we want to count only calls placed to leads_rdv numbers, ditto
   // Test → leads_rdv_test_axon.
-  const phoneSet = await phoneSetForLeadsSource(leadsSource);
+  const scope = await leadsScopeFor(leadsSource);
   rows = rows.filter(
     (r) =>
       !ACTIVE_STATES.has(r.state ?? "")
       && (r.duration_secs ?? 0) >= minDuration
-      && callBelongsToLeadsSource(r.to_e164 ?? null, phoneSet)
+      && callInLeadsScope(r.to_e164 ?? null, scope)
       && callMatchesSystem((r.metadata as { source?: string } | null)?.source, system),
   );
 
@@ -183,7 +183,7 @@ export async function GET(request: Request) {
     const cid = u.metadata?.call_id;
     // Drop events that belong to filtered-out calls. Untagged events
     // (no call_id) only count when no filter is active.
-    if (cid ? !inScopeIds.has(cid) : phoneSet !== null) continue;
+    if (cid ? !inScopeIds.has(cid) : scope !== null) continue;
     const cents = Number(u.cost_cents) || 0;
     totalCents += cents;
     const k = u.event_type as keyof typeof breakdown;

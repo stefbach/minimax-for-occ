@@ -4,7 +4,7 @@ import { requestOrgId } from "@/lib/request-org";
 import { requireModule } from "@/lib/permissions-server";
 import { bucketForCall, QUAL_BUCKETS, type QualBucket } from "@/lib/qualification";
 import { isInbound, normalizeDirectionForDb } from "@/lib/call-direction";
-import { callBelongsToLeadsSource, leadsTableFor, phoneSetForLeadsSource, type LeadsSource } from "@/lib/leads-source";
+import { callInLeadsScope, leadsTableFor, leadsScopeFor, type LeadsSource } from "@/lib/leads-source";
 import { fetchAllPaged, type Rangeable } from "@/lib/supabase-page";
 import { callMatchesSystem, parseCallSystem } from "@/lib/call-system";
 
@@ -149,12 +149,12 @@ export async function GET(request: Request) {
   // selected table (Prod or Test). Without this filter the Total / Coût /
   // RDV tiles would mix sandbox + production numbers, which is what the
   // operator was actually seeing in the original toggle UX.
-  const phoneSet = await phoneSetForLeadsSource(leadsSource);
+  const scope = await leadsScopeFor(leadsSource);
 
   const rows = ((data ?? []) as unknown as CallRow[]).filter(
     (r) =>
       !ACTIVE.has(r.state ?? "")
-      && callBelongsToLeadsSource(r.to_e164 ?? null, phoneSet)
+      && callInLeadsScope(r.to_e164 ?? null, scope)
       && callMatchesSystem((r.metadata as { source?: string } | null)?.source, system),
   );
 
@@ -227,9 +227,9 @@ export async function GET(request: Request) {
       .filter((u) => {
         const cid = u.metadata?.call_id;
         // Keep events with no call_id only when there is no filter active
-        // (phoneSet === null), otherwise we'd leak sandbox events back into
+        // (scope === null), otherwise we'd leak sandbox events back into
         // the prod view.
-        if (!cid) return phoneSet === null;
+        if (!cid) return scope === null;
         return inScopeIds.has(cid);
       })
       .reduce((a, u) => a + (Number(u.cost_cents) || 0), 0) / 100;

@@ -4,7 +4,7 @@ import { requestOrgId } from "@/lib/request-org";
 import { requireModule } from "@/lib/permissions-server";
 import { bucketForCall, type QualBucket } from "@/lib/qualification";
 import { isInbound, normalizeDirectionForDb } from "@/lib/call-direction";
-import { callBelongsToLeadsSource, phoneSetForLeadsSource, leadNameMapFor, leadNameForPhone, type LeadsSource } from "@/lib/leads-source";
+import { callInLeadsScope, leadsScopeFor, leadNameMapFor, leadNameForPhone, type LeadsSource } from "@/lib/leads-source";
 import { fetchAllPaged, type Rangeable } from "@/lib/supabase-page";
 import { callMatchesSystem, parseCallSystem } from "@/lib/call-system";
 
@@ -120,13 +120,13 @@ export async function GET(request: Request) {
   );
   if (error) return NextResponse.json({ error }, { status: 500 });
 
-  const [phoneSet, leadNames] = await Promise.all([
-    phoneSetForLeadsSource(leadsSource),
+  const [scope, leadNames] = await Promise.all([
+    leadsScopeFor(leadsSource),
     leadNameMapFor(leadsSource),
   ]);
   const rows = ((data ?? []) as unknown as Row[])
     .filter((r) => !ACTIVE.has(r.state ?? ""))
-    .filter((r) => callBelongsToLeadsSource(r.to_e164, phoneSet))
+    .filter((r) => callInLeadsScope(r.to_e164, scope))
     .filter((r) => callMatchesSystem((r.metadata as { source?: string } | null)?.source, system));
 
   // Apply the per-card filters in memory — keeps the SQL universal and the

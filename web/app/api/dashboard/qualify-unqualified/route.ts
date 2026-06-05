@@ -4,7 +4,7 @@ import { requestOrgId } from "@/lib/request-org";
 import { requireModule } from "@/lib/permissions-server";
 import { bucketForCall } from "@/lib/qualification";
 import { qualifyCall, type QualifyResult } from "@/lib/analysis-runner";
-import { callBelongsToLeadsSource, phoneSetForLeadsSource, type LeadsSource } from "@/lib/leads-source";
+import { callInLeadsScope, leadsScopeFor, type LeadsSource } from "@/lib/leads-source";
 import { fetchAllPaged, type Rangeable } from "@/lib/supabase-page";
 import { callMatchesSystem, parseCallSystem, type CallSystem } from "@/lib/call-system";
 
@@ -49,10 +49,10 @@ async function countCandidates(
     { maxRows: 20000 },
   );
   if (error) throw new Error(error);
-  const phoneSet = await phoneSetForLeadsSource(source);
+  const scope = await leadsScopeFor(source);
   const ids = data
     .filter((r) => !ACTIVE.has(r.state ?? ""))
-    .filter((r) => callBelongsToLeadsSource(r.to_e164, phoneSet))
+    .filter((r) => callInLeadsScope(r.to_e164, scope))
     .filter((r) => callMatchesSystem((r.metadata as { source?: string } | null)?.source, system))
     .filter((r) => bucketForCall(r) === "autre")
     .map((r) => r.id);

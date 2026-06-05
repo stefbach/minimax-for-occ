@@ -2,28 +2,34 @@ import { supabaseServer } from "@/lib/supabase";
 import { fetchAllPaged } from "@/lib/supabase-page";
 
 /**
- * Returns the set of phone numbers that belong to the selected leads source,
- * used by every dashboard endpoint to scope KPIs (total, cost, qualifications,
- * durations, drill-downs, call logs, live) to that source.
+ * Scopes every dashboard KPI to the selected leads source (Prod or Test)
+ * WITHOUT mixing the two — see `leadsScopeFor` for the exact, deliberately
+ * robust definition.
  *
- * Prod and Test must NEVER mix. A test number can legitimately ALSO live in
- * the prod table (e.g. the dev's own phone). To keep the two sources cleanly
- * separated we define:
+ * Historical note: the first version defined Prod as "the call's number is in
+ * leads_rdv (minus test)". That coupled the dashboard to the *live* contents of
+ * leads_rdv — a ~8k-row table OCC's pipeline rewrites continuously. During a
+ * re-import the table is briefly partial, so most of the day's calls failed the
+ * Prod filter and "Total appels" collapsed (e.g. 410 → 85) until the import
+ * finished. It also wrongly dropped real calls placed to numbers not *yet* in
+ * leads_rdv.
  *
- *   Test  = phones in leads_rdv_test_axon
- *   Prod  = phones in leads_rdv  EXCEPT any that are also in the test table
+ * New definition (stable):
+ *   Test  = the call's number IS in leads_rdv_test_axon (tiny, stable table).
+ *   Prod  = the call's number is NOT in leads_rdv_test_axon (everything else).
  *
- * Without the subtraction, an Axon test call placed to a number that's in both
- * tables would be counted under Prod and inflate the production figures (the
- * "415 instead of 410" symptom).
- *
- * Returns `null` when the selected table doesn't exist, so callers can skip
- * filtering instead of returning an empty set.
- *
- * Normalises by stripping whitespace because the source CSV had values like
- * "+230 5748 0009" that wouldn't match the E.164 stored in calls.to_e164.
+ * This is independent of the volatile leads_rdv table, counts every real
+ * Retell/Axon call as Prod, and still cleanly keeps sandbox test calls out of
+ * Prod (a number listed in BOTH tables counts as Test, never Prod).
  */
 export type LeadsSource = "prod" | "test";
+
+// How a call is matched against the selected source. `null` means "no filtering"
+// (e.g. the test table is unreadable on a prod scope → keep everything).
+export type LeadsScope =
+  | { mode: "include"; phones: Set<string> } // call kept iff its number IS in `phones`
+  | { mode: "exclude"; phones: Set<string> } // call kept iff its number is NOT in `phones`
+  | null;
 
 export function leadsTableFor(source: LeadsSource | null | undefined): string {
   return source === "test" ? "leads_rdv_test_axon" : "leads_rdv";
@@ -59,19 +65,31 @@ async function loadPhoneSet(table: string): Promise<Set<string> | null> {
   }
 }
 
-export async function phoneSetForLeadsSource(
+export async function leadsScopeFor(
   source: LeadsSource | null | undefined,
-): Promise<Set<string> | null> {
-  if (source === "test") {
-    return loadPhoneSet(leadsTableFor("test"));
-  }
-  // Prod = prod phones minus any that are also test numbers, so test calls
-  // never leak into the production figures.
-  const prod = await loadPhoneSet(leadsTableFor("prod"));
-  if (!prod) return null;
+): Promise<LeadsScope> {
   const test = await loadPhoneSet(leadsTableFor("test"));
-  if (test) for (const p of test) prod.delete(p);
-  return prod;
+  if (source === "test") {
+    // Test = only calls to the sandbox numbers. A missing/empty test table
+    // yields an empty include-set, i.e. the Test view shows nothing (correct).
+    return { mode: "include", phones: test ?? new Set() };
+  }
+  // Prod = everything that is NOT a sandbox test call.
+  return { mode: "exclude", phones: test ?? new Set() };
+}
+
+/** Predicate matching a call's to_e164 against the resolved leads scope. Trims
+ *  whitespace the same way the loader does so the match is robust. */
+export function callInLeadsScope(
+  toE164: string | null | undefined,
+  scope: LeadsScope,
+): boolean {
+  if (!scope) return true; // null = no filter
+  const norm = normalisePhone(toE164);
+  if (scope.mode === "include") return norm ? scope.phones.has(norm) : false;
+  // exclude: keep the call unless its number is a known test number. Calls with
+  // no destination number (inbound) are kept on the Prod scope.
+  return norm ? !scope.phones.has(norm) : true;
 }
 
 // Phone → patient name for the selected source. Retell-synced calls carry no
@@ -110,16 +128,4 @@ export function leadNameForPhone(
 ): string | null {
   const norm = normalisePhone(phone);
   return norm ? nameMap.get(norm) ?? null : null;
-}
-
-/** Predicate matching a call's to_e164 against the leads phone set. Trims
- *  whitespace the same way the loader does so the match is robust. */
-export function callBelongsToLeadsSource(
-  toE164: string | null | undefined,
-  phoneSet: Set<string> | null,
-): boolean {
-  if (!phoneSet) return true; // null = no filter (e.g. tenant has no leads table)
-  const norm = normalisePhone(toE164);
-  if (!norm) return false;
-  return phoneSet.has(norm);
 }
