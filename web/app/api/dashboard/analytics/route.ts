@@ -5,6 +5,7 @@ import { isInbound, isOutbound, normalizeDirectionForDb } from "@/lib/call-direc
 import { bucketForCall, QUAL_BUCKETS, type QualBucket } from "@/lib/qualification";
 import { callBelongsToLeadsSource, leadsTableFor, phoneSetForLeadsSource, type LeadsSource } from "@/lib/leads-source";
 import { fetchAllPaged, type Rangeable } from "@/lib/supabase-page";
+import { callMatchesSystem, parseCallSystem } from "@/lib/call-system";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -110,6 +111,7 @@ export async function GET(request: Request) {
   const minDuration = Number(searchParams.get("min_duration") ?? 0);
   const leadsSource: LeadsSource = searchParams.get("leads_source") === "test" ? "test" : "prod";
   const leadsTable = leadsTableFor(leadsSource);
+  const system = parseCallSystem(searchParams.get("system"));
 
   const rangeMs = to.getTime() - from.getTime();
   const granularity: "hour" | "day" = rangeMs <= 2 * 86400_000 ? "hour" : "day";
@@ -151,7 +153,8 @@ export async function GET(request: Request) {
     (r) =>
       !ACTIVE_STATES.has(r.state ?? "")
       && (r.duration_secs ?? 0) >= minDuration
-      && callBelongsToLeadsSource(r.to_e164 ?? null, phoneSet),
+      && callBelongsToLeadsSource(r.to_e164 ?? null, phoneSet)
+      && callMatchesSystem((r.metadata as { source?: string } | null)?.source, system),
   );
 
   // ── KPIs ──

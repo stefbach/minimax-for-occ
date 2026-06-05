@@ -6,6 +6,7 @@ import { bucketForCall, QUAL_BUCKETS, type QualBucket } from "@/lib/qualificatio
 import { isInbound, normalizeDirectionForDb } from "@/lib/call-direction";
 import { callBelongsToLeadsSource, leadsTableFor, phoneSetForLeadsSource, type LeadsSource } from "@/lib/leads-source";
 import { fetchAllPaged, type Rangeable } from "@/lib/supabase-page";
+import { callMatchesSystem, parseCallSystem } from "@/lib/call-system";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -121,6 +122,7 @@ export async function GET(request: Request) {
   // production stats. Defaults to prod.
   const leadsSource: LeadsSource = searchParams.get("leads_source") === "test" ? "test" : "prod";
   const leadsTable = leadsTableFor(leadsSource);
+  const system = parseCallSystem(searchParams.get("system"));
 
   const sb = supabaseServer();
 
@@ -150,7 +152,10 @@ export async function GET(request: Request) {
   const phoneSet = await phoneSetForLeadsSource(leadsSource);
 
   const rows = ((data ?? []) as unknown as CallRow[]).filter(
-    (r) => !ACTIVE.has(r.state ?? "") && callBelongsToLeadsSource(r.to_e164 ?? null, phoneSet),
+    (r) =>
+      !ACTIVE.has(r.state ?? "")
+      && callBelongsToLeadsSource(r.to_e164 ?? null, phoneSet)
+      && callMatchesSystem((r.metadata as { source?: string } | null)?.source, system),
   );
 
   // KPIs

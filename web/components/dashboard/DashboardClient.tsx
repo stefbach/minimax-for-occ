@@ -50,7 +50,7 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
   const [refreshing, setRefreshing] = useState(false);
   // Period + filters drive the Statistiques and Call Logs tabs.
   const [period, setPeriod] = useState<Period>({ ...presetToRange("7d"), preset: "7d" });
-  const [filters, setFilters] = useState<Filters>({ direction: "all", leadsSource: "prod" });
+  const [filters, setFilters] = useState<Filters>({ direction: "all", leadsSource: "prod", system: "all" });
 
   const fetchData = useCallback(async () => {
     try {
@@ -152,7 +152,7 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
               <SyncRetellButton />
             </div>
             <PeriodBar period={period} filters={filters} onPeriod={setPeriod} onFilters={setFilters} />
-            <DirectorTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} />
+            <DirectorTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} system={filters.system} />
             {data && <CampaignsTable rows={data.campaigns} />}
           </>
         )}
@@ -160,18 +160,18 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
         {tab === "stats" && (
           <>
             <PeriodBar period={period} filters={filters} onPeriod={setPeriod} onFilters={setFilters} />
-            <StatsTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} />
+            <StatsTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} system={filters.system} />
           </>
         )}
 
         {tab === "logs" && (
           <>
             <PeriodBar period={period} filters={filters} onPeriod={setPeriod} onFilters={setFilters} />
-            <CallLogsTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} />
+            <CallLogsTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} system={filters.system} />
           </>
         )}
 
-        {tab === "live" && <LiveMonitorClient leadsSource={filters.leadsSource} />}
+        {tab === "live" && <LiveMonitorClient leadsSource={filters.leadsSource} system={filters.system} />}
 
         {tab === "errors" && <ErrorsAlertsTab />}
 

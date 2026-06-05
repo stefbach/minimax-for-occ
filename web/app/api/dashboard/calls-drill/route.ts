@@ -6,6 +6,7 @@ import { bucketForCall, type QualBucket } from "@/lib/qualification";
 import { isInbound, normalizeDirectionForDb } from "@/lib/call-direction";
 import { callBelongsToLeadsSource, phoneSetForLeadsSource, type LeadsSource } from "@/lib/leads-source";
 import { fetchAllPaged, type Rangeable } from "@/lib/supabase-page";
+import { callMatchesSystem, parseCallSystem } from "@/lib/call-system";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -96,6 +97,7 @@ export async function GET(request: Request) {
   // Same Prod/Test scoping as the rest of the dashboard so a drill-down on
   // "Prod totals" doesn't list Test calls (and vice-versa).
   const leadsSource: LeadsSource = searchParams.get("leads_source") === "test" ? "test" : "prod";
+  const system = parseCallSystem(searchParams.get("system"));
 
   const sb = supabaseServer();
   const dbDir = normalizeDirectionForDb(direction);
@@ -121,7 +123,8 @@ export async function GET(request: Request) {
   const phoneSet = await phoneSetForLeadsSource(leadsSource);
   const rows = ((data ?? []) as unknown as Row[])
     .filter((r) => !ACTIVE.has(r.state ?? ""))
-    .filter((r) => callBelongsToLeadsSource(r.to_e164, phoneSet));
+    .filter((r) => callBelongsToLeadsSource(r.to_e164, phoneSet))
+    .filter((r) => callMatchesSystem((r.metadata as { source?: string } | null)?.source, system));
 
   // Apply the per-card filters in memory — keeps the SQL universal and the
   // bucketing logic (which is non-trivial) consistent with the rest of the

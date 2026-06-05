@@ -18,7 +18,7 @@ function fmtMoney(n: number, unit = "$"): string {
 
 const DAY_LABELS = ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"];
 
-export function StatsTab({ from, to, direction, leadsSource = "prod" }: { from: string; to: string; direction: string; leadsSource?: "prod" | "test" }) {
+export function StatsTab({ from, to, direction, leadsSource = "prod", system = "all" }: { from: string; to: string; direction: string; leadsSource?: "prod" | "test"; system?: "all" | "retell" | "axon" }) {
   const t = useT();
   const [data, setData] = useState<AnalyticsResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -29,6 +29,7 @@ export function StatsTab({ from, to, direction, leadsSource = "prod" }: { from: 
     setLoading(true);
     const qs = new URLSearchParams({ from, to, leads_source: leadsSource });
     if (direction !== "all") qs.set("direction", direction);
+    if (system !== "all") qs.set("system", system);
     fetch(`/api/dashboard/analytics?${qs.toString()}`, { cache: "no-store" })
       .then(async (r) => {
         const j = await r.json();
@@ -38,7 +39,7 @@ export function StatsTab({ from, to, direction, leadsSource = "prod" }: { from: 
       .catch((e) => alive && setError(e instanceof Error ? e.message : "error"))
       .finally(() => alive && setLoading(false));
     return () => { alive = false; };
-  }, [from, to, direction, leadsSource]);
+  }, [from, to, direction, leadsSource, system]);
 
   if (loading && !data) return <div className="card"><p className="muted" style={{ margin: 0 }}>{t("Chargement…")}</p></div>;
   if (error) return <div className="card" style={{ borderColor: "var(--bad)", color: "var(--bad)" }}>{error}</div>;

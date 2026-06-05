@@ -5,6 +5,8 @@ import { requireModule } from "@/lib/permissions-server";
 import { bucketForCall } from "@/lib/qualification";
 import { qualifyCall, type QualifyResult } from "@/lib/analysis-runner";
 import { callBelongsToLeadsSource, phoneSetForLeadsSource, type LeadsSource } from "@/lib/leads-source";
+import { fetchAllPaged, type Rangeable } from "@/lib/supabase-page";
+import { callMatchesSystem, parseCallSystem, type CallSystem } from "@/lib/call-system";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,22 +33,27 @@ async function countCandidates(
   orgId: string,
   days: number,
   source: LeadsSource,
+  system: CallSystem,
 ): Promise<{ ids: string[] }> {
   const sb = supabaseServer();
   const since = new Date(Date.now() - days * 86400_000).toISOString();
-  const { data, error } = await sb
-    .from("calls")
-    .select("id, state, answered_at, disposition, to_e164, metadata")
-    .eq("org_id", orgId)
-    .not("answered_at", "is", null)
-    .gte("started_at", since)
-    .order("started_at", { ascending: false })
-    .limit(2000);
-  if (error) throw new Error(error.message);
+  const { rows: data, error } = await fetchAllPaged<Row>(
+    () =>
+      sb
+        .from("calls")
+        .select("id, state, answered_at, disposition, to_e164, metadata")
+        .eq("org_id", orgId)
+        .not("answered_at", "is", null)
+        .gte("started_at", since)
+        .order("started_at", { ascending: false }) as unknown as Rangeable<Row>,
+    { maxRows: 20000 },
+  );
+  if (error) throw new Error(error);
   const phoneSet = await phoneSetForLeadsSource(source);
-  const ids = ((data ?? []) as Row[])
+  const ids = data
     .filter((r) => !ACTIVE.has(r.state ?? ""))
     .filter((r) => callBelongsToLeadsSource(r.to_e164, phoneSet))
+    .filter((r) => callMatchesSystem((r.metadata as { source?: string } | null)?.source, system))
     .filter((r) => bucketForCall(r) === "autre")
     .map((r) => r.id);
   return { ids };
@@ -66,8 +73,9 @@ export async function GET(request: Request) {
   const sp = new URL(request.url).searchParams;
   const days = Math.min(365, Math.max(1, Number(sp.get("days") ?? 30)));
   const source = parseLeadsSource(sp);
+  const system = parseCallSystem(sp.get("system"));
   try {
-    const { ids } = await countCandidates(orgId, days, source);
+    const { ids } = await countCandidates(orgId, days, source, system);
     return NextResponse.json({ ok: true, pending: ids.length, leads_source: source });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
@@ -89,9 +97,10 @@ export async function POST(request: Request) {
   // Cap how many calls one request will classify (cost / time guard).
   const limit = Math.min(25, Math.max(1, Number(searchParams.get("limit") ?? 25)));
   const source = parseLeadsSource(searchParams);
+  const system = parseCallSystem(searchParams.get("system"));
 
   try {
-    const { ids } = await countCandidates(orgId, days, source);
+    const { ids } = await countCandidates(orgId, days, source, system);
     const batch = ids.slice(0, limit);
     const results: QualifyResult[] = [];
     for (const id of batch) {

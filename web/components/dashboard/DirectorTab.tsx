@@ -69,7 +69,7 @@ function ClickCard({
   );
 }
 
-export function DirectorTab({ from, to, direction, leadsSource = "prod" }: { from: string; to: string; direction: string; leadsSource?: "prod" | "test" }) {
+export function DirectorTab({ from, to, direction, leadsSource = "prod", system = "all" }: { from: string; to: string; direction: string; leadsSource?: "prod" | "test"; system?: "all" | "retell" | "axon" }) {
   const t = useT();
   const [data, setData] = useState<DirectorResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -84,18 +84,20 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod" }: { fro
   const [drill, setDrill] = useState<DrillSpec | null>(null);
 
   // Every card opens the SAME sheet — passes the current period + direction +
-  // leads source, plus the per-card filter. Keeps Prod/Test scoping consistent.
+  // leads source + calling-system, plus the per-card filter. Keeps all scoping
+  // consistent between the KPI and its drill-down.
   const openDrill = (
     title: string,
     icon: string,
     tone: string,
-    extra: Omit<DrillFilters, "from" | "to" | "direction" | "leads_source">,
+    extra: Omit<DrillFilters, "from" | "to" | "direction" | "leads_source" | "system">,
     subtitle?: string,
   ) => {
     const filters: DrillFilters = {
       from, to,
       direction: direction === "all" ? undefined : direction,
       leads_source: leadsSource,
+      system: system === "all" ? undefined : system,
       ...extra,
     };
     setDrill({ title, subtitle, icon, tone, filters });
@@ -106,6 +108,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod" }: { fro
     setLoading(true);
     const qs = new URLSearchParams({ from, to, threshold: String(threshold), leads_source: leadsSource });
     if (direction !== "all") qs.set("direction", direction);
+    if (system !== "all") qs.set("system", system);
     fetch(`/api/dashboard/director?${qs}`, { cache: "no-store" })
       .then(async (r) => {
         const j = await r.json();
@@ -115,7 +118,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod" }: { fro
       .catch((e) => alive && setError(e instanceof Error ? e.message : "error"))
       .finally(() => alive && setLoading(false));
     return () => { alive = false; };
-  }, [from, to, direction, threshold, leadsSource, reloadKey]);
+  }, [from, to, direction, threshold, leadsSource, system, reloadKey]);
 
   // Ask the AI to classify the answered-but-unqualified calls so they stop
   // hiding in the "autre" bucket. Scoped to the current leads source so a
@@ -126,6 +129,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod" }: { fro
     setQualifyMsg(null);
     try {
       const qs = new URLSearchParams({ leads_source: leadsSource });
+      if (system !== "all") qs.set("system", system);
       const r = await fetch(`/api/dashboard/qualify-unqualified?${qs}`, { method: "POST" });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
