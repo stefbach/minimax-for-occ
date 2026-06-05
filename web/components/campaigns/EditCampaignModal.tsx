@@ -1,25 +1,57 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-// Lightweight edit modal for the campaign detail page. Lets the user change
-// the most-tweaked fields (name, days, hour ranges, concurrency, attempts,
-// retry, AMD) without going back through the 3-step wizard. PATCH endpoint
-// already accepts these fields; this is purely UI.
+// Full edit modal: lets the user inspect AND tweak every campaign field —
+// both the "safe" tweaks (name / days / ranges / concurrency / AMD) and
+// the structural config that lives in metadata.engine (agent, phone,
+// data table, selection statuses, phase cadence, volume, callback).
+// Structural sections are read-only by default with a "Modifier" toggle
+// that exposes the inputs and shows a warning before the user can save.
 
 interface HourRange { start: string; end: string }
 interface Schedule { days?: number[]; hours?: { start?: string; end?: string; ranges?: HourRange[] } }
+interface Phase {
+  name: string;
+  date_column: string;
+  attempts_column: string;
+  wait_business_days: number;
+}
+interface EngineConfig {
+  slots?: { days?: number[]; hours?: string[]; timezone?: string };
+  volume?: { wave_size?: number; max_new_per_day?: number; wave_pause_secs?: number };
+  cadence?: {
+    enabled?: boolean;
+    business_days_only?: boolean;
+    max_attempts_per_phase?: number;
+    phases?: Phase[];
+  };
+  callback?: { enabled?: boolean; status_value?: string; datetime_column?: string };
+  selection?: {
+    status_column?: string;
+    include_statuses?: string[];
+    phone_starts_with?: string | null;
+    phone_min_len?: number | null;
+    phone_max_len?: number | null;
+  };
+}
 
 interface Props {
   campaignId: string;
   initial: {
     name: string;
+    description?: string | null;
     schedule: Schedule;
     max_concurrency: number;
     max_attempts: number;
     retry_delay_min: number;
     amd_enabled: boolean;
+    agent_handle_id?: string | null;
+    agent_team_id?: string | null;
+    phone_number_id?: string | null;
+    data_table_id?: string | null;
+    metadata?: { engine?: EngineConfig } | null;
   };
   onClose: () => void;
 }
@@ -34,9 +66,23 @@ const DAYS = [
   { id: 0, label: "Dim" },
 ];
 
+const KNOWN_STATUSES = [
+  "NOUVEAU DOSSIER", "RAPPEL", "PAS DE REPONSE", "REPONDEUR",
+  "RDV CONFIRME", "PAS INTERESSE", "FAUX NUMERO", "NON ELIGIBLE",
+  "NE PAS RAPPELER", "A PASSER A L'HUMAIN",
+];
+
+interface AgentOpt { id: string; display_name: string; kind: string }
+interface NumberOpt { id: string; e164: string; label: string | null }
+interface TableOpt { id: string; physical_table: string; label: string }
+interface TeamOpt { id: string; name: string }
+
 export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
   const router = useRouter();
+
+  // ─── State: simple fields ──────────────────────────────────────────────
   const [name, setName] = useState(initial.name);
+  const [description, setDescription] = useState(initial.description ?? "");
   const [days, setDays] = useState<number[]>(initial.schedule.days ?? [1, 2, 3, 4, 5]);
   const initialRanges: HourRange[] = (() => {
     const r = initial.schedule.hours?.ranges;
@@ -50,6 +96,75 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
   const [maxAttempts, setMaxAttempts] = useState(initial.max_attempts);
   const [retryDelayMin, setRetryDelayMin] = useState(initial.retry_delay_min);
   const [amdEnabled, setAmdEnabled] = useState(initial.amd_enabled);
+
+  // ─── State: structural fields ──────────────────────────────────────────
+  const [agentHandleId, setAgentHandleId] = useState(initial.agent_handle_id ?? "");
+  const [agentTeamId, setAgentTeamId] = useState(initial.agent_team_id ?? "");
+  const [phoneNumberId, setPhoneNumberId] = useState(initial.phone_number_id ?? "");
+  const [dataTableId, setDataTableId] = useState(initial.data_table_id ?? "");
+
+  const engine0 = initial.metadata?.engine ?? {};
+  const [slotsTz, setSlotsTz] = useState(engine0.slots?.timezone ?? "Indian/Mauritius");
+  const [slotHours, setSlotHours] = useState<string[]>(engine0.slots?.hours ?? ["09:00"]);
+  const [includeStatuses, setIncludeStatuses] = useState<string[]>(
+    engine0.selection?.include_statuses ?? ["NOUVEAU DOSSIER"],
+  );
+  const [phases, setPhases] = useState<Phase[]>(
+    engine0.cadence?.phases ?? [
+      { name: "J1", date_column: "date_j1", attempts_column: "j1_attempts", wait_business_days: 0 },
+      { name: "J3", date_column: "date_j3", attempts_column: "j3_attempts", wait_business_days: 2 },
+      { name: "J5", date_column: "date_j5", attempts_column: "j5_attempts", wait_business_days: 4 },
+    ],
+  );
+  const [maxAttemptsPerPhase, setMaxAttemptsPerPhase] = useState(
+    engine0.cadence?.max_attempts_per_phase ?? 3,
+  );
+  const [businessDaysOnly, setBusinessDaysOnly] = useState(
+    engine0.cadence?.business_days_only ?? true,
+  );
+  const [waveSize, setWaveSize] = useState(engine0.volume?.wave_size ?? 200);
+  const [maxNewPerDay, setMaxNewPerDay] = useState(engine0.volume?.max_new_per_day ?? 200);
+  const [wavePauseSecs, setWavePauseSecs] = useState(engine0.volume?.wave_pause_secs ?? 60);
+  const [callbackEnabled, setCallbackEnabled] = useState(engine0.callback?.enabled ?? true);
+  const [callbackStatus, setCallbackStatus] = useState(engine0.callback?.status_value ?? "RAPPEL");
+  const [callbackCol, setCallbackCol] = useState(engine0.callback?.datetime_column ?? "rappel_rdv");
+
+  // ─── State: which structural sections are unlocked for edit ──────────
+  const [unlocked, setUnlocked] = useState<Record<string, boolean>>({});
+  const isUnlocked = (k: string) => !!unlocked[k];
+  function tryUnlock(k: string, label: string) {
+    if (isUnlocked(k)) return;
+    const ok = confirm(
+      `Modifier "${label}" sur une campagne déjà active peut perturber le batch en cours ` +
+      `(leads en attente, état des phases, etc.). Continuer ?`,
+    );
+    if (ok) setUnlocked((u) => ({ ...u, [k]: true }));
+  }
+
+  // ─── State: dropdown options (loaded async) ──────────────────────────
+  const [agents, setAgents] = useState<AgentOpt[]>([]);
+  const [numbers, setNumbers] = useState<NumberOpt[]>([]);
+  const [tables, setTables] = useState<TableOpt[]>([]);
+  const [teams, setTeams] = useState<TeamOpt[]>([]);
+  useEffect(() => {
+    (async () => {
+      try {
+        const [aRes, nRes, tRes, teRes] = await Promise.all([
+          fetch("/api/agents").then((r) => r.ok ? r.json() : []),
+          fetch("/api/numbers").then((r) => r.ok ? r.json() : []),
+          fetch("/api/data-tables").then((r) => r.ok ? r.json() : []),
+          fetch("/api/teams").then((r) => r.ok ? r.json() : []),
+        ]);
+        setAgents(Array.isArray(aRes) ? aRes : (aRes?.items ?? aRes?.data ?? []));
+        setNumbers(Array.isArray(nRes) ? nRes : (nRes?.items ?? nRes?.data ?? []));
+        setTables(Array.isArray(tRes) ? tRes : (tRes?.items ?? tRes?.data ?? []));
+        setTeams(Array.isArray(teRes) ? teRes : (teRes?.items ?? teRes?.data ?? []));
+      } catch {
+        // best-effort: dropdowns just stay empty if fetch fails
+      }
+    })();
+  }, []);
+
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -65,6 +180,21 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
   function updateRange(i: number, patch: Partial<HourRange>) {
     setRanges((prev) => prev.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   }
+  function toggleStatus(s: string) {
+    setIncludeStatuses((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]));
+  }
+  function updatePhase(i: number, patch: Partial<Phase>) {
+    setPhases((prev) => prev.map((p, j) => (j === i ? { ...p, ...patch } : p)));
+  }
+  function addSlotHour() {
+    setSlotHours((prev) => [...prev, "09:00"]);
+  }
+  function removeSlotHour(i: number) {
+    setSlotHours((prev) => prev.filter((_, j) => j !== i));
+  }
+  function updateSlotHour(i: number, v: string) {
+    setSlotHours((prev) => prev.map((h, j) => (j === i ? v : h)));
+  }
 
   async function save() {
     setBusy(true);
@@ -75,26 +205,70 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
       const schedule = {
         days,
         hours: {
-          // Times stay in their original format — the dialer compares with
-          // the same string. We don't re-convert because the original draft
-          // already had them stored in the same TZ; changing TZ here would
-          // require the full wizard.
           start: utcStarts[0] ?? "09:00",
           end: utcEnds[utcEnds.length - 1] ?? "18:00",
           ranges,
         },
       };
+
+      // Rebuild engine config from current state. We DON'T blow away unknown
+      // sub-fields the caller may have set externally — we only overwrite
+      // what we manage.
+      const engineMerged: EngineConfig = {
+        ...(initial.metadata?.engine ?? {}),
+        slots: {
+          ...(initial.metadata?.engine?.slots ?? {}),
+          days, // also mirror campaign days into engine slots
+          hours: [...slotHours].sort(),
+          timezone: slotsTz,
+        },
+        volume: {
+          ...(initial.metadata?.engine?.volume ?? {}),
+          wave_size: waveSize,
+          max_new_per_day: maxNewPerDay,
+          wave_pause_secs: wavePauseSecs,
+        },
+        cadence: {
+          ...(initial.metadata?.engine?.cadence ?? {}),
+          enabled: true,
+          business_days_only: businessDaysOnly,
+          max_attempts_per_phase: maxAttemptsPerPhase,
+          phases,
+        },
+        callback: {
+          ...(initial.metadata?.engine?.callback ?? {}),
+          enabled: callbackEnabled,
+          status_value: callbackStatus,
+          datetime_column: callbackCol,
+        },
+        selection: {
+          ...(initial.metadata?.engine?.selection ?? {}),
+          status_column: initial.metadata?.engine?.selection?.status_column ?? "qualification",
+          include_statuses: includeStatuses,
+        },
+      };
+      const metadata = { ...(initial.metadata ?? {}), engine: engineMerged };
+
+      const payload: Record<string, unknown> = {
+        name: name.trim(),
+        description: description.trim() || null,
+        schedule,
+        max_concurrency: maxConcurrency,
+        max_attempts: maxAttempts,
+        retry_delay_min: retryDelayMin,
+        amd_enabled: amdEnabled,
+        metadata,
+      };
+      if (agentHandleId) payload.agent_handle_id = agentHandleId;
+      if (agentTeamId) payload.agent_team_id = agentTeamId;
+      if (phoneNumberId) payload.phone_number_id = phoneNumberId;
+      // data_table_id is a column we PATCH directly (extends current API).
+      if (dataTableId) (payload as Record<string, unknown>).data_table_id = dataTableId;
+
       const r = await fetch(`/api/campaigns/${campaignId}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          name: name.trim(),
-          schedule,
-          max_concurrency: maxConcurrency,
-          max_attempts: maxAttempts,
-          retry_delay_min: retryDelayMin,
-          amd_enabled: amdEnabled,
-        }),
+        body: JSON.stringify(payload),
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) {
@@ -108,6 +282,23 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
     }
   }
 
+  // ─── Render helpers ────────────────────────────────────────────────────
+  const lockedNote = (
+    <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
+      🔒 Verrouillé. Clique « Modifier » pour autoriser le changement.
+    </div>
+  );
+  const unlockBtn = (key: string, label: string) => (
+    <button
+      type="button"
+      className="ghost"
+      onClick={() => tryUnlock(key, label)}
+      style={{ padding: "2px 8px", fontSize: 11 }}
+    >
+      Modifier
+    </button>
+  );
+
   return (
     <div
       onClick={onClose}
@@ -120,115 +311,363 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
       <div
         onClick={(e) => e.stopPropagation()}
         className="card"
-        style={{ width: "min(640px, 100%)", marginTop: 30, display: "grid", gap: 14 }}
+        style={{ width: "min(760px, 100%)", marginTop: 30, display: "grid", gap: 14 }}
       >
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
           <h3 style={{ margin: 0 }}>Éditer la campagne</h3>
           <button className="ghost" onClick={onClose} style={{ padding: "2px 8px" }}>×</button>
         </div>
 
-        <div>
-          <label>Nom</label>
-          <input value={name} onChange={(e) => setName(e.target.value)} />
-        </div>
+        {/* ─── Identité ──────────────────────────────────────────────── */}
+        <section>
+          <h4 style={{ margin: "0 0 8px 0", fontSize: 14 }}>Identité</h4>
+          <div style={{ display: "grid", gap: 8 }}>
+            <div>
+              <label style={{ fontSize: 12 }}>Nom</label>
+              <input value={name} onChange={(e) => setName(e.target.value)} />
+            </div>
+            <div>
+              <label style={{ fontSize: 12 }}>Description</label>
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                rows={2}
+                style={{ width: "100%", resize: "vertical", fontFamily: "inherit", fontSize: 13 }}
+              />
+            </div>
+          </div>
+        </section>
 
-        <div>
-          <label>Jours autorisés</label>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            {DAYS.map((d) => {
-              const active = days.includes(d.id);
+        {/* ─── Source de contacts ────────────────────────────────────── */}
+        <section>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+            <h4 style={{ margin: "0 0 8px 0", fontSize: 14 }}>Source de contacts</h4>
+            {!isUnlocked("data_table") && unlockBtn("data_table", "Source de contacts")}
+          </div>
+          <select
+            value={dataTableId}
+            onChange={(e) => setDataTableId(e.target.value)}
+            disabled={!isUnlocked("data_table")}
+            style={{ width: "100%" }}
+          >
+            <option value="">— Aucune —</option>
+            {tables.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.label} ({t.physical_table})
+              </option>
+            ))}
+          </select>
+          {!isUnlocked("data_table") && lockedNote}
+        </section>
+
+        {/* ─── Qui appelle ───────────────────────────────────────────── */}
+        <section>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+            <h4 style={{ margin: "0 0 8px 0", fontSize: 14 }}>Qui appelle</h4>
+            {!isUnlocked("agent") && unlockBtn("agent", "Agent / Équipe")}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <div>
+              <label style={{ fontSize: 12 }}>Agent principal</label>
+              <select
+                value={agentHandleId}
+                onChange={(e) => setAgentHandleId(e.target.value)}
+                disabled={!isUnlocked("agent")}
+                style={{ width: "100%" }}
+              >
+                <option value="">— Aucun —</option>
+                {agents.map((a) => (
+                  <option key={a.id} value={a.id}>{a.display_name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize: 12 }}>Équipe (swarm)</label>
+              <select
+                value={agentTeamId}
+                onChange={(e) => setAgentTeamId(e.target.value)}
+                disabled={!isUnlocked("agent")}
+                style={{ width: "100%" }}
+              >
+                <option value="">— Aucune —</option>
+                {teams.map((t) => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          {!isUnlocked("agent") && lockedNote}
+        </section>
+
+        {/* ─── Numéro émetteur ───────────────────────────────────────── */}
+        <section>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+            <h4 style={{ margin: "0 0 8px 0", fontSize: 14 }}>Numéro émetteur</h4>
+            {!isUnlocked("phone") && unlockBtn("phone", "Numéro émetteur")}
+          </div>
+          <select
+            value={phoneNumberId}
+            onChange={(e) => setPhoneNumberId(e.target.value)}
+            disabled={!isUnlocked("phone")}
+            style={{ width: "100%" }}
+          >
+            <option value="">— Aucun —</option>
+            {numbers.map((n) => (
+              <option key={n.id} value={n.id}>
+                {n.e164} {n.label ? `(${n.label})` : ""}
+              </option>
+            ))}
+          </select>
+          {!isUnlocked("phone") && lockedNote}
+        </section>
+
+        {/* ─── Quand appeler ─────────────────────────────────────────── */}
+        <section>
+          <h4 style={{ margin: "0 0 8px 0", fontSize: 14 }}>Quand appeler</h4>
+          <div style={{ display: "grid", gap: 10 }}>
+            <div>
+              <label style={{ fontSize: 12 }}>Jours autorisés</label>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {DAYS.map((d) => {
+                  const active = days.includes(d.id);
+                  return (
+                    <button
+                      key={d.id}
+                      type="button"
+                      className={active ? "" : "ghost"}
+                      onClick={() => toggleDay(d.id)}
+                      style={{ padding: "5px 11px" }}
+                    >
+                      {d.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div>
+              <label style={{ fontSize: 12 }}>Plages horaires (UI — UTC)</label>
+              <div style={{ display: "grid", gap: 6 }}>
+                {ranges.map((r, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <input type="time" value={r.start} onChange={(e) => updateRange(i, { start: e.target.value })} style={{ width: "auto" }} />
+                    <span className="muted">→</span>
+                    <input type="time" value={r.end} onChange={(e) => updateRange(i, { end: e.target.value })} style={{ width: "auto" }} />
+                    {ranges.length > 1 && (
+                      <button type="button" onClick={() => removeRange(i)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--muted)", padding: 4, marginLeft: "auto" }}>✕</button>
+                    )}
+                  </div>
+                ))}
+                <button type="button" className="ghost" onClick={addRange} style={{ padding: "4px 10px", alignSelf: "flex-start", fontSize: 12 }}>
+                  + Ajouter une plage
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                <label style={{ fontSize: 12 }}>
+                  Slots ponctuels du moteur (vraies heures d&apos;appel, en {slotsTz})
+                </label>
+                {!isUnlocked("slots") && unlockBtn("slots", "Slots ponctuels")}
+              </div>
+              <div style={{ display: "grid", gap: 6 }}>
+                {slotHours.map((h, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <input
+                      type="time"
+                      value={h}
+                      onChange={(e) => updateSlotHour(i, e.target.value)}
+                      disabled={!isUnlocked("slots")}
+                      style={{ width: "auto" }}
+                    />
+                    {isUnlocked("slots") && slotHours.length > 1 && (
+                      <button type="button" onClick={() => removeSlotHour(i)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--muted)", padding: 4 }}>✕</button>
+                    )}
+                  </div>
+                ))}
+                {isUnlocked("slots") && (
+                  <button type="button" className="ghost" onClick={addSlotHour} style={{ padding: "4px 10px", alignSelf: "flex-start", fontSize: 12 }}>
+                    + Ajouter un slot
+                  </button>
+                )}
+              </div>
+              {!isUnlocked("slots") && lockedNote}
+            </div>
+
+            <div>
+              <label style={{ fontSize: 12 }}>Fuseau horaire (moteur)</label>
+              <input
+                value={slotsTz}
+                onChange={(e) => setSlotsTz(e.target.value)}
+                disabled={!isUnlocked("slots")}
+                placeholder="ex. Indian/Mauritius, Europe/London"
+              />
+            </div>
+          </div>
+        </section>
+
+        {/* ─── Statuts ciblés ────────────────────────────────────────── */}
+        <section>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+            <h4 style={{ margin: "0 0 8px 0", fontSize: 14 }}>Statuts ciblés</h4>
+            {!isUnlocked("statuses") && unlockBtn("statuses", "Statuts ciblés")}
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {KNOWN_STATUSES.map((s) => {
+              const active = includeStatuses.includes(s);
               return (
                 <button
-                  key={d.id}
+                  key={s}
                   type="button"
                   className={active ? "" : "ghost"}
-                  onClick={() => toggleDay(d.id)}
-                  style={{ padding: "5px 11px" }}
+                  onClick={() => isUnlocked("statuses") && toggleStatus(s)}
+                  disabled={!isUnlocked("statuses")}
+                  style={{ padding: "4px 10px", fontSize: 12 }}
                 >
-                  {d.label}
+                  {s}
                 </button>
               );
             })}
           </div>
-        </div>
+          {!isUnlocked("statuses") && lockedNote}
+        </section>
 
-        <div>
-          <label>Plages horaires</label>
-          <div style={{ display: "grid", gap: 8 }}>
-            {ranges.map((r, i) => (
-              <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <input
-                  type="time"
-                  value={r.start}
-                  onChange={(e) => updateRange(i, { start: e.target.value })}
-                  style={{ width: "auto" }}
-                />
-                <span className="muted">→</span>
-                <input
-                  type="time"
-                  value={r.end}
-                  onChange={(e) => updateRange(i, { end: e.target.value })}
-                  style={{ width: "auto" }}
-                />
-                {ranges.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => removeRange(i)}
-                    style={{ background: "none", border: "none", cursor: "pointer", color: "var(--muted)", padding: 4, marginLeft: "auto" }}
-                  >
-                    ✕
-                  </button>
-                )}
-              </div>
-            ))}
-            <button type="button" className="ghost" onClick={addRange} style={{ padding: "5px 12px", alignSelf: "flex-start" }}>
-              + Ajouter une plage
-            </button>
+        {/* ─── Phases de relance ─────────────────────────────────────── */}
+        <section>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+            <h4 style={{ margin: "0 0 8px 0", fontSize: 14 }}>Phases de relance</h4>
+            {!isUnlocked("phases") && unlockBtn("phases", "Phases de relance")}
           </div>
-        </div>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse" }}>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: "left", padding: 4 }}>Nom</th>
+                  <th style={{ textAlign: "left", padding: 4 }}>Col. date</th>
+                  <th style={{ textAlign: "left", padding: 4 }}>Col. tentatives</th>
+                  <th style={{ textAlign: "left", padding: 4 }}>Attente (j. ouvrés)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {phases.map((p, i) => (
+                  <tr key={i}>
+                    <td style={{ padding: 4 }}>
+                      <input value={p.name} onChange={(e) => updatePhase(i, { name: e.target.value })} disabled={!isUnlocked("phases")} style={{ width: 70 }} />
+                    </td>
+                    <td style={{ padding: 4 }}>
+                      <input value={p.date_column} onChange={(e) => updatePhase(i, { date_column: e.target.value })} disabled={!isUnlocked("phases")} style={{ width: 110 }} />
+                    </td>
+                    <td style={{ padding: 4 }}>
+                      <input value={p.attempts_column} onChange={(e) => updatePhase(i, { attempts_column: e.target.value })} disabled={!isUnlocked("phases")} style={{ width: 120 }} />
+                    </td>
+                    <td style={{ padding: 4 }}>
+                      <input
+                        type="number"
+                        min={0}
+                        value={p.wait_business_days}
+                        onChange={(e) => updatePhase(i, { wait_business_days: Number(e.target.value) || 0 })}
+                        disabled={!isUnlocked("phases")}
+                        style={{ width: 70 }}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8 }}>
+            <div>
+              <label style={{ fontSize: 12 }}>Tentatives max par phase</label>
+              <input
+                type="number"
+                min={1}
+                max={10}
+                value={maxAttemptsPerPhase}
+                onChange={(e) => setMaxAttemptsPerPhase(Number(e.target.value) || 1)}
+                disabled={!isUnlocked("phases")}
+              />
+            </div>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, marginTop: 18 }}>
+              <input
+                type="checkbox"
+                checked={businessDaysOnly}
+                onChange={(e) => setBusinessDaysOnly(e.target.checked)}
+                disabled={!isUnlocked("phases")}
+                style={{ width: "auto" }}
+              />
+              Compter en jours ouvrés
+            </label>
+          </div>
+          {!isUnlocked("phases") && lockedNote}
+        </section>
 
+        {/* ─── Volume ────────────────────────────────────────────────── */}
+        <section>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+            <h4 style={{ margin: "0 0 8px 0", fontSize: 14 }}>Volume / Cadence</h4>
+            {!isUnlocked("volume") && unlockBtn("volume", "Volume")}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+            <div>
+              <label style={{ fontSize: 12 }}>Cap leads / jour</label>
+              <input type="number" min={1} value={maxNewPerDay} onChange={(e) => setMaxNewPerDay(Number(e.target.value) || 1)} disabled={!isUnlocked("volume")} />
+            </div>
+            <div>
+              <label style={{ fontSize: 12 }}>Wave size</label>
+              <input type="number" min={1} value={waveSize} onChange={(e) => setWaveSize(Number(e.target.value) || 1)} disabled={!isUnlocked("volume")} />
+            </div>
+            <div>
+              <label style={{ fontSize: 12 }}>Pause / appel (s)</label>
+              <input type="number" min={0} value={wavePauseSecs} onChange={(e) => setWavePauseSecs(Number(e.target.value) || 0)} disabled={!isUnlocked("volume")} />
+            </div>
+          </div>
+          {!isUnlocked("volume") && lockedNote}
+        </section>
+
+        {/* ─── Callback ──────────────────────────────────────────────── */}
+        <section>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+            <h4 style={{ margin: "0 0 8px 0", fontSize: 14 }}>Rappels (callbacks)</h4>
+            {!isUnlocked("callback") && unlockBtn("callback", "Callbacks")}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "auto 1fr 1fr", gap: 8, alignItems: "end" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, paddingBottom: 6 }}>
+              <input type="checkbox" checked={callbackEnabled} onChange={(e) => setCallbackEnabled(e.target.checked)} disabled={!isUnlocked("callback")} style={{ width: "auto" }} />
+              Activé
+            </label>
+            <div>
+              <label style={{ fontSize: 12 }}>Statut déclencheur</label>
+              <input value={callbackStatus} onChange={(e) => setCallbackStatus(e.target.value)} disabled={!isUnlocked("callback")} />
+            </div>
+            <div>
+              <label style={{ fontSize: 12 }}>Colonne datetime</label>
+              <input value={callbackCol} onChange={(e) => setCallbackCol(e.target.value)} disabled={!isUnlocked("callback")} />
+            </div>
+          </div>
+          {!isUnlocked("callback") && lockedNote}
+        </section>
+
+        {/* ─── Avancé ───────────────────────────────────────────────── */}
         <details>
-          <summary style={{ cursor: "pointer", fontSize: 13 }}>▸ Cadence et AMD</summary>
+          <summary style={{ cursor: "pointer", fontSize: 13, fontWeight: 600 }}>▸ Réglages avancés</summary>
           <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
               <div>
-                <label style={{ fontSize: 12 }}>Simultanés</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={50}
-                  value={maxConcurrency}
-                  onChange={(e) => setMaxConcurrency(Number(e.target.value) || 1)}
-                />
+                <label style={{ fontSize: 12 }}>Simultanés (concurrence dialer)</label>
+                <input type="number" min={1} max={50} value={maxConcurrency} onChange={(e) => setMaxConcurrency(Number(e.target.value) || 1)} />
               </div>
               <div>
-                <label style={{ fontSize: 12 }}>Tentatives</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={10}
-                  value={maxAttempts}
-                  onChange={(e) => setMaxAttempts(Number(e.target.value) || 1)}
-                />
+                <label style={{ fontSize: 12 }}>Tentatives totales</label>
+                <input type="number" min={1} max={10} value={maxAttempts} onChange={(e) => setMaxAttempts(Number(e.target.value) || 1)} />
               </div>
               <div>
-                <label style={{ fontSize: 12 }}>Retry (min)</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={1440}
-                  value={retryDelayMin}
-                  onChange={(e) => setRetryDelayMin(Number(e.target.value) || 1)}
-                />
+                <label style={{ fontSize: 12 }}>Retry delay (min)</label>
+                <input type="number" min={1} max={1440} value={retryDelayMin} onChange={(e) => setRetryDelayMin(Number(e.target.value) || 1)} />
               </div>
             </div>
             <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
-              <input
-                type="checkbox"
-                checked={amdEnabled}
-                onChange={(e) => setAmdEnabled(e.target.checked)}
-                style={{ width: "auto" }}
-              />
+              <input type="checkbox" checked={amdEnabled} onChange={(e) => setAmdEnabled(e.target.checked)} style={{ width: "auto" }} />
               Détection de répondeur (AMD)
             </label>
           </div>
@@ -237,16 +676,10 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
         {error && <div style={{ color: "var(--bad)", fontSize: 13 }}>{error}</div>}
 
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-          <button type="button" className="ghost" onClick={onClose} disabled={busy}>
-            Annuler
-          </button>
+          <button type="button" className="ghost" onClick={onClose} disabled={busy}>Annuler</button>
           <button type="button" onClick={save} disabled={busy || !name.trim() || days.length === 0}>
             {busy ? "Enregistrement…" : "Enregistrer"}
           </button>
-        </div>
-
-        <div className="muted" style={{ fontSize: 11 }}>
-          Pour changer l&apos;agent, le numéro émetteur, la source des contacts ou les phases de relance, recrée une campagne via le wizard.
         </div>
       </div>
     </div>

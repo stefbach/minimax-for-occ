@@ -101,6 +101,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     "retry_delay_min",
     "amd_enabled",
     "metadata",
+    "data_table_id",
     // Phase 4: mission + script + agent team (no FK on agent_team_id).
     "mission",
     "script_id",

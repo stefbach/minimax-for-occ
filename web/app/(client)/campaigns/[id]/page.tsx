@@ -113,12 +113,17 @@ export default async function CampaignDetailPage({
     state: campaign.state,
     mode: (campaign.mode as string) ?? "static",
     agent_handle_name: agentName,
+    agent_handle_id: campaign.agent_handle_id ?? null,
+    agent_team_id: (campaign as Record<string, unknown>).agent_team_id as string | null ?? null,
     phone_e164: phone?.e164 ?? campaign.caller_id_e164 ?? null,
+    phone_number_id: campaign.phone_number_id ?? null,
+    data_table_id: (campaign as Record<string, unknown>).data_table_id as string | null ?? null,
     max_concurrency: campaign.max_concurrency,
     max_attempts: campaign.max_attempts,
     retry_delay_min: campaign.retry_delay_min,
     amd_enabled: campaign.amd_enabled,
     schedule: campaign.schedule ?? {},
+    metadata: (campaign.metadata as Record<string, unknown> | null) ?? null,
     created_at: campaign.created_at,
     engine: engine
       ? {
