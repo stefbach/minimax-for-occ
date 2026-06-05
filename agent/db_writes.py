@@ -407,10 +407,14 @@ def append_transcript_turn(
 
 
 def trigger_post_call_pipeline(call_id: Optional[str]) -> None:
-    """Best-effort: ask the web app to generate the summary then run analyses.
+    """Best-effort: ask the web app to generate the summary, run analyses,
+    AND propagate the call's signals back into the tenant's data_table
+    (e.g. OCC's leads_rdv: call_count, last_call_datetime, date_jN,
+    cycle_status, etc.).
 
-    Uses NEXT_PUBLIC_APP_URL (or VERCEL_URL) so we hit the deployed API. If
-    neither is set, we no-op — the front-end can also trigger this manually.
+    Uses NEXT_PUBLIC_APP_URL (or VERCEL_URL) so we hit the deployed API.
+    If neither is set, we no-op — the front-end can also trigger this
+    manually from the call detail page.
     """
     if not call_id:
         return
@@ -423,11 +427,18 @@ def trigger_post_call_pipeline(call_id: Optional[str]) -> None:
         return
     base = base.rstrip("/")
     headers = {"Content-Type": "application/json"}
-    # Forward the service-role key as a bearer to skip user auth — the
-    # endpoints don't enforce auth on the server-only flow yet.
+    token = os.getenv("APP_SHARED_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
     try:
         with httpx.Client(timeout=httpx.Timeout(30.0), headers=headers) as c:
-            for path in (f"/api/calls/{call_id}/summary", f"/api/calls/{call_id}/analyze"):
+            # sync-lead first so leads_rdv reflects the latest state before
+            # the LLM summary uses it as context.
+            for path in (
+                f"/api/calls/{call_id}/sync-lead",
+                f"/api/calls/{call_id}/summary",
+                f"/api/calls/{call_id}/analyze",
+            ):
                 try:
                     r = c.post(f"{base}{path}", json={})
                     if r.status_code >= 400:
