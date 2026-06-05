@@ -13,7 +13,14 @@ function fmtDur(secs: number): string {
 function fmtDate(iso: string): string {
   if (!iso) return "";
   const d = new Date(iso);
-  return d.toLocaleString(undefined, { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+  // Unambiguous 24h DD/MM HH:MM in the user's local timezone. Replaces
+  // the previous "Jun 04, 5:16 PM" format which a Mauritius user (UTC+4)
+  // confused for UTC because it didn't show seconds or TZ.
+  return d.toLocaleString("fr-FR", {
+    day: "2-digit", month: "2-digit",
+    hour: "2-digit", minute: "2-digit",
+    hour12: false,
+  });
 }
 
 const THRESHOLD_OPTIONS = [60, 120, 180, 300, 600];
@@ -97,9 +104,15 @@ export function DirectorTab({ from, to, direction }: { from: string; to: string;
         ))}
       </div>
 
-      {/* THRESHOLD CHIP ROW */}
-      <div className="card" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, padding: 12 }}>
-        <span className="muted" style={{ fontSize: 12 }}>{t("« appels longs »")} :</span>
+      {/* THRESHOLD CHIP ROW — controls the "Durée > X" KPI tile above. */}
+      <div
+        className="card"
+        style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, padding: 12 }}
+      >
+        <span style={{ fontSize: 12, fontWeight: 600 }}>
+          {t("Seuil « appel qualitatif »")}
+          <span className="muted" style={{ fontWeight: 400 }}> · {t("durée minimum")} :</span>
+        </span>
         {THRESHOLD_OPTIONS.map((s) => (
           <button
             key={s}
@@ -108,13 +121,21 @@ export function DirectorTab({ from, to, direction }: { from: string; to: string;
             style={{ padding: "3px 10px", fontSize: 12 }}
             onClick={() => setThreshold(s)}
           >
-            {s < 60 ? `${s}s` : `${s / 60}min`}
+            {s < 60 ? `${s}s` : `${s / 60} min`}
           </button>
         ))}
-        <div style={{ flex: 1 }} />
-        <span className="muted" style={{ fontSize: 12 }}>
-          Total : <strong>{k.totalCalls}</strong> · {t("Décrochés")} : <strong style={{ color: "var(--good)" }}>{k.answered}</strong> · {t("Non décrochés")} : <strong style={{ color: "var(--bad)" }}>{k.notAnswered}</strong>
+        <span
+          style={{
+            marginLeft: 8, fontSize: 13, padding: "4px 10px",
+            background: "color-mix(in srgb, var(--accent) 12%, transparent)",
+            color: "var(--accent)", borderRadius: 6, fontWeight: 600,
+          }}
+        >
+          ⧖ {k.callsOverThreshold} {t("appel(s)")} {">"} {threshold < 60 ? `${threshold}s` : `${threshold / 60} min`}
         </span>
+        <div className="muted" style={{ fontSize: 11, flex: 1, minWidth: 200 }}>
+          {t("Filtre la tuile « DURÉE > X » ci-dessus. Les autres KPI ne changent pas.")}
+        </div>
       </div>
 
       {/* TOTALS STRIP */}

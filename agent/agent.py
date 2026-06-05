@@ -1589,6 +1589,17 @@ async def entrypoint(ctx: JobContext) -> None:
     # fallback if Twilio's StatusCallback never reaches us — see _on_shutdown.
     from datetime import datetime as _dt2, timezone as _tz2
     _session_answered_at_iso = _dt2.now(_tz2.utc).isoformat()
+    # Stamp the LiveKit room name onto calls.metadata so the
+    # /api/livekit/agent-webhook can match an inbound LK session-ended
+    # webhook to its call row by exact equality instead of relying on a
+    # fragile room-name regex.
+    try:
+        from db_writes import update_call_metadata as _ucm
+        room_name = getattr(ctx.room, "name", None)
+        if room_name and call_id:
+            await asyncio.to_thread(_ucm, call_id, {"lk_room_name": room_name})
+    except Exception:
+        clog.exception("could not stamp lk_room_name on calls.metadata")
     _wire_transcript_hooks(session, call_id)
     _wire_latency_metrics(session, clog)
     _wire_debug_logs(session, clog)
