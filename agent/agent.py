@@ -579,8 +579,19 @@ class AxonVoiceAgent(Agent):
             import time as _t
             _b = _t.monotonic()
             logger.info("greeting: say() begin")
-            await self.session.say(text=self._greeting, allow_interruptions=True)
-            logger.info("greeting: say() returned in %.2fs", _t.monotonic() - _b)
+            try:
+                await self.session.say(text=self._greeting, allow_interruptions=True)
+                logger.info("greeting: say() returned in %.2fs", _t.monotonic() - _b)
+            except Exception:
+                # Patient hung up mid-greeting / TTS crashed / pipeline torn
+                # down. Don't propagate — the session-shutdown hooks finalize
+                # the call cleanly. Without this catch the worker would log
+                # an "unhandled exception" and the call row would be left
+                # in an inconsistent state.
+                logger.info(
+                    "greeting: say() interrupted after %.2fs (likely hangup)",
+                    _t.monotonic() - _b,
+                )
 
 
 async def _watch_handoff(ctx: JobContext, session: AgentSession) -> None:
@@ -870,7 +881,7 @@ def _install_call_hygiene(
     session: AgentSession,
     clog,
     *,
-    idle_timeout: float = 15.0,
+    idle_timeout: float = 20.0,
     goodbye_grace: float = 5.0,
 ) -> None:
     """Hang up the call automatically to stop the meter when there's no
@@ -902,14 +913,19 @@ def _install_call_hygiene(
         r"|take\s*care"
         r"|talk\s+to\s+you\s+soon"
         r"|speak\s+(soon|to\s+you\s+soon)"
-        r"|have\s+a\s+(great|good|nice)\s+(day|evening|weekend)"
+        r"|have\s+a\s+(great|good|nice|wonderful)\s+(day|evening|weekend|afternoon)"
+        # French — both accented and unaccented because LLM transcripts /
+        # voice agents routinely drop accents.
         r"|au\s*revoir"
-        r"|à\s*(bient[oô]t|plus\s*tard)"
-        r"|bonne\s+(journ[ée]e|soir[ée]e)"
-        r"|hasta\s+(luego|pronto)"
+        r"|[aà]\s*(bient[oô]t|bientot|plus\s*tard|tr[èe]s\s*vite)"
+        r"|bonne\s+(journ[ée]e|journee|soir[ée]e|soiree|fin\s+de\s+journ[ée]e)"
+        # Spanish
+        r"|hasta\s+(luego|pronto|ma[ñn]ana)"
         r"|adi[oó]s"
+        # German
         r"|tsch[üu]ss"
         r"|auf\s+wiederh[öo]ren"
+        r"|sch[öo]nen\s+tag"
         r")\b",
         _re.IGNORECASE,
     )
