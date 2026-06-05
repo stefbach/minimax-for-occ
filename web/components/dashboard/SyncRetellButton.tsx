@@ -21,13 +21,20 @@ export function SyncRetellButton() {
       const j = await r.json();
       if (!r.ok) {
         if (j.error === "retell_not_configured") {
-          throw new Error(t("Clé Retell non configurée (RETELL_API_KEY)."));
+          throw new Error(t("Clé Retell non configurée (RETELL_API_KEY) sur ce déploiement."));
         }
         throw new Error(j.error ?? `HTTP ${r.status}`);
       }
-      setMsg(`${j.inserted} ${t("appel(s) importé(s)")}`);
-      // Let the operator read the count, then refresh so all KPIs update.
-      setTimeout(() => window.location.reload(), 1200);
+      // Full counts so the operator can see exactly what happened — including
+      // the "0 imported" case (already up to date, or nothing in the window).
+      const inserted = Number(j.inserted ?? 0);
+      setMsg(
+        `${inserted} ${t("importé(s)")} · ${j.fetched ?? 0} ${t("vus")} · ${j.skipped_existing ?? 0} ${t("déjà présents")}`,
+      );
+      // Only reload when something actually changed, so a "0 imported"
+      // diagnostic message stays readable instead of vanishing on refresh.
+      if (inserted > 0) setTimeout(() => window.location.reload(), 1500);
+      else setBusy(false);
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "error");
       setBusy(false);

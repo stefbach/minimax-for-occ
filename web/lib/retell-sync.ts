@@ -176,6 +176,7 @@ export interface RetellSyncResult {
   skipped_existing: number;
   skipped_invalid: number;
   cost_events: number;
+  error?: string;
 }
 
 export async function syncRetellCalls(
@@ -187,6 +188,7 @@ export async function syncRetellCalls(
   const sb = supabaseServer();
 
   const raw = await fetchRetellCallsSince({ sinceMs, maxCalls });
+  console.log(`[retell-sync] org=${orgId} since=${new Date(sinceMs).toISOString()} fetched=${raw.length}`);
 
   // Dedup vs already-synced calls in the window.
   const sinceIso = new Date(sinceMs).toISOString();
@@ -251,11 +253,13 @@ export async function syncRetellCalls(
     }
   }
 
-  return {
+  const result: RetellSyncResult = {
     fetched: raw.length,
     inserted,
     skipped_existing: raw.length - skippedInvalid - inserted,
     skipped_invalid: skippedInvalid,
     cost_events: costEvents,
   };
+  console.log(`[retell-sync] org=${orgId} done`, result);
+  return result;
 }

@@ -34,7 +34,9 @@ export async function POST(request: Request) {
     const result = await syncRetellCalls(orgId, { sinceMs, maxCalls });
     return NextResponse.json({ ok: true, ...result });
   } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error(`[sync-retell] POST failed org=${orgId}: ${msg}`);
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
 
