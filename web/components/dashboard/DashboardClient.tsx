@@ -165,11 +165,11 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
         {tab === "logs" && (
           <>
             <PeriodBar period={period} filters={filters} onPeriod={setPeriod} onFilters={setFilters} />
-            <CallLogsTab from={period.from} to={period.to} direction={filters.direction} />
+            <CallLogsTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} />
           </>
         )}
 
-        {tab === "live" && <LiveMonitorClient />}
+        {tab === "live" && <LiveMonitorClient leadsSource={filters.leadsSource} />}
 
         {tab === "errors" && <ErrorsAlertsTab />}
 

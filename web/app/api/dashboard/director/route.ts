@@ -4,6 +4,7 @@ import { requestOrgId } from "@/lib/request-org";
 import { requireModule } from "@/lib/permissions-server";
 import { bucketForCall, QUAL_BUCKETS, type QualBucket } from "@/lib/qualification";
 import { isInbound, normalizeDirectionForDb } from "@/lib/call-direction";
+import { callBelongsToLeadsSource, leadsTableFor, phoneSetForLeadsSource, type LeadsSource } from "@/lib/leads-source";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -73,6 +74,7 @@ type CallRow = {
   disposition: string | null;
   agent_handle_id: string | null;
   contact_id: string | null;
+  to_e164: string | null;
   summary: string | null;
   metadata: { qualification?: string | null } | null;
   agent_handles?: { display_name: string | null } | null;
@@ -113,9 +115,8 @@ export async function GET(request: Request) {
   // Lets the operator flip between the production leads table and the
   // sandbox test table used to validate new flows without polluting OCC's
   // production stats. Defaults to prod.
-  const leadsTable = searchParams.get("leads_source") === "test"
-    ? "leads_rdv_test_axon"
-    : "leads_rdv";
+  const leadsSource: LeadsSource = searchParams.get("leads_source") === "test" ? "test" : "prod";
+  const leadsTable = leadsTableFor(leadsSource);
 
   const sb = supabaseServer();
 
@@ -124,7 +125,7 @@ export async function GET(request: Request) {
   let q = sb
     .from("calls")
     .select(
-      "id, direction, state, answered_at, started_at, duration_secs, disposition, agent_handle_id, contact_id, summary, metadata, agent_handles(display_name), contacts(display_name)",
+      "id, direction, state, answered_at, started_at, duration_secs, disposition, agent_handle_id, contact_id, to_e164, summary, metadata, agent_handles(display_name), contacts(display_name)",
     )
     .eq("org_id", orgId)
     .gte("started_at", from.toISOString())
@@ -135,8 +136,14 @@ export async function GET(request: Request) {
   const { data, error } = await q;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+  // Restrict every KPI on this dashboard to calls placed to leads from the
+  // selected table (Prod or Test). Without this filter the Total / Coût /
+  // RDV tiles would mix sandbox + production numbers, which is what the
+  // operator was actually seeing in the original toggle UX.
+  const phoneSet = await phoneSetForLeadsSource(leadsSource);
+
   const rows = ((data ?? []) as unknown as CallRow[]).filter(
-    (r) => !ACTIVE.has(r.state ?? ""),
+    (r) => !ACTIVE.has(r.state ?? "") && callBelongsToLeadsSource(r.to_e164 ?? null, phoneSet),
   );
 
   // KPIs
@@ -188,18 +195,32 @@ export async function GET(request: Request) {
   const rdvConfirmed = qcount.rdv_confirme;
   const callbacks = qcount.rappel;
 
-  // Cost over the period.
+  // Cost over the period — but only for the calls that survived the
+  // leads-source filter, otherwise the "Coût consommé" tile would still
+  // count usage events from sandbox calls when the operator picked Prod
+  // (or vice versa). Match on metadata.call_id which is what the agent
+  // and Twilio status webhook both set.
+  const inScopeIds = new Set(rows.map((r) => r.id));
   const { data: usage } = await sb
     .from("usage_events")
-    .select("cost_cents")
+    .select("cost_cents, metadata")
     .eq("org_id", orgId)
     .gte("occurred_at", from.toISOString())
     .lte("occurred_at", to.toISOString());
   const cost =
-    (usage ?? []).reduce(
-      (a, u) => a + (Number((u as { cost_cents: number }).cost_cents) || 0),
-      0,
-    ) / 100;
+    (usage ?? [])
+      .filter((u) => {
+        const cid = (u as { metadata?: { call_id?: string } | null }).metadata?.call_id;
+        // Keep events with no call_id only when there is no filter active
+        // (phoneSet === null), otherwise we'd leak sandbox events back into
+        // the prod view.
+        if (!cid) return phoneSet === null;
+        return inScopeIds.has(cid);
+      })
+      .reduce(
+        (a, u) => a + (Number((u as { cost_cents: number }).cost_cents) || 0),
+        0,
+      ) / 100;
 
   // Chaîne d'agents — count distinct agents touched per call from call_events.
   // Initial agent is calls.agent_handle_id (may be null for inbound). Handoffs
