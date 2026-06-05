@@ -783,6 +783,23 @@ def auto_qualify_call(call_id: Optional[str]) -> None:
                 "qualification": qual,
                 "qualification_source": "auto_inferred",
             }
+            # Re-check just before write to avoid a race where
+            # save_contact_data committed an explicit qualification
+            # between our initial read and this PATCH. Without this guard,
+            # auto-inferred "PAS DE REPONSE" could overwrite an agent-set
+            # "consultation_booked" simply because the AI's HTTP write
+            # arrived a few ms later than ours.
+            r_chk = c.get(_supabase_url(
+                f"/rest/v1/calls?id=eq.{call_id}&select=metadata"
+            ))
+            if r_chk.is_success:
+                chk = (r_chk.json() or [{}])[0].get("metadata") or {}
+                if isinstance(chk, dict) and chk.get("qualification") and chk.get("qualification_source") != "auto_inferred":
+                    logger.info(
+                        "auto_qualify_call: %s skipped — explicit qualification %s appeared during inference",
+                        call_id, chk.get("qualification"),
+                    )
+                    return
             r2 = c.patch(
                 _supabase_url(f"/rest/v1/calls?id=eq.{call_id}"),
                 headers={

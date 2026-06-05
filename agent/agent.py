@@ -518,19 +518,30 @@ def _build_save_contact_tool(
         if notes:
             fields.setdefault("note", notes)
 
-        if use_table:
-            result = await asyncio.to_thread(_save_table, data_table, data_row_id, fields)
-        else:
-            result = await asyncio.to_thread(
-                _save_contact,
-                contact_id,
-                org_id,
-                fields,
-                display_name=display_name or None,
-                email=email or None,
-                notes=notes or None,
-                call_id=call_id,
-            )
+        # Race-safety against the idle watchdog. Bump save_in_flight so
+        # the watchdog defers its hangup decision while we PATCH leads_rdv.
+        # Without this, a 20s idle that lands exactly mid-HTTP can cancel
+        # the asyncio.to_thread call and silently drop the lead update.
+        _hyg = _HYGIENE_STATES.get(call_id or "") if call_id else None
+        if isinstance(_hyg, dict):
+            _hyg["save_in_flight"] = int(_hyg.get("save_in_flight", 0)) + 1
+        try:
+            if use_table:
+                result = await asyncio.to_thread(_save_table, data_table, data_row_id, fields)
+            else:
+                result = await asyncio.to_thread(
+                    _save_contact,
+                    contact_id,
+                    org_id,
+                    fields,
+                    display_name=display_name or None,
+                    email=email or None,
+                    notes=notes or None,
+                    call_id=call_id,
+                )
+        finally:
+            if isinstance(_hyg, dict):
+                _hyg["save_in_flight"] = max(0, int(_hyg.get("save_in_flight", 1)) - 1)
         if result.get("ok"):
             # Notify any configured n8n webhooks (post-RDV Email/WhatsApp etc.)
             # the moment a watched column like `qualification` is written.
@@ -630,6 +641,13 @@ async def _watch_handoff(ctx: JobContext, session: AgentSession) -> None:
         except Exception:
             continue
     logger.debug("handoff watcher: no metadata_changed event on this LiveKit version")
+
+
+# Per-call mutable state shared between _install_call_hygiene (which owns
+# the idle watchdog) and the save_contact_data tool closure (which lives
+# in a separate scope and needs to bump save_in_flight to block hangups
+# during HTTP writes). Keyed by call_id; cleaned up at shutdown.
+_HYGIENE_STATES: dict[str, dict] = {}
 
 
 _LANG_NAMES = {
@@ -893,22 +911,27 @@ def _install_call_hygiene(
     session: AgentSession,
     clog,
     *,
-    idle_timeout: float = 20.0,
+    idle_timeout: float = 30.0,
     goodbye_grace: float = 5.0,
 ) -> None:
     """Hang up the call automatically to stop the meter when there's no
-    point staying connected. Three triggers:
+    point staying connected. Triggers:
 
-      1. Idle: no user STT *and* no agent speech for `idle_timeout` seconds.
-         Catches voicemails (user says nothing after pickup), dropped audio,
-         and patients who forgot to hang up.
-      2. Goodbye: the agent says a clear closing phrase (e.g. "bye", "take
-         care"). After TTS finishes plus `goodbye_grace` seconds, disconnect.
-      3. Conversation already over: same path as #2 but covers the case
-         where the user said goodbye and the agent just acknowledged.
+      1. Idle: no user STT *and* no agent activity for `idle_timeout`
+         seconds. "Agent activity" tracks BOTH `conversation_item_added`
+         (when LLM output is committed) and `metrics_collected` (LLM-TTFT
+         and TTS-TTFB), so we don't false-trigger while the agent is in
+         the middle of a long TTS response (which can stream for 15-20s
+         before the conversation_item event finalises).
+      2. Goodbye: the agent says a clear closing phrase (regex matches
+         "bye / take care / see you / au revoir / etc."). After TTS
+         finishes plus `goodbye_grace` seconds of caller silence, we
+         disconnect.
 
-    All thresholds are env-overridable via IDLE_HANGUP_SECONDS /
-    GOODBYE_GRACE_SECONDS so we can tune in production without redeploying.
+    Defaults raised to 30s for idle after OCC pilots showed Charlotte
+    being cut mid-sentence on long explanations. Both thresholds are
+    env-overridable via IDLE_HANGUP_SECONDS / GOODBYE_GRACE_SECONDS so we
+    can tune in production without redeploying.
     """
     import time as _t
     idle_timeout = float(os.getenv("IDLE_HANGUP_SECONDS", str(idle_timeout)))
@@ -922,22 +945,37 @@ def _install_call_hygiene(
         r"\b("
         r"bye[\s,!.?-]*bye"
         r"|good\s*bye"
+        r"|good\s*bye\s+for\s+now"
         r"|take\s*care"
         r"|talk\s+to\s+you\s+soon"
-        r"|speak\s+(soon|to\s+you\s+soon)"
-        r"|have\s+a\s+(great|good|nice|wonderful)\s+(day|evening|weekend|afternoon)"
+        r"|talk\s+soon"
+        r"|speak\s+(soon|to\s+you\s+soon|with\s+you\s+soon)"
+        r"|see\s+you\s+(soon|later|next|tomorrow|in\s+a\s+bit)"
+        r"|catch\s+(you|up\s+with\s+you)\s+(later|soon)"
+        r"|have\s+a\s+(great|good|nice|wonderful|lovely)\s+(day|evening|weekend|afternoon|night)"
+        r"|we[''ll]+\s+be\s+in\s+touch"
+        r"|cheers"
+        r"|cheerio"
+        r"|ta\s+ta"
+        r"|toodle\s*oo"
         # French — both accented and unaccented because LLM transcripts /
         # voice agents routinely drop accents.
         r"|au\s*revoir"
-        r"|[aà]\s*(bient[oô]t|bientot|plus\s*tard|tr[èe]s\s*vite)"
-        r"|bonne\s+(journ[ée]e|journee|soir[ée]e|soiree|fin\s+de\s+journ[ée]e)"
+        r"|[aà]\s*(bient[oô]t|bientot|plus\s*tard|tr[èe]s\s*vite|toute\s*[àa]\s*l[''](?:heure))"
+        r"|bonne\s+(journ[ée]e|journee|soir[ée]e|soiree|fin\s+de\s+journ[ée]e|continuation)"
+        r"|on\s+se\s+(rappelle|recontacte)"
         # Spanish
-        r"|hasta\s+(luego|pronto|ma[ñn]ana)"
+        r"|hasta\s+(luego|pronto|ma[ñn]ana|la\s+vista)"
         r"|adi[oó]s"
+        r"|nos\s+vemos"
         # German
         r"|tsch[üu]ss"
         r"|auf\s+wiederh[öo]ren"
         r"|sch[öo]nen\s+tag"
+        r"|bis\s+(bald|sp[äa]ter|morgen)"
+        # Italian
+        r"|arrivederci"
+        r"|ciao"
         r")\b",
         _re.IGNORECASE,
     )
@@ -947,7 +985,18 @@ def _install_call_hygiene(
         "last_agent_ts": _t.monotonic(),
         "goodbye_armed_at": None,  # monotonic ts when goodbye phrase was detected
         "hung_up": False,
+        # Race-safety: save_contact_data writes to leads_rdv via HTTP. If the
+        # idle timer fires WHILE that write is in flight, the asyncio.to_thread
+        # call can be cancelled and the leads_rdv update silently lost. The
+        # tool flips this counter around its call, and the watchdog refuses
+        # to hang up while it's > 0.
+        "save_in_flight": 0,
     }
+    # Stash the state on the module-level map keyed by call_id so the
+    # save_contact_data tool (built in a separate scope) can find it.
+    cid = getattr(ctx, "_call_id", None)
+    if cid:
+        _HYGIENE_STATES[cid] = state
 
     async def _hangup(reason: str) -> None:
         if state["hung_up"]:
@@ -988,9 +1037,24 @@ def _install_call_hygiene(
         except Exception:
             clog.exception("call hygiene: item hook failed")
 
+    def _on_metrics(ev) -> None:
+        # LLMMetrics (TTFT) and TTSMetrics (TTFB) fire during the streaming
+        # window — much earlier than conversation_item_added, which only
+        # commits at the END of LLM generation. Without this hook a long
+        # TTS response (10-20s of Cartesia audio) looks like silence to
+        # the watchdog and the idle timer wrongly trips.
+        try:
+            metrics = getattr(ev, "metrics", None)
+            cls = type(metrics).__name__ if metrics is not None else ""
+            if cls in ("LLMMetrics", "TTSMetrics", "EOUMetrics"):
+                state["last_agent_ts"] = _t.monotonic()
+        except Exception:
+            pass
+
     for ev_name, fn in (
         ("user_input_transcribed", _on_user_speech),
         ("conversation_item_added", _on_item),
+        ("metrics_collected", _on_metrics),
     ):
         try:
             session.on(ev_name, fn)
@@ -1004,6 +1068,11 @@ def _install_call_hygiene(
             await asyncio.sleep(max(5.0, idle_timeout / 2))
             while not state["hung_up"]:
                 await asyncio.sleep(2.0)
+                # Honour in-flight saves: if save_contact_data is mid-PATCH,
+                # delay any hangup until it completes so leads_rdv writes
+                # don't get lost when the asyncio task is cancelled.
+                if state.get("save_in_flight", 0) > 0:
+                    continue
                 now = _t.monotonic()
                 # Goodbye-armed path wins because it's the most deterministic.
                 ga = state["goodbye_armed_at"]
@@ -1863,6 +1932,19 @@ async def entrypoint(ctx: JobContext) -> None:
             clog.exception("BackgroundAudioPlayer setup failed; continuing without filler audio")
 
     async def _on_shutdown():
+        # 0. Wait briefly for any in-flight save_contact_data to complete
+        #    BEFORE we finalize. The save_in_flight counter is bumped by
+        #    the tool around its HTTP PATCH; if the watchdog or the room
+        #    closed mid-call, the write may still be racing.
+        try:
+            _hyg = _HYGIENE_STATES.get(call_id or "")
+            if isinstance(_hyg, dict):
+                for _ in range(50):  # up to 5s waiting in 100ms slices
+                    if int(_hyg.get("save_in_flight", 0)) <= 0:
+                        break
+                    await asyncio.sleep(0.1)
+        except Exception:
+            pass
         # 1. Write definitive call state to the DB so the dashboard shows a
         #    finished call. Necessary because Twilio's StatusCallback often
         #    can't reach our Vercel endpoint (APP_URL env mismatch on Fly /
@@ -1925,6 +2007,13 @@ async def entrypoint(ctx: JobContext) -> None:
             # Best-effort. A failed DeleteRoom only leaks one room and the
             # post-call pipeline already fired above.
             clog.exception("room cleanup: DeleteRoom failed")
+        # Drop the per-call hygiene state from the module-level map so the
+        # process doesn't accumulate state for finished calls.
+        try:
+            if call_id and call_id in _HYGIENE_STATES:
+                _HYGIENE_STATES.pop(call_id, None)
+        except Exception:
+            pass
 
     try:
         ctx.add_shutdown_callback(_on_shutdown)
