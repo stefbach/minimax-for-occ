@@ -4,6 +4,7 @@ import { requestOrgId } from "@/lib/request-org";
 import { requireModule } from "@/lib/permissions-server";
 import { bucketForCall } from "@/lib/qualification";
 import { qualifyCall, type QualifyResult } from "@/lib/analysis-runner";
+import { callBelongsToLeadsSource, phoneSetForLeadsSource, type LeadsSource } from "@/lib/leads-source";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,6 +17,7 @@ type Row = {
   state: string | null;
   answered_at: string | null;
   disposition: string | null;
+  to_e164: string | null;
   metadata: { qualification?: string | null } | null;
 };
 
@@ -23,23 +25,35 @@ type Row = {
 // bucket and have the AI assign a real qualification to each. Bounded per call
 // so a single click can't run away on cost. GET reports the backlog count
 // without spending anything; POST performs the qualification.
-async function countCandidates(orgId: string, days: number): Promise<{ ids: string[] }> {
+// Scoped to the selected leads source so the Test toggle doesn't accidentally
+// requalify production calls (and vice-versa).
+async function countCandidates(
+  orgId: string,
+  days: number,
+  source: LeadsSource,
+): Promise<{ ids: string[] }> {
   const sb = supabaseServer();
   const since = new Date(Date.now() - days * 86400_000).toISOString();
   const { data, error } = await sb
     .from("calls")
-    .select("id, state, answered_at, disposition, metadata")
+    .select("id, state, answered_at, disposition, to_e164, metadata")
     .eq("org_id", orgId)
     .not("answered_at", "is", null)
     .gte("started_at", since)
     .order("started_at", { ascending: false })
     .limit(2000);
   if (error) throw new Error(error.message);
+  const phoneSet = await phoneSetForLeadsSource(source);
   const ids = ((data ?? []) as Row[])
     .filter((r) => !ACTIVE.has(r.state ?? ""))
+    .filter((r) => callBelongsToLeadsSource(r.to_e164, phoneSet))
     .filter((r) => bucketForCall(r) === "autre")
     .map((r) => r.id);
   return { ids };
+}
+
+function parseLeadsSource(qs: URLSearchParams): LeadsSource {
+  return qs.get("leads_source") === "test" ? "test" : "prod";
 }
 
 export async function GET(request: Request) {
@@ -49,10 +63,12 @@ export async function GET(request: Request) {
   if (!gate.allowed) {
     return NextResponse.json({ error: "module_forbidden", module: "dashboard" }, { status: 403 });
   }
-  const days = Math.min(365, Math.max(1, Number(new URL(request.url).searchParams.get("days") ?? 30)));
+  const sp = new URL(request.url).searchParams;
+  const days = Math.min(365, Math.max(1, Number(sp.get("days") ?? 30)));
+  const source = parseLeadsSource(sp);
   try {
-    const { ids } = await countCandidates(orgId, days);
-    return NextResponse.json({ ok: true, pending: ids.length });
+    const { ids } = await countCandidates(orgId, days, source);
+    return NextResponse.json({ ok: true, pending: ids.length, leads_source: source });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
   }
@@ -72,9 +88,10 @@ export async function POST(request: Request) {
   const days = Math.min(365, Math.max(1, Number(searchParams.get("days") ?? 30)));
   // Cap how many calls one request will classify (cost / time guard).
   const limit = Math.min(25, Math.max(1, Number(searchParams.get("limit") ?? 25)));
+  const source = parseLeadsSource(searchParams);
 
   try {
-    const { ids } = await countCandidates(orgId, days);
+    const { ids } = await countCandidates(orgId, days, source);
     const batch = ids.slice(0, limit);
     const results: QualifyResult[] = [];
     for (const id of batch) {
@@ -91,6 +108,7 @@ export async function POST(request: Request) {
     const qualified = results.filter((r) => r.status === "qualified").length;
     return NextResponse.json({
       ok: true,
+      leads_source: source,
       pending_before: ids.length,
       processed: batch.length,
       qualified,

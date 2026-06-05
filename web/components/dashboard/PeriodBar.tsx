@@ -3,7 +3,14 @@
 import { useT } from "@/lib/i18n";
 
 export type Period = { from: string; to: string; preset: string };
-export type Filters = { direction: "all" | "inbound" | "outbound" };
+export type Filters = {
+  direction: "all" | "inbound" | "outbound";
+  // Picks which leads table the dashboard summarises for the J1/J3/J5
+  // phase counts and the source-attribution breakdown. Production is the
+  // default; switching to 'test' lets the operator validate new flows
+  // without polluting OCC's real numbers.
+  leadsSource: "prod" | "test";
+};
 
 function startOfDay(d: Date): Date {
   const x = new Date(d);
@@ -80,17 +87,50 @@ export function PeriodBar({
         })}
       </div>
 
-      <div style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 8 }}>
-        <span className="muted" style={{ fontSize: 12 }}>{t("Sens")}</span>
-        <select
-          value={filters.direction}
-          onChange={(e) => onFilters({ ...filters, direction: e.target.value as Filters["direction"] })}
-          style={{ width: "auto", padding: "5px 8px", fontSize: 13 }}
-        >
-          <option value="all">{t("Tous")}</option>
-          <option value="inbound">{t("↘ Entrants")}</option>
-          <option value="outbound">{t("↗ Sortants")}</option>
-        </select>
+      <div style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <span className="muted" style={{ fontSize: 12 }}>{t("Source leads")}</span>
+          <div style={{ display: "inline-flex", border: "1px solid var(--border)", borderRadius: 6, overflow: "hidden" }}>
+            <button
+              type="button"
+              onClick={() => onFilters({ ...filters, leadsSource: "prod" })}
+              className={filters.leadsSource === "prod" ? "" : "ghost"}
+              style={{
+                padding: "4px 12px", fontSize: 12, border: "none", borderRadius: 0,
+                background: filters.leadsSource === "prod" ? "var(--good)" : "transparent",
+                color: filters.leadsSource === "prod" ? "white" : "var(--text)",
+              }}
+              title={t("leads_rdv (production OCC)")}
+            >
+              Prod
+            </button>
+            <button
+              type="button"
+              onClick={() => onFilters({ ...filters, leadsSource: "test" })}
+              className={filters.leadsSource === "test" ? "" : "ghost"}
+              style={{
+                padding: "4px 12px", fontSize: 12, border: "none", borderRadius: 0,
+                background: filters.leadsSource === "test" ? "var(--warn)" : "transparent",
+                color: filters.leadsSource === "test" ? "white" : "var(--text)",
+              }}
+              title={t("leads_rdv_test_axon (sandbox)")}
+            >
+              Test
+            </button>
+          </div>
+        </div>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+          <span className="muted" style={{ fontSize: 12 }}>{t("Sens")}</span>
+          <select
+            value={filters.direction}
+            onChange={(e) => onFilters({ ...filters, direction: e.target.value as Filters["direction"] })}
+            style={{ width: "auto", padding: "5px 8px", fontSize: 13 }}
+          >
+            <option value="all">{t("Tous")}</option>
+            <option value="inbound">{t("↘ Entrants")}</option>
+            <option value="outbound">{t("↗ Sortants")}</option>
+          </select>
+        </div>
       </div>
     </div>
   );

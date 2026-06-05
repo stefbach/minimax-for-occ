@@ -3,6 +3,7 @@ import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { requestOrgId } from "@/lib/request-org";
 import { isInbound, isOutbound, normalizeDirectionForDb } from "@/lib/call-direction";
 import { bucketForCall, QUAL_BUCKETS, type QualBucket } from "@/lib/qualification";
+import { callBelongsToLeadsSource, leadsTableFor, phoneSetForLeadsSource, type LeadsSource } from "@/lib/leads-source";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -71,6 +72,7 @@ type CallRow = {
   duration_secs: number | null;
   disposition: string | null;
   contact_id: string | null;
+  to_e164: string | null;
   metadata: { qualification?: string | null } | null;
   agent_handles: { display_name: string | null } | null;
 };
@@ -105,6 +107,8 @@ export async function GET(request: Request) {
   const from = fromParam ? new Date(fromParam) : new Date(now.getTime() - 7 * 86400_000);
   const direction = searchParams.get("direction"); // inbound | outbound | null
   const minDuration = Number(searchParams.get("min_duration") ?? 0);
+  const leadsSource: LeadsSource = searchParams.get("leads_source") === "test" ? "test" : "prod";
+  const leadsTable = leadsTableFor(leadsSource);
 
   const rangeMs = to.getTime() - from.getTime();
   const granularity: "hour" | "day" = rangeMs <= 2 * 86400_000 ? "hour" : "day";
@@ -113,7 +117,7 @@ export async function GET(request: Request) {
   let q = sb
     .from("calls")
     .select(
-      "id, direction, state, started_at, answered_at, duration_secs, disposition, contact_id, metadata, agent_handles(display_name)",
+      "id, direction, state, started_at, answered_at, duration_secs, disposition, contact_id, to_e164, metadata, agent_handles(display_name)",
     )
     .eq("org_id", orgId)
     .gte("started_at", from.toISOString())
@@ -133,8 +137,16 @@ export async function GET(request: Request) {
   }));
   const truncated = rows.length > ROW_CAP;
   if (truncated) rows = rows.slice(0, ROW_CAP);
-  // Exclude still-active calls from historical aggregates; honour min duration.
-  rows = rows.filter((r) => !ACTIVE_STATES.has(r.state ?? "") && (r.duration_secs ?? 0) >= minDuration);
+  // Same leads-source scoping as Vue d'ensemble: when the operator picked
+  // Prod we want to count only calls placed to leads_rdv numbers, ditto
+  // Test → leads_rdv_test_axon.
+  const phoneSet = await phoneSetForLeadsSource(leadsSource);
+  rows = rows.filter(
+    (r) =>
+      !ACTIVE_STATES.has(r.state ?? "")
+      && (r.duration_secs ?? 0) >= minDuration
+      && callBelongsToLeadsSource(r.to_e164 ?? null, phoneSet),
+  );
 
   // ── KPIs ──
   const total = rows.length;
@@ -145,16 +157,21 @@ export async function GET(request: Request) {
   const outbound = rows.filter((r) => isOutbound(r.direction)).length;
 
   // Real cost from recorded usage (telephony minutes + LLM tokens + TTS chars +
-  // STT minutes), summed over the period. cost_cents is fractional cents.
+  // STT minutes), summed over the period and restricted to in-scope calls.
+  const inScopeIds = new Set(rows.map((r) => r.id));
   const { data: usage } = await sb
     .from("usage_events")
-    .select("event_type, cost_cents")
+    .select("event_type, cost_cents, metadata")
     .eq("org_id", orgId)
     .gte("occurred_at", from.toISOString())
     .lte("occurred_at", to.toISOString());
   const breakdown = { call_minutes: 0, llm_tokens: 0, tts_chars: 0, stt_minutes: 0 };
   let totalCents = 0;
-  for (const u of usage ?? []) {
+  for (const u of (usage ?? [])) {
+    const cid = (u as { metadata?: { call_id?: string } | null }).metadata?.call_id;
+    // Drop events that belong to filtered-out calls. Untagged events
+    // (no call_id) only count when no filter is active.
+    if (cid ? !inScopeIds.has(cid) : phoneSet !== null) continue;
     const cents = Number((u as { cost_cents: number }).cost_cents) || 0;
     totalCents += cents;
     const k = (u as { event_type: string }).event_type as keyof typeof breakdown;
@@ -320,23 +337,23 @@ export async function GET(request: Request) {
   ];
 
   // ── Lead source attribution ─────────────────────────────────────────
-  // Reads source_lead from a tenant data table when one exists (OCC's
-  // leads_rdv_test_axon ships with this column; other orgs will get an
-  // empty list, which the UI hides). Joined on phone number to call rows
-  // so we can compute per-source conversion.
+  // Reads source_lead from the tenant's production leads table when one
+  // exists (OCC's leads_rdv ships with this column; other orgs get an empty
+  // list, which the UI hides). Joined on phone number to call rows so we
+  // can compute per-source conversion.
   let sources: SourceRow[] = [];
   try {
-    type LeadRow = { phone_number: string | null; source_lead: string | null };
+    type LeadRow = { numero_telephone: string | null; source_lead: string | null };
     const { data: leads, error: leadsErr } = await sb
-      .from("leads_rdv_test_axon" as never)
-      .select("phone_number, source_lead")
-      .not("phone_number", "is", null)
+      .from(leadsTable as never)
+      .select("numero_telephone, source_lead")
+      .not("numero_telephone", "is", null)
       .limit(20000);
     if (!leadsErr && Array.isArray(leads)) {
       const sourceByPhone = new Map<string, string>();
       for (const l of leads as unknown as LeadRow[]) {
-        if (l.phone_number) {
-          sourceByPhone.set(l.phone_number, (l.source_lead || "Inconnue").trim());
+        if (l.numero_telephone) {
+          sourceByPhone.set(l.numero_telephone, (l.source_lead || "Inconnue").trim());
         }
       }
       // Need to_e164 to do the join — pulled cheaply from the same window.

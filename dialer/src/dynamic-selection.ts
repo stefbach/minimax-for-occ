@@ -1,6 +1,33 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /**
+ * Normalise any messy phone number (with spaces, dashes, leading 0, missing +)
+ * into strict E.164. Defaults UK ("07..." → "+447...") because OCC's leads
+ * are UK patients; override DEFAULT_COUNTRY_PREFIX env if a tenant needs a
+ * different default.
+ *
+ * Returns empty string if the input is unparseable (caller filters out empty).
+ */
+function normalisePhoneToE164(raw: string): string {
+  if (!raw) return "";
+  // Strip every whitespace + every common separator, keep only + and digits.
+  const cleaned = String(raw).replace(/[^\d+]/g, "");
+  if (!cleaned) return "";
+  if (cleaned.startsWith("+")) return cleaned; // already E.164-ish
+  // UK national format: 07xxxxxxxxx → +447xxxxxxxxx (11 digits starting with 0)
+  if (/^0\d{10}$/.test(cleaned)) {
+    return "+44" + cleaned.slice(1);
+  }
+  // UK national without leading 0 but 10 digits starting with 7 → +44 prefix
+  if (/^7\d{9}$/.test(cleaned)) {
+    return "+44" + cleaned;
+  }
+  // Country-prefix fallback (env-tunable for multi-tenant).
+  const defaultCC = process.env.DEFAULT_COUNTRY_PREFIX ?? "+44";
+  return defaultCC + cleaned;
+}
+
+/**
  * Dynamic ("continuous") campaign engine.
  *
  * At each configured time slot, re-select leads from the campaign's data
@@ -196,8 +223,29 @@ export async function runDynamicSelection(sb: SupabaseClient, campaign: Campaign
   if (claimErr || !runRow) return; // lost the race (or insert failed) — skip
 
   try {
-    // Pull candidate leads: status in include_statuses (or all if empty).
-    let q = sb.from(table).select("*").limit(20000);
+    // Pull candidate leads. Three hard exclusions are applied regardless of
+    // the campaign's `include_statuses` to keep OCC compliant with GDPR and
+    // Ofcom (UK Telephone Consumer rules):
+    //   • do_not_call = true        — patient explicitly opted out
+    //   • cycle_status != 'ACTIF'   — closed dossiers / already-RDV'd leads
+    //   • qualification in NEGATIVE — patients flagged as do-not-pursue
+    // The whitelist on status_column still applies on top so the operator's
+    // include_statuses (e.g. NOUVEAU DOSSIER + RAPPEL) further narrows it.
+    const NEGATIVE_QUALS = [
+      "RDV CONFIRME",
+      "FAUX NUMERO",
+      "NE PAS RAPPELER",
+      "NON ELIGIBLE",
+      "PAS INTERESSE",
+      "A PASSER A L'HUMAIN",
+    ];
+    let q = sb
+      .from(table)
+      .select("*")
+      .eq("do_not_call", false)
+      .eq("cycle_status", "ACTIF")
+      .not("qualification", "in", `(${NEGATIVE_QUALS.map((q) => `"${q}"`).join(",")})`)
+      .limit(20000);
     if (engine.selection.include_statuses.length > 0) {
       q = q.in(engine.selection.status_column, engine.selection.include_statuses);
     }
@@ -277,8 +325,8 @@ async function seedSelected(
 ): Promise<number> {
   // 1. Upsert shim contacts.
   const contactsPayload = selected.map((s) => {
-    const tel = String(s.row[phoneCol] ?? "").trim();
-    const e164 = tel.startsWith("+") ? tel : `+${tel.replace(/[^0-9]/g, "")}`;
+    const tel = normalisePhoneToE164(String(s.row[phoneCol] ?? ""));
+    const e164 = tel;
     return { org_id: campaign.org_id, e164, display_name: (s.row["nom"] as string) ?? null };
   });
   const { data: contacts } = await sb
@@ -291,8 +339,8 @@ async function seedSelected(
   const nowIso = new Date().toISOString();
   const targetRows: object[] = [];
   for (const s of selected) {
-    const tel = String(s.row[phoneCol] ?? "").trim();
-    const e164 = tel.startsWith("+") ? tel : `+${tel.replace(/[^0-9]/g, "")}`;
+    const tel = normalisePhoneToE164(String(s.row[phoneCol] ?? ""));
+    const e164 = tel;
     const contact_id = contactByE164.get(e164);
     if (!contact_id) continue;
     targetRows.push({

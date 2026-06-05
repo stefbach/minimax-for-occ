@@ -121,7 +121,7 @@ function LiveCallCard({ call, now }: { call: CallRow; now: number }) {
   );
 }
 
-export function LiveMonitorClient() {
+export function LiveMonitorClient({ leadsSource = "prod" }: { leadsSource?: "prod" | "test" } = {}) {
   const t = useT();
   const [active, setActive] = useState<CallRow[]>([]);
   const [recent, setRecent] = useState<CallRow[]>([]);
@@ -138,7 +138,7 @@ export function LiveMonitorClient() {
 
   const fetchActive = useCallback(async () => {
     try {
-      const r = await fetch(`/api/calls?state=${ACTIVE_STATES}&limit=100`, { cache: "no-store" });
+      const r = await fetch(`/api/calls?state=${ACTIVE_STATES}&limit=100&leads_source=${leadsSource}`, { cache: "no-store" });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
       if (mounted.current) {
@@ -149,11 +149,11 @@ export function LiveMonitorClient() {
     } catch (e) {
       if (mounted.current) setError(e instanceof Error ? e.message : "Erreur");
     }
-  }, []);
+  }, [leadsSource]);
 
   const fetchRecent = useCallback(async () => {
     try {
-      const r = await fetch(`/api/calls?state=${RECENT_STATES}&limit=40`, { cache: "no-store" });
+      const r = await fetch(`/api/calls?state=${RECENT_STATES}&limit=40&leads_source=${leadsSource}`, { cache: "no-store" });
       const j = await r.json();
       if (r.ok && mounted.current) {
         const rows: CallRow[] = Array.isArray(j) ? j : [];
@@ -215,7 +215,7 @@ export function LiveMonitorClient() {
     } catch {
       /* recent feed is best-effort */
     }
-  }, [t]);
+  }, [t, leadsSource]);
 
   useEffect(() => {
     mounted.current = true;

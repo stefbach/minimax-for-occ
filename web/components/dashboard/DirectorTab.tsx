@@ -25,7 +25,7 @@ function fmtDate(iso: string): string {
 
 const THRESHOLD_OPTIONS = [60, 120, 180, 300, 600];
 
-export function DirectorTab({ from, to, direction }: { from: string; to: string; direction: string }) {
+export function DirectorTab({ from, to, direction, leadsSource = "prod" }: { from: string; to: string; direction: string; leadsSource?: "prod" | "test" }) {
   const t = useT();
   const [data, setData] = useState<DirectorResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -40,7 +40,7 @@ export function DirectorTab({ from, to, direction }: { from: string; to: string;
   useEffect(() => {
     let alive = true;
     setLoading(true);
-    const qs = new URLSearchParams({ from, to, threshold: String(threshold) });
+    const qs = new URLSearchParams({ from, to, threshold: String(threshold), leads_source: leadsSource });
     if (direction !== "all") qs.set("direction", direction);
     fetch(`/api/dashboard/director?${qs}`, { cache: "no-store" })
       .then(async (r) => {
@@ -51,16 +51,18 @@ export function DirectorTab({ from, to, direction }: { from: string; to: string;
       .catch((e) => alive && setError(e instanceof Error ? e.message : "error"))
       .finally(() => alive && setLoading(false));
     return () => { alive = false; };
-  }, [from, to, direction, threshold, reloadKey]);
+  }, [from, to, direction, threshold, leadsSource, reloadKey]);
 
   // Ask the AI to classify the answered-but-unqualified calls so they stop
-  // hiding in the "autre" bucket. Bounded server-side; may need a second run
-  // for large backlogs (reported via "remaining").
+  // hiding in the "autre" bucket. Scoped to the current leads source so a
+  // Prod-only backlog isn't re-counted while the operator is browsing Test.
+  // Bounded server-side; may need a second run for large backlogs.
   const runQualify = async () => {
     setQualifying(true);
     setQualifyMsg(null);
     try {
-      const r = await fetch("/api/dashboard/qualify-unqualified", { method: "POST" });
+      const qs = new URLSearchParams({ leads_source: leadsSource });
+      const r = await fetch(`/api/dashboard/qualify-unqualified?${qs}`, { method: "POST" });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
       const remaining = Number(j.remaining ?? 0);

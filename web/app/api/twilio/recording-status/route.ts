@@ -50,13 +50,15 @@ export async function POST(req: Request) {
     ? recordingUrl
     : `${recordingUrl}.mp3`;
 
-  // Find the call row by the stored Twilio SID. The dialer stamps
-  // campaign_targets.payload.twilio_call_sid; the calls row itself has
-  // metadata.twilio_call_sid when /api/twilio/status created/updated it.
+  // Find the call row by Twilio SID. The /api/twilio/status webhook stamps
+  // this on the top-level column `calls.twilio_call_sid` (NOT in metadata —
+  // an earlier audit caught this mismatch which was dropping recordings).
+  // We still order by started_at desc to break ties if a SID is somehow
+  // reused.
   const { data: rows } = await sb
     .from("calls")
     .select("id, metadata")
-    .eq("metadata->>twilio_call_sid", callSid)
+    .eq("twilio_call_sid", callSid)
     .order("started_at", { ascending: false })
     .limit(1);
   const row = (rows ?? [])[0] as { id: string; metadata: Record<string, unknown> | null } | undefined;

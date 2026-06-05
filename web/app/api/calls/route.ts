@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { requestOrgId } from "@/lib/request-org";
+import { callBelongsToLeadsSource, phoneSetForLeadsSource, type LeadsSource } from "@/lib/leads-source";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -78,7 +79,17 @@ export async function GET(request: Request) {
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
-  const calls = (data ?? []) as Array<{ id: string; started_at: string | null }>;
+
+  // Same leads-source scoping the dashboard director / analytics use, so
+  // Call Logs and the Live monitor only show calls placed to leads from
+  // the operator's selected table.
+  const leadsParam = searchParams.get("leads_source");
+  const leadsSource: LeadsSource | null =
+    leadsParam === "test" ? "test" : leadsParam === "prod" ? "prod" : null;
+  const phoneSet = leadsSource ? await phoneSetForLeadsSource(leadsSource) : null;
+
+  const calls = ((data ?? []) as Array<{ id: string; started_at: string | null; to_e164: string | null }>)
+    .filter((c) => callBelongsToLeadsSource(c.to_e164 ?? null, phoneSet));
 
   // Attach real cost per call (sum of usage_events whose metadata.call_id
   // matches). One aggregate query covers the whole list — cheap enough at

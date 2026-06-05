@@ -101,7 +101,7 @@ function counterpartyNumber(c: CallRow): string | null {
   return (c.direction === "inbound" || c.direction === "in") ? c.from_e164 : c.to_e164;
 }
 
-export function CallLogsTab({ from, to, direction }: { from: string; to: string; direction: string }) {
+export function CallLogsTab({ from, to, direction, leadsSource = "prod" }: { from: string; to: string; direction: string; leadsSource?: "prod" | "test" }) {
   const t = useT();
   const [rows, setRows] = useState<CallRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -116,7 +116,7 @@ export function CallLogsTab({ from, to, direction }: { from: string; to: string;
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const qs = new URLSearchParams({ state: stateFilter, limit: "250", from, to });
+      const qs = new URLSearchParams({ state: stateFilter, limit: "250", from, to, leads_source: leadsSource });
       if (direction !== "all") qs.set("direction", direction);
       const r = await fetch(`/api/calls?${qs.toString()}`, { cache: "no-store" });
       const j = await r.json();
@@ -128,7 +128,7 @@ export function CallLogsTab({ from, to, direction }: { from: string; to: string;
     } finally {
       setLoading(false);
     }
-  }, [stateFilter, from, to, direction]);
+  }, [stateFilter, from, to, direction, leadsSource]);
 
   useEffect(() => {
     fetchData();
