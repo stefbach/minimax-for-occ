@@ -390,14 +390,16 @@ export function CallLogsTab({ from, to, direction, leadsSource = "prod", system 
                       <tr>
                         <td colSpan={10} style={{ background: "var(--bg-2)", padding: "10px 14px" }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                            {/* Stream via our origin so playback isn't blocked
+                                by the upstream host's CORS / content-type. */}
                             <audio
                               controls
                               autoPlay
-                              src={c.recording_url}
+                              src={`/api/dashboard/call-recording?id=${encodeURIComponent(c.id)}`}
                               style={{ flex: 1 }}
                             />
                             <a
-                              href={c.recording_url}
+                              href={`/api/dashboard/call-recording?id=${encodeURIComponent(c.id)}`}
                               download
                               className="ghost"
                               style={{ padding: "4px 10px", fontSize: 12, textDecoration: "none", color: "var(--text)" }}

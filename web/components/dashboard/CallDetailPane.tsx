@@ -147,11 +147,12 @@ export function CallDetailPane({
           </h4>
           {detail?.recording_url ? (
             <div style={{ display: "grid", gap: 6 }}>
-              <audio controls preload="metadata" src={detail.recording_url} style={{ width: "100%" }} />
-              {/* Fallback if inline playback fails (codec / network): open the
-                  file directly in a new tab. */}
+              {/* Stream through our own origin (see /api/dashboard/call-recording)
+                  so playback works regardless of the upstream host's CORS /
+                  content-type. */}
+              <audio controls preload="metadata" src={`/api/dashboard/call-recording?id=${encodeURIComponent(call.id)}`} style={{ width: "100%" }} />
               <a
-                href={detail.recording_url}
+                href={`/api/dashboard/call-recording?id=${encodeURIComponent(call.id)}`}
                 target="_blank"
                 rel="noreferrer"
                 className="muted"
