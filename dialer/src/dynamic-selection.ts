@@ -259,22 +259,40 @@ export async function runDynamicSelection(sb: SupabaseClient, campaign: Campaign
       .map((r) => ({ row: r, phase: computePhase(r, engine, now) }))
       .filter((x) => x.phase !== null && phoneOk(String(x.row[phoneCol] ?? ""), engine.selection));
 
-    // Priority: callbacks first, then phase order, fresh (J1/ONCE) shuffled + capped.
+    // Priority: callbacks first, then phase order, fresh (J1/ONCE) capped per day.
     const callbacks = eligible.filter((x) => x.phase === "RAPPEL");
     const firstPhaseName = engine.cadence.phases[0]?.name ?? "ONCE";
-    const fresh = shuffle(eligible.filter((x) => x.phase === firstPhaseName || x.phase === "ONCE"));
+    const firstPhaseCfg = engine.cadence.phases[0];
+    const freshAll = eligible.filter((x) => x.phase === firstPhaseName || x.phase === "ONCE");
     const laterPhases = eligible.filter(
       (x) => x.phase !== "RAPPEL" && x.phase !== firstPhaseName && x.phase !== "ONCE",
     );
 
-    // Per-SLOT cap on NEW (fresh / first-phase / ONCE) leads. Matches OCC's
-    // n8n behaviour where each run injected up to N fresh leads — so 3 slots
-    // x N = up to 3N fresh contacts per day, plus all due relances (J3/J5)
-    // and callbacks (which are not capped).
-    const cap = engine.volume.max_new_per_day ?? 200;
-    const freshCapped = fresh.slice(0, cap);
+    // OCC model: each lead gets up to N attempts in a phase, ALL on the same
+    // day (slot 08/13/18). Then phase date is stamped and the lead waits
+    // wait_business_days for the next phase. Implementation:
+    //   • A lead with attempts > 0 in first-phase = mid-batch (already tried
+    //     today or carried over from a prior morning) → MUST be re-tried this
+    //     slot, counts toward the day's batch.
+    //   • A lead with attempts = 0 = brand-new → can only be picked at the
+    //     FIRST slot of the day (08:00 by convention). At 13:00/18:00 we
+    //     don't top up the batch with new leads — we just retry the morning's
+    //     batch through their remaining max_attempts_per_phase attempts.
+    //   • Total batch size cap = max_new_per_day (default 200), including
+    //     both carryovers and brand-new of the first-phase.
+    const attemptsCol = firstPhaseCfg?.attempts_column ?? "j1_attempts";
+    const freshRetries = freshAll.filter((x) => Number(x.row[attemptsCol]) > 0);
+    const freshNew = shuffle(freshAll.filter((x) => !(Number(x.row[attemptsCol]) > 0)));
 
-    const selected = [...callbacks, ...laterPhases, ...freshCapped];
+    const sortedHours = [...(engine.slots.hours ?? [])].sort();
+    const isFirstSlotOfDay = dueSlot === sortedHours[0];
+
+    const dayCap = engine.volume.max_new_per_day ?? 200;
+    const remainingCap = Math.max(0, dayCap - freshRetries.length);
+    const freshNewCapped = isFirstSlotOfDay ? freshNew.slice(0, remainingCap) : [];
+    const fresh = [...freshRetries, ...freshNewCapped];
+
+    const selected = [...callbacks, ...laterPhases, ...fresh];
 
     if (selected.length === 0) {
       await sb.from("campaign_runs").update({ finished_at: new Date().toISOString(), selected: 0, launched: 0 }).eq("id", runRow?.id);
@@ -377,35 +395,14 @@ async function seedSelected(
     insertedContactIds = new Set((inserted ?? []).map((r) => r.contact_id as string));
   }
 
-  // 3. Phase bookkeeping — only for leads that were NEWLY queued this slot.
-  //    Atomic increment via rpc_bump_lead_phase (UPDATE … = … + 1) so two
-  //    campaigns sharing a table can't clobber each other's counts; the RPC
-  //    also stamps the phase date when the per-phase max is reached, so the
-  //    lead graduates to the next phase after its wait (mirrors OCC set_date_j).
-  if (engine.cadence.enabled) {
-    const maxAtt = engine.cadence.max_attempts_per_phase || 3;
-    for (const s of selected) {
-      if (!s.phase || s.phase === "RAPPEL" || s.phase === "ONCE") continue;
-      const phaseCfg = engine.cadence.phases.find((p) => p.name === s.phase);
-      if (!phaseCfg || !phaseCfg.attempts_column) continue;
-      const rowId = s.row.id;
-      if (!rowId) continue;
-      // Skip leads whose target already existed (duplicate ignored above).
-      const tel = String(s.row[phoneCol] ?? "").trim();
-      const e164 = tel.startsWith("+") ? tel : `+${tel.replace(/[^0-9]/g, "")}`;
-      const cid = contactByE164.get(e164);
-      if (!cid || !insertedContactIds.has(cid)) continue;
-      const { error: bumpErr } = await sb.rpc("rpc_bump_lead_phase", {
-        p_table: table,
-        p_row_id: rowId,
-        p_attempts_col: phaseCfg.attempts_column,
-        p_max: maxAtt,
-        p_date_col: phaseCfg.date_column || "",
-        p_date_val: todayStr,
-      });
-      if (bumpErr) console.error(`[dynamic] phase bump failed row=${rowId}:`, bumpErr.message);
-    }
-  }
+  // Phase bookkeeping (attempts++/date_jN stamp) is intentionally NOT done
+  // here. It now happens server-side in /api/calls/[id]/sync-lead AFTER the
+  // call completes — that endpoint reads the call's outcome and decides
+  // whether to increment + stamp based on terminal-vs-PAS_DE_REPONSE
+  // semantics. Doing it twice (here at dispatch + there at call end) caused
+  // double-counting that prematurely graduated leads out of their phase
+  // (a single 08:00 call would land at attempts=2 by 09:00 and date_j1
+  // already stamped by 13:00 — a bug we observed in production).
 
   return insertedContactIds.size;
 }

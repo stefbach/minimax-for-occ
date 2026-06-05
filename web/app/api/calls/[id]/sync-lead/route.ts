@@ -182,9 +182,34 @@ export async function POST(
     if (has("last_qualification_update")) patch.last_qualification_update = endedAt;
   }
 
-  // Phase progression: stamp date_jN if currently null and the call
-  // belongs to that phase. The cadence engine (dynamic-selection.ts)
-  // interprets date_jN being set as "phase N done, wait for N+1".
+  // Phase progression: stamp date_jN ONLY when the phase is "done", not
+  // on every attempt. The cadence engine reads date_jN being set as "phase
+  // done, wait wait_business_days for next phase". A phase is done when:
+  //   (a) the call had a terminal/qualifying outcome (≠ PAS DE REPONSE /
+  //       REPONDEUR — anything actionable: RDV / refusal / human / etc.), OR
+  //   (b) jN_attempts after this attempt ≥ max_attempts_per_phase (3).
+  // Otherwise we increment the attempt counter but leave date_jN NULL so
+  // the engine re-picks the lead at the next slot in the same day (08/13/18
+  // pattern: 3 tries same day, then move to next phase).
+  const NON_TERMINAL = new Set(["PAS DE REPONSE", "REPONDEUR"]);
+  const isTerminal = !!callQual && !NON_TERMINAL.has(callQual);
+
+  // Read max_attempts_per_phase from the call's campaign. Fall back to 3.
+  let maxAttemptsPerPhase = 3;
+  const campaignId = (call.metadata as Record<string, unknown> | null)?.campaign_id;
+  if (typeof campaignId === "string" && campaignId) {
+    const { data: campRow } = await sb
+      .from("campaigns")
+      .select("metadata")
+      .eq("id", campaignId)
+      .maybeSingle();
+    const camp = (campRow as { metadata?: Record<string, unknown> } | null) ?? null;
+    const cadence = (camp?.metadata as Record<string, unknown> | undefined)?.engine
+      && ((camp!.metadata as Record<string, unknown>).engine as Record<string, unknown>).cadence;
+    const m = (cadence as Record<string, unknown> | undefined)?.max_attempts_per_phase;
+    if (typeof m === "number" && m > 0) maxAttemptsPerPhase = m;
+  }
+
   const phaseStamps: Record<string, [string, string]> = {
     J1: ["date_j1", "j1_attempts"],
     J3: ["date_j3", "j3_attempts"],
@@ -192,11 +217,13 @@ export async function POST(
   };
   if (phase && phaseStamps[phase]) {
     const [dateCol, attemptsCol] = phaseStamps[phase];
-    if (has(dateCol) && (lead?.[dateCol] == null || lead?.[dateCol] === "")) {
-      patch[dateCol] = endedAt.slice(0, 10); // date column → YYYY-MM-DD
-    }
+    const newAttempts = (Number(lead?.[attemptsCol]) || 0) + 1;
     if (has(attemptsCol)) {
-      patch[attemptsCol] = (Number(lead?.[attemptsCol]) || 0) + 1;
+      patch[attemptsCol] = newAttempts;
+    }
+    const shouldStamp = isTerminal || newAttempts >= maxAttemptsPerPhase;
+    if (shouldStamp && has(dateCol) && (lead?.[dateCol] == null || lead?.[dateCol] === "")) {
+      patch[dateCol] = endedAt.slice(0, 10);
     }
   }
 
