@@ -281,6 +281,7 @@ def build_transfer_tool(agent_id: Optional[str], room):
 
     try:
         from livekit.agents import function_tool
+        from livekit.agents.llm import StopResponse
     except Exception:
         logger.exception("livekit.agents.function_tool not importable; swarm tool disabled")
         return None
@@ -310,11 +311,13 @@ def build_transfer_tool(agent_id: Optional[str], room):
         except Exception:
             logger.exception("transfer_to_specialist: handoff emit failed")
             return "Transfer attempted but the runtime could not switch persona."
-        return (
-            f"Transferred to specialist (agent_id={match.agent_id}, "
-            f"specialty={match.specialty}). Stop responding; the next "
-            f"turn will be handled by the new persona."
-        )
+        # The handoff is in flight. Raise StopResponse so the LLM does NOT
+        # generate a follow-up turn — the new persona's greeting will be
+        # the next thing the caller hears. Without this, the LLM riffs on
+        # the tool result and produces a second transition phrase
+        # ("Stay on the line...") that arrives RIGHT before the new
+        # agent greets, making it sound like Charlotte repeats herself.
+        raise StopResponse()
 
     # Inject the live roster into the docstring at runtime so the LLM
     # actually sees it (function_tool reads __doc__).
@@ -416,6 +419,7 @@ def build_handoff_to_handle_tool(room, *, current_handle_id: Optional[str] = Non
         return None
 
     from livekit.agents import function_tool
+    from livekit.agents.llm import StopResponse
 
     @function_tool
     async def handoff_to_handle(handle_id: str, reason: str = "") -> str:
@@ -445,10 +449,13 @@ def build_handoff_to_handle_tool(room, *, current_handle_id: Optional[str] = Non
             try:
                 await emit_handoff(room, str(ai_agent_id), reason=reason or None)
                 logger.info("handoff_to_handle → AI %s (%s)", name, ai_agent_id)
-                return f"Passage à l'agent IA « {name} » effectué."
             except Exception as e:
                 logger.exception("AI handoff failed")
                 return f"Échec du passage à {name}: {e}"
+            # Same rationale as transfer_to_specialist: suppress the
+            # LLM follow-up so the new persona's greeting is the next
+            # voice on the line.
+            raise StopResponse()
 
         if kind == "human":
             room_name = getattr(room, "name", "") or ""

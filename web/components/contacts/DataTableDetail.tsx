@@ -354,7 +354,19 @@ export function DataTableDetail({ registryId, columns, phoneColumn, initialRows 
                 {displayCols.map((c) => (
                   <th key={c.key} style={{ whiteSpace: "nowrap" }}>{c.label}</th>
                 ))}
-                <th style={{ whiteSpace: "nowrap", textAlign: "right" }}>Actions</th>
+                <th
+                  style={{
+                    whiteSpace: "nowrap",
+                    textAlign: "right",
+                    position: "sticky",
+                    right: 0,
+                    background: "var(--panel)",
+                    boxShadow: "-4px 0 6px -4px rgba(0,0,0,0.25)",
+                    zIndex: 2,
+                  }}
+                >
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -368,7 +380,18 @@ export function DataTableDetail({ registryId, columns, phoneColumn, initialRows 
                         {fmt(r[c.key]) || <em style={{ color: "var(--muted)" }}>—</em>}
                       </td>
                     ))}
-                    <td style={{ textAlign: "right", whiteSpace: "nowrap", padding: "4px 8px" }}>
+                    <td
+                      style={{
+                        textAlign: "right",
+                        whiteSpace: "nowrap",
+                        padding: "4px 8px",
+                        position: "sticky",
+                        right: 0,
+                        background: "var(--panel)",
+                        boxShadow: "-4px 0 6px -4px rgba(0,0,0,0.25)",
+                        zIndex: 1,
+                      }}
+                    >
                       <button
                         className="ghost"
                         onClick={() => openEdit(r)}
@@ -376,7 +399,7 @@ export function DataTableDetail({ registryId, columns, phoneColumn, initialRows 
                         style={{ padding: "3px 8px", marginRight: 4, fontSize: 12 }}
                         title="Éditer"
                       >
-                        ✎
+                        ✎ Éditer
                       </button>
                       <button
                         className="ghost"
@@ -385,7 +408,7 @@ export function DataTableDetail({ registryId, columns, phoneColumn, initialRows 
                         style={{ padding: "3px 8px", fontSize: 12, color: "var(--bad)" }}
                         title="Supprimer"
                       >
-                        🗑
+                        🗑 Supprimer
                       </button>
                     </td>
                   </tr>
