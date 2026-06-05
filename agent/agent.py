@@ -865,6 +865,148 @@ def _install_team_handoff_watcher(
         clog.warning("team handoff watcher: no metadata_changed event on this SDK")
 
 
+def _install_call_hygiene(
+    ctx: JobContext,
+    session: AgentSession,
+    clog,
+    *,
+    idle_timeout: float = 15.0,
+    goodbye_grace: float = 5.0,
+) -> None:
+    """Hang up the call automatically to stop the meter when there's no
+    point staying connected. Three triggers:
+
+      1. Idle: no user STT *and* no agent speech for `idle_timeout` seconds.
+         Catches voicemails (user says nothing after pickup), dropped audio,
+         and patients who forgot to hang up.
+      2. Goodbye: the agent says a clear closing phrase (e.g. "bye", "take
+         care"). After TTS finishes plus `goodbye_grace` seconds, disconnect.
+      3. Conversation already over: same path as #2 but covers the case
+         where the user said goodbye and the agent just acknowledged.
+
+    All thresholds are env-overridable via IDLE_HANGUP_SECONDS /
+    GOODBYE_GRACE_SECONDS so we can tune in production without redeploying.
+    """
+    import time as _t
+    idle_timeout = float(os.getenv("IDLE_HANGUP_SECONDS", str(idle_timeout)))
+    goodbye_grace = float(os.getenv("GOODBYE_GRACE_SECONDS", str(goodbye_grace)))
+
+    # Patterns that, when the AGENT says them, indicate the call is wrapping
+    # up. Cover English (OCC primary), French, Spanish, German — same
+    # language list as the language lock so OCC + EU campaigns are covered.
+    import re as _re
+    _goodbye_re = _re.compile(
+        r"\b("
+        r"bye[\s,!.?-]*bye"
+        r"|good\s*bye"
+        r"|take\s*care"
+        r"|talk\s+to\s+you\s+soon"
+        r"|speak\s+(soon|to\s+you\s+soon)"
+        r"|have\s+a\s+(great|good|nice)\s+(day|evening|weekend)"
+        r"|au\s*revoir"
+        r"|à\s*(bient[oô]t|plus\s*tard)"
+        r"|bonne\s+(journ[ée]e|soir[ée]e)"
+        r"|hasta\s+(luego|pronto)"
+        r"|adi[oó]s"
+        r"|tsch[üu]ss"
+        r"|auf\s+wiederh[öo]ren"
+        r")\b",
+        _re.IGNORECASE,
+    )
+
+    state = {
+        "last_user_ts": _t.monotonic(),
+        "last_agent_ts": _t.monotonic(),
+        "goodbye_armed_at": None,  # monotonic ts when goodbye phrase was detected
+        "hung_up": False,
+    }
+
+    async def _hangup(reason: str) -> None:
+        if state["hung_up"]:
+            return
+        state["hung_up"] = True
+        clog.info("call hygiene: hangup (%s)", reason)
+        try:
+            from db_writes import append_call_event as _evt
+            cid = getattr(ctx, "_call_id", None)
+            _evt(cid, "auto_hangup", {"reason": reason})
+        except Exception:
+            pass
+        # Politely end the room. delete_room would be the hard kill but
+        # disconnect lets the session shut down cleanly and the post-call
+        # pipeline run.
+        try:
+            await ctx.room.disconnect()
+        except Exception:
+            clog.exception("auto_hangup: ctx.room.disconnect() failed")
+
+    def _on_user_speech(*_a, **_k) -> None:
+        state["last_user_ts"] = _t.monotonic()
+        # Patient is talking again — cancel any armed goodbye.
+        state["goodbye_armed_at"] = None
+
+    def _on_item(ev) -> None:
+        try:
+            item = getattr(ev, "item", None)
+            role = getattr(item, "role", None) if item else None
+            if role != "assistant":
+                return
+            text_attr = getattr(item, "text_content", None) if item else None
+            text = text_attr() if callable(text_attr) else (text_attr or "")
+            state["last_agent_ts"] = _t.monotonic()
+            if text and _goodbye_re.search(str(text)):
+                state["goodbye_armed_at"] = _t.monotonic()
+                clog.info("call hygiene: goodbye detected — will hang up in %.1fs", goodbye_grace)
+        except Exception:
+            clog.exception("call hygiene: item hook failed")
+
+    for ev_name, fn in (
+        ("user_input_transcribed", _on_user_speech),
+        ("conversation_item_added", _on_item),
+    ):
+        try:
+            session.on(ev_name, fn)
+        except Exception:
+            clog.debug("call hygiene: session.on(%s) unavailable", ev_name)
+
+    async def _watchdog() -> None:
+        try:
+            # Give the first turn a head start — don't trip the timer
+            # before the greeting + caller answer have had time to settle.
+            await asyncio.sleep(max(5.0, idle_timeout / 2))
+            while not state["hung_up"]:
+                await asyncio.sleep(2.0)
+                now = _t.monotonic()
+                # Goodbye-armed path wins because it's the most deterministic.
+                ga = state["goodbye_armed_at"]
+                if ga is not None and (now - ga) >= goodbye_grace and (now - state["last_user_ts"]) >= goodbye_grace:
+                    await _hangup("goodbye + grace")
+                    return
+                # Pure idle path.
+                last_any = max(state["last_user_ts"], state["last_agent_ts"])
+                if now - last_any >= idle_timeout:
+                    await _hangup(f"idle {idle_timeout:.0f}s — likely voicemail or dropped audio")
+                    return
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            clog.exception("call hygiene: watchdog crashed")
+
+    task = asyncio.create_task(_watchdog())
+
+    async def _cancel_on_shutdown():
+        task.cancel()
+    try:
+        ctx.add_shutdown_callback(_cancel_on_shutdown)
+    except Exception:
+        pass
+
+    clog.info(
+        "call hygiene: armed (idle=%.0fs, goodbye_grace=%.0fs)",
+        idle_timeout, goodbye_grace,
+    )
+
+
 def _wire_debug_logs(session: AgentSession, clog) -> None:
     """Log every STT transcript and every assistant turn — runs for ALL sessions,
     not just calls with a call_id. Helps diagnose silent LLM/TTS failures."""
@@ -1604,6 +1746,13 @@ async def entrypoint(ctx: JobContext) -> None:
     _wire_latency_metrics(session, clog)
     _wire_debug_logs(session, clog)
     _wire_usage_billing(ctx, session, call_id, (axon.org_id if axon else None), clog)
+    # Auto-hangup so we don't burn TTS/STT minutes on voicemails, dropped
+    # audio, or patients who hung up without ending the call. Env-tunable.
+    try:
+        ctx._call_id = call_id  # type: ignore[attr-defined]
+    except Exception:
+        pass
+    _install_call_hygiene(ctx, session, clog)
 
     # Multi-agent team journey (Charlotte → Isabelle → Victoria): watch for
     # `handoff_to` in room metadata and fully swap the running agent — prompt,
