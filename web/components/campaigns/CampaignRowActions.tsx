@@ -97,10 +97,12 @@ export function CampaignRowActions({ id, name, state }: Props) {
 
   return (
     <div style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
-      {/* Éditer */}
+      {/* Éditer — links to the campaign detail page where an Edit modal
+          (EditCampaignModal) is already wired up. We don't have a dedicated
+          /edit route (was a 404). */}
       <Link
-        href={`/campaigns/${id}/edit`}
-        title="Éditer la campagne"
+        href={`/campaigns/${id}`}
+        title="Voir / éditer la campagne"
         style={btn}
       >
         ✎
