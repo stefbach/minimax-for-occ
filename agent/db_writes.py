@@ -154,20 +154,29 @@ def save_contact_data(
             saved_keys = sorted(clean_patch.keys()) + [
                 k for k in ("display_name", "email", "notes") if k in body
             ]
-            # Auto-create a /desk follow-up task when the AI sets a
-            # qualification that implies "human, please call this lead back
-            # tomorrow". This is what makes Victoria's "we'll send the slots"
-            # actually surface in the agent dashboard the next morning —
-            # without requiring her to call transfer_to_human explicitly.
             qual = clean_patch.get("qualification")
-            if qual and _qualification_needs_callback(qual):
-                create_human_callback_task(
-                    org_id,
-                    contact_id,
-                    original_call_id=call_id,
-                    qualification=str(qual),
-                    reason="auto from save_contact_data",
-                )
+            if qual:
+                # Mirror the qualification onto calls.metadata so the
+                # dashboard's qualification-bucket logic (which reads
+                # calls.metadata.qualification) sees it. Previously the AI
+                # was writing only to contacts.attributes.qualification and
+                # the Vue d'ensemble counted every successful RDV as
+                # "PAS DE REPONSE" because the call row stayed blank.
+                if call_id:
+                    update_call_metadata(call_id, {"qualification": str(qual)})
+                # Auto-create a /desk follow-up task when the AI sets a
+                # qualification that implies "human, please call this lead
+                # back tomorrow". This is what makes Victoria's "we'll send
+                # the slots" actually surface in the agent dashboard the
+                # next morning without requiring transfer_to_human.
+                if _qualification_needs_callback(qual):
+                    create_human_callback_task(
+                        org_id,
+                        contact_id,
+                        original_call_id=call_id,
+                        qualification=str(qual),
+                        reason="auto from save_contact_data",
+                    )
             return {"ok": True, "saved": saved_keys}
     except Exception as exc:
         logger.exception("save_contact_data failed (contact=%s)", contact_id)

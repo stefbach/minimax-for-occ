@@ -278,6 +278,47 @@ export async function generateCallSummary(callId: string): Promise<string> {
   const key = process.env.DEEPSEEK_API_KEY;
   if (!key) throw new Error("DEEPSEEK_API_KEY missing");
 
+  // Look up the agent's declared language so the summary is in the right
+  // language. Without this, DeepSeek (a Chinese model) regularly defaults
+  // to Chinese for English transcripts. Falls back to mirroring the
+  // transcript's own language when we can't resolve an agent.
+  let agentLang: string | null = null;
+  try {
+    const { data: callRow } = await sb
+      .from("calls")
+      .select("agent_handle_id, agent_handles(ai_agent_id)")
+      .eq("id", callId)
+      .maybeSingle();
+    const handles = (callRow as { agent_handles?: { ai_agent_id?: string | null } | { ai_agent_id?: string | null }[] } | null)?.agent_handles;
+    const aiAgentId = Array.isArray(handles) ? handles[0]?.ai_agent_id : handles?.ai_agent_id;
+    if (aiAgentId) {
+      const { data: ag } = await sb
+        .from("agents")
+        .select("language")
+        .eq("id", aiAgentId)
+        .maybeSingle();
+      agentLang = ((ag as { language?: string | null } | null)?.language ?? null);
+    }
+  } catch {
+    /* fall back to mirror-transcript */
+  }
+
+  const langNames: Record<string, string> = {
+    fr: "French", en: "English", es: "Spanish", de: "German",
+    it: "Italian", pt: "Portuguese", nl: "Dutch",
+  };
+  const targetLang = agentLang ? (langNames[agentLang.toLowerCase()] ?? null) : null;
+  const langDirective = targetLang
+    ? `You MUST write the summary in ${targetLang}. Do not use any other language under any circumstances.`
+    : "Write the summary in the SAME language as the transcript. Never switch languages.";
+
+  const systemPrompt = [
+    "You summarize phone-call transcripts in 3 to 5 sentences.",
+    "Mention: reason for the call, key points raised, outcome / next step.",
+    "No markdown. No headers. Plain prose only.",
+    langDirective,
+  ].join(" ");
+
   const res = await fetch(DEEPSEEK_CHAT_URL, {
     method: "POST",
     headers: {
@@ -288,11 +329,7 @@ export async function generateCallSummary(callId: string): Promise<string> {
       model: "deepseek-v4-flash",
       temperature: 0.2,
       messages: [
-        {
-          role: "system",
-          content:
-            "Tu résumes des appels téléphoniques en 3 à 5 phrases. Mentionne : raison de l'appel, points clés, issue/prochaine étape. Pas de markdown.",
-        },
+        { role: "system", content: systemPrompt },
         { role: "user", content: `Transcript:\n${transcript}` },
       ],
     }),
