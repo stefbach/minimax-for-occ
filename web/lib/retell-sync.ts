@@ -21,7 +21,54 @@
 import { supabaseServer } from "./supabase";
 
 const RETELL_LIST_URL = "https://api.retellai.com/v2/list-calls";
+const RETELL_GET_URL = "https://api.retellai.com/v2/get-call";
 const PAGE_LIMIT = 1000;
+
+export type TranscriptTurn = { role: "agent" | "user"; content: string };
+
+// Retell returns the dialogue as `transcript` (flat string) and, richer,
+// `transcript_object` (array of { role, content, words }). We keep a compact
+// turn list (role + content) so the dashboard can render a chat-style view
+// without re-hitting Retell, plus the flat text as a fallback.
+export function extractTranscript(
+  call: Record<string, unknown>,
+): { text: string | null; turns: TranscriptTurn[] | null } {
+  const text = typeof call.transcript === "string" && call.transcript.trim() ? call.transcript : null;
+  const raw = call.transcript_object;
+  let turns: TranscriptTurn[] | null = null;
+  if (Array.isArray(raw)) {
+    const mapped = raw
+      .map((t) => {
+        const o = (t ?? {}) as { role?: unknown; content?: unknown };
+        const role = o.role === "agent" ? "agent" : o.role === "user" ? "user" : null;
+        const content = typeof o.content === "string" ? o.content.trim() : "";
+        return role && content ? { role, content } : null;
+      })
+      .filter((x): x is TranscriptTurn => x !== null);
+    if (mapped.length) turns = mapped;
+  }
+  return { text, turns };
+}
+
+// On-demand fetch of a single Retell call's transcript — used to backfill the
+// calls that were synced before transcript storage existed. Returns nulls on
+// any failure so the caller just shows "transcript unavailable".
+export async function fetchRetellTranscript(
+  retellCallId: string,
+): Promise<{ text: string | null; turns: TranscriptTurn[] | null }> {
+  const key = process.env.RETELL_API_KEY;
+  if (!key) return { text: null, turns: null };
+  try {
+    const res = await fetch(`${RETELL_GET_URL}/${encodeURIComponent(retellCallId)}`, {
+      headers: { Authorization: `Bearer ${key}` },
+    });
+    if (!res.ok) return { text: null, turns: null };
+    const json = (await res.json()) as Record<string, unknown>;
+    return extractTranscript(json);
+  } catch {
+    return { text: null, turns: null };
+  }
+}
 
 // No-answer disconnect reasons — mirrors the legacy dashboard so "answered"
 // counts match what OCC was used to seeing.
@@ -147,6 +194,12 @@ export function mapCall(call: RetellCall, orgId: string): { row: CallInsert; ret
   // Stamp the Retell business outcome as the qualification so the dashboard's
   // bucketForCall classifies it natively (booked/rappel/pas_interesse/...).
   if (callOutcome) metadata.qualification = callOutcome;
+
+  // Persist the dialogue so the drill-down detail view can show it without
+  // calling Retell again (older rows are backfilled lazily on first open).
+  const { text: transcriptText, turns: transcriptTurns } = extractTranscript(call);
+  if (transcriptText) metadata.transcript_text = transcriptText;
+  if (transcriptTurns) metadata.transcript_turns = transcriptTurns;
 
   return {
     retellId,

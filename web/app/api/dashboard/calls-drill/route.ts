@@ -4,7 +4,7 @@ import { requestOrgId } from "@/lib/request-org";
 import { requireModule } from "@/lib/permissions-server";
 import { bucketForCall, type QualBucket } from "@/lib/qualification";
 import { isInbound, normalizeDirectionForDb } from "@/lib/call-direction";
-import { callBelongsToLeadsSource, phoneSetForLeadsSource, type LeadsSource } from "@/lib/leads-source";
+import { callBelongsToLeadsSource, phoneSetForLeadsSource, leadNameMapFor, leadNameForPhone, type LeadsSource } from "@/lib/leads-source";
 import { fetchAllPaged, type Rangeable } from "@/lib/supabase-page";
 import { callMatchesSystem, parseCallSystem } from "@/lib/call-system";
 
@@ -120,7 +120,10 @@ export async function GET(request: Request) {
   );
   if (error) return NextResponse.json({ error }, { status: 500 });
 
-  const phoneSet = await phoneSetForLeadsSource(leadsSource);
+  const [phoneSet, leadNames] = await Promise.all([
+    phoneSetForLeadsSource(leadsSource),
+    leadNameMapFor(leadsSource),
+  ]);
   const rows = ((data ?? []) as unknown as Row[])
     .filter((r) => !ACTIVE.has(r.state ?? ""))
     .filter((r) => callBelongsToLeadsSource(r.to_e164, phoneSet))
@@ -157,18 +160,23 @@ export async function GET(request: Request) {
     total: filtered.length,
     returned: sliced.length,
     truncated: filtered.length > LIMIT,
-    calls: sliced.map((r) => ({
-      id: r.id,
-      started_at: r.started_at,
-      direction: r.direction,
-      duration_secs: r.duration_secs,
-      answered: !!r.answered_at,
-      qualification: bucketForCall(r),
-      contact_name: r.contacts?.display_name ?? null,
-      agent_name: r.agent_handles?.display_name ?? null,
-      phone: isInbound(r.direction) ? r.from_e164 : r.to_e164,
-      disposition: r.disposition,
-    })),
+    calls: sliced.map((r) => {
+      const phone = isInbound(r.direction) ? r.from_e164 : r.to_e164;
+      return {
+        id: r.id,
+        started_at: r.started_at,
+        direction: r.direction,
+        duration_secs: r.duration_secs,
+        answered: !!r.answered_at,
+        qualification: bucketForCall(r),
+        // Prefer the Axon contact; fall back to the lead name (Retell calls
+        // have no contact) so the list shows people, not bare numbers.
+        contact_name: r.contacts?.display_name ?? leadNameForPhone(phone, leadNames),
+        agent_name: r.agent_handles?.display_name ?? null,
+        phone,
+        disposition: r.disposition,
+      };
+    }),
   };
   return NextResponse.json(body);
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mapCall } from "@/lib/retell-sync";
+import { mapCall, extractTranscript } from "@/lib/retell-sync";
 import { bucketForCall } from "@/lib/qualification";
 
 const ORG = "org-1";
@@ -65,5 +65,50 @@ describe("mapCall (Retell → Axon calls)", () => {
   it("skips ongoing calls and rows without a call_id", () => {
     expect(mapCall({ call_id: "x", call_status: "ongoing", start_timestamp: Date.now() }, ORG)).toBeNull();
     expect(mapCall({ call_status: "ended", start_timestamp: Date.now() }, ORG)).toBeNull();
+  });
+
+  it("stores the transcript (text + turns) in metadata for the detail view", () => {
+    const start = Date.UTC(2026, 5, 4, 13, 0, 0);
+    const m = mapCall(
+      {
+        call_id: "ret_4", call_status: "ended", direction: "outbound",
+        to_number: "+2305000222", start_timestamp: start, end_timestamp: start + 30_000,
+        transcript: "Agent: Bonjour\nUser: Bonjour",
+        transcript_object: [
+          { role: "agent", content: "Bonjour" },
+          { role: "user", content: "Bonjour, oui ?" },
+          { role: "system", content: "ignore me" },
+        ],
+      },
+      ORG,
+    );
+    expect(m!.row.metadata.transcript_text).toBe("Agent: Bonjour\nUser: Bonjour");
+    expect(m!.row.metadata.transcript_turns).toEqual([
+      { role: "agent", content: "Bonjour" },
+      { role: "user", content: "Bonjour, oui ?" },
+    ]);
+  });
+});
+
+describe("extractTranscript", () => {
+  it("returns turns from transcript_object and the flat text", () => {
+    const r = extractTranscript({
+      transcript: "hello world",
+      transcript_object: [
+        { role: "agent", content: "Hi" },
+        { role: "user", content: "" }, // dropped (empty)
+        { role: "user", content: "There" },
+      ],
+    });
+    expect(r.text).toBe("hello world");
+    expect(r.turns).toEqual([
+      { role: "agent", content: "Hi" },
+      { role: "user", content: "There" },
+    ]);
+  });
+
+  it("yields nulls when nothing usable is present", () => {
+    expect(extractTranscript({})).toEqual({ text: null, turns: null });
+    expect(extractTranscript({ transcript: "   ", transcript_object: [] })).toEqual({ text: null, turns: null });
   });
 });

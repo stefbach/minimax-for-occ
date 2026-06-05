@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useT } from "@/lib/i18n";
 import { QUAL_BUCKETS, type QualBucket } from "@/lib/qualification";
 import type { DrillCall, DrillResponse } from "@/app/api/dashboard/calls-drill/route";
+import { CallDetailPane } from "@/components/dashboard/CallDetailPane";
 
 // Generic drill-down side panel — every clickable card on the dashboard opens
 // THIS component. Designed to match the existing card aesthetic (CSS vars, no
@@ -67,6 +68,31 @@ function qualLabel(q: QualBucket): string {
   return QUAL_BUCKETS.find((b) => b.key === q)?.label ?? q;
 }
 
+// Decroché / non-decroché indicator — a small themed phone glyph. Green ring +
+// handset for answered, muted ring + slash for unanswered. aria-labelled for SR.
+function AnsweredIcon({ answered, t }: { answered: boolean; t: (s: string) => string }) {
+  const color = answered ? "var(--good)" : "var(--muted)";
+  const label = answered ? t("Décroché") : t("Non décroché");
+  return (
+    <span
+      role="img"
+      aria-label={label}
+      title={label}
+      style={{
+        flexShrink: 0, width: 22, height: 22, borderRadius: 99,
+        display: "inline-flex", alignItems: "center", justifyContent: "center",
+        background: `color-mix(in srgb, ${color} 16%, transparent)`,
+        color,
+      }}
+    >
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z" />
+        {!answered && <line x1="3" y1="3" x2="21" y2="21" />}
+      </svg>
+    </span>
+  );
+}
+
 function buildQS(filters: DrillFilters): string {
   const qs = new URLSearchParams();
   qs.set("from", filters.from);
@@ -101,6 +127,10 @@ export function DrillSheet({ spec, onClose }: { spec: DrillSpec | null; onClose:
   const [data, setData] = useState<DrillResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Which row is expanded into the in-panel detail view (null = list view).
+  // Kept here so the list underneath stays mounted and scrolled — going "back"
+  // just drops this overlay and you're exactly where you left off.
+  const [selected, setSelected] = useState<DrillCall | null>(null);
   const open = Boolean(spec);
   const lastFocused = useRef<HTMLElement | null>(null);
   const closeBtnRef = useRef<HTMLButtonElement | null>(null);
@@ -116,13 +146,17 @@ export function DrillSheet({ spec, onClose }: { spec: DrillSpec | null; onClose:
     }
   }, [open]);
 
-  // ESC to close.
+  // ESC closes the detail overlay first (if open), otherwise the whole sheet.
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (selected) setSelected(null);
+      else onClose();
+    };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  }, [open, onClose, selected]);
 
   // Lock body scroll while open — without this, scrolling inside the sheet
   // bleeds through to the page on iOS / trackpads.
@@ -136,6 +170,7 @@ export function DrillSheet({ spec, onClose }: { spec: DrillSpec | null; onClose:
   useEffect(() => {
     if (!spec) return;
     let alive = true;
+    setSelected(null); // new drill → back to list view
     setLoading(true); setErr(null); setData(null);
     fetch(`/api/dashboard/calls-drill?${buildQS(spec.filters)}`, { cache: "no-store" })
       .then(async (r) => {
@@ -276,52 +311,60 @@ export function DrillSheet({ spec, onClose }: { spec: DrillSpec | null; onClose:
               <div style={{ fontSize: 13 }}>{t("Aucun appel ne correspond à cette sélection sur la période.")}</div>
             </div>
           )}
-          {data && data.calls.map((c) => (
-            <Link
-              key={c.id}
-              href={`/calls/${c.id}`}
-              style={{
-                display: "flex", alignItems: "center", gap: 10,
-                padding: "10px 16px",
-                textDecoration: "none", color: "inherit",
-                borderBottom: "1px solid var(--border)",
-                transition: "background 120ms",
-              }}
-              onMouseEnter={(e) => (e.currentTarget.style.background = "color-mix(in srgb, var(--accent) 6%, transparent)")}
-              onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-            >
-              <span
-                aria-hidden
-                style={{ width: 4, alignSelf: "stretch", borderRadius: 2, background: QUAL_TONE[c.qualification] }}
-              />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-                  <span style={{ fontWeight: 600, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {c.contact_name ?? c.phone ?? t("Inconnu")}
-                  </span>
-                  <span aria-hidden style={{ fontSize: 10, color: "var(--muted)" }}>
-                    {c.direction === "in" ? "↘" : "↗"}
-                  </span>
-                </div>
-                <div className="muted" style={{ fontSize: 11, marginTop: 2, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <span>{fmtDate(c.started_at)}</span>
-                  <span>·</span>
-                  <span>{fmtDur(c.duration_secs)}</span>
-                  {c.agent_name && (<><span>·</span><span>{c.agent_name}</span></>)}
-                </div>
-              </div>
-              <span
+          {data && data.calls.map((c) => {
+            const hasName = Boolean(c.contact_name);
+            return (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => setSelected(c)}
                 style={{
-                  fontSize: 10, padding: "3px 7px", borderRadius: 4, whiteSpace: "nowrap",
-                  background: `color-mix(in srgb, ${QUAL_TONE[c.qualification]} 14%, transparent)`,
-                  color: QUAL_TONE[c.qualification],
-                  fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.3,
+                  display: "flex", alignItems: "center", gap: 10, width: "100%",
+                  padding: "10px 16px", textAlign: "left",
+                  background: "transparent", border: 0,
+                  color: "inherit", cursor: "pointer",
+                  borderBottom: "1px solid var(--border)",
+                  transition: "background 120ms",
                 }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = "color-mix(in srgb, var(--accent) 6%, transparent)")}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
               >
-                {qualLabel(c.qualification)}
-              </span>
-            </Link>
-          ))}
+                <span
+                  aria-hidden
+                  style={{ width: 4, alignSelf: "stretch", borderRadius: 2, background: QUAL_TONE[c.qualification] }}
+                />
+                <AnsweredIcon answered={c.answered} t={t} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                    <span style={{ fontWeight: 600, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {c.contact_name ?? c.phone ?? t("Inconnu")}
+                    </span>
+                    <span aria-hidden style={{ fontSize: 10, color: "var(--muted)" }}>
+                      {c.direction === "in" ? "↘" : "↗"}
+                    </span>
+                  </div>
+                  <div className="muted" style={{ fontSize: 11, marginTop: 2, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {/* Show the number too when we resolved a real name. */}
+                    {hasName && c.phone && (<><span>{c.phone}</span><span>·</span></>)}
+                    <span>{fmtDate(c.started_at)}</span>
+                    <span>·</span>
+                    <span>{fmtDur(c.duration_secs)}</span>
+                    {c.agent_name && (<><span>·</span><span>{c.agent_name}</span></>)}
+                  </div>
+                </div>
+                <span
+                  style={{
+                    fontSize: 10, padding: "3px 7px", borderRadius: 4, whiteSpace: "nowrap",
+                    background: `color-mix(in srgb, ${QUAL_TONE[c.qualification]} 14%, transparent)`,
+                    color: QUAL_TONE[c.qualification],
+                    fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.3,
+                  }}
+                >
+                  {qualLabel(c.qualification)}
+                </span>
+              </button>
+            );
+          })}
           {data?.truncated && (
             <div className="muted" style={{ padding: 12, fontSize: 11, textAlign: "center" }}>
               {t("Aperçu limité aux 100 plus récents.")}
@@ -352,6 +395,16 @@ export function DrillSheet({ spec, onClose }: { spec: DrillSpec | null; onClose:
             {t("Voir dans Call Logs")} →
           </Link>
         </div>
+
+        {/* In-panel call detail — overlays the list (which stays mounted and
+            scrolled underneath), so "← Retour" lands you exactly where you were. */}
+        {selected && (
+          <CallDetailPane
+            call={selected}
+            leadsSource={spec.filters.leads_source ?? "prod"}
+            onBack={() => setSelected(null)}
+          />
+        )}
       </aside>
 
       <style jsx>{`

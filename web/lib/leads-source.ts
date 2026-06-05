@@ -74,6 +74,44 @@ export async function phoneSetForLeadsSource(
   return prod;
 }
 
+// Phone → patient name for the selected source. Retell-synced calls carry no
+// Axon contact, so the drill-downs and the call-detail view fall back to the
+// lead's `nom` here to show a real person instead of a bare number. Best-effort:
+// a missing table / column just yields an empty map (callers degrade to phone).
+export async function leadNameMapFor(
+  source: LeadsSource | null | undefined,
+): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  const sb = supabaseServer();
+  try {
+    const { rows, error } = await fetchAllPaged<{ numero_telephone: string | null; nom: string | null }>(
+      () =>
+        sb
+          .from(leadsTableFor(source) as never)
+          .select("numero_telephone, nom")
+          .not("numero_telephone", "is", null) as never,
+    );
+    if (error) return map;
+    for (const row of rows) {
+      const p = normalisePhone(row.numero_telephone);
+      const nom = row.nom?.trim();
+      if (p && nom) map.set(p, nom);
+    }
+  } catch {
+    /* table missing — degrade to phone-only */
+  }
+  return map;
+}
+
+/** Look up a single phone in a lead-name map, normalising the same way. */
+export function leadNameForPhone(
+  phone: string | null | undefined,
+  nameMap: Map<string, string>,
+): string | null {
+  const norm = normalisePhone(phone);
+  return norm ? nameMap.get(norm) ?? null : null;
+}
+
 /** Predicate matching a call's to_e164 against the leads phone set. Trims
  *  whitespace the same way the loader does so the match is robust. */
 export function callBelongsToLeadsSource(
