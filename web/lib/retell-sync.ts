@@ -263,3 +263,61 @@ export async function syncRetellCalls(
   console.log(`[retell-sync] org=${orgId} done`, result);
   return result;
 }
+
+/**
+ * Upsert a SINGLE Retell call (used by the real-time webhook). Idempotent:
+ * inserts if new, updates summary/metadata/duration/disposition if the row
+ * already exists (e.g. call_ended then call_analyzed arrive separately).
+ * Returns what happened so the webhook can log it.
+ */
+export async function upsertRetellCall(
+  orgId: string,
+  rawCall: Record<string, unknown>,
+): Promise<{ status: "inserted" | "updated" | "skipped"; call_id?: string; retell_id?: string }> {
+  const mapped = mapCall(rawCall, orgId);
+  if (!mapped) return { status: "skipped" };
+  const sb = supabaseServer();
+
+  // Look for an existing row for this Retell call (org-scoped).
+  const { data: existing } = await sb
+    .from("calls")
+    .select("id")
+    .eq("org_id", orgId)
+    .eq("metadata->>retell_call_id", mapped.retellId)
+    .limit(1)
+    .maybeSingle();
+
+  let callId: string;
+  if (existing) {
+    callId = (existing as { id: string }).id;
+    const { error } = await sb.from("calls").update(mapped.row).eq("id", callId);
+    if (error) throw new Error(error.message);
+  } else {
+    const { data: ins, error } = await sb.from("calls").insert(mapped.row).select("id").single();
+    if (error) throw new Error(error.message);
+    callId = (ins as { id: string }).id;
+  }
+
+  // Cost → usage_events, but only once per Retell call.
+  if (mapped.costCents != null) {
+    const { data: u } = await sb
+      .from("usage_events")
+      .select("id")
+      .eq("org_id", orgId)
+      .eq("metadata->>retell_call_id", mapped.retellId)
+      .limit(1)
+      .maybeSingle();
+    if (!u) {
+      await sb.from("usage_events").insert({
+        org_id: orgId,
+        event_type: "retell_call",
+        quantity: 1,
+        cost_cents: mapped.costCents,
+        occurred_at: mapped.row.started_at,
+        metadata: { call_id: callId, source: "retell_sync", retell_call_id: mapped.retellId },
+      });
+    }
+  }
+
+  return { status: existing ? "updated" : "inserted", call_id: callId, retell_id: mapped.retellId };
+}
