@@ -50,23 +50,25 @@ export function extractTranscript(
   return { text, turns };
 }
 
-// On-demand fetch of a single Retell call's transcript — used to backfill the
-// calls that were synced before transcript storage existed. Returns nulls on
-// any failure so the caller just shows "transcript unavailable".
-export async function fetchRetellTranscript(
+// On-demand fetch of a single Retell call — used to backfill the recording
+// and/or transcript for calls synced before those were stored. One get-call
+// fills both. Returns nulls on any failure so callers degrade gracefully.
+export async function fetchRetellCallExtras(
   retellCallId: string,
-): Promise<{ text: string | null; turns: TranscriptTurn[] | null }> {
+): Promise<{ recording_url: string | null; text: string | null; turns: TranscriptTurn[] | null }> {
   const key = process.env.RETELL_API_KEY;
-  if (!key) return { text: null, turns: null };
+  if (!key) return { recording_url: null, text: null, turns: null };
   try {
     const res = await fetch(`${RETELL_GET_URL}/${encodeURIComponent(retellCallId)}`, {
       headers: { Authorization: `Bearer ${key}` },
     });
-    if (!res.ok) return { text: null, turns: null };
+    if (!res.ok) return { recording_url: null, text: null, turns: null };
     const json = (await res.json()) as Record<string, unknown>;
-    return extractTranscript(json);
+    const { text, turns } = extractTranscript(json);
+    const recording_url = typeof json.recording_url === "string" && json.recording_url ? json.recording_url : null;
+    return { recording_url, text, turns };
   } catch {
-    return { text: null, turns: null };
+    return { recording_url: null, text: null, turns: null };
   }
 }
 

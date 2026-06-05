@@ -146,9 +146,20 @@ export function CallDetailPane({
             {t("Enregistrement")}
           </h4>
           {detail?.recording_url ? (
-            <audio controls preload="none" src={detail.recording_url} style={{ width: "100%" }}>
-              <track kind="captions" />
-            </audio>
+            <div style={{ display: "grid", gap: 6 }}>
+              <audio controls preload="metadata" src={detail.recording_url} style={{ width: "100%" }} />
+              {/* Fallback if inline playback fails (codec / network): open the
+                  file directly in a new tab. */}
+              <a
+                href={detail.recording_url}
+                target="_blank"
+                rel="noreferrer"
+                className="muted"
+                style={{ fontSize: 11, justifySelf: "start" }}
+              >
+                {t("Ouvrir l'enregistrement dans un onglet")} ↗
+              </a>
+            </div>
           ) : (
             <div className="muted" style={{ fontSize: 12 }}>
               {loading ? t("Chargement…") : t("Aucun enregistrement disponible.")}

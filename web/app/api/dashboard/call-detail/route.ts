@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { requestOrgId } from "@/lib/request-org";
 import { requireModule } from "@/lib/permissions-server";
-import { fetchRetellTranscript, type TranscriptTurn } from "@/lib/retell-sync";
+import { fetchRetellCallExtras, type TranscriptTurn } from "@/lib/retell-sync";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -70,6 +70,7 @@ export async function GET(request: Request) {
 
   let transcript: CallDetailTurn[] = [];
   let transcriptSource: "axon" | "retell" | null = null;
+  let recordingUrl = call.recording_url;
 
   if (axonTurns.length) {
     transcript = axonTurns
@@ -81,39 +82,62 @@ export async function GET(request: Request) {
     transcriptSource = "axon";
   } else if (meta.source === "retell_sync") {
     transcriptSource = "retell";
-    // 2a. Already stored at sync time.
     const stored = Array.isArray(meta.transcript_turns) ? (meta.transcript_turns as TranscriptTurn[]) : null;
     if (stored && stored.length) {
       transcript = turnsToDetail(stored);
-    } else {
-      // 2b. Lazy backfill from Retell, then cache into metadata. Skip the
-      // remote call once we've already tried and come up empty (e.g. an
-      // unanswered call that never had a transcript), so re-opening a row
-      // doesn't keep hammering Retell.
-      const retellId = typeof meta.retell_call_id === "string" ? meta.retell_call_id : null;
-      if (retellId && meta.transcript_unavailable !== true) {
-        const fetched = await fetchRetellTranscript(retellId);
-        if (fetched.turns?.length) {
-          transcript = turnsToDetail(fetched.turns);
-          const nextMeta = { ...meta, transcript_turns: fetched.turns, ...(fetched.text ? { transcript_text: fetched.text } : {}) };
-          await sb.from("calls").update({ metadata: nextMeta }).eq("id", id).eq("org_id", orgId);
-        } else if (fetched.text) {
-          transcript = [{ speaker: "agent", text: fetched.text }];
-          await sb.from("calls").update({ metadata: { ...meta, transcript_text: fetched.text } }).eq("id", id).eq("org_id", orgId);
+    }
+
+    // Lazy backfill from Retell — ONE get-call fills whatever's still missing
+    // (recording and/or transcript) so older rows become listenable/readable.
+    // Skip the remote call once we've already tried for each, so re-opening a
+    // row doesn't keep hammering Retell.
+    const retellId = typeof meta.retell_call_id === "string" ? meta.retell_call_id : null;
+    const needTranscript = transcript.length === 0 && meta.transcript_unavailable !== true
+      && !(typeof meta.transcript_text === "string" && meta.transcript_text.trim());
+    const needRecording = !recordingUrl && meta.recording_unavailable !== true;
+    if (retellId && (needTranscript || needRecording)) {
+      const fetched = await fetchRetellCallExtras(retellId);
+      const metaUpdate: Record<string, unknown> = { ...meta };
+      let metaChanged = false;
+
+      if (needRecording) {
+        if (fetched.recording_url) {
+          recordingUrl = fetched.recording_url;
         } else {
-          // Nothing to show — remember so we don't refetch on every open.
-          await sb.from("calls").update({ metadata: { ...meta, transcript_unavailable: true } }).eq("id", id).eq("org_id", orgId);
+          metaUpdate.recording_unavailable = true; metaChanged = true;
         }
       }
+      if (needTranscript) {
+        if (fetched.turns?.length) {
+          transcript = turnsToDetail(fetched.turns);
+          metaUpdate.transcript_turns = fetched.turns;
+          if (fetched.text) metaUpdate.transcript_text = fetched.text;
+          metaChanged = true;
+        } else if (fetched.text) {
+          transcript = [{ speaker: "agent", text: fetched.text }];
+          metaUpdate.transcript_text = fetched.text; metaChanged = true;
+        } else {
+          metaUpdate.transcript_unavailable = true; metaChanged = true;
+        }
+      }
+
+      // Persist the recording on its column + any metadata flags in one write.
+      const colUpdate: Record<string, unknown> = {};
+      if (needRecording && fetched.recording_url) colUpdate.recording_url = fetched.recording_url;
+      if (metaChanged) colUpdate.metadata = metaUpdate;
+      if (Object.keys(colUpdate).length) {
+        await sb.from("calls").update(colUpdate).eq("id", id).eq("org_id", orgId);
+      }
     }
-    // 2c. Last resort: a flat transcript string with no turns.
+
+    // Last resort: a flat transcript string with no turns.
     if (transcript.length === 0 && typeof meta.transcript_text === "string" && meta.transcript_text.trim()) {
       transcript = [{ speaker: "agent", text: meta.transcript_text }];
     }
   }
 
   const body: CallDetailResponse = {
-    recording_url: call.recording_url,
+    recording_url: recordingUrl,
     summary: call.summary,
     transcript,
     transcript_source: transcriptSource,
