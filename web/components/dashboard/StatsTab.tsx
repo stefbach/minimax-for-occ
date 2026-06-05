@@ -18,7 +18,7 @@ function fmtMoney(n: number, unit = "$"): string {
 
 const DAY_LABELS = ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"];
 
-export function StatsTab({ from, to, direction }: { from: string; to: string; direction: string }) {
+export function StatsTab({ from, to, direction, leadsSource = "prod" }: { from: string; to: string; direction: string; leadsSource?: "prod" | "test" }) {
   const t = useT();
   const [data, setData] = useState<AnalyticsResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -27,7 +27,7 @@ export function StatsTab({ from, to, direction }: { from: string; to: string; di
   useEffect(() => {
     let alive = true;
     setLoading(true);
-    const qs = new URLSearchParams({ from, to });
+    const qs = new URLSearchParams({ from, to, leads_source: leadsSource });
     if (direction !== "all") qs.set("direction", direction);
     fetch(`/api/dashboard/analytics?${qs.toString()}`, { cache: "no-store" })
       .then(async (r) => {
@@ -38,7 +38,7 @@ export function StatsTab({ from, to, direction }: { from: string; to: string; di
       .catch((e) => alive && setError(e instanceof Error ? e.message : "error"))
       .finally(() => alive && setLoading(false));
     return () => { alive = false; };
-  }, [from, to, direction]);
+  }, [from, to, direction, leadsSource]);
 
   if (loading && !data) return <div className="card"><p className="muted" style={{ margin: 0 }}>{t("Chargement…")}</p></div>;
   if (error) return <div className="card" style={{ borderColor: "var(--bad)", color: "var(--bad)" }}>{error}</div>;

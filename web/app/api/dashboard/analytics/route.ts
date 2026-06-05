@@ -105,6 +105,9 @@ export async function GET(request: Request) {
   const from = fromParam ? new Date(fromParam) : new Date(now.getTime() - 7 * 86400_000);
   const direction = searchParams.get("direction"); // inbound | outbound | null
   const minDuration = Number(searchParams.get("min_duration") ?? 0);
+  const leadsTable = searchParams.get("leads_source") === "test"
+    ? "leads_rdv_test_axon"
+    : "leads_rdv";
 
   const rangeMs = to.getTime() - from.getTime();
   const granularity: "hour" | "day" = rangeMs <= 2 * 86400_000 ? "hour" : "day";
@@ -320,23 +323,23 @@ export async function GET(request: Request) {
   ];
 
   // ── Lead source attribution ─────────────────────────────────────────
-  // Reads source_lead from a tenant data table when one exists (OCC's
-  // leads_rdv_test_axon ships with this column; other orgs will get an
-  // empty list, which the UI hides). Joined on phone number to call rows
-  // so we can compute per-source conversion.
+  // Reads source_lead from the tenant's production leads table when one
+  // exists (OCC's leads_rdv ships with this column; other orgs get an empty
+  // list, which the UI hides). Joined on phone number to call rows so we
+  // can compute per-source conversion.
   let sources: SourceRow[] = [];
   try {
-    type LeadRow = { phone_number: string | null; source_lead: string | null };
+    type LeadRow = { numero_telephone: string | null; source_lead: string | null };
     const { data: leads, error: leadsErr } = await sb
-      .from("leads_rdv_test_axon" as never)
-      .select("phone_number, source_lead")
-      .not("phone_number", "is", null)
+      .from(leadsTable as never)
+      .select("numero_telephone, source_lead")
+      .not("numero_telephone", "is", null)
       .limit(20000);
     if (!leadsErr && Array.isArray(leads)) {
       const sourceByPhone = new Map<string, string>();
       for (const l of leads as unknown as LeadRow[]) {
-        if (l.phone_number) {
-          sourceByPhone.set(l.phone_number, (l.source_lead || "Inconnue").trim());
+        if (l.numero_telephone) {
+          sourceByPhone.set(l.numero_telephone, (l.source_lead || "Inconnue").trim());
         }
       }
       // Need to_e164 to do the join — pulled cheaply from the same window.

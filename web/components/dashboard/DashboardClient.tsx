@@ -49,7 +49,7 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
   const [refreshing, setRefreshing] = useState(false);
   // Period + filters drive the Statistiques and Call Logs tabs.
   const [period, setPeriod] = useState<Period>({ ...presetToRange("7d"), preset: "7d" });
-  const [filters, setFilters] = useState<Filters>({ direction: "all" });
+  const [filters, setFilters] = useState<Filters>({ direction: "all", leadsSource: "prod" });
 
   const fetchData = useCallback(async () => {
     try {
@@ -150,7 +150,7 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
               </Link>
             </div>
             <PeriodBar period={period} filters={filters} onPeriod={setPeriod} onFilters={setFilters} />
-            <DirectorTab from={period.from} to={period.to} direction={filters.direction} />
+            <DirectorTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} />
             {data && <CampaignsTable rows={data.campaigns} />}
           </>
         )}
@@ -158,7 +158,7 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
         {tab === "stats" && (
           <>
             <PeriodBar period={period} filters={filters} onPeriod={setPeriod} onFilters={setFilters} />
-            <StatsTab from={period.from} to={period.to} direction={filters.direction} />
+            <StatsTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} />
           </>
         )}
 

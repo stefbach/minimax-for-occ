@@ -110,6 +110,12 @@ export async function GET(request: Request) {
     : new Date(now.getTime() - 7 * 86400_000);
   const threshold = Number(searchParams.get("threshold") ?? 60);
   const direction = searchParams.get("direction");
+  // Lets the operator flip between the production leads table and the
+  // sandbox test table used to validate new flows without polluting OCC's
+  // production stats. Defaults to prod.
+  const leadsTable = searchParams.get("leads_source") === "test"
+    ? "leads_rdv_test_axon"
+    : "leads_rdv";
 
   const sb = supabaseServer();
 
@@ -274,7 +280,8 @@ export async function GET(request: Request) {
   }));
 
   // Phases J1 / J3 / J5 — only meaningful when the tenant maintains a
-  // phase-aware leads table (OCC: leads_rdv_test_axon). For orgs without it
+  // phase-aware leads table (OCC: leads_rdv production, with leads_rdv_test_axon
+  // as the dev sandbox kept alongside for safe testing). For orgs without it
   // we report zeros and a hint so the UI can label the section as N/A.
   const phases: DirectorResponse["phases"] = {
     rappel: { leads: 0, calls: 0 },
@@ -284,10 +291,11 @@ export async function GET(request: Request) {
   };
   let phasesAvailable = false;
   try {
-    // OCC org has leads_rdv_test_axon; we read it directly. Other orgs simply
-    // get 0s — no crash, no schema dependency.
+    // OCC org has leads_rdv (production) and leads_rdv_test_axon (sandbox).
+    // The leads_source query param picks which one to summarise — defaults
+    // to prod, which is what the operator wants 99% of the time.
     const { data: leads, error: leadsErr } = await sb
-      .from("leads_rdv_test_axon" as never)
+      .from(leadsTable as never)
       .select(
         "qualification, date_j1, date_j3, date_j5, j1_attempts, j3_attempts, j5_attempts",
       )

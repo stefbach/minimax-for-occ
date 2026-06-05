@@ -25,7 +25,7 @@ function fmtDate(iso: string): string {
 
 const THRESHOLD_OPTIONS = [60, 120, 180, 300, 600];
 
-export function DirectorTab({ from, to, direction }: { from: string; to: string; direction: string }) {
+export function DirectorTab({ from, to, direction, leadsSource = "prod" }: { from: string; to: string; direction: string; leadsSource?: "prod" | "test" }) {
   const t = useT();
   const [data, setData] = useState<DirectorResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -36,7 +36,7 @@ export function DirectorTab({ from, to, direction }: { from: string; to: string;
   useEffect(() => {
     let alive = true;
     setLoading(true);
-    const qs = new URLSearchParams({ from, to, threshold: String(threshold) });
+    const qs = new URLSearchParams({ from, to, threshold: String(threshold), leads_source: leadsSource });
     if (direction !== "all") qs.set("direction", direction);
     fetch(`/api/dashboard/director?${qs}`, { cache: "no-store" })
       .then(async (r) => {
@@ -47,7 +47,7 @@ export function DirectorTab({ from, to, direction }: { from: string; to: string;
       .catch((e) => alive && setError(e instanceof Error ? e.message : "error"))
       .finally(() => alive && setLoading(false));
     return () => { alive = false; };
-  }, [from, to, direction, threshold]);
+  }, [from, to, direction, threshold, leadsSource]);
 
   const summariesByQual = useMemo(() => {
     const m = new Map<string, DirectorResponse["summaries"]>();
