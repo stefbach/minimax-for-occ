@@ -67,9 +67,13 @@ const DAYS = [
 ];
 
 const KNOWN_STATUSES = [
+  // Statuses actively sourced by OCC campaigns (leads à appeler)
   "NOUVEAU DOSSIER", "RAPPEL", "PAS DE REPONSE", "REPONDEUR",
-  "RDV CONFIRME", "PAS INTERESSE", "FAUX NUMERO", "NON ELIGIBLE",
-  "NE PAS RAPPELER", "A PASSER A L'HUMAIN",
+  // Terminaux côté patient
+  "RDV CONFIRME", "RDV MEDECIN", "PAS INTERESSE", "FAUX NUMERO",
+  "NON ELIGIBLE", "NE PAS RAPPELER", "A PASSER A L'HUMAIN",
+  // Statuses techniques (callback engine + handoffs + workflow OCC)
+  "CALLBACK_SCHEDULED", "TRANSFERRED_TO_ISABELLE", "FOLLOW UP",
 ];
 
 interface AgentOpt { id: string; display_name: string; kind: string }
