@@ -31,6 +31,8 @@ export async function createCall(opts: {
   statusCallback?: string;
   amd?: boolean;
   timeout?: number;
+  record?: boolean;
+  recordingStatusCallback?: string;
 }): Promise<{ sid: string; status: string }> {
   const { sid, token } = creds();
   const body = new URLSearchParams();
@@ -48,6 +50,19 @@ export async function createCall(opts: {
   }
   if (opts.amd) body.set("MachineDetection", "DetectMessageEnd");
   if (opts.timeout !== undefined) body.set("Timeout", String(opts.timeout));
+  // Twilio call recording — dual-channel (caller + agent on separate tracks
+  // so we can listen to one side at a time in the dashboard). The recording
+  // URL arrives on RecordingStatusCallback once the recording is processed.
+  if (opts.record) {
+    body.set("Record", "true");
+    body.set("RecordingChannels", "dual");
+    body.set("RecordingTrack", "both");
+    if (opts.recordingStatusCallback) {
+      body.set("RecordingStatusCallback", opts.recordingStatusCallback);
+      body.set("RecordingStatusCallbackMethod", "POST");
+      body.set("RecordingStatusCallbackEvent", "completed");
+    }
+  }
 
   const auth = "Basic " + Buffer.from(`${sid}:${token}`).toString("base64");
   const res = await fetch(`${TWILIO_API_BASE}/Accounts/${sid}/Calls.json`, {

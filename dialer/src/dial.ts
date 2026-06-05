@@ -403,6 +403,14 @@ export async function dialTarget(job: DialJob): Promise<void> {
   if (handleId) twimlParams.set("agent_handle_id", handleId);
   const twimlUrl = `${base}/api/twilio-voice?${twimlParams.toString()}`;
   const statusCallback = `${base}/api/twilio/status?campaign_id=${encodeURIComponent(campaign.id)}&target_id=${encodeURIComponent(target.id)}`;
+  // Recording is on by default — operator review + dashboard playback. The
+  // RecordingStatusCallback fires once Twilio finishes processing and gives
+  // us the playable URL we store on calls.recording_url. Disable by setting
+  // CALL_RECORDING_ENABLED=false on the dialer if a tenant opts out.
+  const recordingEnabled = (process.env.CALL_RECORDING_ENABLED ?? "true").toLowerCase() !== "false";
+  const recordingStatusCallback = recordingEnabled
+    ? `${base}/api/twilio/recording-status?campaign_id=${encodeURIComponent(campaign.id)}&target_id=${encodeURIComponent(target.id)}`
+    : undefined;
 
   try {
     const call = await createCall({
@@ -412,6 +420,8 @@ export async function dialTarget(job: DialJob): Promise<void> {
       statusCallback,
       amd: !!campaign.amd_enabled,
       timeout: 30,
+      record: recordingEnabled,
+      recordingStatusCallback,
     });
     await sb
       .from("campaign_targets")
