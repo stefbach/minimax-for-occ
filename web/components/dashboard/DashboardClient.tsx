@@ -16,6 +16,7 @@ import { DirectorTab } from "./DirectorTab";
 import { NhsSuiviTab } from "./NhsSuiviTab";
 import { ErrorsAlertsTab } from "./ErrorsAlertsTab";
 import { PeriodBar, presetToRange, type Period, type Filters } from "./PeriodBar";
+import { SyncRetellButton } from "./SyncRetellButton";
 import { useT } from "@/lib/i18n";
 
 type TabId = "overview" | "stats" | "logs" | "live" | "errors" | "nhs";
@@ -148,6 +149,7 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
               <Link href="/contacts" style={{ textDecoration: "none" }}>
                 <button className="ghost">{t("◐ Contacts")}</button>
               </Link>
+              <SyncRetellButton />
             </div>
             <PeriodBar period={period} filters={filters} onPeriod={setPeriod} onFilters={setFilters} />
             <DirectorTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} />
