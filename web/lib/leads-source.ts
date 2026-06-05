@@ -2,19 +2,26 @@ import { supabaseServer } from "@/lib/supabase";
 import { fetchAllPaged } from "@/lib/supabase-page";
 
 /**
- * Returns the set of phone numbers (numero_telephone) that belong to the
- * selected leads table. Used by the dashboard endpoints to scope EVERY
- * KPI — total calls, costs, qualifications, durations — to calls actually
- * made to leads from that table. Without it, the Prod/Test toggle would
- * only flip the J1/J3/J5 phase widget and the source attribution table,
- * which made operators think the toggle "did nothing".
+ * Returns the set of phone numbers that belong to the selected leads source,
+ * used by every dashboard endpoint to scope KPIs (total, cost, qualifications,
+ * durations, drill-downs, call logs, live) to that source.
  *
- * Returns `null` when the selected table doesn't exist, so callers can
- * skip filtering instead of accidentally returning an empty result set.
+ * Prod and Test must NEVER mix. A test number can legitimately ALSO live in
+ * the prod table (e.g. the dev's own phone). To keep the two sources cleanly
+ * separated we define:
  *
- * Normalises by stripping whitespace because OCC's source CSV had values
- * like "+230 5748 0009" with embedded spaces that wouldn't match the
- * E.164 stored in calls.to_e164 otherwise.
+ *   Test  = phones in leads_rdv_test_axon
+ *   Prod  = phones in leads_rdv  EXCEPT any that are also in the test table
+ *
+ * Without the subtraction, an Axon test call placed to a number that's in both
+ * tables would be counted under Prod and inflate the production figures (the
+ * "415 instead of 410" symptom).
+ *
+ * Returns `null` when the selected table doesn't exist, so callers can skip
+ * filtering instead of returning an empty set.
+ *
+ * Normalises by stripping whitespace because the source CSV had values like
+ * "+230 5748 0009" that wouldn't match the E.164 stored in calls.to_e164.
  */
 export type LeadsSource = "prod" | "test";
 
@@ -28,14 +35,11 @@ function normalisePhone(raw: string | null | undefined): string | null {
   return stripped || null;
 }
 
-export async function phoneSetForLeadsSource(
-  source: LeadsSource | null | undefined,
-): Promise<Set<string> | null> {
-  const table = leadsTableFor(source);
+// Load every phone of one physical table, paged past the 1000-row cap.
+// Returns null when the table is missing / unreadable.
+async function loadPhoneSet(table: string): Promise<Set<string> | null> {
   const sb = supabaseServer();
   try {
-    // Page past PostgREST's 1000-row cap — leads_rdv has ~7.5k numbers and a
-    // truncated set silently drops most calls from the Prod filter.
     const { rows, error } = await fetchAllPaged<{ numero_telephone: string | null }>(
       () =>
         sb
@@ -53,6 +57,21 @@ export async function phoneSetForLeadsSource(
   } catch {
     return null;
   }
+}
+
+export async function phoneSetForLeadsSource(
+  source: LeadsSource | null | undefined,
+): Promise<Set<string> | null> {
+  if (source === "test") {
+    return loadPhoneSet(leadsTableFor("test"));
+  }
+  // Prod = prod phones minus any that are also test numbers, so test calls
+  // never leak into the production figures.
+  const prod = await loadPhoneSet(leadsTableFor("prod"));
+  if (!prod) return null;
+  const test = await loadPhoneSet(leadsTableFor("test"));
+  if (test) for (const p of test) prod.delete(p);
+  return prod;
 }
 
 /** Predicate matching a call's to_e164 against the leads phone set. Trims

@@ -208,26 +208,26 @@ export async function GET(request: Request) {
   // (or vice versa). Match on metadata.call_id which is what the agent
   // and Twilio status webhook both set.
   const inScopeIds = new Set(rows.map((r) => r.id));
-  const { data: usage } = await sb
-    .from("usage_events")
-    .select("cost_cents, metadata")
-    .eq("org_id", orgId)
-    .gte("occurred_at", from.toISOString())
-    .lte("occurred_at", to.toISOString());
+  const { rows: usage } = await fetchAllPaged<{ cost_cents: number; metadata: { call_id?: string } | null }>(
+    () =>
+      sb
+        .from("usage_events")
+        .select("cost_cents, metadata")
+        .eq("org_id", orgId)
+        .gte("occurred_at", from.toISOString())
+        .lte("occurred_at", to.toISOString()) as unknown as Rangeable<{ cost_cents: number; metadata: { call_id?: string } | null }>,
+  );
   const cost =
-    (usage ?? [])
+    usage
       .filter((u) => {
-        const cid = (u as { metadata?: { call_id?: string } | null }).metadata?.call_id;
+        const cid = u.metadata?.call_id;
         // Keep events with no call_id only when there is no filter active
         // (phoneSet === null), otherwise we'd leak sandbox events back into
         // the prod view.
         if (!cid) return phoneSet === null;
         return inScopeIds.has(cid);
       })
-      .reduce(
-        (a, u) => a + (Number((u as { cost_cents: number }).cost_cents) || 0),
-        0,
-      ) / 100;
+      .reduce((a, u) => a + (Number(u.cost_cents) || 0), 0) / 100;
 
   // Chaîne d'agents — count distinct agents touched per call from call_events.
   // Initial agent is calls.agent_handle_id (may be null for inbound). Handoffs

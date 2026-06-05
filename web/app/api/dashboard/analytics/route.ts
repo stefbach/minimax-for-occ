@@ -165,22 +165,25 @@ export async function GET(request: Request) {
   // Real cost from recorded usage (telephony minutes + LLM tokens + TTS chars +
   // STT minutes), summed over the period and restricted to in-scope calls.
   const inScopeIds = new Set(rows.map((r) => r.id));
-  const { data: usage } = await sb
-    .from("usage_events")
-    .select("event_type, cost_cents, metadata")
-    .eq("org_id", orgId)
-    .gte("occurred_at", from.toISOString())
-    .lte("occurred_at", to.toISOString());
+  const { rows: usage } = await fetchAllPaged<{ event_type: string; cost_cents: number; metadata: { call_id?: string } | null }>(
+    () =>
+      sb
+        .from("usage_events")
+        .select("event_type, cost_cents, metadata")
+        .eq("org_id", orgId)
+        .gte("occurred_at", from.toISOString())
+        .lte("occurred_at", to.toISOString()) as unknown as Rangeable<{ event_type: string; cost_cents: number; metadata: { call_id?: string } | null }>,
+  );
   const breakdown = { call_minutes: 0, llm_tokens: 0, tts_chars: 0, stt_minutes: 0 };
   let totalCents = 0;
-  for (const u of (usage ?? [])) {
-    const cid = (u as { metadata?: { call_id?: string } | null }).metadata?.call_id;
+  for (const u of usage) {
+    const cid = u.metadata?.call_id;
     // Drop events that belong to filtered-out calls. Untagged events
     // (no call_id) only count when no filter is active.
     if (cid ? !inScopeIds.has(cid) : phoneSet !== null) continue;
-    const cents = Number((u as { cost_cents: number }).cost_cents) || 0;
+    const cents = Number(u.cost_cents) || 0;
     totalCents += cents;
-    const k = (u as { event_type: string }).event_type as keyof typeof breakdown;
+    const k = u.event_type as keyof typeof breakdown;
     if (k in breakdown) breakdown[k] += cents;
   }
   const costReal = Math.round((totalCents / 100) * 100) / 100; // → dollars, 2dp
