@@ -661,3 +661,109 @@ def _qualification_needs_callback(raw: Optional[str]) -> bool:
         return False
     return any(p in s for p in _CALLBACK_QUAL_PATTERNS)
 
+
+def auto_qualify_call(call_id: Optional[str]) -> None:
+    """Heuristic post-call qualification for calls where the AI agent never
+    wrote one explicitly via save_contact_data. Without this, every short
+    voicemail / dropped audio / patient hangup leaves
+    calls.metadata.qualification = NULL and the dashboard buckets it as
+    'Autre' instead of REPONDEUR / PAS DE REPONSE / etc. — making the
+    Vue d'ensemble counts useless on the first day of OCC ops.
+
+    Rules (conservative, biased toward 'needs human review'):
+      not answered               → PAS DE REPONSE
+      ≤ 5s + answered            → REPONDEUR (likely AMD voicemail)
+      ≤ 15s                      → PAS DE REPONSE (carrier dropped or hung up)
+      < 30s                      → PAS INTERESSE (engaged then hung up)
+      ≥ 30s + no handoff event   → RAPPEL (real conversation, no resolution)
+      ≥ 30s + handoff event      → A PASSER A L'HUMAIN (specialist couldn't
+                                    finish — human picks up tomorrow)
+
+    Never overrides an explicit qualification already in
+    calls.metadata.qualification (so save_contact_data winners win).
+    """
+    if not call_id or not has_supabase():
+        return
+    try:
+        with httpx.Client(timeout=httpx.Timeout(5.0), headers=_supabase_headers()) as c:
+            r = c.get(
+                _supabase_url(
+                    f"/rest/v1/calls?id=eq.{call_id}"
+                    "&select=metadata,duration_secs,answered_at"
+                ),
+            )
+            r.raise_for_status()
+            rows = r.json() or []
+            if not rows:
+                return
+            row = rows[0]
+            current_meta = row.get("metadata") or {}
+            if isinstance(current_meta, dict) and current_meta.get("qualification"):
+                logger.debug(
+                    "auto_qualify_call: %s already has qualification=%s, skipping",
+                    call_id, current_meta.get("qualification"),
+                )
+                return
+
+            duration = float(row.get("duration_secs") or 0)
+            answered = bool(row.get("answered_at"))
+
+            # Count handoff events recorded for this call. Two kinds the
+            # agent emits: 'handoff_initiated' (full agent swap, e.g.
+            # Charlotte → Isabelle) and 'handoff_to_handle' (specialist
+            # transfer). Both count as "made it past the initial agent".
+            handoff_count = 0
+            try:
+                he = c.get(
+                    _supabase_url(
+                        f"/rest/v1/call_events?call_id=eq.{call_id}"
+                        "&kind=in.(handoff_initiated,handoff_to_handle)"
+                        "&select=id"
+                    ),
+                )
+                if he.is_success:
+                    handoff_count = len(he.json() or [])
+            except Exception:
+                pass
+
+            # Priority order matters: a handoff (objective event from the
+            # AI's tool calls) outranks duration. Otherwise a patient who
+            # was engaged enough to be transferred but hung up mid-Isabelle
+            # gets mis-bucketed as PAS INTERESSE because the total session
+            # was short (e.g. test 8: handoff happened but reported
+            # duration was 24s).
+            if handoff_count > 0:
+                qual = "A PASSER A L'HUMAIN"
+            elif not answered or duration == 0:
+                qual = "PAS DE REPONSE"
+            elif duration <= 5:
+                qual = "REPONDEUR"
+            elif duration <= 15:
+                qual = "PAS DE REPONSE"
+            elif duration < 30:
+                qual = "PAS INTERESSE"
+            else:
+                qual = "RAPPEL"
+
+            merged = {
+                **(current_meta if isinstance(current_meta, dict) else {}),
+                "qualification": qual,
+                "qualification_source": "auto_inferred",
+            }
+            r2 = c.patch(
+                _supabase_url(f"/rest/v1/calls?id=eq.{call_id}"),
+                headers={
+                    **_supabase_headers(),
+                    "Content-Type": "application/json",
+                    "Prefer": "return=minimal",
+                },
+                json={"metadata": merged},
+            )
+            r2.raise_for_status()
+            logger.info(
+                "auto_qualify_call: %s -> %s (duration=%.0fs answered=%s handoffs=%d)",
+                call_id, qual, duration, answered, handoff_count,
+            )
+    except Exception:
+        logger.exception("auto_qualify_call failed (call=%s)", call_id)
+

@@ -804,6 +804,18 @@ def _install_team_handoff_watcher(
                 "handoff: FULL swap -> %s (%s) voice=%s model=%s, %d tools",
                 axon_next.id, axon_next.name, axon_next.tts_voice_id, axon_next.llm_model, len(tools),
             )
+            # Persist as a call_event so auto_qualify_call (and the dashboard
+            # Chaîne d'agents widget) can count actual specialist handoffs
+            # instead of guessing from duration alone. Best-effort: never
+            # let a telemetry write break the live conversation.
+            try:
+                from db_writes import append_call_event as _evt
+                _evt(call_id, "handoff_initiated", {
+                    "to_agent_id": axon_next.id,
+                    "to_agent_name": axon_next.name,
+                })
+            except Exception:
+                clog.exception("handoff: failed to log call_event")
         except Exception:
             clog.exception("handoff: full swap failed")
 
@@ -1877,6 +1889,16 @@ async def entrypoint(ctx: JobContext) -> None:
             )
         except Exception:
             clog.exception("finalize_call_state failed at shutdown")
+        # 1b. Heuristic qualification fallback when the AI didn't write one.
+        #     MUST run AFTER finalize_call_state so duration_secs is fresh,
+        #     and BEFORE the post-call summary pipeline so the LLM summary
+        #     can see the inferred bucket. Never overrides an explicit
+        #     qualification set by save_contact_data.
+        try:
+            from db_writes import auto_qualify_call as _auto_q
+            await asyncio.to_thread(_auto_q, call_id)
+        except Exception:
+            clog.exception("auto_qualify_call failed at shutdown")
         # 2. Trigger LLM summary + analysis (best-effort, needs APP_URL set).
         try:
             trigger_post_call_pipeline(call_id)
