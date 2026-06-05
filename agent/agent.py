@@ -822,6 +822,18 @@ def _install_team_handoff_watcher(
                 "handoff: FULL swap -> %s (%s) voice=%s model=%s, %d tools",
                 axon_next.id, axon_next.name, axon_next.tts_voice_id, axon_next.llm_model, len(tools),
             )
+            # Reset hygiene state so the new agent inherits a clean slate.
+            # Charlotte's transition phrase ("I'm transferring you now, talk
+            # soon") can match the goodbye regex and arm a 5s hangup timer —
+            # without this reset, that timer fires DURING Isabelle's greeting
+            # and the engine closes mid-TTS.
+            if call_id:
+                _hyg = _HYGIENE_STATES.get(call_id)
+                if _hyg is not None:
+                    import time as _t_hyg
+                    _hyg["goodbye_armed_at"] = None
+                    _hyg["last_agent_ts"] = _t_hyg.monotonic()
+                    _hyg["last_user_ts"] = _t_hyg.monotonic()
             # Persist as a call_event so auto_qualify_call (and the dashboard
             # Chaîne d'agents widget) can count actual specialist handoffs
             # instead of guessing from duration alone. Best-effort: never
@@ -941,22 +953,19 @@ def _install_call_hygiene(
     # up. Cover English (OCC primary), French, Spanish, German — same
     # language list as the language lock so OCC + EU campaigns are covered.
     import re as _re
+    # NOTE: only phrases that *unambiguously* end the call. Soft transition
+    # phrases ("talk soon", "speak soon", "see you", "we'll be in touch",
+    # "catch you later", "cheers") are deliberately excluded because agents
+    # use them during handoffs ("I'm transferring you now, talk soon") — if
+    # they armed the hangup timer, it would fire mid-greeting of the next
+    # specialist. Defense in depth: the handoff also resets goodbye_armed_at.
     _goodbye_re = _re.compile(
         r"\b("
         r"bye[\s,!.?-]*bye"
         r"|good\s*bye"
         r"|good\s*bye\s+for\s+now"
-        r"|take\s*care"
-        r"|talk\s+to\s+you\s+soon"
-        r"|talk\s+soon"
-        r"|speak\s+(soon|to\s+you\s+soon|with\s+you\s+soon)"
-        r"|see\s+you\s+(soon|later|next|tomorrow|in\s+a\s+bit)"
-        r"|catch\s+(you|up\s+with\s+you)\s+(later|soon)"
         r"|have\s+a\s+(great|good|nice|wonderful|lovely)\s+(day|evening|weekend|afternoon|night)"
-        r"|we[''ll]+\s+be\s+in\s+touch"
-        r"|cheers"
         r"|cheerio"
-        r"|ta\s+ta"
         r"|toodle\s*oo"
         # French — both accented and unaccented because LLM transcripts /
         # voice agents routinely drop accents.
@@ -1683,15 +1692,13 @@ async def entrypoint(ctx: JobContext) -> None:
     # and fall back to the old kwargs otherwise. Either way, signature-filter
     # so unknown kwargs are dropped instead of crashing.
     #
-    # Default raised from 0.10s → 0.80s after a real-world OCC call where the
-    # patient gave their name and date of birth as 3 separate fragments
-    # ("Megan, Claudia, Kenneth" / pause / "17 more" / pause / "1993").
-    # At 0.10s each pause looked like an end-of-turn and the LLM started a new
-    # turn, cancelling the previous one. After 3 cancellations the pipeline
-    # got wedged and Victoria stopped responding entirely. 0.80s groups
-    # natural fragmented speech into a single turn while still feeling
-    # conversational. Override via MIN_ENDPOINTING_DELAY env var if needed.
-    min_endp = float(os.getenv("MIN_ENDPOINTING_DELAY", "0.8"))
+    # Default 0.55s — measured compromise. 0.10s was too aggressive (fragmented
+    # speech like "Megan, Claudia, Kenneth / 17 / 1993" got split into 3 turns,
+    # wedging the pipeline). 0.80s was safe but added ~250ms perceived lag on
+    # every turn (EOU climbed from ~1.4s to ~1.7s in production logs).
+    # 0.55s preserves fragmented-speech grouping for short pauses while
+    # cutting the average response time. Override via MIN_ENDPOINTING_DELAY.
+    min_endp = float(os.getenv("MIN_ENDPOINTING_DELAY", "0.55"))
 
     new_api_applied = False
     try:
