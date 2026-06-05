@@ -150,15 +150,25 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
     (async () => {
       try {
         const [aRes, nRes, tRes, teRes] = await Promise.all([
-          fetch("/api/agents").then((r) => r.ok ? r.json() : []),
+          fetch("/api/agent-handles").then((r) => r.ok ? r.json() : []),
           fetch("/api/numbers").then((r) => r.ok ? r.json() : []),
           fetch("/api/data-tables").then((r) => r.ok ? r.json() : []),
           fetch("/api/teams").then((r) => r.ok ? r.json() : []),
         ]);
-        setAgents(Array.isArray(aRes) ? aRes : (aRes?.items ?? aRes?.data ?? []));
-        setNumbers(Array.isArray(nRes) ? nRes : (nRes?.items ?? nRes?.data ?? []));
-        setTables(Array.isArray(tRes) ? tRes : (tRes?.items ?? tRes?.data ?? []));
-        setTeams(Array.isArray(teRes) ? teRes : (teRes?.items ?? teRes?.data ?? []));
+        // Each endpoint may return a bare array OR a {items}/{data} wrapper —
+        // normalize defensively. Also tolerate `name` vs `display_name` on
+        // the handle objects so older deploys still render something.
+        const unwrap = (x: unknown): unknown[] =>
+          Array.isArray(x) ? x : ((x as { items?: unknown[]; data?: unknown[] })?.items ?? (x as { data?: unknown[] })?.data ?? []);
+        const normHandle = (h: Record<string, unknown>): AgentOpt => ({
+          id: String(h.id ?? ""),
+          display_name: String(h.display_name ?? h.name ?? h.id ?? "(sans nom)"),
+          kind: String(h.kind ?? "ai"),
+        });
+        setAgents(unwrap(aRes).map((x) => normHandle(x as Record<string, unknown>)));
+        setNumbers(unwrap(nRes) as NumberOpt[]);
+        setTables(unwrap(tRes) as TableOpt[]);
+        setTeams(unwrap(teRes) as TeamOpt[]);
       } catch {
         // best-effort: dropdowns just stay empty if fetch fails
       }
