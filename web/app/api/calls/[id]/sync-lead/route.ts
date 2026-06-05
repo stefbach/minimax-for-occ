@@ -132,19 +132,9 @@ export async function POST(
     );
   }
 
-  // 3) Introspect the destination table's columns so we only write
-  //    fields that exist. Tenant schemas may diverge — OCC has 1st_mail,
-  //    a smaller tenant may not.
-  const { data: colInfo } = await sb
-    .from("information_schema.columns" as never)
-    .select("column_name")
-    .eq("table_name", table);
-  const cols = new Set(
-    (colInfo ?? []).map((c) => (c as { column_name: string }).column_name),
-  );
-  const has = (n: string) => cols.has(n);
-
-  // 4) Build the PATCH payload.
+  // 3) Build the PATCH payload. Tenant schemas diverge (OCC has 1st_mail,
+  //    a smaller tenant may not), so we discover available columns from
+  //    the row we read back — PostgREST doesn't expose information_schema.
   const callMeta = (call.metadata ?? {}) as Record<string, unknown>;
   const callQual = typeof callMeta.qualification === "string" ? callMeta.qualification : null;
   const qualSource = typeof callMeta.qualification_source === "string"
@@ -155,17 +145,28 @@ export async function POST(
 
   const patch: Record<string, unknown> = {};
 
-  // Fetch current row so we can do += style updates atomically-ish.
-  const { data: leadRows } = await sb
+  const { data: leadRows, error: leadErr } = await sb
     .from(table as never)
     .select("*")
     .eq("id", rowId)
     .maybeSingle();
+  if (leadErr) {
+    return NextResponse.json(
+      { error: leadErr.message, table, rowId },
+      { status: 500 },
+    );
+  }
   const lead = (leadRows ?? null) as Record<string, unknown> | null;
+  if (!lead) {
+    return NextResponse.json(
+      { ok: false, reason: "lead_row_not_found", table, rowId },
+      { status: 200 },
+    );
+  }
+  const cols = new Set(Object.keys(lead));
+  const has = (n: string) => cols.has(n);
 
-  if (lead && lead.__last_synced_call_id === callId) {
-    // Idempotency: if a previous call already synced this id, don't
-    // double-bump counters.
+  if (has("last_call_id") && lead.last_call_id === callId) {
     return NextResponse.json({ ok: true, skipped: "already_synced" });
   }
 
