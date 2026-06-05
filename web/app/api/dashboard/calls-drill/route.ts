@@ -5,6 +5,7 @@ import { requireModule } from "@/lib/permissions-server";
 import { bucketForCall, type QualBucket } from "@/lib/qualification";
 import { isInbound, normalizeDirectionForDb } from "@/lib/call-direction";
 import { callBelongsToLeadsSource, phoneSetForLeadsSource, type LeadsSource } from "@/lib/leads-source";
+import { fetchAllPaged, type Rangeable } from "@/lib/supabase-page";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -97,23 +98,25 @@ export async function GET(request: Request) {
   const leadsSource: LeadsSource = searchParams.get("leads_source") === "test" ? "test" : "prod";
 
   const sb = supabaseServer();
-
-  let q = sb
-    .from("calls")
-    .select(
-      "id, direction, state, answered_at, started_at, duration_secs, disposition, agent_handle_id, from_e164, to_e164, metadata, agent_handles(display_name), contacts(display_name, e164)",
-    )
-    .eq("org_id", orgId)
-    .gte("started_at", from.toISOString())
-    .lte("started_at", to.toISOString())
-    .order("started_at", { ascending: false })
-    .limit(2000);
-
   const dbDir = normalizeDirectionForDb(direction);
-  if (dbDir) q = q.eq("direction", dbDir);
-
-  const { data, error } = await q;
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  // Paged past the 1000-row cap so wide-period drill-downs see every call.
+  const { rows: data, error } = await fetchAllPaged<Row>(
+    () => {
+      let q = sb
+        .from("calls")
+        .select(
+          "id, direction, state, answered_at, started_at, duration_secs, disposition, agent_handle_id, from_e164, to_e164, metadata, agent_handles(display_name), contacts(display_name, e164)",
+        )
+        .eq("org_id", orgId)
+        .gte("started_at", from.toISOString())
+        .lte("started_at", to.toISOString())
+        .order("started_at", { ascending: false });
+      if (dbDir) q = q.eq("direction", dbDir);
+      return q as unknown as Rangeable<Row>;
+    },
+    { maxRows: 20000 },
+  );
+  if (error) return NextResponse.json({ error }, { status: 500 });
 
   const phoneSet = await phoneSetForLeadsSource(leadsSource);
   const rows = ((data ?? []) as unknown as Row[])

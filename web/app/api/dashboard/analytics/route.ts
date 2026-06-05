@@ -4,6 +4,7 @@ import { requestOrgId } from "@/lib/request-org";
 import { isInbound, isOutbound, normalizeDirectionForDb } from "@/lib/call-direction";
 import { bucketForCall, QUAL_BUCKETS, type QualBucket } from "@/lib/qualification";
 import { callBelongsToLeadsSource, leadsTableFor, phoneSetForLeadsSource, type LeadsSource } from "@/lib/leads-source";
+import { fetchAllPaged, type Rangeable } from "@/lib/supabase-page";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -114,21 +115,26 @@ export async function GET(request: Request) {
   const granularity: "hour" | "day" = rangeMs <= 2 * 86400_000 ? "hour" : "day";
 
   const sb = supabaseServer();
-  let q = sb
-    .from("calls")
-    .select(
-      "id, direction, state, started_at, answered_at, duration_secs, disposition, contact_id, to_e164, metadata, agent_handles(display_name)",
-    )
-    .eq("org_id", orgId)
-    .gte("started_at", from.toISOString())
-    .lte("started_at", to.toISOString())
-    .order("started_at", { ascending: true })
-    .limit(ROW_CAP + 1);
   const dbDirection = normalizeDirectionForDb(direction);
-  if (dbDirection) q = q.eq("direction", dbDirection);
-
-  const { data, error } = await q;
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  // Paged past the 1000-row PostgREST cap; bounded at ROW_CAP+1 so we can still
+  // flag truncation for very large periods without scanning the whole table.
+  const { rows: data, error } = await fetchAllPaged<any>(
+    () => {
+      let q = sb
+        .from("calls")
+        .select(
+          "id, direction, state, started_at, answered_at, duration_secs, disposition, contact_id, to_e164, metadata, agent_handles(display_name)",
+        )
+        .eq("org_id", orgId)
+        .gte("started_at", from.toISOString())
+        .lte("started_at", to.toISOString())
+        .order("started_at", { ascending: true });
+      if (dbDirection) q = q.eq("direction", dbDirection);
+      return q as unknown as Rangeable<any>;
+    },
+    { maxRows: ROW_CAP + 1000 },
+  );
+  if (error) return NextResponse.json({ error }, { status: 500 });
 
   // Supabase types the joined relation as an array; flatten to a single object.
   let rows: CallRow[] = (data ?? []).map((r: any) => ({
@@ -344,32 +350,25 @@ export async function GET(request: Request) {
   let sources: SourceRow[] = [];
   try {
     type LeadRow = { numero_telephone: string | null; source_lead: string | null };
-    const { data: leads, error: leadsErr } = await sb
-      .from(leadsTable as never)
-      .select("numero_telephone, source_lead")
-      .not("numero_telephone", "is", null)
-      .limit(20000);
-    if (!leadsErr && Array.isArray(leads)) {
+    // Page past the 1000-row cap so source attribution sees every lead.
+    const { rows: leads, error: leadsErr } = await fetchAllPaged<LeadRow>(() =>
+      sb
+        .from(leadsTable as never)
+        .select("numero_telephone, source_lead")
+        .not("numero_telephone", "is", null) as unknown as Rangeable<LeadRow>,
+    );
+    if (!leadsErr) {
       const sourceByPhone = new Map<string, string>();
-      for (const l of leads as unknown as LeadRow[]) {
+      for (const l of leads) {
         if (l.numero_telephone) {
           sourceByPhone.set(l.numero_telephone, (l.source_lead || "Inconnue").trim());
         }
       }
-      // Need to_e164 to do the join — pulled cheaply from the same window.
-      const ids = rows.map((r) => r.id);
-      if (ids.length > 0) {
-        const { data: callPhones } = await sb
-          .from("calls")
-          .select("id, to_e164")
-          .in("id", ids);
-        const phoneByCall = new Map<string, string>();
-        for (const c of (callPhones ?? []) as Array<{ id: string; to_e164: string | null }>) {
-          if (c.to_e164) phoneByCall.set(c.id, c.to_e164);
-        }
+      {
+        // rows already carry to_e164, so no extra (1000-capped) re-fetch.
         const acc = new Map<string, { total: number; rdv: number }>();
         for (const r of rows) {
-          const phone = phoneByCall.get(r.id);
+          const phone = r.to_e164;
           if (!phone) continue;
           const src = sourceByPhone.get(phone) ?? "Inconnue";
           const s = acc.get(src) ?? { total: 0, rdv: 0 };

@@ -1,4 +1,5 @@
 import { supabaseServer } from "@/lib/supabase";
+import { fetchAllPaged } from "@/lib/supabase-page";
 
 /**
  * Returns the set of phone numbers (numero_telephone) that belong to the
@@ -33,14 +34,18 @@ export async function phoneSetForLeadsSource(
   const table = leadsTableFor(source);
   const sb = supabaseServer();
   try {
-    const { data, error } = await sb
-      .from(table as never)
-      .select("numero_telephone")
-      .not("numero_telephone", "is", null)
-      .limit(50000);
-    if (error || !Array.isArray(data)) return null;
+    // Page past PostgREST's 1000-row cap — leads_rdv has ~7.5k numbers and a
+    // truncated set silently drops most calls from the Prod filter.
+    const { rows, error } = await fetchAllPaged<{ numero_telephone: string | null }>(
+      () =>
+        sb
+          .from(table as never)
+          .select("numero_telephone")
+          .not("numero_telephone", "is", null),
+    );
+    if (error) return null;
     const set = new Set<string>();
-    for (const row of data as Array<{ numero_telephone: string | null }>) {
+    for (const row of rows) {
       const p = normalisePhone(row.numero_telephone);
       if (p) set.add(p);
     }
