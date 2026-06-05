@@ -1168,6 +1168,10 @@ def _wire_usage_billing(ctx, session: AgentSession, call_id, org_id, clog) -> No
     if not org_id:
         clog.debug("usage billing: no org_id — skipping")
         return
+    # Start a monotonic timer here so call_seconds at flush time is the real
+    # wall-clock duration of the AgentSession (used as a Twilio fallback).
+    import time as _t_billing_start
+    _session_started_monotonic = _t_billing_start.monotonic()
     try:
         from livekit.agents import metrics as _metrics
         from db_writes import record_agent_usage
@@ -1197,13 +1201,20 @@ def _wire_usage_billing(ctx, session: AgentSession, call_id, org_id, clog) -> No
             llm_tokens = int(getattr(s, "llm_prompt_tokens", 0) or 0) + int(getattr(s, "llm_completion_tokens", 0) or 0)
             tts_chars = int(getattr(s, "tts_characters_count", 0) or 0)
             stt_seconds = float(getattr(s, "stt_audio_duration", 0.0) or 0.0)
+            # Wall-clock call duration is used as a fallback for the
+            # call_minutes usage event when Twilio's StatusCallback never
+            # reaches us. /api/usage/agent dedupes against any pre-existing
+            # call_minutes row so it's safe to send unconditionally.
+            import time as _t_billing
+            call_seconds = max(0.0, _t_billing.monotonic() - _session_started_monotonic)
             clog.info(
-                "usage: llm_tokens=%d tts_chars=%d stt_secs=%.1f",
-                llm_tokens, tts_chars, stt_seconds,
+                "usage: llm_tokens=%d tts_chars=%d stt_secs=%.1f call_secs=%.1f",
+                llm_tokens, tts_chars, stt_seconds, call_seconds,
             )
             await asyncio.to_thread(
                 record_agent_usage, org_id, call_id,
-                llm_tokens=llm_tokens, tts_chars=tts_chars, stt_seconds=stt_seconds,
+                llm_tokens=llm_tokens, tts_chars=tts_chars,
+                stt_seconds=stt_seconds, call_seconds=call_seconds,
             )
         except Exception:
             clog.exception("usage billing flush failed")

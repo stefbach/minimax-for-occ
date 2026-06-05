@@ -74,20 +74,49 @@ export function secondsToBillableMinutes(seconds: number): number {
  *  measured (real Twilio minutes, real LLM tokens, real TTS chars, real STT
  *  minutes) — only these rates are configurable estimates. */
 export const COST_RATES = {
-  call_minute_cents: Number(process.env.RATE_CALL_MIN_CENTS ?? 2),    // Twilio voice / min
+  call_minute_cents: Number(process.env.RATE_CALL_MIN_CENTS ?? 2),    // Twilio voice / min (default UK Local)
   llm_1k_tokens_cents: Number(process.env.RATE_LLM_1K_CENTS ?? 0.3),  // DeepSeek blended in/out
   tts_1k_chars_cents: Number(process.env.RATE_TTS_1K_CENTS ?? 3),     // Cartesia Sonic
   stt_minute_cents: Number(process.env.RATE_STT_MIN_CENTS ?? 1),      // AssemblyAI / min
 } as const;
 
+/** Destination-aware Twilio call rate (cents per BILLED minute, i.e. minutes
+ *  rounded up).
+ *
+ *  Real Twilio billing varies massively by destination:
+ *    UK Local (+44 1/2/3)   £0.020/min
+ *    UK Mobile (+447)        £0.025/min
+ *    France (+33)            ~£0.025/min
+ *    Mauritius Mobile (+230 5) £0.215/min — **10× more expensive**, watch out
+ *    USA (+1)                £0.012/min
+ *
+ *  Cents in this codebase are USD; the rates below are roughly the GBP × 1.25
+ *  conversion. Override per-tenant with the env vars listed if your invoices
+ *  show different numbers. */
+export function callRateCentsPerMinute(toE164: string | null | undefined): number {
+  if (!toE164) return COST_RATES.call_minute_cents;
+  const n = toE164.trim();
+  if (n.startsWith("+447")) return Number(process.env.RATE_CALL_MIN_UK_MOBILE_CENTS ?? 3);
+  if (n.startsWith("+44"))  return Number(process.env.RATE_CALL_MIN_UK_LOCAL_CENTS ?? 2.5);
+  if (n.startsWith("+2305")) return Number(process.env.RATE_CALL_MIN_MAURITIUS_MOBILE_CENTS ?? 27);
+  if (n.startsWith("+230"))  return Number(process.env.RATE_CALL_MIN_MAURITIUS_LOCAL_CENTS ?? 14);
+  if (n.startsWith("+33"))   return Number(process.env.RATE_CALL_MIN_FR_CENTS ?? 3);
+  if (n.startsWith("+1"))    return Number(process.env.RATE_CALL_MIN_US_CENTS ?? 1.5);
+  return COST_RATES.call_minute_cents;
+}
+
 /** Cost in FRACTIONAL cents (no rounding — per-call components are sub-cent). */
 export function estimateCostCents(
   eventType: UsageEventType,
   quantity: number,
+  opts?: { destination?: string | null },
 ): number {
   switch (eventType) {
     case "call_minutes":
-      return quantity * COST_RATES.call_minute_cents;
+      // Twilio bills per started minute, so caller must already pass a
+      // ceil'd value via secondsToBillableMinutes(duration). The rate
+      // depends on the called number.
+      return quantity * callRateCentsPerMinute(opts?.destination);
     case "llm_tokens":
       return (quantity / 1000) * COST_RATES.llm_1k_tokens_cents;
     case "tts_chars":

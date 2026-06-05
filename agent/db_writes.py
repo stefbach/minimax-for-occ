@@ -440,13 +440,26 @@ def record_agent_usage(
     llm_tokens: int = 0,
     tts_chars: int = 0,
     stt_seconds: float = 0.0,
+    call_seconds: float = 0.0,
 ) -> None:
     """Report this call's REAL measured usage (LLM tokens, TTS chars, STT
-    seconds) to the web app, which records it with cost so the dashboard shows
-    real per-call cost. Best-effort: never blocks/raises into the call."""
+    seconds, optionally call seconds for the Twilio-webhook fallback path)
+    to the web app, which records it with cost so the dashboard shows real
+    per-call cost. Best-effort: never blocks/raises into the call.
+
+    `call_seconds` is the agent's measured wall-clock duration of the
+    session. The web layer only writes a call_minutes usage_event for it
+    when Twilio's StatusCallback didn't already produce one — so this is a
+    safety net, not a double-billing path.
+    """
     if not org_id:
         return
-    if (llm_tokens or 0) <= 0 and (tts_chars or 0) <= 0 and (stt_seconds or 0) <= 0:
+    if (
+        (llm_tokens or 0) <= 0
+        and (tts_chars or 0) <= 0
+        and (stt_seconds or 0) <= 0
+        and (call_seconds or 0) <= 0
+    ):
         return
     base = (
         os.getenv("NEXT_PUBLIC_APP_URL")
@@ -470,6 +483,7 @@ def record_agent_usage(
                     "llm_tokens": int(llm_tokens or 0),
                     "tts_chars": int(tts_chars or 0),
                     "stt_seconds": float(stt_seconds or 0.0),
+                    "call_seconds": float(call_seconds or 0.0),
                 },
             )
             if r.status_code >= 400:

@@ -187,15 +187,19 @@ export async function POST(req: Request) {
     if (orgIdForBilling) {
       const minutes = secondsToBillableMinutes(Number(Duration));
       if (minutes > 0) {
+        // Use the destination-aware rate so UK→Maurice calls (10× more
+        // expensive than UK→UK) bill at their real price.
+        const costCents = estimateCostCents("call_minutes", minutes, { destination: To });
         await recordUsage(
           orgIdForBilling,
           "call_minutes",
           minutes,
-          estimateCostCents("call_minutes", minutes),
+          costCents,
           {
             call_id: callId,
             twilio_call_sid: CallSid,
             direction: Direction,
+            destination: To,
           },
         );
       }

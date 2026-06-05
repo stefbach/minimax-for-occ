@@ -3,11 +3,13 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useT } from "@/lib/i18n";
+import { bucketForCall, QUAL_BUCKETS, type QualBucket } from "@/lib/qualification";
 
-// Call Logs tab — generic Axon call history, aligned with the OCC dashboard
-// columns: Lead · Numéro · Agent(s) · Durée · Qualification · Répondu · Heure
-// · Coût · Actions (🎧 listen inline, 👁 details). Recording URL and cost
-// are already returned by /api/calls; the audio player is mounted on demand.
+// Call Logs tab — Twilio-style call history with our specifics on top:
+// the AI agent's name, the normalised qualification (9 fixed buckets),
+// inline audio playback of the recording, and a duration-filter strip so
+// the operator can isolate < 1 min calls (mostly voicemail) from real
+// conversations.
 
 interface CallRow {
   id: string;
@@ -17,11 +19,13 @@ interface CallRow {
   to_e164: string | null;
   started_at: string | null;
   answered_at: string | null;
+  ended_at: string | null;
   duration_secs: number | null;
   disposition: string | null;
   recording_url: string | null;
   transcript_url: string | null;
   cost_cents: number;
+  metadata: { qualification?: string | null } | null;
   agent_handles: { display_name: string | null } | null;
   contacts: { display_name: string | null; e164: string | null } | null;
 }
@@ -39,19 +43,52 @@ const ANSWERED_FILTERS: { id: string; label: string }[] = [
   { id: "no", label: "Non" },
 ];
 
+// Twilio-style cost-buckets so the operator can spot the cheap garbage
+// (< 1 min, mostly voicemails / hangups) from the real conversations.
+const DURATION_BUCKETS: { id: string; label: string; min: number; max: number }[] = [
+  { id: "all", label: "Toutes durées", min: 0, max: Infinity },
+  { id: "lt1", label: "< 1 min", min: 0, max: 60 },
+  { id: "1-2", label: "1 - 2 min", min: 60, max: 120 },
+  { id: "2-5", label: "2 - 5 min", min: 120, max: 300 },
+  { id: "5-10", label: "5 - 10 min", min: 300, max: 600 },
+  { id: "gt10", label: "> 10 min", min: 600, max: Infinity },
+];
+
+const QUAL_TONE: Record<QualBucket, string> = {
+  rdv_confirme: "var(--good)",
+  passer_humain: "var(--good)",
+  rappel: "var(--accent)",
+  pas_interesse: "var(--bad)",
+  pas_de_reponse: "var(--warn)",
+  repondeur: "var(--warn)",
+  faux_numero: "var(--bad)",
+  non_eligible: "var(--bad)",
+  ne_pas_rappeler: "var(--bad)",
+  autre: "var(--muted)",
+};
+
 function fmtDuration(secs: number | null): string {
   if (!secs || secs < 0) return "—";
   const m = Math.floor(secs / 60);
   const s = secs % 60;
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
+function fmtCeilMinutes(secs: number | null): string {
+  // Twilio bills per started minute. Display "billed: N min" so the
+  // operator sees what's actually charged.
+  if (!secs || secs <= 0) return "—";
+  const m = Math.ceil(secs / 60);
+  return `${m} ${m > 1 ? "min" : "min"}`;
+}
 function fmtDate(iso: string | null): string {
   if (!iso) return "—";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
-  // OCC convention: DD/MM HH:MM
-  return d.toLocaleDateString(undefined, { day: "2-digit", month: "2-digit" }) +
-    " " + d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  // DD/MM HH:MM 24h — same format as the Twilio console for consistency.
+  return d.toLocaleString("fr-FR", {
+    day: "2-digit", month: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+  });
 }
 function fmtCost(cents: number): string {
   if (!cents || cents <= 0) return "$0.00";
@@ -63,17 +100,6 @@ function counterpartyName(c: CallRow): string {
 function counterpartyNumber(c: CallRow): string | null {
   return (c.direction === "inbound" || c.direction === "in") ? c.from_e164 : c.to_e164;
 }
-// Pick a tone for the qualification tag — green for positives, red for hard
-// negatives, neutral grey for everything else. Pattern-based so it works
-// regardless of the tenant's naming convention.
-function qualificationTone(q: string | null): string {
-  if (!q) return "var(--muted)";
-  const v = q.toLowerCase();
-  if (/(confirm|rdv|interesse|chaud|booked)/.test(v)) return "var(--good)";
-  if (/(refus|pas interesse|faux|dnc|ne pas)/.test(v)) return "var(--bad)";
-  if (/(repondeur|voicemail|robot|pas de reponse|no answer)/.test(v)) return "var(--warn)";
-  return "var(--accent-2)";
-}
 
 export function CallLogsTab({ from, to, direction }: { from: string; to: string; direction: string }) {
   const t = useT();
@@ -82,6 +108,8 @@ export function CallLogsTab({ from, to, direction }: { from: string; to: string;
   const [error, setError] = useState<string | null>(null);
   const [stateFilter, setStateFilter] = useState<string>("ended,failed");
   const [answeredFilter, setAnsweredFilter] = useState<string>("all");
+  const [durationFilter, setDurationFilter] = useState<string>("all");
+  const [qualFilter, setQualFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [openPlayer, setOpenPlayer] = useState<string | null>(null);
 
@@ -108,17 +136,46 @@ export function CallLogsTab({ from, to, direction }: { from: string; to: string;
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
+    const dur = DURATION_BUCKETS.find((b) => b.id === durationFilter) ?? DURATION_BUCKETS[0];
     return rows.filter((c) => {
       if (answeredFilter === "yes" && !c.answered_at) return false;
       if (answeredFilter === "no" && c.answered_at) return false;
+      const secs = c.duration_secs ?? 0;
+      if (secs < dur.min || secs >= dur.max) return false;
+      if (qualFilter !== "all") {
+        const b = bucketForCall(c);
+        if (b !== qualFilter) return false;
+      }
       if (!q) return true;
       const haystack = `${counterpartyName(c)} ${c.from_e164 ?? ""} ${c.to_e164 ?? ""} ${c.agent_handles?.display_name ?? ""} ${c.disposition ?? ""}`.toLowerCase();
       return haystack.includes(q);
     });
-  }, [rows, search, answeredFilter]);
+  }, [rows, search, answeredFilter, durationFilter, qualFilter]);
+
+  // Live summary above the table, recomputed from whatever's currently
+  // filtered. Lets the operator answer "how much did the < 1 min bucket
+  // cost me this week?" without leaving the page.
+  const summary = useMemo(() => {
+    let totalSecs = 0;
+    let totalCents = 0;
+    let answered = 0;
+    for (const c of filtered) {
+      totalSecs += c.duration_secs ?? 0;
+      totalCents += c.cost_cents ?? 0;
+      if (c.answered_at) answered += 1;
+    }
+    return {
+      count: filtered.length,
+      answered,
+      totalMinutes: totalSecs / 60,
+      totalCost: totalCents / 100,
+      avgCost: filtered.length ? totalCents / 100 / filtered.length : 0,
+    };
+  }, [filtered]);
 
   return (
     <>
+      {/* ─── Filters: state, answered, search ─── */}
       <div className="card" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 2fr", gap: 12 }}>
         <div>
           <label>{t("État")}</label>
@@ -146,39 +203,109 @@ export function CallLogsTab({ from, to, direction }: { from: string; to: string;
         </div>
       </div>
 
+      {/* ─── Duration filter chips + qualification chips ─── */}
+      <div className="card" style={{ display: "grid", gap: 8, padding: 12 }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+          <span className="muted" style={{ fontSize: 12, fontWeight: 600 }}>{t("Durée")} :</span>
+          {DURATION_BUCKETS.map((b) => (
+            <button
+              key={b.id}
+              type="button"
+              className={durationFilter === b.id ? "" : "ghost"}
+              style={{ padding: "3px 10px", fontSize: 12 }}
+              onClick={() => setDurationFilter(b.id)}
+            >
+              {t(b.label)}
+            </button>
+          ))}
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+          <span className="muted" style={{ fontSize: 12, fontWeight: 600 }}>{t("Qualification")} :</span>
+          <button
+            type="button"
+            className={qualFilter === "all" ? "" : "ghost"}
+            style={{ padding: "3px 10px", fontSize: 12 }}
+            onClick={() => setQualFilter("all")}
+          >
+            {t("Toutes")}
+          </button>
+          {QUAL_BUCKETS.filter((b) => b.key !== "autre").map((b) => (
+            <button
+              key={b.key}
+              type="button"
+              className={qualFilter === b.key ? "" : "ghost"}
+              style={{ padding: "3px 10px", fontSize: 12 }}
+              onClick={() => setQualFilter(b.key)}
+            >
+              {b.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ─── Summary strip ─── */}
+      <div className="grid-kpi" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}>
+        <div className="card" style={{ padding: 12 }}>
+          <div className="muted" style={{ fontSize: 11, textTransform: "uppercase" }}>{t("Appels affichés")}</div>
+          <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4 }}>{summary.count}</div>
+          <div className="muted" style={{ fontSize: 11 }}>{summary.answered} {t("décrochés")}</div>
+        </div>
+        <div className="card" style={{ padding: 12 }}>
+          <div className="muted" style={{ fontSize: 11, textTransform: "uppercase" }}>{t("Minutes totales")}</div>
+          <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4 }}>{summary.totalMinutes.toFixed(1)}</div>
+          <div className="muted" style={{ fontSize: 11 }}>{(summary.totalMinutes * 60).toFixed(0)}s</div>
+        </div>
+        <div className="card" style={{ padding: 12, borderColor: summary.totalCost > 0 ? "var(--warn)" : undefined }}>
+          <div className="muted" style={{ fontSize: 11, textTransform: "uppercase" }}>{t("Coût total")}</div>
+          <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4, color: "var(--warn)" }}>${summary.totalCost.toFixed(2)}</div>
+          <div className="muted" style={{ fontSize: 11 }}>{t("filtre actif")}</div>
+        </div>
+        <div className="card" style={{ padding: 12 }}>
+          <div className="muted" style={{ fontSize: 11, textTransform: "uppercase" }}>{t("Coût moyen / appel")}</div>
+          <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4 }}>${summary.avgCost.toFixed(2)}</div>
+        </div>
+      </div>
+
       {error && (
         <div className="card" style={{ borderColor: "var(--bad)", color: "var(--bad)" }}>{error}</div>
       )}
 
+      {/* ─── Table — Twilio-style with our columns ─── */}
       <div className="card" style={{ padding: 0, overflow: "hidden" }}>
         <table className="list" style={{ fontSize: 13 }}>
           <thead>
             <tr>
-              <th style={{ textAlign: "left" }}>{t("Lead")}</th>
+              <th style={{ textAlign: "left" }}>{t("Heure")}</th>
+              <th>{t("Lead")}</th>
               <th>{t("Numéro")}</th>
               <th>{t("Agent")}</th>
               <th>{t("Durée")}</th>
+              <th>{t("Facturée")}</th>
               <th>{t("Qualification")}</th>
               <th>{t("Répondu")}</th>
-              <th>{t("Heure")}</th>
               <th style={{ textAlign: "right" }}>{t("Coût")}</th>
               <th style={{ textAlign: "center" }}>{t("Actions")}</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={9} className="muted" style={{ padding: 16, textAlign: "center" }}>{t("Chargement…")}</td></tr>
+              <tr><td colSpan={10} className="muted" style={{ padding: 16, textAlign: "center" }}>{t("Chargement…")}</td></tr>
             ) : filtered.length === 0 ? (
-              <tr><td colSpan={9} className="muted" style={{ padding: 16, textAlign: "center" }}>
+              <tr><td colSpan={10} className="muted" style={{ padding: 16, textAlign: "center" }}>
                 {t("Aucun appel ne correspond aux filtres.")}
               </td></tr>
             ) : (
               filtered.map((c) => {
                 const answered = Boolean(c.answered_at);
                 const isOpen = openPlayer === c.id;
+                const bucket = bucketForCall(c);
+                const bucketLabel = QUAL_BUCKETS.find((b) => b.key === bucket)?.label ?? "—";
                 return (
                   <Fragment key={c.id}>
                     <tr>
+                      <td className="muted" style={{ whiteSpace: "nowrap", fontSize: 12, fontFamily: "ui-monospace, Menlo, monospace" }}>
+                        {fmtDate(c.started_at)}
+                      </td>
                       <td>
                         <span style={{ color: (c.direction === "inbound" || c.direction === "in") ? "var(--info)" : "var(--muted)", marginRight: 4 }}>
                           {(c.direction === "inbound" || c.direction === "in") ? "↘" : "↗"}
@@ -189,23 +316,20 @@ export function CallLogsTab({ from, to, direction }: { from: string; to: string;
                         {counterpartyNumber(c) ?? "—"}
                       </td>
                       <td className="muted">{c.agent_handles?.display_name ?? "—"}</td>
+                      <td>{fmtDuration(c.duration_secs)}</td>
+                      <td className="muted" style={{ fontSize: 12 }}>{fmtCeilMinutes(c.duration_secs)}</td>
                       <td>
-                        {fmtDuration(c.duration_secs)}
-                        {c.duration_secs !== null && (
-                          <span className="muted" style={{ fontSize: 11, marginLeft: 4 }}>({c.duration_secs}s)</span>
-                        )}
-                      </td>
-                      <td>
-                        {c.disposition ? (
+                        {bucket !== "autre" ? (
                           <span
                             className="tag"
                             style={{
-                              color: qualificationTone(c.disposition),
-                              borderColor: qualificationTone(c.disposition),
-                              fontSize: 11,
+                              color: QUAL_TONE[bucket],
+                              borderColor: QUAL_TONE[bucket],
+                              fontSize: 10,
+                              whiteSpace: "nowrap",
                             }}
                           >
-                            {c.disposition.toUpperCase()}
+                            {bucketLabel}
                           </span>
                         ) : (
                           <span className="muted" style={{ fontSize: 11 }}>—</span>
@@ -227,9 +351,6 @@ export function CallLogsTab({ from, to, direction }: { from: string; to: string;
                           {answered ? "✓" : "✕"}
                         </span>
                       </td>
-                      <td className="muted" style={{ whiteSpace: "nowrap", fontSize: 12 }}>
-                        {fmtDate(c.started_at)}
-                      </td>
                       <td style={{ textAlign: "right", fontFamily: "ui-monospace, Menlo, monospace", fontSize: 12 }}>
                         {fmtCost(c.cost_cents)}
                       </td>
@@ -237,12 +358,13 @@ export function CallLogsTab({ from, to, direction }: { from: string; to: string;
                         <div style={{ display: "flex", gap: 6, justifyContent: "center", alignItems: "center" }}>
                           <button
                             type="button"
-                            title={c.recording_url ? t("Écouter l'enregistrement") : t("Aucun enregistrement")}
+                            title={c.recording_url ? t("Écouter l'enregistrement") : t("Aucun enregistrement disponible")}
                             disabled={!c.recording_url}
                             onClick={() => setOpenPlayer(isOpen ? null : c.id)}
                             style={{
                               padding: "4px 8px", fontSize: 14,
-                              background: "transparent", border: "1px solid var(--border)",
+                              background: isOpen ? "color-mix(in srgb, var(--accent) 20%, transparent)" : "transparent",
+                              border: "1px solid var(--border)",
                               borderRadius: 6, cursor: c.recording_url ? "pointer" : "not-allowed",
                               opacity: c.recording_url ? 1 : 0.35,
                             }}
@@ -265,13 +387,23 @@ export function CallLogsTab({ from, to, direction }: { from: string; to: string;
                     </tr>
                     {isOpen && c.recording_url && (
                       <tr>
-                        <td colSpan={9} style={{ background: "var(--bg-2)", padding: "10px 14px" }}>
-                          <audio
-                            controls
-                            autoPlay
-                            src={c.recording_url}
-                            style={{ width: "100%", maxWidth: 520 }}
-                          />
+                        <td colSpan={10} style={{ background: "var(--bg-2)", padding: "10px 14px" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                            <audio
+                              controls
+                              autoPlay
+                              src={c.recording_url}
+                              style={{ flex: 1 }}
+                            />
+                            <a
+                              href={c.recording_url}
+                              download
+                              className="ghost"
+                              style={{ padding: "4px 10px", fontSize: 12, textDecoration: "none", color: "var(--text)" }}
+                            >
+                              ⬇ {t("Télécharger")}
+                            </a>
+                          </div>
                         </td>
                       </tr>
                     )}
@@ -283,7 +415,7 @@ export function CallLogsTab({ from, to, direction }: { from: string; to: string;
         </table>
       </div>
       <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
-        {filtered.length} · {t("Appels")} (max 250).
+        {filtered.length} / {rows.length} {t("appels")} · {t("max 250 par requête")}
       </div>
     </>
   );
