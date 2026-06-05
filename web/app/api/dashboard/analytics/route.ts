@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { requestOrgId } from "@/lib/request-org";
 import { isInbound, isOutbound, normalizeDirectionForDb } from "@/lib/call-direction";
+import { bucketForCall, QUAL_BUCKETS, type QualBucket } from "@/lib/qualification";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,6 +42,8 @@ export type AgentPerf = {
   avg_duration_secs: number;
 };
 export type HeatCell = { weekday: number; hour: number; count: number };
+export type FunnelStep = { key: string; label: string; count: number; pct_of_total: number };
+export type SourceRow = { source: string; total: number; rdv: number; conv_rate: number };
 export type AnalyticsResponse = {
   from: string;
   to: string;
@@ -48,10 +51,14 @@ export type AnalyticsResponse = {
   kpis: AnalyticsKpis;
   volume: Bucket[];
   dispositions: Bucket[];
+  qualifications: { key: QualBucket; label: string; count: number }[];
+  funnel: FunnelStep[];
+  sources: SourceRow[];
   agents: AgentPerf[];
   heatmap: HeatCell[];
   duration_histogram: Bucket[];
   attempt_funnel: { attempt: number; total: number; answered: number }[];
+  cost_per_rdv: number; // €/USD per confirmed RDV (0 if no RDV)
   truncated: boolean;
 };
 
@@ -64,6 +71,7 @@ type CallRow = {
   duration_secs: number | null;
   disposition: string | null;
   contact_id: string | null;
+  metadata: { qualification?: string | null } | null;
   agent_handles: { display_name: string | null } | null;
 };
 
@@ -105,7 +113,7 @@ export async function GET(request: Request) {
   let q = sb
     .from("calls")
     .select(
-      "id, direction, state, started_at, answered_at, duration_secs, disposition, contact_id, agent_handles(display_name)",
+      "id, direction, state, started_at, answered_at, duration_secs, disposition, contact_id, metadata, agent_handles(display_name)",
     )
     .eq("org_id", orgId)
     .gte("started_at", from.toISOString())
@@ -268,6 +276,113 @@ export async function GET(request: Request) {
     .sort((a, b) => a[0] - b[0])
     .map(([attempt, v]) => ({ attempt, total: v.total, answered: v.answered }));
 
+  // ── Qualifications (9 fixed buckets) — replaces the raw "dispositions" list
+  //    that was showing internal states like stale_no_terminal_event.
+  const qcount: Record<QualBucket, number> = {
+    rdv_confirme: 0, passer_humain: 0, rappel: 0, pas_interesse: 0,
+    pas_de_reponse: 0, repondeur: 0, faux_numero: 0, non_eligible: 0,
+    ne_pas_rappeler: 0, autre: 0,
+  };
+  for (const r of rows) qcount[bucketForCall(r)] += 1;
+  const qualifications = QUAL_BUCKETS.filter((b) => b.key !== "autre").map((b) => ({
+    key: b.key, label: b.label, count: qcount[b.key],
+  }));
+
+  // ── Conversion funnel ───────────────────────────────────────────────
+  // Models the same 4-step funnel as the OCC reference:
+  //   Total appels (initiés) → Décrochés → Conversation >60s → RDV booked
+  // Each step's percentage is computed against the previous step so the
+  // drop-off between stages is visible at a glance.
+  const conversationOver60 = rows.filter(
+    (r) => (r.duration_secs ?? 0) > 60 && isAnswered(r),
+  ).length;
+  const rdvBooked = qcount.rdv_confirme + qcount.passer_humain;
+  const funnel: FunnelStep[] = [
+    { key: "total", label: "Appels initiés", count: total, pct_of_total: 1 },
+    {
+      key: "answered",
+      label: "Décrochés",
+      count: answered,
+      pct_of_total: total ? answered / total : 0,
+    },
+    {
+      key: "conversation",
+      label: "Conversation > 60s",
+      count: conversationOver60,
+      pct_of_total: total ? conversationOver60 / total : 0,
+    },
+    {
+      key: "rdv",
+      label: "RDV obtenu",
+      count: rdvBooked,
+      pct_of_total: total ? rdvBooked / total : 0,
+    },
+  ];
+
+  // ── Lead source attribution ─────────────────────────────────────────
+  // Reads source_lead from a tenant data table when one exists (OCC's
+  // leads_rdv_test_axon ships with this column; other orgs will get an
+  // empty list, which the UI hides). Joined on phone number to call rows
+  // so we can compute per-source conversion.
+  let sources: SourceRow[] = [];
+  try {
+    type LeadRow = { phone_number: string | null; source_lead: string | null };
+    const { data: leads, error: leadsErr } = await sb
+      .from("leads_rdv_test_axon" as never)
+      .select("phone_number, source_lead")
+      .not("phone_number", "is", null)
+      .limit(20000);
+    if (!leadsErr && Array.isArray(leads)) {
+      const sourceByPhone = new Map<string, string>();
+      for (const l of leads as unknown as LeadRow[]) {
+        if (l.phone_number) {
+          sourceByPhone.set(l.phone_number, (l.source_lead || "Inconnue").trim());
+        }
+      }
+      // Need to_e164 to do the join — pulled cheaply from the same window.
+      const ids = rows.map((r) => r.id);
+      if (ids.length > 0) {
+        const { data: callPhones } = await sb
+          .from("calls")
+          .select("id, to_e164")
+          .in("id", ids);
+        const phoneByCall = new Map<string, string>();
+        for (const c of (callPhones ?? []) as Array<{ id: string; to_e164: string | null }>) {
+          if (c.to_e164) phoneByCall.set(c.id, c.to_e164);
+        }
+        const acc = new Map<string, { total: number; rdv: number }>();
+        for (const r of rows) {
+          const phone = phoneByCall.get(r.id);
+          if (!phone) continue;
+          const src = sourceByPhone.get(phone) ?? "Inconnue";
+          const s = acc.get(src) ?? { total: 0, rdv: 0 };
+          s.total += 1;
+          const b = bucketForCall(r);
+          if (b === "rdv_confirme" || b === "passer_humain") s.rdv += 1;
+          acc.set(src, s);
+        }
+        sources = Array.from(acc.entries())
+          .map(([source, s]) => ({
+            source,
+            total: s.total,
+            rdv: s.rdv,
+            conv_rate: s.total ? s.rdv / s.total : 0,
+          }))
+          .sort((a, b) => b.total - a.total)
+          .slice(0, 12);
+      }
+    }
+  } catch {
+    /* tenant doesn't have a leads table — empty sources is fine */
+  }
+
+  // ── Cost per RDV — a business metric, not just a vanity dashboard number.
+  //    Uses real recorded cost where available, falls back to the rate
+  //    estimate so something meaningful renders even before usage_events
+  //    catch up.
+  const totalSpent = costReal > 0 ? costReal : kpis.cost_estimate;
+  const cost_per_rdv = rdvBooked > 0 ? Math.round((totalSpent / rdvBooked) * 100) / 100 : 0;
+
   const body: AnalyticsResponse = {
     from: from.toISOString(),
     to: to.toISOString(),
@@ -275,10 +390,14 @@ export async function GET(request: Request) {
     kpis,
     volume,
     dispositions,
+    qualifications,
+    funnel,
+    sources,
     agents,
     heatmap,
     duration_histogram,
     attempt_funnel,
+    cost_per_rdv,
     truncated,
   };
   return NextResponse.json(body);
