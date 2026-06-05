@@ -1,5 +1,6 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
+import { qualifyCall } from "@/lib/analysis-runner";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -167,6 +168,25 @@ export async function POST(request: Request) {
   if (upErr) {
     console.error("[lk-webhook] update failed", { call_id: row.id, err: upErr.message });
     return NextResponse.json({ ok: false, error: upErr.message }, { status: 500 });
+  }
+
+  // An answered call must always be classifiable. Now that the transcript /
+  // summary is persisted, let the AI assign a qualification if the live agent
+  // left one out. Runs AFTER the response is flushed (next/server `after`) so
+  // it never adds latency to the webhook nor risks a retry on LLM failure.
+  // qualifyCall itself no-ops for unanswered or already-qualified calls.
+  if (process.env.DEEPSEEK_API_KEY) {
+    const callId = row.id;
+    after(async () => {
+      try {
+        await qualifyCall(callId);
+      } catch (e) {
+        console.warn("[lk-webhook] auto-qualify failed", {
+          call_id: callId,
+          err: e instanceof Error ? e.message : String(e),
+        });
+      }
+    });
   }
 
   return NextResponse.json({

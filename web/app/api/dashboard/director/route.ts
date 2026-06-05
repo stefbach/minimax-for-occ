@@ -32,6 +32,9 @@ export type DirectorResponse = {
   kpis: DirectorKpis;
   inbound: { total: number; answered: number; notAnswered: number };
   qualifications: { key: QualBucket; label: string; count: number }[];
+  // Answered calls the agent left unqualified (hidden "autre" bucket). Surfaced
+  // so the UI can offer post-hoc AI qualification instead of dropping them.
+  unqualified: number;
   slots: { matin: number; midi: number; soir: number; hors: number };
   phases: { rappel: PhaseStat; j1: PhaseStat; j3: PhaseStat; j5: PhaseStat };
   agentChain: { only1: number; plus2: number; plus3: number };
@@ -346,6 +349,7 @@ export async function GET(request: Request) {
       label: b.label,
       count: qcount[b.key],
     })),
+    unqualified: qcount.autre,
     slots,
     phases,
     agentChain,

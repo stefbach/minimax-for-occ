@@ -32,6 +32,10 @@ export function DirectorTab({ from, to, direction }: { from: string; to: string;
   const [error, setError] = useState<string | null>(null);
   const [threshold, setThreshold] = useState<number>(60);
   const [activeQualTab, setActiveQualTab] = useState<string>("all");
+  // Bumped after an AI-qualification run so the director figures refetch.
+  const [reloadKey, setReloadKey] = useState(0);
+  const [qualifying, setQualifying] = useState(false);
+  const [qualifyMsg, setQualifyMsg] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -47,7 +51,30 @@ export function DirectorTab({ from, to, direction }: { from: string; to: string;
       .catch((e) => alive && setError(e instanceof Error ? e.message : "error"))
       .finally(() => alive && setLoading(false));
     return () => { alive = false; };
-  }, [from, to, direction, threshold]);
+  }, [from, to, direction, threshold, reloadKey]);
+
+  // Ask the AI to classify the answered-but-unqualified calls so they stop
+  // hiding in the "autre" bucket. Bounded server-side; may need a second run
+  // for large backlogs (reported via "remaining").
+  const runQualify = async () => {
+    setQualifying(true);
+    setQualifyMsg(null);
+    try {
+      const r = await fetch("/api/dashboard/qualify-unqualified", { method: "POST" });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
+      const remaining = Number(j.remaining ?? 0);
+      setQualifyMsg(
+        `${j.qualified}/${j.processed} ${t("appel(s) qualifié(s) par l'IA")}` +
+          (remaining > 0 ? ` · ${remaining} ${t("restant(s)")}` : ""),
+      );
+      setReloadKey((k) => k + 1);
+    } catch (e) {
+      setQualifyMsg(e instanceof Error ? e.message : "error");
+    } finally {
+      setQualifying(false);
+    }
+  };
 
   const summariesByQual = useMemo(() => {
     const m = new Map<string, DirectorResponse["summaries"]>();
@@ -170,6 +197,37 @@ export function DirectorTab({ from, to, direction }: { from: string; to: string;
             </div>
           ))}
         </div>
+
+        {/* Answered-but-unqualified calls — visible instead of silently dropped,
+            with a one-click AI pass to slot them into the right card. */}
+        {data.unqualified > 0 && (
+          <div
+            style={{
+              marginTop: 12, padding: 12, borderRadius: 8,
+              border: "1px solid var(--warn)",
+              background: "color-mix(in srgb, var(--warn) 8%, transparent)",
+              display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
+            }}
+          >
+            <span style={{ fontSize: 22, fontWeight: 700, color: "var(--warn)" }}>
+              {data.unqualified}
+            </span>
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <div style={{ fontWeight: 600, fontSize: 13 }}>
+                {t("Appels décrochés non qualifiés")}
+              </div>
+              <div className="muted" style={{ fontSize: 11 }}>
+                {t("Un appel décroché doit toujours être classé. L'IA lit le transcript et l'affecte à la bonne carte.")}
+              </div>
+            </div>
+            {qualifyMsg && (
+              <span className="muted" style={{ fontSize: 11 }}>{qualifyMsg}</span>
+            )}
+            <button onClick={runQualify} disabled={qualifying}>
+              {qualifying ? t("Qualification…") : `✨ ${t("Qualifier avec l'IA")}`}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* APPELS ENTRANTS */}
