@@ -580,11 +580,14 @@ class AxonVoiceAgent(Agent):
     async def on_enter(self) -> None:
         # Pure TTS greeting — avoids an LLM call with an empty user message.
         if self._greeting:
-            # Brief pre-roll so the first words don't get clipped on slower
-            # PSTN setups (UK Twilio trunk takes ~2s to fully establish the
-            # audio path after pickup; Mauritius is faster). Configurable via
-            # env so we can A/B without redeploying.
-            preroll = float(os.getenv("GREETING_PREROLL_SECONDS", "1.0"))
+            # Brief pre-roll so the first syllable isn't clipped while the
+            # PSTN audio path finishes establishing. 0.3s is the floor that
+            # avoids "i, is that Megane?" on UK Twilio; 1.0s was the original
+            # safe-overshoot but felt sluggish in production — by the time
+            # the caller hears the greeting, ~6s have already passed since
+            # they answered (Fly worker cold start + agent boot + tools).
+            # Override via GREETING_PREROLL_SECONDS.
+            preroll = float(os.getenv("GREETING_PREROLL_SECONDS", "0.3"))
             if preroll > 0:
                 await asyncio.sleep(preroll)
             import time as _t
