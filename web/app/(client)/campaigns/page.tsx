@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { hasSupabase, supabaseServer } from "@/lib/supabase";
 import { HelpButton } from "@/components/help/HelpButton";
+import { CampaignRowActions } from "@/components/campaigns/CampaignRowActions";
 
 export const dynamic = "force-dynamic";
 
@@ -128,6 +129,7 @@ export default async function CampaignsPage() {
                 <th>Cibles</th>
                 <th>Progression</th>
                 <th>Créée</th>
+                <th style={{ textAlign: "right" }}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -177,6 +179,9 @@ export default async function CampaignsPage() {
                     </td>
                     <td className="muted" style={{ fontSize: 12 }}>
                       {new Date(c.created_at).toLocaleDateString()}
+                    </td>
+                    <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                      <CampaignRowActions id={c.id} name={c.name} state={c.state} />
                     </td>
                   </tr>
                 );
