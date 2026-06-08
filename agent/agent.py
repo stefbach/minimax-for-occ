@@ -927,7 +927,7 @@ def _install_call_hygiene(
     session: AgentSession,
     clog,
     *,
-    idle_timeout: float = 10.0,
+    idle_timeout: float = 5.0,
     goodbye_grace: float = 2.0,
 ) -> None:
     """Hang up the call automatically to stop the meter when there's no
