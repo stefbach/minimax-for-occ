@@ -579,32 +579,69 @@ class AxonVoiceAgent(Agent):
 
     async def on_enter(self) -> None:
         # Pure TTS greeting — avoids an LLM call with an empty user message.
-        if self._greeting:
-            # Pre-roll so the first syllable isn't clipped while the PSTN
-            # audio path finishes establishing. On UK Twilio SIP trunks we've
-            # measured up to 2-3s before the inbound audio leg is open: if
-            # we speak earlier, the caller hears silence and the greeting is
-            # lost. 2.0s is the safe-but-not-sluggish midpoint.
-            # Override via GREETING_PREROLL_SECONDS.
-            preroll = float(os.getenv("GREETING_PREROLL_SECONDS", "2.0"))
-            if preroll > 0:
-                await asyncio.sleep(preroll)
-            import time as _t
-            _b = _t.monotonic()
-            logger.info("greeting: say() begin")
+        if not self._greeting:
+            return
+
+        # CRITICAL: wait for the PSTN caller to actually pick up before
+        # speaking. On outbound SIP campaigns, the agent joins the LiveKit
+        # room the moment Twilio is told to dial — but Twilio is still
+        # ringing the patient's phone (15-30s typically). If we greet at
+        # T+2s, the audio plays into an empty room; by the time the patient
+        # picks up at T+25s, the greeting is long over and they hear silence.
+        # Wait until at least one remote participant (the PSTN leg) has
+        # joined and published an audio track before speaking.
+        room = self.session.room if hasattr(self.session, "room") else None
+        if room is not None:
             try:
-                await self.session.say(text=self._greeting, allow_interruptions=True)
-                logger.info("greeting: say() returned in %.2fs", _t.monotonic() - _b)
+                # Already a remote participant? Skip the wait.
+                has_remote = bool(getattr(room, "remote_participants", {}))
+                if not has_remote:
+                    logger.info("greeting: waiting for caller to join the room…")
+                    wait_event = asyncio.Event()
+
+                    def _on_connect(_p) -> None:
+                        try:
+                            wait_event.set()
+                        except Exception:
+                            pass
+
+                    try:
+                        room.on("participant_connected", _on_connect)
+                    except Exception:
+                        pass
+                    # Re-check after registering — race: participant may have
+                    # joined between the dict check and the listener.
+                    if getattr(room, "remote_participants", {}):
+                        wait_event.set()
+                    timeout = float(os.getenv("GREETING_PARTICIPANT_WAIT_SECONDS", "45"))
+                    try:
+                        await asyncio.wait_for(wait_event.wait(), timeout=timeout)
+                        logger.info("greeting: caller joined — proceeding")
+                    except asyncio.TimeoutError:
+                        logger.warning(
+                            "greeting: timed out waiting for caller after %.0fs — greeting anyway",
+                            timeout,
+                        )
             except Exception:
-                # Patient hung up mid-greeting / TTS crashed / pipeline torn
-                # down. Don't propagate — the session-shutdown hooks finalize
-                # the call cleanly. Without this catch the worker would log
-                # an "unhandled exception" and the call row would be left
-                # in an inconsistent state.
-                logger.info(
-                    "greeting: say() interrupted after %.2fs (likely hangup)",
-                    _t.monotonic() - _b,
-                )
+                logger.exception("greeting: participant-wait failed, falling through")
+
+        # Tiny post-connect pre-roll so the very first syllable isn't
+        # clipped while the audio path stabilises. 0.5s is enough now that
+        # we know the participant is actually in the room.
+        preroll = float(os.getenv("GREETING_PREROLL_SECONDS", "0.5"))
+        if preroll > 0:
+            await asyncio.sleep(preroll)
+        import time as _t
+        _b = _t.monotonic()
+        logger.info("greeting: say() begin")
+        try:
+            await self.session.say(text=self._greeting, allow_interruptions=True)
+            logger.info("greeting: say() returned in %.2fs", _t.monotonic() - _b)
+        except Exception:
+            logger.info(
+                "greeting: say() interrupted after %.2fs (likely hangup)",
+                _t.monotonic() - _b,
+            )
 
 
 async def _watch_handoff(ctx: JobContext, session: AgentSession) -> None:
