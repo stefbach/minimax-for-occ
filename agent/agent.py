@@ -927,7 +927,7 @@ def _install_call_hygiene(
     session: AgentSession,
     clog,
     *,
-    idle_timeout: float = 30.0,
+    idle_timeout: float = 10.0,
     goodbye_grace: float = 2.0,
 ) -> None:
     """Hang up the call automatically to stop the meter when there's no
@@ -993,9 +993,38 @@ def _install_call_hygiene(
         _re.IGNORECASE,
     )
 
+    # Voicemail / answering machine signature phrases. AMD on the Twilio side
+    # filters most of these before they ever reach the bridge, but a smart
+    # network's voicemail can answer fast enough to fool DetectMessageEnd, and
+    # tenants who run AMD=off rely entirely on this hook. We match only on the
+    # FIRST few seconds of STT — past that, real conversations can legitimately
+    # mention "leave a message" etc. (e.g. patient saying "should I leave a
+    # message with reception?") without triggering a false hangup.
+    _voicemail_re = _re.compile(
+        r"\b("
+        r"voice\s*mail|leave\s+a\s+message|leave\s+your\s+(name|message)"
+        r"|please\s+(record|leave)|after\s+the\s+(tone|beep|signal)"
+        r"|recording\s+your\s+message|at\s+the\s+(tone|beep)"
+        r"|i('?m|\s+am)\s+(not|unable)\s+(available|able\s+to\s+(take|answer))"
+        r"|can(?:'?t|\s+not)\s+(take|come\s+to|answer)\s+(the|your|my)?\s*(call|phone)"
+        r"|you('?ve|\s+have)\s+reached\s+the\s+(voicemail|message)"
+        r"|sorry\s+i\s+(missed|can(?:'?t|\s+not)\s+(take|answer))"
+        # French
+        r"|messagerie|laisser\s+un\s+message|laissez\s+(un\s+message|votre\s+message)"
+        r"|apr[èe]s\s+le\s+(bip|signal)|n'?est\s+pas\s+disponible"
+        r"|vous\s+[êe]tes\s+sur\s+la\s+messagerie"
+        r")\b",
+        _re.IGNORECASE,
+    )
+
+    # Window during which we accept STT-based voicemail detection. After this,
+    # we trust the agent is in a real conversation and don't second-guess it.
+    voicemail_detect_window = float(os.getenv("VOICEMAIL_DETECT_WINDOW_SECS", "8.0"))
+
     state = {
         "last_user_ts": _t.monotonic(),
         "last_agent_ts": _t.monotonic(),
+        "call_started_at": _t.monotonic(),
         "goodbye_armed_at": None,  # monotonic ts when goodbye phrase was detected
         "hung_up": False,
         # Race-safety: save_contact_data writes to leads_rdv via HTTP. If the
@@ -1030,10 +1059,25 @@ def _install_call_hygiene(
         except Exception:
             clog.exception("auto_hangup: ctx.room.disconnect() failed")
 
-    def _on_user_speech(*_a, **_k) -> None:
+    def _on_user_speech(ev=None, *_a, **_k) -> None:
         state["last_user_ts"] = _t.monotonic()
         # Patient is talking again — cancel any armed goodbye.
         state["goodbye_armed_at"] = None
+        # Voicemail detection: scan the first transcript chunks for the
+        # signature phrases. Only effective inside voicemail_detect_window —
+        # outside, the patient may legitimately mention these words.
+        try:
+            elapsed = _t.monotonic() - state["call_started_at"]
+            if elapsed > voicemail_detect_window or state["hung_up"]:
+                return
+            text = getattr(ev, "transcript", None) or getattr(ev, "text", None) if ev is not None else None
+            if not text:
+                return
+            if _voicemail_re.search(str(text)):
+                clog.info("call hygiene: voicemail detected via STT (t=%.1fs): %r", elapsed, str(text)[:120])
+                asyncio.create_task(_hangup("voicemail detected via STT"))
+        except Exception:
+            clog.debug("call hygiene: voicemail STT check failed", exc_info=True)
 
     def _on_item(ev) -> None:
         try:

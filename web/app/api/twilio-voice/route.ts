@@ -52,6 +52,25 @@ export async function POST(req: Request) {
   const from = params.get("From") ?? "";
   const to = params.get("To") ?? "";
 
+  // AMD short-circuit: when MachineDetection=DetectMessageEnd is enabled on
+  // the originating createCall (campaign.amd_enabled=true), Twilio analyses
+  // the answered audio and includes `AnsweredBy` in this webhook's params:
+  //   • human                                       → bridge normally
+  //   • machine_end_beep / machine_end_silence /
+  //     machine_end_other / machine_start / fax     → it's a voicemail/fax,
+  //                                                   hangup before the agent
+  //                                                   ever joins the LK room.
+  //   • unknown                                     → be safe, bridge anyway
+  // This frees the agent worker slot inside ~1s of the answer instead of
+  // burning 30s while the agent watchdog times out on a one-way conversation.
+  const answeredBy = (params.get("AnsweredBy") ?? "").toLowerCase();
+  if (answeredBy.startsWith("machine") || answeredBy === "fax") {
+    return new NextResponse(
+      `<?xml version="1.0" encoding="UTF-8"?>\n<Response><Hangup/></Response>`,
+      { status: 200, headers: { "content-type": "text/xml; charset=utf-8" } },
+    );
+  }
+
   // Read the routing metadata /api/desk/dial appends to the TwimlUrl. Inbound
   // calls won't have any of these — that's fine, we omit them and let the
   // dispatch rule fall back to its default behavior (auto-named room + IA).
