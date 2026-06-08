@@ -593,7 +593,7 @@ class AxonVoiceAgent(Agent):
         # participant to wait on). Stay simple.
         if not self._greeting:
             return
-        preroll = float(os.getenv("GREETING_PREROLL_SECONDS", "1.0"))
+        preroll = float(os.getenv("GREETING_PREROLL_SECONDS", "3.0"))
         if preroll > 0:
             await asyncio.sleep(preroll)
         import time as _t
