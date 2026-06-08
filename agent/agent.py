@@ -589,7 +589,16 @@ class AxonVoiceAgent(Agent):
         # `sip.callStatus == "active"` only when the patient picks up.
         # If we greet earlier the audio plays to a ringing line — the
         # patient hears silence by the time they answer.
-        room = self.session.room if hasattr(self.session, "room") else None
+        room = None
+        try:
+            # livekit-agents 1.5.x: AgentSession exposes the room via
+            # `session.room_io.room` (NOT `session.room` — earlier versions had
+            # that, current ones don't; we silently no-op'd before fixing this).
+            room_io = getattr(self.session, "room_io", None)
+            if room_io is not None:
+                room = getattr(room_io, "room", None)
+        except Exception:
+            room = None
         if room is not None:
             try:
                 ACTIVE_STATUSES = {"active", "answered", "in-progress"}
@@ -597,7 +606,7 @@ class AxonVoiceAgent(Agent):
 
                 def _sip_active(p) -> bool:
                     try:
-                        attrs = getattr(p, "attributes", None) or {}
+                        attrs = dict(getattr(p, "attributes", None) or {})
                         st = str(attrs.get("sip.callStatus", "")).lower()
                         return st in ACTIVE_STATUSES
                     except Exception:
@@ -605,12 +614,23 @@ class AxonVoiceAgent(Agent):
 
                 def _is_sip(p) -> bool:
                     try:
-                        attrs = getattr(p, "attributes", None) or {}
+                        attrs = dict(getattr(p, "attributes", None) or {})
                         return any(k.startswith("sip.") for k in attrs.keys())
                     except Exception:
                         return False
 
-                # Quick check first: maybe the call is already active.
+                def _snapshot_statuses() -> list[str]:
+                    out: list[str] = []
+                    try:
+                        for p in (getattr(room, "remote_participants", {}) or {}).values():
+                            attrs = dict(getattr(p, "attributes", None) or {})
+                            if any(k.startswith("sip.") for k in attrs.keys()):
+                                out.append(str(attrs.get("sip.callStatus", "")))
+                    except Exception:
+                        pass
+                    return out
+
+                # Quick check: maybe the call is already active.
                 already_active = False
                 for p in (getattr(room, "remote_participants", {}) or {}).values():
                     if _is_sip(p) and _sip_active(p):
@@ -618,7 +638,10 @@ class AxonVoiceAgent(Agent):
                         break
 
                 if not already_active:
-                    logger.info("greeting: waiting for SIP callStatus=active…")
+                    logger.info(
+                        "greeting: waiting for SIP callStatus=active… (current=%s)",
+                        _snapshot_statuses(),
+                    )
                     wait_event = asyncio.Event()
 
                     def _check_and_set(p) -> None:
@@ -642,6 +665,10 @@ class AxonVoiceAgent(Agent):
                         room.on("participant_connected", _on_connect)
                     except Exception:
                         pass
+                    try:
+                        room.on("participant_active", _on_connect)
+                    except Exception:
+                        pass
 
                     # Race-safe re-check after wiring listeners.
                     for p in (getattr(room, "remote_participants", {}) or {}).values():
@@ -654,11 +681,13 @@ class AxonVoiceAgent(Agent):
                         logger.info("greeting: SIP active — proceeding")
                     except asyncio.TimeoutError:
                         logger.warning(
-                            "greeting: timed out waiting for SIP active after %.0fs — greeting anyway",
-                            timeout,
+                            "greeting: timed out waiting for SIP active after %.0fs (last=%s) — greeting anyway",
+                            timeout, _snapshot_statuses(),
                         )
             except Exception:
                 logger.exception("greeting: SIP-active wait failed, falling through")
+        else:
+            logger.warning("greeting: could not access room — skipping participant-wait")
 
         # Tiny post-connect pre-roll so the very first syllable isn't
         # clipped while the audio path stabilises. 0.5s is enough now that
