@@ -1521,6 +1521,28 @@ async def entrypoint(ctx: JobContext) -> None:
             if agent_id:
                 break
 
+    # Resolve call_id from the SIP participant attributes when the room
+    # metadata path didn't yield one. This is the Path B outbound case: the
+    # dialer doesn't pre-create the calls row, the Twilio status webhook does,
+    # and /api/twilio-voice forwards the resolved id on the SIP INVITE as
+    # X-LK-Call-Id. Without this fallback, ctx._call_id stays None for every
+    # Twilio-bridged call → auto_qualify_call(None) early-returns →
+    # calls.metadata.qualification is never written → dashboard's "Ce qu'ils
+    # ont dit" stays at zero. (Same sip.h.* gotcha as agent_id: the literal
+    # 'X-LK-Call-Id' string is what `axon.call_id` resolves to if it's mapped
+    # via the dispatch rule attributes block, so we prefer the lowercase
+    # forwarded-header key first.)
+    if not call_id:
+        candidate = (
+            p_attrs.get("sip.h.x-lk-call-id")
+            or p_attrs.get("call_id")
+            or p_attrs.get("axon.call_id")
+        )
+        if candidate and not str(candidate).startswith("X-LK-"):
+            call_id = str(candidate)
+            clog = _logger_for_call(call_id)
+            clog.info("resolved call_id=%s from SIP participant attrs", call_id)
+
     clog.info(
         "resolved agent_id=%s (room_meta=%s, p_attrs_keys=%s, p_meta=%s)",
         agent_id, bool(ctx.room.metadata), list(p_attrs.keys()), bool(p_meta),

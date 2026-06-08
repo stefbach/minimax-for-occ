@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { validateTwilioSignature } from "@/lib/twilio-signature";
+import { supabaseServer, hasSupabase } from "@/lib/supabase";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -52,6 +53,53 @@ export async function POST(req: Request) {
   const from = params.get("From") ?? "";
   const to = params.get("To") ?? "";
 
+  // ── Link the Twilio CallSid to our calls row + propagate call_id to LK ──
+  //
+  // Path B (Twilio createCall → TwiML <Dial><Sip>) creates the calls row via
+  // the /api/twilio/status `initiated` callback, but until today that row was
+  // never linked back to the agent: no agent_handle_id, no metadata.call_id,
+  // and the AI worker therefore had no idea which row to write qualification
+  // / handoff events on. Symptom: 47 calls today had metadata.qualification
+  // = NULL, dashboard "Ce qu'ils ont dit" stuck at zero, leads_rdv writebacks
+  // skipped. Fix here = look the row up by twilio_call_sid (which IS set on
+  // the top-level column), stamp the routing metadata so it's queryable, and
+  // forward the LK call id as an X-LK-* header below.
+  const twilioCallSid = params.get("CallSid");
+  let lkCallId: string | null = null;
+  if (twilioCallSid && hasSupabase()) {
+    try {
+      const sb = supabaseServer();
+      const { data: callRow } = await sb
+        .from("calls")
+        .select("id, metadata, agent_handle_id")
+        .eq("twilio_call_sid", twilioCallSid)
+        .maybeSingle();
+      if (callRow) {
+        lkCallId = callRow.id as string;
+        const url0 = new URL(req.url);
+        const campaignIdQ = url0.searchParams.get("campaign_id");
+        const targetIdQ = url0.searchParams.get("target_id");
+        const agentIdQ = url0.searchParams.get("agent_id");
+        const agentHandleIdQ = url0.searchParams.get("agent_handle_id");
+        const newMeta = {
+          ...((callRow.metadata as Record<string, unknown> | null) ?? {}),
+          source: "axon_outbound",
+          ...(campaignIdQ ? { campaign_id: campaignIdQ } : {}),
+          ...(targetIdQ ? { target_id: targetIdQ } : {}),
+          ...(agentIdQ ? { agent_id: agentIdQ } : {}),
+          ...(agentHandleIdQ ? { agent_handle_id: agentHandleIdQ } : {}),
+        };
+        const patch: Record<string, unknown> = { metadata: newMeta };
+        if (!callRow.agent_handle_id && agentHandleIdQ) {
+          patch.agent_handle_id = agentHandleIdQ;
+        }
+        await sb.from("calls").update(patch).eq("id", lkCallId);
+      }
+    } catch (e) {
+      console.error("[twilio-voice] call linkage failed:", (e as Error).message);
+    }
+  }
+
   // AMD short-circuit: when MachineDetection=DetectMessageEnd is enabled on
   // the originating createCall (campaign.amd_enabled=true), Twilio analyses
   // the answered audio and includes `AnsweredBy` in this webhook's params:
@@ -65,6 +113,31 @@ export async function POST(req: Request) {
   // burning 30s while the agent watchdog times out on a one-way conversation.
   const answeredBy = (params.get("AnsweredBy") ?? "").toLowerCase();
   if (answeredBy.startsWith("machine") || answeredBy === "fax") {
+    // Stamp a disposition + qualification so the dashboard correctly buckets
+    // this call as REPONDEUR instead of falling through to auto_qualify_call
+    // (which won't run — the agent never joins).
+    if (lkCallId && hasSupabase()) {
+      try {
+        const sb = supabaseServer();
+        const { data: cur } = await sb
+          .from("calls")
+          .select("metadata")
+          .eq("id", lkCallId)
+          .maybeSingle();
+        const mergedMeta = {
+          ...((cur?.metadata as Record<string, unknown> | null) ?? {}),
+          qualification: "REPONDEUR",
+          qualification_source: "twilio_amd",
+          amd_answered_by: answeredBy,
+        };
+        await sb
+          .from("calls")
+          .update({ disposition: "voicemail", metadata: mergedMeta })
+          .eq("id", lkCallId);
+      } catch (e) {
+        console.error("[twilio-voice] AMD hangup metadata stamp failed:", (e as Error).message);
+      }
+    }
     return new NextResponse(
       `<?xml version="1.0" encoding="UTF-8"?>\n<Response><Hangup/></Response>`,
       { status: 200, headers: { "content-type": "text/xml; charset=utf-8" } },
@@ -94,7 +167,14 @@ export async function POST(req: Request) {
   // From header (Twilio sets it) and the request-URI user part below.
   const sipParams = new URLSearchParams();
   if (room) sipParams.set("X-LK-Room", room);
-  if (callId) sipParams.set("X-LK-Call-Id", callId);
+  // Prefer the call id we just resolved from twilio_call_sid (Path B outbound)
+  // — falls back to the explicit `call_id` query param when the caller sets
+  // it directly (e.g. /api/desk/dial). The dispatch rule maps this header to
+  // the `axon.call_id` participant attribute that the agent reads in
+  // entrypoint() so auto_qualify_call / save_contact_data have a row to
+  // write to.
+  const effectiveCallId = lkCallId ?? callId;
+  if (effectiveCallId) sipParams.set("X-LK-Call-Id", effectiveCallId);
   if (agentHandleId) sipParams.set("X-LK-Agent-Handle-Id", agentHandleId);
   if (agentId) sipParams.set("X-LK-Agent-Id", agentId);
   if (direction) sipParams.set("X-LK-Direction", direction);
