@@ -370,24 +370,46 @@ async function seedSelected(
   todayStr: string,
 ): Promise<number> {
   // 1. Upsert shim contacts.
-  const contactsPayload = selected.map((s) => {
+  //
+  // Dedupe by e164 BEFORE the upsert: with onConflict="org_id,e164", Postgres
+  // throws "ON CONFLICT DO UPDATE command cannot affect row a second time" if
+  // the same conflict key appears twice in the same batch — and supabase-js
+  // doesn't throw on that error, it returns {data:null,error}, which the old
+  // code silently destructured into `contacts=undefined`, leaving the rest of
+  // seedSelected to insert zero campaign_targets. The .from(table) query above
+  // returns multiple lead rows sharing a phone (OCC has ~12% duplicate phones
+  // in leads_rdv); we keep the first occurrence per e164 and drop the others.
+  // Also skip rows whose normalised phone is empty — they'd violate the
+  // contacts.e164 NOT NULL constraint.
+  const seenE164 = new Set<string>();
+  const dedupedSelected: typeof selected = [];
+  for (const s of selected) {
     const tel = normalisePhoneToE164(String(s.row[phoneCol] ?? ""));
-    const e164 = tel;
-    return { org_id: campaign.org_id, e164, display_name: (s.row["nom"] as string) ?? null };
+    if (!tel) continue;
+    if (seenE164.has(tel)) continue;
+    seenE164.add(tel);
+    dedupedSelected.push(s);
+  }
+  const contactsPayload = dedupedSelected.map((s) => {
+    const tel = normalisePhoneToE164(String(s.row[phoneCol] ?? ""));
+    return { org_id: campaign.org_id, e164: tel, display_name: (s.row["nom"] as string) ?? null };
   });
-  const { data: contacts } = await sb
+  const { data: contacts, error: contactsErr } = await sb
     .from("contacts")
     .upsert(contactsPayload, { onConflict: "org_id,e164" })
     .select("id,e164");
+  if (contactsErr) {
+    // Surface the error so it lands in campaign_runs.error instead of vanishing.
+    throw new Error(`contacts upsert failed: ${contactsErr.message}`);
+  }
   const contactByE164 = new Map<string, string>();
   for (const c of contacts ?? []) contactByE164.set(c.e164 as string, c.id as string);
 
   const nowIso = new Date().toISOString();
   const targetRows: object[] = [];
-  for (const s of selected) {
+  for (const s of dedupedSelected) {
     const tel = normalisePhoneToE164(String(s.row[phoneCol] ?? ""));
-    const e164 = tel;
-    const contact_id = contactByE164.get(e164);
+    const contact_id = contactByE164.get(tel);
     if (!contact_id) continue;
     targetRows.push({
       campaign_id: campaign.id,
@@ -411,10 +433,13 @@ async function seedSelected(
   //    already pending from an earlier slot isn't counted/advanced twice.
   let insertedContactIds = new Set<string>();
   if (targetRows.length > 0) {
-    const { data: inserted } = await sb
+    const { data: inserted, error: targetsErr } = await sb
       .from("campaign_targets")
       .upsert(targetRows, { onConflict: "campaign_id,contact_id", ignoreDuplicates: true })
       .select("contact_id");
+    if (targetsErr) {
+      throw new Error(`campaign_targets upsert failed: ${targetsErr.message}`);
+    }
     insertedContactIds = new Set((inserted ?? []).map((r) => r.contact_id as string));
   }
 
