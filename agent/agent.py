@@ -583,47 +583,82 @@ class AxonVoiceAgent(Agent):
             return
 
         # CRITICAL: wait for the PSTN caller to actually pick up before
-        # speaking. On outbound SIP campaigns, the agent joins the LiveKit
-        # room the moment Twilio is told to dial — but Twilio is still
-        # ringing the patient's phone (15-30s typically). If we greet at
-        # T+2s, the audio plays into an empty room; by the time the patient
-        # picks up at T+25s, the greeting is long over and they hear silence.
-        # Wait until at least one remote participant (the PSTN leg) has
-        # joined and published an audio track before speaking.
+        # speaking. On outbound SIP, LiveKit places the SIP participant in
+        # the room IMMEDIATELY (status="trying"/"ringing") while Twilio is
+        # still dialling the patient. The participant transitions to
+        # `sip.callStatus == "active"` only when the patient picks up.
+        # If we greet earlier the audio plays to a ringing line — the
+        # patient hears silence by the time they answer.
         room = self.session.room if hasattr(self.session, "room") else None
         if room is not None:
             try:
-                # Already a remote participant? Skip the wait.
-                has_remote = bool(getattr(room, "remote_participants", {}))
-                if not has_remote:
-                    logger.info("greeting: waiting for caller to join the room…")
+                ACTIVE_STATUSES = {"active", "answered", "in-progress"}
+                timeout = float(os.getenv("GREETING_PARTICIPANT_WAIT_SECONDS", "45"))
+
+                def _sip_active(p) -> bool:
+                    try:
+                        attrs = getattr(p, "attributes", None) or {}
+                        st = str(attrs.get("sip.callStatus", "")).lower()
+                        return st in ACTIVE_STATUSES
+                    except Exception:
+                        return False
+
+                def _is_sip(p) -> bool:
+                    try:
+                        attrs = getattr(p, "attributes", None) or {}
+                        return any(k.startswith("sip.") for k in attrs.keys())
+                    except Exception:
+                        return False
+
+                # Quick check first: maybe the call is already active.
+                already_active = False
+                for p in (getattr(room, "remote_participants", {}) or {}).values():
+                    if _is_sip(p) and _sip_active(p):
+                        already_active = True
+                        break
+
+                if not already_active:
+                    logger.info("greeting: waiting for SIP callStatus=active…")
                     wait_event = asyncio.Event()
 
-                    def _on_connect(_p) -> None:
-                        try:
-                            wait_event.set()
-                        except Exception:
-                            pass
+                    def _check_and_set(p) -> None:
+                        if _is_sip(p) and _sip_active(p):
+                            try:
+                                wait_event.set()
+                            except Exception:
+                                pass
 
+                    def _on_attrs_changed(changed, p) -> None:
+                        _check_and_set(p)
+
+                    def _on_connect(p) -> None:
+                        _check_and_set(p)
+
+                    try:
+                        room.on("participant_attributes_changed", _on_attrs_changed)
+                    except Exception:
+                        pass
                     try:
                         room.on("participant_connected", _on_connect)
                     except Exception:
                         pass
-                    # Re-check after registering — race: participant may have
-                    # joined between the dict check and the listener.
-                    if getattr(room, "remote_participants", {}):
-                        wait_event.set()
-                    timeout = float(os.getenv("GREETING_PARTICIPANT_WAIT_SECONDS", "45"))
+
+                    # Race-safe re-check after wiring listeners.
+                    for p in (getattr(room, "remote_participants", {}) or {}).values():
+                        if _is_sip(p) and _sip_active(p):
+                            wait_event.set()
+                            break
+
                     try:
                         await asyncio.wait_for(wait_event.wait(), timeout=timeout)
-                        logger.info("greeting: caller joined — proceeding")
+                        logger.info("greeting: SIP active — proceeding")
                     except asyncio.TimeoutError:
                         logger.warning(
-                            "greeting: timed out waiting for caller after %.0fs — greeting anyway",
+                            "greeting: timed out waiting for SIP active after %.0fs — greeting anyway",
                             timeout,
                         )
             except Exception:
-                logger.exception("greeting: participant-wait failed, falling through")
+                logger.exception("greeting: SIP-active wait failed, falling through")
 
         # Tiny post-connect pre-roll so the very first syllable isn't
         # clipped while the audio path stabilises. 0.5s is enough now that
