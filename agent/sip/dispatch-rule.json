@@ -7,6 +7,11 @@
     }
   },
   "metadata": "{\"channel\":\"telephony\",\"provider\":\"twilio\"}",
+  "room_config": {
+    "agents": [
+      { "agent_name": "minimax-voice-agent" }
+    ]
+  },
   "attributes": {
     "axon.room_hint": "X-LK-Room",
     "axon.call_id": "X-LK-Call-Id",
