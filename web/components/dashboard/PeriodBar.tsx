@@ -28,6 +28,13 @@ function endOfDay(d: Date): Date {
 
 export function presetToRange(preset: string): { from: string; to: string } {
   const now = new Date();
+  // Specific calendar day picked from the date input: "date:YYYY-MM-DD".
+  if (preset.startsWith("date:")) {
+    const d = new Date(`${preset.slice(5)}T00:00:00`);
+    if (!Number.isNaN(d.getTime())) {
+      return { from: startOfDay(d).toISOString(), to: endOfDay(d).toISOString() };
+    }
+  }
   switch (preset) {
     case "today":
       return { from: startOfDay(now).toISOString(), to: now.toISOString() };
@@ -66,6 +73,13 @@ export function PeriodBar({
   onFilters: (f: Filters) => void;
 }) {
   const t = useT();
+  // Today (local) as YYYY-MM-DD, so the calendar can't pick a future day and we
+  // can pre-fill the input when a specific day is the active period.
+  const todayStr = (() => {
+    const n = new Date();
+    return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-${String(n.getDate()).padStart(2, "0")}`;
+  })();
+  const selectedDate = period.preset.startsWith("date:") ? period.preset.slice(5) : "";
   return (
     <div
       className="card"
@@ -88,6 +102,40 @@ export function PeriodBar({
             </button>
           );
         })}
+      </div>
+
+      {/* Pick a specific calendar day, like the legacy dashboard. Selecting a
+          date deactivates the presets (none will match "date:..."). */}
+      <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+        <span className="muted" style={{ fontSize: 12 }}>{t("Jour")}</span>
+        <input
+          type="date"
+          value={selectedDate}
+          max={todayStr}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v) onPeriod({ ...presetToRange(`date:${v}`), preset: `date:${v}` });
+          }}
+          className={selectedDate ? "" : "ghost"}
+          style={{
+            padding: "4px 8px", fontSize: 13, width: "auto",
+            colorScheme: "dark",
+            borderColor: selectedDate ? "var(--accent)" : "var(--border)",
+          }}
+          title={t("Voir un jour précis")}
+        />
+        {selectedDate && (
+          <button
+            type="button"
+            className="ghost"
+            onClick={() => onPeriod({ ...presetToRange("7d"), preset: "7d" })}
+            style={{ padding: "4px 8px", fontSize: 12, lineHeight: 1 }}
+            title={t("Effacer le jour")}
+            aria-label={t("Effacer le jour")}
+          >
+            ✕
+          </button>
+        )}
       </div>
 
       <div style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
