@@ -285,7 +285,30 @@ export async function runDynamicSelection(sb: SupabaseClient, campaign: Campaign
     const freshNew = shuffle(freshAll.filter((x) => !(Number(x.row[attemptsCol]) > 0)));
 
     const sortedHours = [...(engine.slots.hours ?? [])].sort();
-    const isFirstSlotOfDay = dueSlot === sortedHours[0];
+    // "First slot of the day" used to be purely positional (the earliest hour
+    // in slots.hours). That broke whenever the morning slot was missed for
+    // any reason — campaign created/activated after 08:30, dialer down, Fly
+    // restart, etc.: 13:00 and 18:00 would refuse to seed new leads because
+    // they're "not first by clock", and no carryovers exist from the missed
+    // 08:00 run, so the campaign just sat doing nothing all day.
+    //
+    // New definition: this run is the effective first slot if no PRIOR run
+    // today on this campaign actually seeded anything (`selected > 0`). The
+    // freshly-inserted runRow above is excluded by id. As soon as one slot
+    // successfully seeds the day's batch, subsequent slots fall back to the
+    // retry-only path the comment block above describes.
+    const wasFirstByClock = dueSlot === sortedHours[0];
+    let isFirstSlotOfDay = wasFirstByClock;
+    if (!wasFirstByClock) {
+      const { count: priorProductive } = await sb
+        .from("campaign_runs")
+        .select("id", { count: "exact", head: true })
+        .eq("campaign_id", campaign.id)
+        .eq("run_date", dateStr)
+        .neq("id", runRow.id)
+        .gt("selected", 0);
+      if ((priorProductive ?? 0) === 0) isFirstSlotOfDay = true;
+    }
 
     const dayCap = engine.volume.max_new_per_day ?? 200;
     const remainingCap = Math.max(0, dayCap - freshRetries.length);
