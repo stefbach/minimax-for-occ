@@ -35,6 +35,16 @@ export function presetToRange(preset: string): { from: string; to: string } {
       return { from: startOfDay(d).toISOString(), to: endOfDay(d).toISOString() };
     }
   }
+  // Date interval picked from the Du/Au inputs: "range:YYYY-MM-DD:YYYY-MM-DD"
+  // (dates use '-', so splitting on ':' is unambiguous).
+  if (preset.startsWith("range:")) {
+    const [, f, t2] = preset.split(":");
+    const df = new Date(`${f}T00:00:00`);
+    const dt = new Date(`${t2}T00:00:00`);
+    if (!Number.isNaN(df.getTime()) && !Number.isNaN(dt.getTime())) {
+      return { from: startOfDay(df).toISOString(), to: endOfDay(dt).toISOString() };
+    }
+  }
   switch (preset) {
     case "today":
       return { from: startOfDay(now).toISOString(), to: now.toISOString() };
@@ -79,7 +89,32 @@ export function PeriodBar({
     const n = new Date();
     return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-${String(n.getDate()).padStart(2, "0")}`;
   })();
-  const selectedDate = period.preset.startsWith("date:") ? period.preset.slice(5) : "";
+  // Current Du/Au values, derived from the active period preset. A single
+  // "date:" day shows up as Du = Au = that day.
+  const range = (() => {
+    if (period.preset.startsWith("range:")) {
+      const [, f, t2] = period.preset.split(":");
+      return { du: f ?? "", au: t2 ?? "" };
+    }
+    if (period.preset.startsWith("date:")) {
+      const d = period.preset.slice(5);
+      return { du: d, au: d };
+    }
+    return { du: "", au: "" };
+  })();
+  const hasRange = Boolean(range.du || range.au);
+  // Emit a range, filling a missing end with the other side and ordering them.
+  const emitRange = (du: string, au: string) => {
+    if (!du && !au) return;
+    let f = du || au;
+    let t2 = au || du;
+    if (f > t2) [f, t2] = [t2, f]; // ISO date strings sort chronologically
+    onPeriod({ ...presetToRange(`range:${f}:${t2}`), preset: `range:${f}:${t2}` });
+  };
+  const resetAll = () => {
+    onPeriod({ ...presetToRange("today"), preset: "today" });
+    onFilters({ direction: "all", leadsSource: "prod", system: "all" });
+  };
   return (
     <div
       className="card"
@@ -104,38 +139,37 @@ export function PeriodBar({
         })}
       </div>
 
-      {/* Pick a specific calendar day, like the legacy dashboard. Selecting a
-          date deactivates the presets (none will match "date:..."). */}
+      {/* Pick a specific day or an interval, like the legacy dashboard. For a
+          single day, set Du and Au to the same date. Selecting a range
+          deactivates the presets (none match "range:..."). */}
       <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-        <span className="muted" style={{ fontSize: 12 }}>{t("Jour")}</span>
+        <span className="muted" style={{ fontSize: 12 }}>{t("Du")}</span>
         <input
           type="date"
-          value={selectedDate}
-          max={todayStr}
-          onChange={(e) => {
-            const v = e.target.value;
-            if (v) onPeriod({ ...presetToRange(`date:${v}`), preset: `date:${v}` });
-          }}
-          className={selectedDate ? "" : "ghost"}
+          value={range.du}
+          max={range.au || todayStr}
+          onChange={(e) => emitRange(e.target.value, range.au)}
+          className={hasRange ? "" : "ghost"}
           style={{
-            padding: "4px 8px", fontSize: 13, width: "auto",
-            colorScheme: "dark",
-            borderColor: selectedDate ? "var(--accent)" : "var(--border)",
+            padding: "4px 8px", fontSize: 13, width: "auto", colorScheme: "dark",
+            borderColor: hasRange ? "var(--accent)" : "var(--border)",
           }}
-          title={t("Voir un jour précis")}
+          title={t("Date de début")}
         />
-        {selectedDate && (
-          <button
-            type="button"
-            className="ghost"
-            onClick={() => onPeriod({ ...presetToRange("7d"), preset: "7d" })}
-            style={{ padding: "4px 8px", fontSize: 12, lineHeight: 1 }}
-            title={t("Effacer le jour")}
-            aria-label={t("Effacer le jour")}
-          >
-            ✕
-          </button>
-        )}
+        <span className="muted" style={{ fontSize: 12 }}>{t("Au")}</span>
+        <input
+          type="date"
+          value={range.au}
+          min={range.du || undefined}
+          max={todayStr}
+          onChange={(e) => emitRange(range.du, e.target.value)}
+          className={hasRange ? "" : "ghost"}
+          style={{
+            padding: "4px 8px", fontSize: 13, width: "auto", colorScheme: "dark",
+            borderColor: hasRange ? "var(--accent)" : "var(--border)",
+          }}
+          title={t("Date de fin")}
+        />
       </div>
 
       <div style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
@@ -195,6 +229,15 @@ export function PeriodBar({
             <option value="axon">Axon</option>
           </select>
         </div>
+        <button
+          type="button"
+          className="ghost"
+          onClick={resetAll}
+          style={{ padding: "5px 11px", fontSize: 12, whiteSpace: "nowrap" }}
+          title={t("Effacer tous les filtres et revenir à Aujourd'hui")}
+        >
+          ↺ {t("Réinitialiser")}
+        </button>
       </div>
     </div>
   );
