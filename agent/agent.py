@@ -578,6 +578,9 @@ class AxonVoiceAgent(Agent):
         self._greeting = greeting
 
     async def on_enter(self) -> None:
+        # MARKER v5-simple-2026-06-08 — if you see this line in fly logs the
+        # latest code is deployed; if not, fly/lk-cloud is still on old code.
+        logger.info("on_enter: marker v5-simple-2026-06-08 active")
         # Pure TTS greeting — avoids an LLM call with an empty user message.
         # Brief pre-roll so the first syllable isn't clipped while the PSTN
         # audio path finishes establishing (UK Twilio trunks take ~1s for
