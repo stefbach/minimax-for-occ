@@ -109,6 +109,10 @@ export function CallLogsTab({ from, to, direction, leadsSource = "prod", system 
   const [stateFilter, setStateFilter] = useState<string>("ended,failed");
   const [answeredFilter, setAnsweredFilter] = useState<string>("all");
   const [durationFilter, setDurationFilter] = useState<string>("all");
+  // Custom duration range (in minutes, decimals allowed e.g. 0.5 = 30s). Active
+  // when durationFilter === "custom"; either bound may be left blank = open.
+  const [customMin, setCustomMin] = useState<string>("");
+  const [customMax, setCustomMax] = useState<string>("");
   const [qualFilter, setQualFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [openPlayer, setOpenPlayer] = useState<string | null>(null);
@@ -137,12 +141,25 @@ export function CallLogsTab({ from, to, direction, leadsSource = "prod", system 
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const dur = DURATION_BUCKETS.find((b) => b.id === durationFilter) ?? DURATION_BUCKETS[0];
+    // Resolve the active duration window (seconds). Custom range wins; its
+    // bounds are inclusive and either side may be open.
+    let lo = 0;
+    let hi = Infinity;
+    if (durationFilter === "custom") {
+      lo = customMin.trim() ? Math.max(0, Number(customMin) * 60) : 0;
+      hi = customMax.trim() ? Number(customMax) * 60 : Infinity;
+    } else {
+      const b = DURATION_BUCKETS.find((x) => x.id === durationFilter) ?? DURATION_BUCKETS[0];
+      lo = b.min;
+      hi = b.max;
+    }
+    const inclusiveMax = durationFilter === "custom";
     return rows.filter((c) => {
       if (answeredFilter === "yes" && !c.answered_at) return false;
       if (answeredFilter === "no" && c.answered_at) return false;
       const secs = c.duration_secs ?? 0;
-      if (secs < dur.min || secs >= dur.max) return false;
+      if (secs < lo) return false;
+      if (inclusiveMax ? secs > hi : secs >= hi) return false;
       if (qualFilter !== "all") {
         const b = bucketForCall(c);
         if (b !== qualFilter) return false;
@@ -151,7 +168,7 @@ export function CallLogsTab({ from, to, direction, leadsSource = "prod", system 
       const haystack = `${counterpartyName(c)} ${c.from_e164 ?? ""} ${c.to_e164 ?? ""} ${c.agent_handles?.display_name ?? ""} ${c.disposition ?? ""}`.toLowerCase();
       return haystack.includes(q);
     });
-  }, [rows, search, answeredFilter, durationFilter, qualFilter]);
+  }, [rows, search, answeredFilter, durationFilter, customMin, customMax, qualFilter]);
 
   // Live summary above the table, recomputed from whatever's currently
   // filtered. Lets the operator answer "how much did the < 1 min bucket
@@ -219,6 +236,42 @@ export function CallLogsTab({ from, to, direction, leadsSource = "prod", system 
               {t(b.label)}
             </button>
           ))}
+          {/* Custom min–max range, in minutes (decimals OK: 0.5 = 30s). */}
+          <button
+            type="button"
+            className={durationFilter === "custom" ? "" : "ghost"}
+            style={{ padding: "3px 10px", fontSize: 12 }}
+            onClick={() => setDurationFilter("custom")}
+            title={t("Plage de durée personnalisée")}
+          >
+            {t("Perso")}
+          </button>
+          <span
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12,
+              opacity: durationFilter === "custom" ? 1 : 0.55,
+            }}
+          >
+            <span className="muted">{t("de")}</span>
+            <input
+              type="number" min={0} step={0.5} inputMode="decimal"
+              value={customMin}
+              onChange={(e) => { setCustomMin(e.target.value); setDurationFilter("custom"); }}
+              placeholder="0"
+              style={{ width: 56, padding: "3px 6px", fontSize: 12 }}
+              aria-label={t("Durée minimum (min)")}
+            />
+            <span className="muted">{t("à")}</span>
+            <input
+              type="number" min={0} step={0.5} inputMode="decimal"
+              value={customMax}
+              onChange={(e) => { setCustomMax(e.target.value); setDurationFilter("custom"); }}
+              placeholder="∞"
+              style={{ width: 56, padding: "3px 6px", fontSize: 12 }}
+              aria-label={t("Durée maximum (min)")}
+            />
+            <span className="muted">{t("min")}</span>
+          </span>
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
           <span className="muted" style={{ fontSize: 12, fontWeight: 600 }}>{t("Qualification")} :</span>
