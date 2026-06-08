@@ -2,6 +2,7 @@ import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { requestOrgId } from "@/lib/request-org";
 import { requireModule } from "@/lib/permissions-server";
 import { fetchRetellCallExtras } from "@/lib/retell-sync";
+import { fetchTwilioRecordingUrl } from "@/lib/twilio-recording";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -46,7 +47,7 @@ export async function GET(request: Request) {
   let url = (data as { recording_url: string | null }).recording_url;
   const meta = ((data as { metadata: Record<string, unknown> | null }).metadata ?? {}) as Record<string, unknown>;
 
-  // Lazy backfill: pull the recording from Retell if we never stored one.
+  // Lazy backfill #1: pull the recording from Retell if we never stored one.
   if (!url && meta.source === "retell_sync" && typeof meta.retell_call_id === "string") {
     const fetched = await fetchRetellCallExtras(meta.retell_call_id);
     if (fetched.recording_url) {
@@ -54,13 +55,32 @@ export async function GET(request: Request) {
       await sb.from("calls").update({ recording_url: url }).eq("id", id).eq("org_id", orgId);
     }
   }
+  // Lazy backfill #2: Twilio Trunk-level recording — Twilio doesn't post a
+  // webhook for these, the only way to discover the .mp3 is the Recordings
+  // REST API keyed by the call's CallSid. We saved the CallSid into
+  // metadata.twilio_call_sid when the agent ran; now we resolve it.
+  if (!url && typeof meta.twilio_call_sid === "string" && meta.twilio_call_sid) {
+    const fetched = await fetchTwilioRecordingUrl(meta.twilio_call_sid);
+    if (fetched) {
+      url = fetched;
+      await sb.from("calls").update({ recording_url: url }).eq("id", id).eq("org_id", orgId);
+    }
+  }
   if (!url) return new Response("no_recording", { status: 404 });
 
   // Forward the browser's Range header so seeking / partial loads work.
   const range = request.headers.get("range");
+  // Twilio's recording .mp3 endpoint requires Basic Auth — the URL alone
+  // isn't enough. Other origins (Retell, etc.) are public.
+  const upstreamHeaders: Record<string, string> = {};
+  if (range) upstreamHeaders["Range"] = range;
+  if (url.startsWith("https://api.twilio.com/") && process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
+    const tok = Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString("base64");
+    upstreamHeaders["Authorization"] = `Basic ${tok}`;
+  }
   let upstream: Response;
   try {
-    upstream = await fetch(url, { headers: range ? { Range: range } : {} });
+    upstream = await fetch(url, { headers: upstreamHeaders });
   } catch {
     return new Response("upstream_unreachable", { status: 502 });
   }

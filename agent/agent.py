@@ -1857,10 +1857,21 @@ async def entrypoint(ctx: JobContext) -> None:
     try:
         from db_writes import update_call_metadata as _ucm
         room_name = getattr(ctx.room, "name", None)
-        if room_name and call_id:
-            await asyncio.to_thread(_ucm, call_id, {"lk_room_name": room_name})
+        meta_patch: dict = {}
+        if room_name:
+            meta_patch["lk_room_name"] = room_name
+        # Twilio CallSid is forwarded by LiveKit's SIP plugin as a participant
+        # attribute. Capture it so /api/dashboard/call-recording can lazily
+        # backfill the trunk-level recording (Twilio's trunk recording doesn't
+        # post a webhook — the only way to find the audio is the Recordings
+        # REST API, keyed by CallSid).
+        twilio_sid = p_attrs.get("sip.twilio.callSid") or p_attrs.get("sip.twilio.callsid")
+        if twilio_sid and call_id:
+            meta_patch["twilio_call_sid"] = str(twilio_sid)
+        if meta_patch and call_id:
+            await asyncio.to_thread(_ucm, call_id, meta_patch)
     except Exception:
-        clog.exception("could not stamp lk_room_name on calls.metadata")
+        clog.exception("could not stamp lk_room_name/twilio_call_sid on calls.metadata")
     _wire_transcript_hooks(session, call_id)
     _wire_latency_metrics(session, clog)
     _wire_debug_logs(session, clog)
