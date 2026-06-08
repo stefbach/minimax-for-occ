@@ -579,133 +579,18 @@ class AxonVoiceAgent(Agent):
 
     async def on_enter(self) -> None:
         # Pure TTS greeting — avoids an LLM call with an empty user message.
+        # Brief pre-roll so the first syllable isn't clipped while the PSTN
+        # audio path finishes establishing (UK Twilio trunks take ~1s for
+        # full RTP setup after pickup; Mauritius / browser sessions are
+        # instant). 1.0s is the historically-known-good value — earlier
+        # attempts at lower preroll or at gating the greeting behind
+        # participant/track/sip.callStatus signals over-engineered things
+        # and ended up blocking the greeting entirely in some setups
+        # (notably the browser voice simulator, which has no SIP
+        # participant to wait on). Stay simple.
         if not self._greeting:
             return
-
-        # CRITICAL: wait for the PSTN caller to actually pick up before
-        # speaking. On outbound SIP, the SIP participant is placed in the
-        # room IMMEDIATELY by LiveKit and may even report sip.callStatus
-        # ="active" before Twilio finishes ringing the patient's phone —
-        # but the patient's audio track (the *upstream* RTP from their
-        # phone) only becomes subscribable when they actually pick up.
-        # So we wait for ANY audio track from a SIP participant to be
-        # subscribed before greeting. That's the real "caller is on the
-        # line" signal.
-        room = None
-        try:
-            room_io = getattr(self.session, "room_io", None)
-            if room_io is not None:
-                room = getattr(room_io, "room", None)
-        except Exception:
-            room = None
-
-        if room is None:
-            logger.warning("greeting: no room handle (session.room_io.room=None) — greeting immediately")
-        else:
-            try:
-                timeout = float(os.getenv("GREETING_PARTICIPANT_WAIT_SECONDS", "45"))
-
-                def _is_sip(p) -> bool:
-                    try:
-                        attrs = dict(getattr(p, "attributes", None) or {})
-                        return any(k.startswith("sip.") for k in attrs.keys())
-                    except Exception:
-                        return False
-
-                def _has_audio_track(p) -> bool:
-                    """The SIP participant has a SUBSCRIBED audio track —
-                    i.e. RTP from the PSTN side is actually reaching us.
-                    Twilio only sends RTP after the patient picks up."""
-                    try:
-                        tps = getattr(p, "track_publications", None) or {}
-                        for tp in tps.values():
-                            kind = getattr(tp, "kind", None)
-                            sub = getattr(tp, "subscribed", False) or getattr(tp, "track", None) is not None
-                            kind_int = int(kind) if kind is not None else -1
-                            # rtc.TrackKind.KIND_AUDIO = 0 in protobuf; tolerate
-                            # both int and enum representations.
-                            if (kind_int == 0 or str(kind).endswith("AUDIO")) and sub:
-                                return True
-                    except Exception:
-                        pass
-                    return False
-
-                def _snapshot() -> str:
-                    try:
-                        bits = []
-                        for p in (getattr(room, "remote_participants", {}) or {}).values():
-                            attrs = dict(getattr(p, "attributes", None) or {})
-                            status = attrs.get("sip.callStatus", "")
-                            tps = getattr(p, "track_publications", None) or {}
-                            tracks = [f"{getattr(t,'kind','?')}:sub={getattr(t,'subscribed', False)}" for t in tps.values()]
-                            bits.append(f"identity={getattr(p,'identity','?')} status={status!r} tracks={tracks}")
-                        return "; ".join(bits) or "<no remote participants>"
-                    except Exception as e:
-                        return f"<snapshot error: {e}>"
-
-                # First check: maybe SIP audio is already flowing.
-                already_ready = False
-                for p in (getattr(room, "remote_participants", {}) or {}).values():
-                    if _is_sip(p) and _has_audio_track(p):
-                        already_ready = True
-                        break
-
-                if already_ready:
-                    logger.info("greeting: SIP audio already subscribed at on_enter — proceeding (snap=%s)", _snapshot())
-                else:
-                    logger.info("greeting: waiting for SIP audio track subscription… (snap=%s)", _snapshot())
-                    wait_event = asyncio.Event()
-
-                    def _check_all() -> None:
-                        for p in (getattr(room, "remote_participants", {}) or {}).values():
-                            if _is_sip(p) and _has_audio_track(p):
-                                wait_event.set()
-                                return
-
-                    def _on_subscribed(track, pub, p) -> None:
-                        try:
-                            kind = getattr(track, "kind", None)
-                            if int(kind) == 0 or str(kind).endswith("AUDIO"):
-                                if _is_sip(p):
-                                    wait_event.set()
-                        except Exception:
-                            _check_all()
-
-                    def _on_attrs_changed(_changed, _p) -> None:
-                        _check_all()
-
-                    def _on_participant_evt(_p) -> None:
-                        _check_all()
-
-                    for evt, cb in (
-                        ("track_subscribed", _on_subscribed),
-                        ("participant_attributes_changed", _on_attrs_changed),
-                        ("participant_connected", _on_participant_evt),
-                        ("participant_active", _on_participant_evt),
-                    ):
-                        try:
-                            room.on(evt, cb)
-                        except Exception:
-                            pass
-
-                    # Race-safe re-check after wiring listeners.
-                    _check_all()
-
-                    try:
-                        await asyncio.wait_for(wait_event.wait(), timeout=timeout)
-                        logger.info("greeting: SIP audio subscribed — proceeding (snap=%s)", _snapshot())
-                    except asyncio.TimeoutError:
-                        logger.warning(
-                            "greeting: timed out waiting for SIP audio after %.0fs (snap=%s) — greeting anyway",
-                            timeout, _snapshot(),
-                        )
-            except Exception:
-                logger.exception("greeting: SIP-audio wait failed, falling through")
-
-        # Tiny post-connect pre-roll so the very first syllable isn't
-        # clipped while the audio path stabilises. 0.5s is enough now that
-        # we know the participant is actually in the room.
-        preroll = float(os.getenv("GREETING_PREROLL_SECONDS", "0.5"))
+        preroll = float(os.getenv("GREETING_PREROLL_SECONDS", "1.0"))
         if preroll > 0:
             await asyncio.sleep(preroll)
         import time as _t
