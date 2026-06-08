@@ -1009,10 +1009,29 @@ def _install_call_hygiene(
         r"|can(?:'?t|\s+not)\s+(take|come\s+to|answer)\s+(the|your|my)?\s*(call|phone)"
         r"|you('?ve|\s+have)\s+reached\s+the\s+(voicemail|message)"
         r"|sorry\s+i\s+(missed|can(?:'?t|\s+not)\s+(take|answer))"
-        # French
+        # UK / Vodafone / EE / O2 / Three carrier announcements when the
+        # destination is busy, off, ringing-out, or out of service. These
+        # don't say "leave a message" but they're 100% deterministic — there
+        # is no human at the end. Drop the call before Charlotte burns 20s
+        # waiting for an answer.
+        r"|(?:is\s+|currently\s+|line\s+|number\s+|are\s+)?busy(?:\s+at\s+the\s+moment|\s+right\s+now)?"
+        r"|(?:please\s+)?try(?:\s+your\s+call)?\s+(?:again|later)"
+        r"|cannot\s+be\s+(reached|connected|completed)"
+        r"|(?:may\s+be\s+|is\s+)?(?:switched\s+off|powered\s+off|turned\s+off)"
+        r"|(?:is\s+)?(?:not\s+)?(?:reachable|available|in\s+service|recognised|recognized|valid)"
+        r"|no\s+longer\s+(?:in\s+service|available|exists|recognized|recognised)"
+        r"|the\s+(?:number|person|party|mobile|line)\s+you\s+(?:are\s+calling|have\s+(?:dialed|dialled))"
+        r"|number\s+(?:you('?ve|\s+have))?\s*dialed"
+        r"|out\s+of\s+(?:service|range|coverage|the\s+(?:office|country))"
+        r"|(?:please\s+)?(?:hang\s+up|redial)\s+and\s+try"
+        r"|disconnected|temporarily\s+unavailable"
+        # French (carrier-style)
         r"|messagerie|laisser\s+un\s+message|laissez\s+(un\s+message|votre\s+message)"
         r"|apr[èe]s\s+le\s+(bip|signal)|n'?est\s+pas\s+disponible"
         r"|vous\s+[êe]tes\s+sur\s+la\s+messagerie"
+        r"|(?:est|sont)\s+occup[ée]e?s?|essayez\s+(?:de\s+nouveau|plus\s+tard|ult[ée]rieurement)"
+        r"|correspondant\s+(?:n[\s']*est\s+pas\s+(?:joignable|disponible)|est\s+inaccessible)"
+        r"|(?:hors\s+service|injoignable|pas\s+attribu[ée])"
         r")\b",
         _re.IGNORECASE,
     )
