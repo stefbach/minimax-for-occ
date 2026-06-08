@@ -382,15 +382,23 @@ export async function dialTarget(job: DialJob): Promise<void> {
     return;
   }
 
-  // ─── Preferred path: LiveKit-originated outbound (no post-answer ringback) ──
-  // Activated only when the outbound trunk + LiveKit creds are configured AND
-  // this is an AI campaign. Falls back to the Twilio path on any failure, so
-  // an unconfigured/broken trunk never blocks dialing.
+  // ─── Path selection ─────────────────────────────────────────────────────
+  // Default: Twilio createCall (Path B). Twilio only fetches the TwiML — and
+  // therefore only bridges to LiveKit — AFTER the PSTN side picks up, so the
+  // agent physically cannot greet into an unanswered phone. This is the
+  // pattern Retell uses and the one that survived production testing.
+  //
+  // Opt-in: LiveKit-originated outbound (Path A, the older code below). Set
+  // DIAL_PREFER_LIVEKIT_SIP=true to re-enable. In theory Path A is lower
+  // latency (no post-answer TwiML fetch) and `waitUntilAnswered: true` should
+  // gate the agent until pickup, but in practice patients hit silence on the
+  // greeting — kept here only as an escape hatch, not the default.
+  const preferLiveKitSip = (process.env.DIAL_PREFER_LIVEKIT_SIP ?? "false").toLowerCase() === "true";
   const lkTrunk = process.env.LIVEKIT_SIP_OUTBOUND_TRUNK_ID;
   const lkUrlRaw = process.env.LIVEKIT_URL;
   const lkKey = process.env.LIVEKIT_API_KEY;
   const lkSecret = process.env.LIVEKIT_API_SECRET;
-  if (lkTrunk && lkUrlRaw && lkKey && lkSecret && aiAgentId && toE164) {
+  if (preferLiveKitSip && lkTrunk && lkUrlRaw && lkKey && lkSecret && aiAgentId && toE164) {
     const lkHost = lkUrlRaw.replace(/^wss:/i, "https:").replace(/^ws:/i, "http:");
     try {
       await dialViaLiveKit({
