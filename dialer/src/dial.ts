@@ -448,12 +448,13 @@ export async function dialTarget(job: DialJob): Promise<void> {
       twimlUrl,
       statusCallback,
       amd: !!campaign.amd_enabled,
-      // Per-tenant ring timeout. Default 5s — OCC's call ops want to skip
-      // anyone who can't grab the phone in one ring and move on to the next
-      // lead. Override via DIAL_RING_TIMEOUT_SECS if the trade-off (≈30-50%
-      // more no-answers vs faster throughput) needs to be re-tuned without
-      // a redeploy. Twilio enforces a 5s minimum.
-      timeout: Math.max(5, Number(process.env.DIAL_RING_TIMEOUT_SECS ?? 5)),
+      // Per-tenant ring timeout. Default 7s — OCC asked for 5s of actual ring
+      // time, and Twilio's call duration counts setup + ring + cancel, so a
+      // 5s timeout in practice cancels after ~3-4s of ringing (~1 UK ring).
+      // 7s leaves the phone ringing closer to the requested 5s.
+      // Override via DIAL_RING_TIMEOUT_SECS if the trade-off needs re-tuning
+      // without a redeploy. Twilio enforces a 5s minimum / 600s maximum.
+      timeout: Math.max(5, Math.min(600, Number(process.env.DIAL_RING_TIMEOUT_SECS ?? 7))),
       record: recordingEnabled,
       recordingStatusCallback,
     });
