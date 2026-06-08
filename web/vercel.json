@@ -3,5 +3,11 @@
   "framework": "nextjs",
   "git": {
     "deploymentEnabled": true
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/dashboard/sync-retell?days=2",
+      "schedule": "0 * * * *"
+    }
+  ]
 }

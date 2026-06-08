@@ -121,7 +121,8 @@ function LiveCallCard({ call, now }: { call: CallRow; now: number }) {
   );
 }
 
-export function LiveMonitorClient({ leadsSource = "prod" }: { leadsSource?: "prod" | "test" } = {}) {
+export function LiveMonitorClient({ leadsSource = "prod", system = "all" }: { leadsSource?: "prod" | "test"; system?: "all" | "retell" | "axon" } = {}) {
+  const sysQs = system !== "all" ? `&system=${system}` : "";
   const t = useT();
   const [active, setActive] = useState<CallRow[]>([]);
   const [recent, setRecent] = useState<CallRow[]>([]);
@@ -138,7 +139,7 @@ export function LiveMonitorClient({ leadsSource = "prod" }: { leadsSource?: "pro
 
   const fetchActive = useCallback(async () => {
     try {
-      const r = await fetch(`/api/calls?state=${ACTIVE_STATES}&limit=100&leads_source=${leadsSource}`, { cache: "no-store" });
+      const r = await fetch(`/api/calls?state=${ACTIVE_STATES}&limit=100&leads_source=${leadsSource}${sysQs}`, { cache: "no-store" });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
       if (mounted.current) {
@@ -149,11 +150,11 @@ export function LiveMonitorClient({ leadsSource = "prod" }: { leadsSource?: "pro
     } catch (e) {
       if (mounted.current) setError(e instanceof Error ? e.message : "Erreur");
     }
-  }, [leadsSource]);
+  }, [leadsSource, sysQs]);
 
   const fetchRecent = useCallback(async () => {
     try {
-      const r = await fetch(`/api/calls?state=${RECENT_STATES}&limit=40&leads_source=${leadsSource}`, { cache: "no-store" });
+      const r = await fetch(`/api/calls?state=${RECENT_STATES}&limit=40&leads_source=${leadsSource}${sysQs}`, { cache: "no-store" });
       const j = await r.json();
       if (r.ok && mounted.current) {
         const rows: CallRow[] = Array.isArray(j) ? j : [];
@@ -215,7 +216,7 @@ export function LiveMonitorClient({ leadsSource = "prod" }: { leadsSource?: "pro
     } catch {
       /* recent feed is best-effort */
     }
-  }, [t, leadsSource]);
+  }, [t, leadsSource, sysQs]);
 
   useEffect(() => {
     mounted.current = true;

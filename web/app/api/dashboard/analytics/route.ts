@@ -3,7 +3,9 @@ import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { requestOrgId } from "@/lib/request-org";
 import { isInbound, isOutbound, normalizeDirectionForDb } from "@/lib/call-direction";
 import { bucketForCall, QUAL_BUCKETS, type QualBucket } from "@/lib/qualification";
-import { callBelongsToLeadsSource, leadsTableFor, phoneSetForLeadsSource, type LeadsSource } from "@/lib/leads-source";
+import { callInLeadsScope, leadsTableFor, leadsScopeFor, type LeadsSource } from "@/lib/leads-source";
+import { fetchAllPaged, type Rangeable } from "@/lib/supabase-page";
+import { callMatchesSystem, parseCallSystem } from "@/lib/call-system";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -109,26 +111,32 @@ export async function GET(request: Request) {
   const minDuration = Number(searchParams.get("min_duration") ?? 0);
   const leadsSource: LeadsSource = searchParams.get("leads_source") === "test" ? "test" : "prod";
   const leadsTable = leadsTableFor(leadsSource);
+  const system = parseCallSystem(searchParams.get("system"));
 
   const rangeMs = to.getTime() - from.getTime();
   const granularity: "hour" | "day" = rangeMs <= 2 * 86400_000 ? "hour" : "day";
 
   const sb = supabaseServer();
-  let q = sb
-    .from("calls")
-    .select(
-      "id, direction, state, started_at, answered_at, duration_secs, disposition, contact_id, to_e164, metadata, agent_handles(display_name)",
-    )
-    .eq("org_id", orgId)
-    .gte("started_at", from.toISOString())
-    .lte("started_at", to.toISOString())
-    .order("started_at", { ascending: true })
-    .limit(ROW_CAP + 1);
   const dbDirection = normalizeDirectionForDb(direction);
-  if (dbDirection) q = q.eq("direction", dbDirection);
-
-  const { data, error } = await q;
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  // Paged past the 1000-row PostgREST cap; bounded at ROW_CAP+1 so we can still
+  // flag truncation for very large periods without scanning the whole table.
+  const { rows: data, error } = await fetchAllPaged<any>(
+    () => {
+      let q = sb
+        .from("calls")
+        .select(
+          "id, direction, state, started_at, answered_at, duration_secs, disposition, contact_id, to_e164, metadata, agent_handles(display_name)",
+        )
+        .eq("org_id", orgId)
+        .gte("started_at", from.toISOString())
+        .lte("started_at", to.toISOString())
+        .order("started_at", { ascending: true });
+      if (dbDirection) q = q.eq("direction", dbDirection);
+      return q as unknown as Rangeable<any>;
+    },
+    { maxRows: ROW_CAP + 1000 },
+  );
+  if (error) return NextResponse.json({ error }, { status: 500 });
 
   // Supabase types the joined relation as an array; flatten to a single object.
   let rows: CallRow[] = (data ?? []).map((r: any) => ({
@@ -140,12 +148,13 @@ export async function GET(request: Request) {
   // Same leads-source scoping as Vue d'ensemble: when the operator picked
   // Prod we want to count only calls placed to leads_rdv numbers, ditto
   // Test → leads_rdv_test_axon.
-  const phoneSet = await phoneSetForLeadsSource(leadsSource);
+  const scope = await leadsScopeFor(leadsSource);
   rows = rows.filter(
     (r) =>
       !ACTIVE_STATES.has(r.state ?? "")
       && (r.duration_secs ?? 0) >= minDuration
-      && callBelongsToLeadsSource(r.to_e164 ?? null, phoneSet),
+      && callInLeadsScope(r.to_e164 ?? null, scope)
+      && callMatchesSystem((r.metadata as { source?: string } | null)?.source, system),
   );
 
   // ── KPIs ──
@@ -159,22 +168,25 @@ export async function GET(request: Request) {
   // Real cost from recorded usage (telephony minutes + LLM tokens + TTS chars +
   // STT minutes), summed over the period and restricted to in-scope calls.
   const inScopeIds = new Set(rows.map((r) => r.id));
-  const { data: usage } = await sb
-    .from("usage_events")
-    .select("event_type, cost_cents, metadata")
-    .eq("org_id", orgId)
-    .gte("occurred_at", from.toISOString())
-    .lte("occurred_at", to.toISOString());
+  const { rows: usage } = await fetchAllPaged<{ event_type: string; cost_cents: number; metadata: { call_id?: string } | null }>(
+    () =>
+      sb
+        .from("usage_events")
+        .select("event_type, cost_cents, metadata")
+        .eq("org_id", orgId)
+        .gte("occurred_at", from.toISOString())
+        .lte("occurred_at", to.toISOString()) as unknown as Rangeable<{ event_type: string; cost_cents: number; metadata: { call_id?: string } | null }>,
+  );
   const breakdown = { call_minutes: 0, llm_tokens: 0, tts_chars: 0, stt_minutes: 0 };
   let totalCents = 0;
-  for (const u of (usage ?? [])) {
-    const cid = (u as { metadata?: { call_id?: string } | null }).metadata?.call_id;
+  for (const u of usage) {
+    const cid = u.metadata?.call_id;
     // Drop events that belong to filtered-out calls. Untagged events
     // (no call_id) only count when no filter is active.
-    if (cid ? !inScopeIds.has(cid) : phoneSet !== null) continue;
-    const cents = Number((u as { cost_cents: number }).cost_cents) || 0;
+    if (cid ? !inScopeIds.has(cid) : scope !== null) continue;
+    const cents = Number(u.cost_cents) || 0;
     totalCents += cents;
-    const k = (u as { event_type: string }).event_type as keyof typeof breakdown;
+    const k = u.event_type as keyof typeof breakdown;
     if (k in breakdown) breakdown[k] += cents;
   }
   const costReal = Math.round((totalCents / 100) * 100) / 100; // → dollars, 2dp
@@ -344,32 +356,25 @@ export async function GET(request: Request) {
   let sources: SourceRow[] = [];
   try {
     type LeadRow = { numero_telephone: string | null; source_lead: string | null };
-    const { data: leads, error: leadsErr } = await sb
-      .from(leadsTable as never)
-      .select("numero_telephone, source_lead")
-      .not("numero_telephone", "is", null)
-      .limit(20000);
-    if (!leadsErr && Array.isArray(leads)) {
+    // Page past the 1000-row cap so source attribution sees every lead.
+    const { rows: leads, error: leadsErr } = await fetchAllPaged<LeadRow>(() =>
+      sb
+        .from(leadsTable as never)
+        .select("numero_telephone, source_lead")
+        .not("numero_telephone", "is", null) as unknown as Rangeable<LeadRow>,
+    );
+    if (!leadsErr) {
       const sourceByPhone = new Map<string, string>();
-      for (const l of leads as unknown as LeadRow[]) {
+      for (const l of leads) {
         if (l.numero_telephone) {
           sourceByPhone.set(l.numero_telephone, (l.source_lead || "Inconnue").trim());
         }
       }
-      // Need to_e164 to do the join — pulled cheaply from the same window.
-      const ids = rows.map((r) => r.id);
-      if (ids.length > 0) {
-        const { data: callPhones } = await sb
-          .from("calls")
-          .select("id, to_e164")
-          .in("id", ids);
-        const phoneByCall = new Map<string, string>();
-        for (const c of (callPhones ?? []) as Array<{ id: string; to_e164: string | null }>) {
-          if (c.to_e164) phoneByCall.set(c.id, c.to_e164);
-        }
+      {
+        // rows already carry to_e164, so no extra (1000-capped) re-fetch.
         const acc = new Map<string, { total: number; rdv: number }>();
         for (const r of rows) {
-          const phone = phoneByCall.get(r.id);
+          const phone = r.to_e164;
           if (!phone) continue;
           const src = sourceByPhone.get(phone) ?? "Inconnue";
           const s = acc.get(src) ?? { total: 0, rdv: 0 };

@@ -12,6 +12,12 @@
 
 import { supabaseServer } from "./supabase";
 import { evaluateRule, type AlertRuleLike } from "./alerts-evaluator";
+import {
+  bucketForCall,
+  normalizeQualification,
+  QUAL_BUCKETS,
+  type QualBucket,
+} from "./qualification";
 
 interface AnalysisPolicy {
   id: string;
@@ -347,4 +353,186 @@ export async function generateCallSummary(callId: string): Promise<string> {
     .update({ summary, summary_generated_at: new Date().toISOString() })
     .eq("id", callId);
   return summary;
+}
+
+// ── AI auto-qualification ───────────────────────────────────────────────────
+// An answered call must always be classifiable. When the live AI agent didn't
+// stamp a qualification (ambiguous / short / interrupted call), this reads the
+// transcript post-hoc and assigns ONE of the 9 dashboard buckets. It writes to
+// calls.metadata.qualification (the same field bucketForCall reads first) with
+// a `qualification_source: "ai_auto"` provenance flag, and NEVER overrides a
+// qualification that already resolves to a real bucket — it only fills the gap.
+
+const QUALIFY_BUCKET_GUIDE: Record<Exclude<QualBucket, "autre">, string> = {
+  rdv_confirme:
+    "Un rendez-vous / une consultation a été pris ou confirmé pendant l'appel.",
+  passer_humain:
+    "Le contact a une question complexe ou demande explicitement un humain ; à escalader.",
+  rappel:
+    "Le contact a demandé à être rappelé plus tard (callback planifié).",
+  pas_interesse:
+    "Le contact n'est pas intéressé, refuse ou décline l'offre.",
+  pas_de_reponse:
+    "Personne n'a réellement échangé (décroché puis silence, raccrochage immédiat).",
+  repondeur:
+    "C'est un répondeur / messagerie vocale / machine.",
+  faux_numero:
+    "Mauvais numéro : la personne jointe n'est pas le contact recherché.",
+  non_eligible:
+    "Le contact ne remplit pas les critères d'éligibilité.",
+  ne_pas_rappeler:
+    "Le contact demande à ne plus jamais être rappelé (opt-out).",
+};
+
+export type QualifyStatus =
+  | "qualified"
+  | "skipped_existing"
+  | "skipped_not_answered"
+  | "no_evidence";
+
+export interface QualifyResult {
+  call_id: string;
+  status: QualifyStatus;
+  bucket?: QualBucket;
+  confidence?: number;
+  reason?: string;
+}
+
+interface QualifyCallRow {
+  id: string;
+  org_id: string;
+  answered_at: string | null;
+  duration_secs: number | null;
+  disposition: string | null;
+  summary: string | null;
+  metadata: Record<string, unknown> | null;
+}
+
+/** Validate the model's choice; fall back to escalation when it can't decide. */
+function coerceBucket(raw: unknown): { bucket: Exclude<QualBucket, "autre">; coerced: boolean } {
+  const keys = QUAL_BUCKETS.map((b) => b.key);
+  if (typeof raw === "string") {
+    const s = raw.trim();
+    if ((keys as string[]).includes(s)) {
+      return { bucket: s as Exclude<QualBucket, "autre">, coerced: false };
+    }
+    // Model may have returned a label or free text — run it through the same
+    // normaliser the rest of the dashboard uses before giving up.
+    const n = normalizeQualification(s);
+    if (n !== "autre") return { bucket: n, coerced: false };
+  }
+  // Undecidable → hand it to a human rather than guessing wrong.
+  return { bucket: "passer_humain", coerced: true };
+}
+
+export async function qualifyCall(callId: string): Promise<QualifyResult> {
+  const sb = supabaseServer();
+  const { data: callRow, error } = await sb
+    .from("calls")
+    .select("id, org_id, answered_at, duration_secs, disposition, summary, metadata")
+    .eq("id", callId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!callRow) throw new Error("call_not_found");
+  const call = callRow as QualifyCallRow;
+
+  // Only answered calls are in scope — an unanswered call legitimately has no
+  // human-side content to classify.
+  if (!call.answered_at) return { call_id: callId, status: "skipped_not_answered" };
+
+  // Never override an existing real qualification (agent- or human-set).
+  const current = bucketForCall(call);
+  if (current !== "autre") {
+    return { call_id: callId, status: "skipped_existing", bucket: current };
+  }
+
+  // Read whatever we have: full transcript preferred, summary as fallback.
+  const transcript = await fetchTranscriptText(callId);
+  const evidence = transcript.trim() || (call.summary?.trim() ?? "");
+  if (!evidence) return { call_id: callId, status: "no_evidence" };
+
+  const key = process.env.DEEPSEEK_API_KEY;
+  if (!key) throw new Error("DEEPSEEK_API_KEY missing");
+
+  const guide = (Object.entries(QUALIFY_BUCKET_GUIDE) as [string, string][])
+    .map(([k, d]) => `- "${k}": ${d}`)
+    .join("\n");
+  const schema = {
+    qualification: QUAL_BUCKETS.map((b) => b.key),
+    confidence: "number 0..1",
+    reason: "string (max 160 chars, in French)",
+  };
+  const system = [
+    "Tu classifies l'issue d'un appel téléphonique décroché en EXACTEMENT une catégorie.",
+    "Réponds UNIQUEMENT en JSON valide conforme au schéma — aucune prose.",
+    "Choisis la catégorie la plus probable même si l'appel est court ou ambigu :",
+    "un appel décroché doit toujours être classé.",
+  ].join(" ");
+  const userContent = [
+    `Catégories autorisées (champ "qualification") :\n${guide}`,
+    "",
+    `Schéma JSON à respecter : ${JSON.stringify(schema)}`,
+    "",
+    "Transcript de l'appel :",
+    evidence.slice(0, 12000),
+  ].join("\n");
+
+  const res = await fetch(DEEPSEEK_CHAT_URL, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
+    body: JSON.stringify({
+      model: "deepseek-v4-flash",
+      temperature: 0,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: userContent },
+      ],
+    }),
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(`DeepSeek HTTP ${res.status}: ${txt.slice(0, 240)}`);
+  }
+  const data = (await res.json()) as {
+    choices?: Array<{ message?: { content?: string } }>;
+  };
+  let parsed: { qualification?: unknown; confidence?: unknown; reason?: unknown } = {};
+  try {
+    parsed = JSON.parse(data.choices?.[0]?.message?.content ?? "{}");
+  } catch {
+    /* coerceBucket handles the empty/garbage case below */
+  }
+  const { bucket, coerced } = coerceBucket(parsed.qualification);
+  const confidence =
+    typeof parsed.confidence === "number"
+      ? Math.max(0, Math.min(1, parsed.confidence))
+      : null;
+  const reason =
+    typeof parsed.reason === "string" ? parsed.reason.slice(0, 200) : null;
+
+  const mergedMeta: Record<string, unknown> = {
+    ...(call.metadata ?? {}),
+    qualification: bucket,
+    qualification_source: "ai_auto",
+    qualification_ai: {
+      confidence: coerced ? 0 : confidence,
+      reason: coerced ? "Indécidable par l'IA — escaladé à un humain." : reason,
+      model: "deepseek-v4-flash",
+      at: new Date().toISOString(),
+    },
+  };
+  const { error: upErr } = await sb
+    .from("calls")
+    .update({ metadata: mergedMeta })
+    .eq("id", callId);
+  if (upErr) throw new Error(upErr.message);
+
+  return {
+    call_id: callId,
+    status: "qualified",
+    bucket,
+    confidence: coerced ? 0 : confidence ?? undefined,
+    reason: mergedMeta.qualification_ai && typeof reason === "string" ? reason : undefined,
+  };
 }

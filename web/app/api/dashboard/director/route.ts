@@ -4,7 +4,9 @@ import { requestOrgId } from "@/lib/request-org";
 import { requireModule } from "@/lib/permissions-server";
 import { bucketForCall, QUAL_BUCKETS, type QualBucket } from "@/lib/qualification";
 import { isInbound, normalizeDirectionForDb } from "@/lib/call-direction";
-import { callBelongsToLeadsSource, leadsTableFor, phoneSetForLeadsSource, type LeadsSource } from "@/lib/leads-source";
+import { callInLeadsScope, leadsTableFor, leadsScopeFor, type LeadsSource } from "@/lib/leads-source";
+import { fetchAllPaged, type Rangeable } from "@/lib/supabase-page";
+import { callMatchesSystem, parseCallSystem } from "@/lib/call-system";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -33,6 +35,9 @@ export type DirectorResponse = {
   kpis: DirectorKpis;
   inbound: { total: number; answered: number; notAnswered: number };
   qualifications: { key: QualBucket; label: string; count: number }[];
+  // Answered calls the agent left unqualified (hidden "autre" bucket). Surfaced
+  // so the UI can offer post-hoc AI qualification instead of dropping them.
+  unqualified: number;
   slots: { matin: number; midi: number; soir: number; hors: number };
   phases: { rappel: PhaseStat; j1: PhaseStat; j3: PhaseStat; j5: PhaseStat };
   agentChain: { only1: number; plus2: number; plus3: number };
@@ -117,33 +122,40 @@ export async function GET(request: Request) {
   // production stats. Defaults to prod.
   const leadsSource: LeadsSource = searchParams.get("leads_source") === "test" ? "test" : "prod";
   const leadsTable = leadsTableFor(leadsSource);
+  const system = parseCallSystem(searchParams.get("system"));
 
   const sb = supabaseServer();
 
   // Main calls query — covers KPIs, qualifications, slots, durations,
-  // inbound counts, and the summaries section in one round-trip.
-  let q = sb
-    .from("calls")
-    .select(
-      "id, direction, state, answered_at, started_at, duration_secs, disposition, agent_handle_id, contact_id, to_e164, summary, metadata, agent_handles(display_name), contacts(display_name)",
-    )
-    .eq("org_id", orgId)
-    .gte("started_at", from.toISOString())
-    .lte("started_at", to.toISOString())
-    .limit(20000);
+  // inbound counts, and the summaries section in one round-trip. Paged past
+  // the 1000-row PostgREST cap so wide periods (7d / Tout) aren't truncated.
   const dbDirection = normalizeDirectionForDb(direction);
-  if (dbDirection) q = q.eq("direction", dbDirection);
-  const { data, error } = await q;
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  const { rows: data, error } = await fetchAllPaged<CallRow>(() => {
+    let q = sb
+      .from("calls")
+      .select(
+        "id, direction, state, answered_at, started_at, duration_secs, disposition, agent_handle_id, contact_id, to_e164, summary, metadata, agent_handles(display_name), contacts(display_name)",
+      )
+      .eq("org_id", orgId)
+      .gte("started_at", from.toISOString())
+      .lte("started_at", to.toISOString())
+      .order("started_at", { ascending: false });
+    if (dbDirection) q = q.eq("direction", dbDirection);
+    return q as unknown as Rangeable<CallRow>;
+  });
+  if (error) return NextResponse.json({ error }, { status: 500 });
 
   // Restrict every KPI on this dashboard to calls placed to leads from the
   // selected table (Prod or Test). Without this filter the Total / Coût /
   // RDV tiles would mix sandbox + production numbers, which is what the
   // operator was actually seeing in the original toggle UX.
-  const phoneSet = await phoneSetForLeadsSource(leadsSource);
+  const scope = await leadsScopeFor(leadsSource);
 
   const rows = ((data ?? []) as unknown as CallRow[]).filter(
-    (r) => !ACTIVE.has(r.state ?? "") && callBelongsToLeadsSource(r.to_e164 ?? null, phoneSet),
+    (r) =>
+      !ACTIVE.has(r.state ?? "")
+      && callInLeadsScope(r.to_e164 ?? null, scope)
+      && callMatchesSystem((r.metadata as { source?: string } | null)?.source, system),
   );
 
   // KPIs
@@ -201,26 +213,26 @@ export async function GET(request: Request) {
   // (or vice versa). Match on metadata.call_id which is what the agent
   // and Twilio status webhook both set.
   const inScopeIds = new Set(rows.map((r) => r.id));
-  const { data: usage } = await sb
-    .from("usage_events")
-    .select("cost_cents, metadata")
-    .eq("org_id", orgId)
-    .gte("occurred_at", from.toISOString())
-    .lte("occurred_at", to.toISOString());
+  const { rows: usage } = await fetchAllPaged<{ cost_cents: number; metadata: { call_id?: string } | null }>(
+    () =>
+      sb
+        .from("usage_events")
+        .select("cost_cents, metadata")
+        .eq("org_id", orgId)
+        .gte("occurred_at", from.toISOString())
+        .lte("occurred_at", to.toISOString()) as unknown as Rangeable<{ cost_cents: number; metadata: { call_id?: string } | null }>,
+  );
   const cost =
-    (usage ?? [])
+    usage
       .filter((u) => {
-        const cid = (u as { metadata?: { call_id?: string } | null }).metadata?.call_id;
+        const cid = u.metadata?.call_id;
         // Keep events with no call_id only when there is no filter active
-        // (phoneSet === null), otherwise we'd leak sandbox events back into
+        // (scope === null), otherwise we'd leak sandbox events back into
         // the prod view.
-        if (!cid) return phoneSet === null;
+        if (!cid) return scope === null;
         return inScopeIds.has(cid);
       })
-      .reduce(
-        (a, u) => a + (Number((u as { cost_cents: number }).cost_cents) || 0),
-        0,
-      ) / 100;
+      .reduce((a, u) => a + (Number(u.cost_cents) || 0), 0) / 100;
 
   // Chaîne d'agents — count distinct agents touched per call from call_events.
   // Initial agent is calls.agent_handle_id (may be null for inbound). Handoffs
@@ -314,25 +326,27 @@ export async function GET(request: Request) {
   try {
     // OCC org has leads_rdv (production) and leads_rdv_test_axon (sandbox).
     // The leads_source query param picks which one to summarise — defaults
-    // to prod, which is what the operator wants 99% of the time.
-    const { data: leads, error: leadsErr } = await sb
-      .from(leadsTable as never)
-      .select(
-        "qualification, date_j1, date_j3, date_j5, j1_attempts, j3_attempts, j5_attempts",
-      )
-      .limit(20000);
-    if (!leadsErr && Array.isArray(leads)) {
+    // to prod, which is what the operator wants 99% of the time. Paged past
+    // the 1000-row cap so phase counts cover the whole 7.5k-lead table.
+    type Lead = {
+      qualification: string | null;
+      date_j1: string | null;
+      date_j3: string | null;
+      date_j5: string | null;
+      j1_attempts: number | null;
+      j3_attempts: number | null;
+      j5_attempts: number | null;
+    };
+    const { rows: leads, error: leadsErr } = await fetchAllPaged<Lead>(() =>
+      sb
+        .from(leadsTable as never)
+        .select(
+          "qualification, date_j1, date_j3, date_j5, j1_attempts, j3_attempts, j5_attempts",
+        ) as unknown as Rangeable<Lead>,
+    );
+    if (!leadsErr) {
       phasesAvailable = true;
-      type Lead = {
-        qualification: string | null;
-        date_j1: string | null;
-        date_j3: string | null;
-        date_j5: string | null;
-        j1_attempts: number | null;
-        j3_attempts: number | null;
-        j5_attempts: number | null;
-      };
-      for (const l of leads as unknown as Lead[]) {
+      for (const l of leads) {
         if ((l.qualification ?? "").toLowerCase().includes("rappel")) {
           phases.rappel.leads += 1;
           phases.rappel.calls += Number(l.j1_attempts ?? 0);
@@ -375,6 +389,7 @@ export async function GET(request: Request) {
       label: b.label,
       count: qcount[b.key],
     })),
+    unqualified: qcount.autre,
     slots,
     phases,
     agentChain,

@@ -101,7 +101,7 @@ function counterpartyNumber(c: CallRow): string | null {
   return (c.direction === "inbound" || c.direction === "in") ? c.from_e164 : c.to_e164;
 }
 
-export function CallLogsTab({ from, to, direction, leadsSource = "prod" }: { from: string; to: string; direction: string; leadsSource?: "prod" | "test" }) {
+export function CallLogsTab({ from, to, direction, leadsSource = "prod", system = "all" }: { from: string; to: string; direction: string; leadsSource?: "prod" | "test"; system?: "all" | "retell" | "axon" }) {
   const t = useT();
   const [rows, setRows] = useState<CallRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -118,6 +118,7 @@ export function CallLogsTab({ from, to, direction, leadsSource = "prod" }: { fro
     try {
       const qs = new URLSearchParams({ state: stateFilter, limit: "250", from, to, leads_source: leadsSource });
       if (direction !== "all") qs.set("direction", direction);
+      if (system !== "all") qs.set("system", system);
       const r = await fetch(`/api/calls?${qs.toString()}`, { cache: "no-store" });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
@@ -128,7 +129,7 @@ export function CallLogsTab({ from, to, direction, leadsSource = "prod" }: { fro
     } finally {
       setLoading(false);
     }
-  }, [stateFilter, from, to, direction, leadsSource]);
+  }, [stateFilter, from, to, direction, leadsSource, system]);
 
   useEffect(() => {
     fetchData();
@@ -389,14 +390,16 @@ export function CallLogsTab({ from, to, direction, leadsSource = "prod" }: { fro
                       <tr>
                         <td colSpan={10} style={{ background: "var(--bg-2)", padding: "10px 14px" }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                            {/* Stream via our origin so playback isn't blocked
+                                by the upstream host's CORS / content-type. */}
                             <audio
                               controls
                               autoPlay
-                              src={c.recording_url}
+                              src={`/api/dashboard/call-recording?id=${encodeURIComponent(c.id)}`}
                               style={{ flex: 1 }}
                             />
                             <a
-                              href={c.recording_url}
+                              href={`/api/dashboard/call-recording?id=${encodeURIComponent(c.id)}`}
                               download
                               className="ghost"
                               style={{ padding: "4px 10px", fontSize: 12, textDecoration: "none", color: "var(--text)" }}

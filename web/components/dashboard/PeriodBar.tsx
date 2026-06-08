@@ -10,6 +10,9 @@ export type Filters = {
   // default; switching to 'test' lets the operator validate new flows
   // without polluting OCC's real numbers.
   leadsSource: "prod" | "test";
+  // Calling-system axis (orthogonal to leadsSource): show calls from Retell,
+  // from Axon, or both. Useful during the Retell→Axon migration.
+  system: "all" | "retell" | "axon";
 };
 
 function startOfDay(d: Date): Date {
@@ -129,6 +132,19 @@ export function PeriodBar({
             <option value="all">{t("Tous")}</option>
             <option value="inbound">{t("↘ Entrants")}</option>
             <option value="outbound">{t("↗ Sortants")}</option>
+          </select>
+        </div>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+          <span className="muted" style={{ fontSize: 12 }}>{t("Système")}</span>
+          <select
+            value={filters.system}
+            onChange={(e) => onFilters({ ...filters, system: e.target.value as Filters["system"] })}
+            style={{ width: "auto", padding: "5px 8px", fontSize: 13 }}
+            title={t("Filtrer par système d'appel (Retell ou Axon)")}
+          >
+            <option value="all">{t("Tous")}</option>
+            <option value="retell">Retell</option>
+            <option value="axon">Axon</option>
           </select>
         </div>
       </div>

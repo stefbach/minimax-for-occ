@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { requestOrgId } from "@/lib/request-org";
-import { callBelongsToLeadsSource, phoneSetForLeadsSource, type LeadsSource } from "@/lib/leads-source";
+import { callInLeadsScope, leadsScopeFor, type LeadsSource } from "@/lib/leads-source";
+import { callMatchesSystem, parseCallSystem } from "@/lib/call-system";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -86,10 +87,12 @@ export async function GET(request: Request) {
   const leadsParam = searchParams.get("leads_source");
   const leadsSource: LeadsSource | null =
     leadsParam === "test" ? "test" : leadsParam === "prod" ? "prod" : null;
-  const phoneSet = leadsSource ? await phoneSetForLeadsSource(leadsSource) : null;
+  const scope = leadsSource ? await leadsScopeFor(leadsSource) : null;
+  const system = parseCallSystem(searchParams.get("system"));
 
-  const calls = ((data ?? []) as Array<{ id: string; started_at: string | null; to_e164: string | null }>)
-    .filter((c) => callBelongsToLeadsSource(c.to_e164 ?? null, phoneSet));
+  const calls = ((data ?? []) as Array<{ id: string; started_at: string | null; to_e164: string | null; metadata: { source?: string } | null }>)
+    .filter((c) => callInLeadsScope(c.to_e164 ?? null, scope))
+    .filter((c) => callMatchesSystem(c.metadata?.source, system));
 
   // Attach real cost per call (sum of usage_events whose metadata.call_id
   // matches). One aggregate query covers the whole list — cheap enough at
