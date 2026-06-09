@@ -344,6 +344,8 @@ const EN: Record<string, string> = {
     "Phase volumes cover the whole pipeline (independent of the selected period).",
   "Par créneau d'appel": "By call slot",
   "autres heures": "other hours",
+  "Fenêtres d'appel Lun–Jeu. Vendredi : créneau matin élargi à 08h–11h UK, pas de midi/soir. Week-end : hors créneau.":
+    "Mon–Thu calling windows. Friday: morning slot extended to 08:00–11:00 UK, no midday/evening. Weekend: out of hours.",
   "voir les appels": "view calls",
   "Aucune table de phases configurée pour cette organisation.":
     "No phase table configured for this organisation.",

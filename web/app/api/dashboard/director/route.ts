@@ -7,6 +7,7 @@ import { isInbound, normalizeDirectionForDb } from "@/lib/call-direction";
 import { callInLeadsScope, leadsTableFor, leadsScopeFor, type LeadsSource } from "@/lib/leads-source";
 import { fetchAllPaged, type Rangeable } from "@/lib/supabase-page";
 import { callMatchesSystem, parseCallSystem } from "@/lib/call-system";
+import { slotForDate } from "@/lib/call-slots";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -98,13 +99,6 @@ type CallRow = {
   agent_handles?: { display_name: string | null } | null;
   contacts?: { display_name: string | null } | null;
 };
-
-function slotForHour(h: number): "matin" | "midi" | "soir" | "hors" {
-  if (h >= 9 && h < 12) return "matin";
-  if (h >= 12 && h < 15) return "midi";
-  if (h >= 15 && h < 19) return "soir";
-  return "hors";
-}
 
 function durationBucketFor(secs: number): keyof DirectorResponse["durationBuckets"] {
   if (secs < 15) return "lt15s";
@@ -201,12 +195,12 @@ export async function GET(request: Request) {
     notAnswered: inboundRows.filter((r) => !r.answered_at).length,
   };
 
-  // Créneaux matin / midi / soir / hors (UK-ish 09-12 / 12-15 / 15-19).
+  // Créneaux matin / midi / soir / hors — bucketed by the call's UK local time
+  // against the OCC calling windows (see lib/call-slots).
   const slots = { matin: 0, midi: 0, soir: 0, hors: 0 };
   for (const r of rows) {
     if (!r.started_at) continue;
-    const h = new Date(r.started_at).getUTCHours();
-    slots[slotForHour(h)] += 1;
+    slots[slotForDate(new Date(r.started_at))] += 1;
   }
 
   // Distribution des durées.

@@ -5,6 +5,7 @@ import type { DirectorResponse } from "@/app/api/dashboard/director/route";
 import type { QualBucket } from "@/lib/qualification";
 import { useT } from "@/lib/i18n";
 import { DrillSheet, type DrillFilters, type DrillSpec } from "./DrillSheet";
+import { SLOT_WINDOWS } from "@/lib/call-slots";
 
 function fmtDur(secs: number): string {
   const m = Math.floor(secs / 60);
@@ -454,11 +455,11 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>
             {([
-              ["Créneau 1 — matin", "09h – 12h", data.slots.matin, "matin", "🌅"],
-              ["Créneau 2 — midi", "12h – 15h", data.slots.midi, "midi", "☀"],
-              ["Créneau 3 — soir", "15h – 19h", data.slots.soir, "soir", "🌆"],
-              ["Hors créneau", t("autres heures"), data.slots.hors, "hors", "🌙"],
-            ] as const).map(([label, range, v, slot, icon]) => {
+              ["Créneau 1 — matin", SLOT_WINDOWS.matin, data.slots.matin, "matin", "🌅"],
+              ["Créneau 2 — midi", SLOT_WINDOWS.midi, data.slots.midi, "midi", "☀"],
+              ["Créneau 3 — soir", SLOT_WINDOWS.soir, data.slots.soir, "soir", "🌆"],
+              ["Hors créneau", null, data.slots.hors, "hors", "🌙"],
+            ] as const).map(([label, win, v, slot, icon]) => {
               const slotTotal = data.slots.matin + data.slots.midi + data.slots.soir + data.slots.hors;
               const pct = slotTotal ? Math.round((v / slotTotal) * 100) : 0;
               return (
@@ -469,7 +470,9 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
                   style={{ padding: 10 }}
                 >
                   <div className="muted" style={{ fontSize: 11 }}>{icon} {label}</div>
-                  <div className="muted" style={{ fontSize: 10 }}>{range}</div>
+                  <div className="muted" style={{ fontSize: 10 }}>
+                    {win ? `${win.uk} UK · ${win.mu} MU` : t("autres heures")}
+                  </div>
                   <div style={{ fontSize: 18, fontWeight: 700, marginTop: 4 }}>
                     {v.toLocaleString("fr-FR")} <span className="muted" style={{ fontSize: 11, fontWeight: 400 }}>· {pct}%</span>
                   </div>
@@ -477,6 +480,9 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
               );
             })}
           </div>
+          <p className="muted" style={{ fontSize: 11, marginTop: 8, marginBottom: 0, fontStyle: "italic" }}>
+            {t("Fenêtres d'appel Lun–Jeu. Vendredi : créneau matin élargi à 08h–11h UK, pas de midi/soir. Week-end : hors créneau.")}
+          </p>
         </div>
       </div>
 

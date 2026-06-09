@@ -7,6 +7,7 @@ import { isInbound, normalizeDirectionForDb } from "@/lib/call-direction";
 import { callInLeadsScope, leadsScopeFor, leadNameMapFor, leadNameForPhone, type LeadsSource } from "@/lib/leads-source";
 import { fetchAllPaged, type Rangeable } from "@/lib/supabase-page";
 import { callMatchesSystem, parseCallSystem } from "@/lib/call-system";
+import { slotForDate } from "@/lib/call-slots";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -54,13 +55,6 @@ type Row = {
   agent_handles?: { display_name: string | null } | null;
   contacts?: { display_name: string | null; e164: string | null } | null;
 };
-
-function slotForHour(h: number): "matin" | "midi" | "soir" | "hors" {
-  if (h >= 9 && h < 12) return "matin";
-  if (h >= 12 && h < 15) return "midi";
-  if (h >= 15 && h < 19) return "soir";
-  return "hors";
-}
 
 function inDurationBucket(secs: number, bucket: string): boolean {
   switch (bucket) {
@@ -140,8 +134,7 @@ export async function GET(request: Request) {
     if (durationBucket && !inDurationBucket(r.duration_secs ?? 0, durationBucket)) return false;
     if (slot) {
       if (!r.started_at) return false;
-      const h = new Date(r.started_at).getUTCHours();
-      if (slotForHour(h) !== slot) return false;
+      if (slotForDate(new Date(r.started_at)) !== slot) return false;
     }
     if (qualParam) {
       const b = bucketForCall(r);
