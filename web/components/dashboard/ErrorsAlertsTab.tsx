@@ -302,7 +302,10 @@ export function ErrorsAlertsTab() {
                       background: "var(--bg-2)",
                     }}
                   >
-                    <span style={{ fontFamily: "ui-monospace, monospace", fontSize: 13 }}>{r.to_e164}</span>
+                    <span style={{ minWidth: 0 }}>
+                      {r.contact_name && <div style={{ fontWeight: 600, fontSize: 13 }}>{r.contact_name}</div>}
+                      <span style={{ fontFamily: "ui-monospace, monospace", fontSize: 13, color: r.contact_name ? "var(--muted)" : undefined }}>{r.to_e164}</span>
+                    </span>
                     <span className="tag">
                       {r.attempts} {t("tent.")}
                     </span>

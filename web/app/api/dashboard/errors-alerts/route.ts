@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { requestOrgId } from "@/lib/request-org";
+import { leadNameMapFor, leadNameForPhone } from "@/lib/leads-source";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,6 +40,7 @@ export type RobotRow = {
 
 export type NeverReachedRow = {
   to_e164: string;
+  contact_name: string | null;
   attempts: number;
 };
 
@@ -105,6 +107,11 @@ export async function GET(request: Request) {
   const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
   const callbacks: CallbackRow[] = [];
   const robotRows: RobotRow[] = [];
+  // Resolve names from the CRM leads (prod + test) so voicemails/anomalies show
+  // a person instead of "Unknown" — Axon/Retell calls have no linked contact.
+  const [prodNames, testNames] = await Promise.all([leadNameMapFor("prod"), leadNameMapFor("test")]);
+  const leadNames = new Map(prodNames);
+  for (const [k, v] of testNames) if (!leadNames.has(k)) leadNames.set(k, v);
   try {
     const { data: callsData } = await sb
       .from("calls")
@@ -138,7 +145,7 @@ export async function GET(request: Request) {
         (r.metadata && (r.metadata as Record<string, unknown>).robot_awareness === true);
       const e164 = (r.direction === "in" || r.direction === "inbound") ? r.from_e164 : r.to_e164;
       const contact = Array.isArray(r.contacts) ? r.contacts[0] ?? null : r.contacts;
-      const name = contact?.display_name ?? null;
+      const name = contact?.display_name ?? leadNameForPhone(e164, leadNames);
       if (ROBOT_RE.test(disp) || robotFlag) {
         robotRows.push({
           call_id: r.id,
@@ -204,7 +211,7 @@ export async function GET(request: Request) {
   }
   const neverReached: NeverReachedRow[] = Array.from(neverReachedMap.entries())
     .filter(([, v]) => !v.everAnswered && v.attempts >= 3)
-    .map(([to_e164, v]) => ({ to_e164, attempts: v.attempts }))
+    .map(([to_e164, v]) => ({ to_e164, contact_name: leadNameForPhone(to_e164, leadNames), attempts: v.attempts }))
     .sort((a, b) => b.attempts - a.attempts)
     .slice(0, 100);
 
@@ -232,12 +239,15 @@ export async function GET(request: Request) {
     }
   }
   const threeAttempts: ThreeAttemptsRow[] = candidateContacts
-    .map(([contact_id, v]) => ({
-      contact_id,
-      contact_name: contactsMap.get(contact_id)?.display_name ?? null,
-      e164: contactsMap.get(contact_id)?.e164 ?? null,
-      attempts: v.attempts,
-    }))
+    .map(([contact_id, v]) => {
+      const e164 = contactsMap.get(contact_id)?.e164 ?? null;
+      return {
+        contact_id,
+        contact_name: contactsMap.get(contact_id)?.display_name ?? leadNameForPhone(e164, leadNames),
+        e164,
+        attempts: v.attempts,
+      };
+    })
     .sort((a, b) => b.attempts - a.attempts)
     .slice(0, 50);
 
