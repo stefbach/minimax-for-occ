@@ -89,13 +89,44 @@ export async function POST(req: Request) {
   ) {
     baseUpdate.ended_at = nowIso;
   }
-  if (Duration && Number.isFinite(Number(Duration))) {
-    baseUpdate.duration_secs = Number(Duration);
-  }
+  // `duration_secs` should reflect the time the patient was actually on the
+  // line with us — i.e. from pickup to hangup — not Twilio's CallDuration
+  // which folds in the ring time (a Mauritian voicemail call last week
+  // showed 17s in the dashboard for an 8s recording because the ring was
+  // 9s long). We compute the engaged duration ourselves from
+  // (ended_at - answered_at) so the call list, call detail panel and the
+  // recording player all agree.
+  //
+  // Twilio's raw CallDuration is still preserved on metadata.twilio_call_duration_secs
+  // for cost reconciliation downstream — Twilio bills the full leg, not the
+  // engaged window.
   const metadataPatch: Record<string, unknown> = {
     ...((existing?.metadata as Record<string, unknown>) ?? {}),
     twilio_last_status: CallStatus,
   };
+  if (Duration && Number.isFinite(Number(Duration))) {
+    metadataPatch.twilio_call_duration_secs = Number(Duration);
+  }
+  // Recompute engaged duration whenever we have both anchors.
+  const answeredAtIso =
+    (typeof baseUpdate.answered_at === "string" && baseUpdate.answered_at) ||
+    (existing?.answered_at as string | undefined);
+  const endedAtIso =
+    (typeof baseUpdate.ended_at === "string" && baseUpdate.ended_at) || null;
+  if (answeredAtIso && endedAtIso) {
+    const secs = Math.max(
+      0,
+      Math.round(
+        (Date.parse(endedAtIso) - Date.parse(answeredAtIso)) / 1000,
+      ),
+    );
+    if (Number.isFinite(secs)) baseUpdate.duration_secs = secs;
+  } else if (!answeredAtIso && Duration && Number.isFinite(Number(Duration))) {
+    // Never answered (e.g. no-answer / failed before pickup) — leave
+    // duration_secs at 0 so the dashboard doesn't show ring seconds as
+    // engaged time.
+    baseUpdate.duration_secs = 0;
+  }
   if (AnsweredBy) metadataPatch.amd = AnsweredBy;
   if (Direction) metadataPatch.direction_twilio = Direction;
   baseUpdate.metadata = metadataPatch;
