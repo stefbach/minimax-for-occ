@@ -285,6 +285,13 @@ export function DeskWorkstation() {
   const personalCount = personal.length;
   const sharedCount = shared.length;
   const doneCount = doneToday.length;
+  // Apply pagination — "Voir plus" reveals 10 extra rows at a time.
+  // Wati's spec: lists must stay short by default; long ones get a
+  // dedicated /mes-patients page.
+  const personalVisible = personal.slice(0, personalLimit);
+  const sharedVisible = shared.slice(0, sharedLimit);
+  const personalHasMore = personal.length > personalLimit;
+  const sharedHasMore = shared.length > sharedLimit;
 
   return (
     <div style={{ display: "grid", gap: 14 }}>
@@ -326,45 +333,68 @@ export function DeskWorkstation() {
         onStart={(item) => setFocused({ kind: item.kind, id: item.id })}
       />
 
-      <div className="desk-3pane">
-        {/* LEFT — personal queue ("Appels du jour") */}
+      {/* 2x2 layout (Wati's spec):
+            ┌───────────────────────┬───────────────────────┐
+            │  Softphone + dispo    │   Patient details     │  ← TOP
+            │  (poste de l'agent)   │   (résumé / transc /  │
+            │                       │    notes éditables)   │
+            ├───────────────────────┼───────────────────────┤
+            │  Appels du jour       │   Pool partagé        │  ← BOTTOM
+            │  (file perso)         │   (file équipe)       │
+            └───────────────────────┴───────────────────────┘
+          Click on a name in the bottom row → patient details
+          load in the TOP-RIGHT cell.  */}
+      <div className="desk-2x2">
+        {/* TOP-LEFT — softphone (single source of truth for dial/hangup) */}
+        <section
+          className="desk-pane desk-poste"
+          style={{ display: "grid", gap: 12 }}
+        >
+          <h3 style={{ margin: 0, fontSize: 14, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.4 }}>
+            {t("Mon poste")}
+          </h3>
+          <Softphone />
+          {focusedItem && (
+            <DispositionForm
+              item={focusedItem}
+              onSaved={() => {
+                setFocused(null);
+                void refresh();
+              }}
+            />
+          )}
+        </section>
+
+        {/* TOP-RIGHT — patient details (résumé / transcript / notes) */}
+        <section className="desk-pane desk-patient" style={{ display: "grid", gap: 12 }}>
+          <PatientCard item={focusedItem} />
+        </section>
+
+        {/* BOTTOM-LEFT — personal queue */}
         <aside
           className="card desk-pane"
           data-pane="personal"
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: 8,
-            padding: 12,
-          }}
+          style={{ display: "flex", flexDirection: "column", gap: 8, padding: 12 }}
         >
-          <h3 style={{ margin: 0 }}>
-            {t("Appels du jour")} ({personalCount + doneCount})
-          </h3>
-          <div className="muted" style={{ fontSize: 12 }}>
-            {t("À traiter")} ({personalCount})
+          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
+            <h3 style={{ margin: 0 }}>
+              {t("Appels du jour")} ({personalCount + doneCount})
+            </h3>
+            <span className="muted" style={{ fontSize: 12 }}>
+              {t("À traiter")}: {personalCount}
+            </span>
           </div>
           {loading && personal.length === 0 ? (
             <div className="muted" style={{ fontSize: 13 }}>{t("Chargement…")}</div>
           ) : personal.length === 0 ? (
-            <div
-              style={{
-                padding: "14px 8px",
-                textAlign: "center",
-                color: "var(--muted)",
-                fontSize: 12,
-                lineHeight: 1.6,
-              }}
-            >
+            <div style={{ padding: "14px 8px", textAlign: "center", color: "var(--muted)", fontSize: 12, lineHeight: 1.6 }}>
               <div style={{ fontSize: 24, opacity: 0.5, marginBottom: 6 }}>📋</div>
               <div>{t("Aucun appel à traiter")}</div>
-              <div style={{ marginTop: 4 }}>
-                {t("Prends-en un dans le Pool partagé →")}
-              </div>
+              <div style={{ marginTop: 4 }}>{t("Prends-en un dans le Pool partagé →")}</div>
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {personal.map((c) => (
+              {personalVisible.map((c) => (
                 <QueueRow
                   key={`${c.kind}:${c.id}`}
                   item={c}
@@ -385,6 +415,15 @@ export function DeskWorkstation() {
                   }
                 />
               ))}
+              {personalHasMore && (
+                <button
+                  className="ghost"
+                  style={{ padding: "6px 10px", fontSize: 12, marginTop: 4 }}
+                  onClick={() => setPersonalLimit((n) => n + 10)}
+                >
+                  {t("Voir 10 de plus")} ({personalCount - personalLimit} {t("restants")})
+                </button>
+              )}
             </div>
           )}
 
@@ -393,23 +432,12 @@ export function DeskWorkstation() {
             <div style={{ marginTop: 6, borderTop: "1px solid var(--border)", paddingTop: 8 }}>
               <button
                 className="ghost"
-                style={{
-                  width: "100%",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  padding: "6px 8px",
-                  fontSize: 12,
-                }}
+                style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 8px", fontSize: 12 }}
                 onClick={() => setDoneOpen((v) => !v)}
                 aria-expanded={doneOpen}
               >
-                <span>
-                  {t("Faits aujourd'hui")} ({doneCount})
-                </span>
-                <span aria-hidden style={{ opacity: 0.7 }}>
-                  {doneOpen ? "▾" : "▸"}
-                </span>
+                <span>{t("Faits aujourd'hui")} ({doneCount})</span>
+                <span aria-hidden style={{ opacity: 0.7 }}>{doneOpen ? "▾" : "▸"}</span>
               </button>
               {doneOpen && (
                 <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
@@ -428,61 +456,29 @@ export function DeskWorkstation() {
           )}
         </aside>
 
-        {/* CENTER — patient context + softphone + disposition */}
-        <section
-          className="desk-pane desk-center"
-          style={{ display: "grid", gap: 12 }}
-        >
-          <PatientCard item={focusedItem} />
-          {/* Softphone stays the source of truth for the dial / hangup. */}
-          <Softphone />
-          {focusedItem && (
-            <DispositionForm
-              item={focusedItem}
-              onSaved={() => {
-                setFocused(null);
-                void refresh();
-              }}
-            />
-          )}
-        </section>
-
-        {/* RIGHT — shared pool */}
+        {/* BOTTOM-RIGHT — shared pool */}
         <aside
           className="card desk-pane"
           data-pane="shared"
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: 8,
-            padding: 12,
-          }}
+          style={{ display: "flex", flexDirection: "column", gap: 8, padding: 12 }}
         >
-          <h3 style={{ margin: 0 }}>
-            {t("Pool partagé")} ({sharedCount})
-          </h3>
-          <div className="muted" style={{ fontSize: 12 }}>
-            {t("File équipe")}
+          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
+            <h3 style={{ margin: 0 }}>
+              {t("Pool partagé")} ({sharedCount})
+            </h3>
+            <span className="muted" style={{ fontSize: 12 }}>{t("File équipe")}</span>
           </div>
           {loading && shared.length === 0 ? (
             <div className="muted" style={{ fontSize: 13 }}>{t("Chargement…")}</div>
           ) : shared.length === 0 ? (
-            <div
-              style={{
-                padding: "14px 8px",
-                textAlign: "center",
-                color: "var(--muted)",
-                fontSize: 12,
-                lineHeight: 1.6,
-              }}
-            >
+            <div style={{ padding: "14px 8px", textAlign: "center", color: "var(--muted)", fontSize: 12, lineHeight: 1.6 }}>
               <div style={{ fontSize: 24, opacity: 0.5, marginBottom: 6 }}>✓</div>
               <div>{t("Pool partagé vide")}</div>
               <div style={{ marginTop: 4 }}>{t("Tous les patients sont traités.")}</div>
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {shared.map((c) => (
+              {sharedVisible.map((c) => (
                 <QueueRow
                   key={`${c.kind}:${c.id}`}
                   item={c}
@@ -502,50 +498,50 @@ export function DeskWorkstation() {
                   }
                 />
               ))}
+              {sharedHasMore && (
+                <button
+                  className="ghost"
+                  style={{ padding: "6px 10px", fontSize: 12, marginTop: 4 }}
+                  onClick={() => setSharedLimit((n) => n + 10)}
+                >
+                  {t("Voir 10 de plus")} ({sharedCount - sharedLimit} {t("restants")})
+                </button>
+              )}
             </div>
           )}
         </aside>
       </div>
 
-      {/* Inline CSS that toggles 3-pane → single-pane on narrow viewports. */}
       <style jsx>{`
-        .desk-3pane {
+        .desk-2x2 {
           display: grid;
-          grid-template-columns: 240px 1fr 260px;
+          grid-template-columns: 1fr 1fr;
+          grid-template-rows: minmax(320px, auto) minmax(320px, auto);
           gap: 14px;
         }
-        @media (max-width: 1100px) {
-          .desk-3pane {
-            grid-template-columns: 200px 1fr 220px;
-          }
-        }
         @media (max-width: 900px) {
-          .desk-3pane {
+          .desk-2x2 {
             grid-template-columns: 1fr;
+            grid-template-rows: auto auto auto auto;
           }
           :global(.desk-mobile-toggle) {
             display: flex !important;
           }
-          .desk-3pane [data-pane="personal"] {
+          .desk-2x2 [data-pane="personal"] {
             display: ${mobileView === "personal" ? "flex" : "none"};
           }
-          .desk-3pane [data-pane="shared"] {
+          .desk-2x2 [data-pane="shared"] {
             display: ${mobileView === "shared" ? "flex" : "none"};
           }
         }
-        /* Inside the desk, the Softphone's 3-col internal grid (Appels /
-           Keypad / Fiche) competes with the desk's own 3-pane layout and
-           crushes everything. Force it to single-column so it lays out
-           vertically and breathes. */
-        .desk-center :global(.softphone-grid) {
+        /* Softphone keeps its internal layout single-column so it doesn't
+           fight the 2x2 grid. Hide the duplicated recent-calls + contact
+           sidebars to keep the poste compact. */
+        .desk-poste :global(.softphone-grid) {
           grid-template-columns: 1fr !important;
         }
-        /* The Softphone repeats info (recent calls, contact card) that the
-           desk's PatientCard / queue panes already provide. Hide those two
-           internal columns to reduce visual noise; keep only the central
-           presence + dialer column. */
-        .desk-center :global(.softphone-left),
-        .desk-center :global(.softphone-right) {
+        .desk-poste :global(.softphone-left),
+        .desk-poste :global(.softphone-right) {
           display: none;
         }
       `}</style>
