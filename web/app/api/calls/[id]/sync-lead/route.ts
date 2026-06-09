@@ -140,7 +140,19 @@ export async function POST(
   const qualSource = typeof callMeta.qualification_source === "string"
     ? callMeta.qualification_source
     : null;
+  // OCC writeback semantics:
+  //   • The lead's `qualification` column ALWAYS mirrors the latest call's
+  //     outcome, including the duration-heuristic 'auto_inferred' bucket.
+  //     Otherwise a lead that hits voicemail 4 times stays at NOUVEAU DOSSIER
+  //     forever and the cadence engine has no way to graduate it.
+  //   • The `last_qualification_update` timestamp is reserved for EXPLICIT
+  //     qualifications — set by save_contact_data, transfer_to_human,
+  //     voicemail_stt, distress_detected, audio_drop_heuristic, twilio_amd.
+  //     Heuristic auto_inferred bumps the value of `qualification` but does
+  //     not touch the timestamp, so OCC's manual review can still tell at a
+  //     glance when a human/operator/Charlotte made the call vs the watchdog.
   const isExplicit = callQual && qualSource !== "auto_inferred" && !qualSource?.startsWith("auto_inferred");
+  const shouldPropagateQualification = !!callQual;
   const endedAt = call.ended_at ?? new Date().toISOString();
 
   const patch: Record<string, unknown> = {};
@@ -177,9 +189,11 @@ export async function POST(
   if (has("last_call_id")) patch.last_call_id = call.id;
   if (has("last_updated")) patch.last_updated = endedAt;
 
-  if (isExplicit) {
-    if (has("qualification")) patch.qualification = callQual;
-    if (has("last_qualification_update")) patch.last_qualification_update = endedAt;
+  if (shouldPropagateQualification && has("qualification")) {
+    patch.qualification = callQual;
+  }
+  if (isExplicit && has("last_qualification_update")) {
+    patch.last_qualification_update = endedAt;
   }
 
   // Phase progression: stamp date_jN ONLY when the phase is "done", not
