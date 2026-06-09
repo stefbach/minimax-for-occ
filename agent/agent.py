@@ -705,7 +705,7 @@ class AxonVoiceAgent(Agent):
         # the time on_enter runs the patient has already picked up. The 1s
         # preroll is just a buffer for the PSTN RTP path to fully settle
         # (UK Twilio trunks need ~1s for full audio setup after pickup).
-        preroll = float(os.getenv("GREETING_PREROLL_SECONDS", "1.0"))
+        preroll = float(os.getenv("GREETING_PREROLL_SECONDS", "0.3"))
         if preroll > 0:
             await asyncio.sleep(preroll)
         _b = _t.monotonic()
@@ -1038,7 +1038,7 @@ def _install_call_hygiene(
     session: AgentSession,
     clog,
     *,
-    idle_timeout: float = 5.0,
+    idle_timeout: float = 4.0,
     goodbye_grace: float = 2.0,
 ) -> None:
     """Hang up the call automatically to stop the meter when there's no
@@ -1560,11 +1560,11 @@ def _install_call_hygiene(
             # agent_speaking_until is still in the future.
             await asyncio.sleep(min(idle_timeout, max(1.5, idle_timeout / 3)))
             while not state["hung_up"]:
-                # 1s poll keeps the worst-case overshoot of idle_timeout to
-                # 1s instead of the historic 2s. On a 5s idle target this
-                # changes 'fires at T+5..7' into 'fires at T+5..6' — patient
-                # hangs up one full second sooner on every silent call.
-                await asyncio.sleep(1.0)
+                # 0.5s poll keeps the worst-case overshoot of idle_timeout
+                # to 0.5s instead of 1s. On a 5s idle target this changes
+                # 'fires at T+5..6' into 'fires at T+5..5.5' — patient
+                # hangs up half a second sooner on every silent call.
+                await asyncio.sleep(0.5)
                 # Honour in-flight saves: if save_contact_data is mid-PATCH,
                 # delay any hangup until it completes so leads_rdv writes
                 # don't get lost when the asyncio task is cancelled.
