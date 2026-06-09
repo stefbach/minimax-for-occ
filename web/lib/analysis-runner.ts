@@ -490,7 +490,16 @@ export async function qualifyCall(callId: string): Promise<QualifyResult> {
   // transcript cached in metadata, then the summary as a last resort.
   const transcript = await fetchTranscriptText(callId);
   const evidence = transcript.trim() || metaTranscriptText(call.metadata) || (call.summary?.trim() ?? "");
-  if (!evidence) return { call_id: callId, status: "no_evidence" };
+  if (!evidence) {
+    // Nothing to analyse (no transcript, no summary). Stamp a terminal marker so
+    // this call stops being a candidate forever — otherwise the background drain
+    // would re-attempt it on every page load. Default the agent stage to 1 (no
+    // transfer detectable) without touching the qualification.
+    const merged: Record<string, unknown> = { ...meta, analysis_skipped: "no_evidence" };
+    if (meta.agent_stage == null) merged.agent_stage = 1;
+    await sb.from("calls").update({ metadata: merged }).eq("id", callId);
+    return { call_id: callId, status: "no_evidence" };
+  }
 
   const key = process.env.DEEPSEEK_API_KEY;
   if (!key) throw new Error("DEEPSEEK_API_KEY missing");

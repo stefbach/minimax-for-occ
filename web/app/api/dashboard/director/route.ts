@@ -84,7 +84,7 @@ type CallRow = {
   contact_id: string | null;
   to_e164: string | null;
   summary: string | null;
-  metadata: { qualification?: string | null; agent_stage?: number | null } | null;
+  metadata: { qualification?: string | null; agent_stage?: number | null; analysis_skipped?: string | null } | null;
   agent_handles?: { display_name: string | null } | null;
   contacts?: { display_name: string | null } | null;
 };
@@ -399,7 +399,7 @@ export async function GET(request: Request) {
     })),
     unqualified: qcount.autre,
     pendingAnalysis: rows.filter((r) => {
-      if (!r.answered_at) return false;
+      if (!r.answered_at || r.metadata?.analysis_skipped) return false;
       const needsQual = bucketForCall(r) === "autre";
       const needsStage = r.metadata?.agent_stage == null && (r.duration_secs ?? 0) >= 60;
       return needsQual || needsStage;

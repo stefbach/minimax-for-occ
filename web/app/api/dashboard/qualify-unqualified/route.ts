@@ -21,7 +21,7 @@ type Row = {
   duration_secs: number | null;
   disposition: string | null;
   to_e164: string | null;
-  metadata: { qualification?: string | null; agent_stage?: number | null; source?: string } | null;
+  metadata: { qualification?: string | null; agent_stage?: number | null; analysis_skipped?: string | null; source?: string } | null;
 };
 
 // Mirror analysis-runner's AGENT_STAGE_MIN_SECS: only long-enough calls are
@@ -63,6 +63,9 @@ async function countCandidates(
     .filter((r) => callInLeadsScope(r.to_e164, scope))
     .filter((r) => callMatchesSystem(r.metadata?.source, system))
     .filter((r) => {
+      // A call we've already attempted but couldn't analyse (no evidence) is
+      // terminal — never a candidate again.
+      if (r.metadata?.analysis_skipped) return false;
       const needsQual = bucketForCall(r) === "autre";
       const needsStage = r.metadata?.agent_stage == null && (r.duration_secs ?? 0) >= AGENT_STAGE_MIN_SECS;
       return needsQual || needsStage;

@@ -463,14 +463,21 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
         </p>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
           {([
-            ["Agent 1 uniquement", data.agentChain.only1],
-            ["Agent 1 → Agent 2", data.agentChain.plus2],
-            ["Agent 1 → 2 → 3", data.agentChain.plus3],
-          ] as const).map(([label, v]) => (
-            <div key={label} className="card" style={{ padding: 12 }}>
-              <div className="muted" style={{ fontSize: 11 }}>{label}</div>
+            ["Agent 1 uniquement", data.agentChain.only1, 1],
+            ["Agent 1 → Agent 2", data.agentChain.plus2, 2],
+            ["Agent 1 → 2 → 3", data.agentChain.plus3, 3],
+          ] as const).map(([label, v, stage]) => (
+            <button
+              key={label}
+              type="button"
+              className="card"
+              onClick={() => openDrill(t(label), "🔗", "var(--accent)", { agent_stage: stage as 1 | 2 | 3 })}
+              aria-label={`${t("Voir les appels")} — ${t(label)}`}
+              style={{ padding: 12, textAlign: "left", cursor: "pointer", color: "inherit" }}
+            >
+              <div className="muted" style={{ fontSize: 11 }}>{t(label)}</div>
               <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4 }}>{v}</div>
-            </div>
+            </button>
           ))}
         </div>
       </div>

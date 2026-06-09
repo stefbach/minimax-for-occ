@@ -25,6 +25,8 @@ export type DrillFilters = {
   inbound_only?: boolean;
   leads_source?: "prod" | "test";
   system?: "retell" | "axon";
+  // Agent-chain stage: 1 = first agent only, 2 = reached a 2nd agent, 3 = reached a 3rd.
+  agent_stage?: 1 | 2 | 3;
 };
 
 export type DrillSpec = {
@@ -106,6 +108,7 @@ function buildQS(filters: DrillFilters): string {
   if (filters.inbound_only) qs.set("inbound_only", "1");
   if (filters.leads_source) qs.set("leads_source", filters.leads_source);
   if (filters.system) qs.set("system", filters.system);
+  if (filters.agent_stage) qs.set("agent_stage", String(filters.agent_stage));
   return qs.toString();
 }
 
