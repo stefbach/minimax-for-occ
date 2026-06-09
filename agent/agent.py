@@ -74,6 +74,59 @@ class CallIdAdapter(logging.LoggerAdapter):
         return msg, kwargs
 
 
+def _lookup_twilio_call_sid(call_id: Optional[str]) -> Optional[str]:
+    """Fetch the Twilio CallSid for an Axon call. Used by the hygiene
+    watchdog so it can REST-end the Twilio leg the moment the agent decides
+    to hang up — without this, SIP BYE propagation from LK Cloud to Twilio
+    adds 8-12 seconds of dead silence on the patient's side.
+    Returns None on any failure (the caller treats that as 'skip')."""
+    if not call_id:
+        return None
+    try:
+        from agent_config import _supabase_headers as _hdrs, _supabase_url as _url, has_supabase as _has
+        if not _has():
+            return None
+        import httpx as _httpx
+        with _httpx.Client(timeout=_httpx.Timeout(3.0), headers=_hdrs()) as c:
+            r = c.get(_url(f"/rest/v1/calls?id=eq.{call_id}&select=twilio_call_sid"))
+            r.raise_for_status()
+            rows = r.json() or []
+            sid = rows[0].get("twilio_call_sid") if rows else None
+            return sid if isinstance(sid, str) and sid else None
+    except Exception:
+        return None
+
+
+def _twilio_end_call(call_sid: str, clog: logging.LoggerAdapter) -> None:
+    """Force Twilio to mark a Call as completed via the REST API.
+    Cuts the patient leg instantly instead of waiting for the SIP BYE to
+    travel LK Cloud → Twilio. Never raises."""
+    import os as _os
+    sid = _os.getenv("TWILIO_ACCOUNT_SID")
+    token = _os.getenv("TWILIO_AUTH_TOKEN")
+    if not sid or not token:
+        clog.debug("twilio_end_call: TWILIO_ACCOUNT_SID/AUTH_TOKEN not set")
+        return
+    try:
+        import httpx as _httpx
+        url = f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Calls/{call_sid}.json"
+        with _httpx.Client(timeout=_httpx.Timeout(5.0)) as c:
+            r = c.post(
+                url,
+                auth=(sid, token),
+                data={"Status": "completed"},
+            )
+        if r.status_code >= 400:
+            clog.warning(
+                "twilio_end_call: HTTP %d for sid=%s body=%s",
+                r.status_code, call_sid, (r.text or "")[:200],
+            )
+        else:
+            clog.info("twilio_end_call: ended Twilio call sid=%s", call_sid)
+    except Exception:
+        clog.exception("twilio_end_call: REST call failed (sid=%s)", call_sid)
+
+
 def _logger_for_call(call_id: Optional[str]) -> logging.LoggerAdapter:
     """Return a LoggerAdapter bound to a call_id (None → unprefixed)."""
     return CallIdAdapter(logger, {"call_id": call_id} if call_id else {})
@@ -1149,6 +1202,17 @@ def _install_call_hygiene(
                 clog.exception(
                     "auto_hangup: stamp qualification failed (call=%s)", cid,
                 )
+        # Force-end the call on Twilio's side too. SIP BYE from LK Cloud to
+        # Twilio can take 8-12s to propagate, during which the patient's
+        # phone is still 'connected' to dead silence — patient experience
+        # 'why is this still on the line?' even though the agent left. The
+        # Twilio REST update completes in <1s.
+        try:
+            twilio_sid = await asyncio.to_thread(_lookup_twilio_call_sid, getattr(ctx, "_call_id", None))
+            if twilio_sid:
+                await asyncio.to_thread(_twilio_end_call, twilio_sid, clog)
+        except Exception:
+            clog.exception("auto_hangup: twilio end-call failed")
         # Politely end the room. delete_room would be the hard kill but
         # disconnect lets the session shut down cleanly and the post-call
         # pipeline run.
