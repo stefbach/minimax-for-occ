@@ -191,28 +191,24 @@ async function dialViaLiveKit(args: {
       // catches dead numbers immediately without waiting for voicemail handoff.
       ringingTimeout: Math.max(5, Math.min(600, Number(process.env.DIAL_RING_TIMEOUT_SECS ?? 5))),
     };
-    // Dispatch the AI agent IN PARALLEL with placing the SIP call. The previous
-    // ordering (call first, agent after pickup) let the patient hear several
-    // seconds of dead silence between pickup and the agent's greeting, because
-    // the agent worker only began warming up after `waitUntilAnswered` resolved.
-    // Now both run concurrently — the phone rings while the agent loads its
-    // prompt + knowledge base + TTS, so by pickup the agent is in the room
-    // ready to greet. If the SIP call fails (bad number, 403), the agent sits
-    // alone in the room for `emptyTimeout=30s` then auto-cleans — acceptable
-    // cost vs. the silence regression the sequential path produced.
+    // Place the SIP call FIRST and wait for pickup, THEN dispatch the agent.
+    // Parallel dispatch was tested and produced the OPPOSITE bug: the agent
+    // warmed up while the phone was still ringing and greeted before pickup
+    // — patient picked up mid-greeting and only heard the tail ("...is that
+    // Megane?"). Sequential keeps the timing predictable: pickup → agent
+    // dispatch → ~1s warmup + 1s preroll → greeting. The patient hears
+    // ~1.5-2s of silence after pickup before the greeting starts, which is
+    // close to industry norm and far better than missing the first words.
+    participant = await sip.createSipParticipant(
+      lk.trunk,
+      toE164,
+      roomName,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      sipOptions as any,
+    );
     const agentName = process.env.LIVEKIT_AGENT_NAME ?? "minimax-voice-agent";
     const dispatch = new AgentDispatchClient(lk.host, lk.key, lk.secret);
-    const [participantResult] = await Promise.all([
-      sip.createSipParticipant(
-        lk.trunk,
-        toE164,
-        roomName,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        sipOptions as any,
-      ),
-      dispatch.createDispatch(roomName, agentName, { metadata: roomMeta }),
-    ]);
-    participant = participantResult;
+    await dispatch.createDispatch(roomName, agentName, { metadata: roomMeta });
   } catch (err) {
     await sb
       .from("calls")
