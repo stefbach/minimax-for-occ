@@ -448,13 +448,14 @@ export async function dialTarget(job: DialJob): Promise<void> {
       twimlUrl,
       statusCallback,
       amd: !!campaign.amd_enabled,
-      // Per-tenant ring timeout. Default 7s — OCC asked for 5s of actual ring
-      // time, and Twilio's call duration counts setup + ring + cancel, so a
-      // 5s timeout in practice cancels after ~3-4s of ringing (~1 UK ring).
-      // 7s leaves the phone ringing closer to the requested 5s.
-      // Override via DIAL_RING_TIMEOUT_SECS if the trade-off needs re-tuning
-      // without a redeploy. Twilio enforces a 5s minimum / 600s maximum.
-      timeout: Math.max(5, Math.min(600, Number(process.env.DIAL_RING_TIMEOUT_SECS ?? 7))),
+      // Per-tenant ring timeout. Default 15s after deep-research review:
+      // industry standards are 20-30s (Amazon Connect recommends 25s, Vapi
+      // and Retell default to 30-60s) but OCC's ops want a faster cadence,
+      // so 15s is the agreed compromise — ~12s of actual ring after Twilio's
+      // setup+cancel overhead, enough for a patient to reach their phone
+      // without being too lenient on real dead numbers. Override via
+      // DIAL_RING_TIMEOUT_SECS without a redeploy. Twilio clamps 5-600s.
+      timeout: Math.max(5, Math.min(600, Number(process.env.DIAL_RING_TIMEOUT_SECS ?? 15))),
       record: recordingEnabled,
       recordingStatusCallback,
     });
