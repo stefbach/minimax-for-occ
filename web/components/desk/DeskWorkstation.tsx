@@ -133,10 +133,39 @@ export function DeskWorkstation() {
     ];
   }, [tasks.personal, legacy.personal]);
   const shared: DeskItem[] = useMemo(() => {
-    return [
+    // Dedupe by (contact_id || e164) — when test campaigns hammer the same
+    // patient multiple times the legacy queue keeps every call as its own
+    // row, which buries real leads under 20+ identical phone numbers. Keep
+    // the freshest entry per contact and roll up the rest into call_count.
+    const raw = [
       ...tasks.shared.map(taskToItem),
       ...legacy.shared.map(legacyToItem),
     ];
+    const byContact = new Map<string, DeskItem>();
+    for (const item of raw) {
+      const key = item.contact_id || item.e164 || `${item.kind}:${item.id}`;
+      const existing = byContact.get(key);
+      if (!existing) {
+        byContact.set(key, item);
+      } else {
+        // Prefer task entries over legacy (richer metadata) and the most
+        // recently scheduled. Increment call_count to show the total
+        // attempts on the surviving card.
+        const incomingFresher =
+          (item.scheduled_for ?? "") > (existing.scheduled_for ?? "") ||
+          (item.kind === "task" && existing.kind === "legacy");
+        if (incomingFresher) {
+          byContact.set(key, {
+            ...item,
+            call_count: (existing.call_count || 0) + (item.call_count || 0),
+          });
+        } else {
+          existing.call_count =
+            (existing.call_count || 0) + (item.call_count || 0);
+        }
+      }
+    }
+    return Array.from(byContact.values());
   }, [tasks.shared, legacy.shared]);
   const doneToday: DeskItem[] = useMemo(
     () => tasks.done_today.map(taskToItem),
@@ -279,6 +308,19 @@ export function DeskWorkstation() {
           <div style={{ color: "var(--bad)", fontSize: 13 }}>{actionErr}</div>
         </div>
       )}
+
+      {/* Daily briefing — tells the agent at a glance how their day looks
+          and surfaces the "first lead to call" CTA so they don't have to
+          scan the column to find where to start. */}
+      <DailyBriefing
+        personalCount={personalCount}
+        sharedCount={sharedCount}
+        doneCount={doneCount}
+        firstPersonal={personal[0] ?? null}
+        firstShared={shared[0] ?? null}
+        focused={focused}
+        onStart={(item) => setFocused({ kind: item.kind, id: item.id })}
+      />
 
       <div className="desk-3pane">
         {/* LEFT — personal queue ("Appels du jour") */}
@@ -546,6 +588,273 @@ function legacyToItem(c: LegacyCall): DeskItem {
   };
 }
 
+interface TranscriptTurn {
+  seq: number;
+  speaker: string;
+  text: string;
+  started_at: string;
+}
+
+function TranscriptSection({ callId }: { callId: string }) {
+  const t = useT();
+  const [turns, setTurns] = useState<TranscriptTurn[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setTurns(null);
+    setErr(null);
+    (async () => {
+      try {
+        const r = await fetch(`/api/calls/${callId}/transcripts`, { cache: "no-store" });
+        if (!r.ok) {
+          if (!cancelled) setErr(`HTTP ${r.status}`);
+          return;
+        }
+        const j = (await r.json()) as TranscriptTurn[];
+        if (!cancelled) setTurns(j ?? []);
+      } catch (e) {
+        if (!cancelled) setErr(e instanceof Error ? e.message : "fetch_failed");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [callId]);
+
+  if (err) {
+    return (
+      <div className="muted" style={{ fontSize: 12, paddingTop: 6 }}>
+        {t("Transcript indisponible")} ({err})
+      </div>
+    );
+  }
+  if (turns === null) {
+    return (
+      <div className="muted" style={{ fontSize: 12, paddingTop: 6 }}>
+        {t("Chargement…")}
+      </div>
+    );
+  }
+  if (turns.length === 0) {
+    return (
+      <div className="muted" style={{ fontSize: 12, paddingTop: 6 }}>
+        {t("Aucun transcript pour cet appel.")}
+      </div>
+    );
+  }
+  return (
+    <div
+      style={{
+        display: "grid",
+        gap: 6,
+        paddingTop: 8,
+        maxHeight: 320,
+        overflowY: "auto",
+      }}
+    >
+      {turns.map((turn) => {
+        const isAgent =
+          turn.speaker === "agent" ||
+          turn.speaker === "assistant" ||
+          turn.speaker === "agent_ai";
+        return (
+          <div
+            key={turn.seq}
+            style={{
+              fontSize: 12,
+              lineHeight: 1.45,
+              padding: "4px 8px",
+              borderRadius: 6,
+              background: isAgent ? "var(--bg-2)" : "transparent",
+              borderLeft: `3px solid ${isAgent ? "var(--accent)" : "var(--border)"}`,
+            }}
+          >
+            <div
+              className="muted"
+              style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 2 }}
+            >
+              {isAgent ? t("Agent") : t("Patient")}
+            </div>
+            <div>{turn.text}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function AgentNotesEditor({
+  taskId,
+  initial,
+}: {
+  taskId: string;
+  initial: string;
+}) {
+  const t = useT();
+  const [value, setValue] = useState(initial);
+  const [saved, setSaved] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [err, setErr] = useState<string | null>(null);
+
+  // Debounced auto-save: 800ms after the agent stops typing.
+  useEffect(() => {
+    if (value === initial) return;
+    const handle = setTimeout(async () => {
+      setSaved("saving");
+      setErr(null);
+      try {
+        const r = await fetch(`/api/desk/tasks/${taskId}/notes`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ notes: value }),
+        });
+        if (!r.ok) {
+          const j = (await r.json().catch(() => ({}))) as { error?: string };
+          setSaved("error");
+          setErr(j.error ?? `HTTP ${r.status}`);
+          return;
+        }
+        setSaved("saved");
+      } catch (e) {
+        setSaved("error");
+        setErr(e instanceof Error ? e.message : "save_failed");
+      }
+    }, 800);
+    return () => clearTimeout(handle);
+  }, [value, taskId, initial]);
+
+  return (
+    <div style={{ display: "grid", gap: 6, paddingTop: 8 }}>
+      <textarea
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        placeholder={t(
+          "Tape tes notes ici pendant l'appel — auto-enregistré toutes les 800ms.",
+        )}
+        rows={6}
+        style={{
+          width: "100%",
+          fontSize: 13,
+          fontFamily: "inherit",
+          lineHeight: 1.5,
+          padding: 8,
+          resize: "vertical",
+        }}
+      />
+      <div className="muted" style={{ fontSize: 11 }}>
+        {saved === "saving" && t("Enregistrement…")}
+        {saved === "saved" && t("✓ Enregistré")}
+        {saved === "error" && (
+          <span style={{ color: "var(--bad)" }}>
+            {t("Échec d'enregistrement")} ({err})
+          </span>
+        )}
+        {saved === "idle" && t("Modifications enregistrées automatiquement.")}
+      </div>
+    </div>
+  );
+}
+
+function DailyBriefing({
+  personalCount,
+  sharedCount,
+  doneCount,
+  firstPersonal,
+  firstShared,
+  focused,
+  onStart,
+}: {
+  personalCount: number;
+  sharedCount: number;
+  doneCount: number;
+  firstPersonal: DeskItem | null;
+  firstShared: DeskItem | null;
+  focused: { kind: string; id: string } | null;
+  onStart: (item: DeskItem) => void;
+}) {
+  const t = useT();
+  const remaining = personalCount + sharedCount;
+  const nextTarget = firstPersonal ?? firstShared;
+  const hour = new Date().getHours();
+  const greeting =
+    hour < 12 ? t("Bonjour") : hour < 18 ? t("Bon après-midi") : t("Bonsoir");
+
+  let message: string;
+  if (remaining === 0) {
+    message =
+      doneCount > 0
+        ? t("Tu as terminé tous les rappels du jour. 🎉")
+        : t("Aucun rappel programmé. Tu peux prendre des leads dans le pool partagé.");
+  } else if (personalCount > 0) {
+    message =
+      personalCount === 1
+        ? t("Tu as 1 appel personnel à traiter aujourd'hui.")
+        : `${t("Tu as")} ${personalCount} ${t("appels personnels à traiter aujourd'hui.")}`;
+  } else {
+    message = `${sharedCount} ${t("leads dans le pool partagé. Prends-en un pour démarrer.")}`;
+  }
+
+  return (
+    <div
+      className="card"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 14,
+        flexWrap: "wrap",
+        padding: "14px 16px",
+        borderColor: "var(--accent)",
+      }}
+    >
+      <div style={{ flex: "1 1 280px", minWidth: 0 }}>
+        <div style={{ fontSize: 16, fontWeight: 600 }}>{greeting}.</div>
+        <div className="muted" style={{ fontSize: 13, marginTop: 2 }}>
+          {message}
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 18, alignItems: "center", flexWrap: "wrap" }}>
+        <KpiBlock label={t("À traiter")} value={remaining} tone="primary" />
+        <KpiBlock label={t("Mes appels")} value={personalCount} />
+        <KpiBlock label={t("Pool")} value={sharedCount} />
+        <KpiBlock label={t("Faits")} value={doneCount} tone="muted" />
+        {!focused && nextTarget && (
+          <button
+            onClick={() => onStart(nextTarget)}
+            style={{ padding: "8px 14px", fontWeight: 600 }}
+          >
+            {t("Démarrer")} →
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function KpiBlock({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone?: "primary" | "muted";
+}) {
+  const color =
+    tone === "primary"
+      ? "var(--accent)"
+      : tone === "muted"
+        ? "var(--muted)"
+        : "var(--fg)";
+  return (
+    <div style={{ textAlign: "center" }}>
+      <div style={{ fontSize: 22, fontWeight: 700, color, lineHeight: 1 }}>{value}</div>
+      <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
+        {label}
+      </div>
+    </div>
+  );
+}
+
 function QueueRow({
   item,
   active,
@@ -753,6 +1062,14 @@ function PatientCard({ item }: { item: DeskItem | null }) {
         <HistorySection item={item} ctx={ctx} />
       </details>
 
+      {/* ── Transcript du dernier appel IA ───────────────────────────── */}
+      {item.original_call_id && (
+        <details style={sectionStyle()}>
+          <summary style={summaryStyle()}>{t("Transcript appel IA")}</summary>
+          <TranscriptSection callId={item.original_call_id} />
+        </details>
+      )}
+
       {/* ── Notes (call_1/2/3 + free) ────────────────────────────────── */}
       {(ctx && hasNotes(ctx)) || item.last_note || item.original_call_summary ? (
         <details style={sectionStyle()}>
@@ -760,6 +1077,14 @@ function PatientCard({ item }: { item: DeskItem | null }) {
           <NotesSection item={item} ctx={ctx} />
         </details>
       ) : null}
+
+      {/* ── Notes agent (éditables) ─────────────────────────────────── */}
+      {item.kind === "task" && (
+        <details open style={sectionStyle()}>
+          <summary style={summaryStyle()}>{t("Mes notes")}</summary>
+          <AgentNotesEditor taskId={item.id} initial={item.last_note ?? ""} />
+        </details>
+      )}
 
       {/* ── Source (footer) ──────────────────────────────────────────── */}
       {ctx && (ctx.source.source_lead || ctx.source.form_facebook) && (
