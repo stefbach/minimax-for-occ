@@ -389,9 +389,9 @@ const QUALIFY_BUCKET_GUIDE: Record<Exclude<QualBucket, "autre">, string> = {
   passer_humain:
     "Le contact a une question complexe ou demande explicitement un humain ; à escalader.",
   rappel:
-    "Le contact a demandé à être rappelé plus tard (callback planifié).",
+    "Le contact a demandé à être rappelé plus tard, OU l'échange est trop court / confus pour conclure (seulement bonjour, pas de vraie discussion). En cas de doute entre rappel et pas_interesse, choisis rappel : on rappellera pour clarifier.",
   pas_interesse:
-    "Le contact n'est pas intéressé, refuse ou décline l'offre.",
+    "Le contact a EXPLICITEMENT refusé, décliné ou dit qu'il n'est pas intéressé. Ne pas utiliser cette catégorie si le patient n'a pas formulé un refus clair — préfère rappel.",
   pas_de_reponse:
     "Personne n'a réellement échangé (décroché puis silence, raccrochage immédiat).",
   repondeur:
