@@ -1040,6 +1040,46 @@ def _install_call_hygiene(
     # we trust the agent is in a real conversation and don't second-guess it.
     voicemail_detect_window = float(os.getenv("VOICEMAIL_DETECT_WINDOW_SECS", "8.0"))
 
+    # Distress / safety phrases that MUST trigger immediate handoff in a
+    # healthcare context. We listen across the WHOLE call (not just the first
+    # few seconds like voicemail) because a patient might disclose distress
+    # mid-conversation. Matches are not fatal on their own — we let the agent
+    # acknowledge the situation, schedule a human callback flagged URGENT,
+    # then hang up cleanly.
+    #
+    # Two tiers:
+    #   • _medical_emergency_re : medical or life-threat — Charlotte ALSO
+    #     reminds the patient to call 999.
+    #   • _distress_re : bereavement, family crisis, "can't talk now" —
+    #     Charlotte acknowledges, schedules callback, hangs up. No 999.
+    _medical_emergency_re = _re.compile(
+        r"\b("
+        r"chest\s+pain|can(?:'?t|\s+not)\s+breathe|breathing\s+(?:problem|difficulty)"
+        r"|heart\s+attack|stroke|seizure|unconscious|bleeding"
+        r"|overdose|allergic\s+reaction|anaphyla"
+        r"|suicid|self.?harm|kill\s+myself|end\s+my\s+life"
+        r"|999|112|emergency\s+(?:room|services|ambulance)|A&E|accident\s+and\s+emergency"
+        r"|douleur\s+(?:dans|à)\s+la\s+poitrine|crise\s+cardiaque|AVC"
+        r"|n('?est|\s+est)\s+plus\s+conscient"
+        r")\b",
+        _re.IGNORECASE,
+    )
+    _distress_re = _re.compile(
+        r"\b("
+        r"can(?:'?t|\s+not)\s+talk\s+(?:now|right\s+now|at\s+the\s+moment)"
+        r"|(?:my|a)\s+(?:mum|mom|mother|dad|father|husband|wife|son|daughter|brother|sister|child|baby)\s+"
+            r"(?:just\s+)?(?:died|passed\s+away|passed|is\s+dying)"
+        r"|funeral|terminal\s+(?:illness|diagnos)|just\s+lost\s+(?:my|a)"
+        r"|family\s+(?:emergency|crisis|tragedy)"
+        r"|in\s+the\s+hospital|at\s+the\s+hospital|in\s+intensive\s+care|in\s+ICU"
+        r"|je\s+ne\s+peux\s+pas\s+(?:parler|vous\s+parler)\s+(?:maintenant|là)"
+        r"|(?:ma|mon)\s+(?:mère|père|mari|femme|fils|fille|frère|sœur|enfant|bébé)\s+"
+            r"(?:est|vient\s+de|viens\s+de)\s+(?:mourir|décéd|partir)"
+        r"|enterrement|obsèques"
+        r")\b",
+        _re.IGNORECASE,
+    )
+
     state = {
         "last_user_ts": _t.monotonic(),
         "last_agent_ts": _t.monotonic(),
@@ -1078,10 +1118,153 @@ def _install_call_hygiene(
         except Exception:
             clog.exception("auto_hangup: ctx.room.disconnect() failed")
 
+    # Low-confidence STT tracking — when AssemblyAI returns a transcript
+    # with a low confidence score it usually means the patient has a strong
+    # accent, is far from the mic, or the line is noisy. Two consecutive
+    # low-confidence final turns trigger a polite "could you repeat that?"
+    # instead of letting Charlotte plough on with a possibly-wrong intent.
+    # Threshold is conservative (0.6) — most clean AssemblyAI Universal-2
+    # turns sit above 0.85, accented but intelligible turns above 0.70.
+    low_conf_threshold = float(os.getenv("STT_LOW_CONFIDENCE_THRESHOLD", "0.6"))
+    state["low_conf_streak"] = 0
+
     def _on_user_speech(ev=None, *_a, **_k) -> None:
         state["last_user_ts"] = _t.monotonic()
         # Patient is talking again — cancel any armed goodbye.
         state["goodbye_armed_at"] = None
+        # Track final-turn confidence. Only `is_final` turns are stable
+        # enough to act on; interims swing wildly. When we hit 2 lows in
+        # a row, ask the patient to repeat (in a thread to avoid blocking
+        # the STT callback) and reset the streak so we don't re-ask every
+        # turn.
+        try:
+            is_final = bool(getattr(ev, "is_final", True)) if ev is not None else True
+            confidence = (
+                getattr(ev, "confidence", None) if ev is not None else None
+            )
+            if is_final and isinstance(confidence, (int, float)) and confidence > 0:
+                if confidence < low_conf_threshold:
+                    state["low_conf_streak"] = state.get("low_conf_streak", 0) + 1
+                else:
+                    state["low_conf_streak"] = 0
+                if state["low_conf_streak"] >= 2 and not state["hung_up"]:
+                    state["low_conf_streak"] = 0
+                    clog.info(
+                        "call hygiene: low STT confidence streak (last=%.2f) — asking patient to repeat",
+                        float(confidence),
+                    )
+
+                    async def _ask_repeat() -> None:
+                        try:
+                            await session.say(
+                                text="I'm sorry, the line isn't very clear — could you repeat that?",
+                                allow_interruptions=True,
+                            )
+                        except Exception:
+                            clog.debug("call hygiene: repeat prompt failed", exc_info=True)
+
+                    asyncio.create_task(_ask_repeat())
+        except Exception:
+            clog.debug("call hygiene: confidence check failed", exc_info=True)
+        # Distress / medical-emergency detection — runs on EVERY user turn
+        # for the whole call, not just the voicemail window. A safety
+        # hit fires once, then the flag prevents re-triggering.
+        try:
+            if not state.get("distress_handled") and not state["hung_up"]:
+                text_for_distress = (
+                    getattr(ev, "transcript", None) or getattr(ev, "text", None)
+                    if ev is not None else None
+                )
+                if text_for_distress:
+                    txt = str(text_for_distress)
+                    is_medical = bool(_medical_emergency_re.search(txt))
+                    is_distress = is_medical or bool(_distress_re.search(txt))
+                    if is_distress:
+                        state["distress_handled"] = True
+                        clog.warning(
+                            "call hygiene: %s detected via STT: %r",
+                            "medical_emergency" if is_medical else "distress",
+                            txt[:160],
+                        )
+
+                        async def _safe_exit() -> None:
+                            # 1. Acknowledge + ALWAYS reference 999 if medical.
+                            try:
+                                if is_medical:
+                                    msg = (
+                                        "I'm really sorry to hear that. Please "
+                                        "call 999 right now if you need urgent "
+                                        "help. I'll have someone from our team "
+                                        "call you back as soon as possible."
+                                    )
+                                else:
+                                    msg = (
+                                        "I'm so sorry to hear that. I won't "
+                                        "keep you on the line — I'll have "
+                                        "someone from our team call you back "
+                                        "at a better time. Take care."
+                                    )
+                                await session.say(text=msg, allow_interruptions=False)
+                            except Exception:
+                                clog.debug("safe_exit: say failed", exc_info=True)
+                            # 2. Log a structured event so we can audit these.
+                            try:
+                                from db_writes import append_call_event as _evt
+                                cid = getattr(ctx, "_call_id", None)
+                                _evt(
+                                    cid,
+                                    "distress_detected",
+                                    {
+                                        "tier": "medical_emergency" if is_medical else "distress",
+                                        "snippet": txt[:200],
+                                    },
+                                )
+                            except Exception:
+                                clog.exception("safe_exit: distress event log failed")
+                            # 3. Schedule URGENT human callback so a real
+                            #    person follows up the same day.
+                            try:
+                                base_url = (
+                                    os.getenv("NEXT_PUBLIC_APP_URL")
+                                    or (f"https://{os.getenv('VERCEL_URL')}" if os.getenv("VERCEL_URL") else None)
+                                )
+                                token = os.getenv("INTERNAL_AGENT_API_TOKEN")
+                                cid = getattr(ctx, "_call_id", None)
+                                if base_url and token and axon and getattr(axon, "org_id", None):
+                                    import httpx as _httpx
+                                    payload = {
+                                        "org_id": axon.org_id,
+                                        "contact_id": (axon.contact.get("id") if getattr(axon, "contact", None) else None),
+                                        "original_call_id": cid,
+                                        "qualification": "A PASSER A L'HUMAIN",
+                                        "reason": (
+                                            "URGENT: "
+                                            + ("medical/safety distress" if is_medical else "patient distress / bereavement")
+                                            + " detected during call. Snippet: "
+                                            + txt[:160]
+                                        ),
+                                    }
+                                    try:
+                                        async with _httpx.AsyncClient(timeout=_httpx.Timeout(5.0)) as hc:
+                                            await hc.post(
+                                                f"{base_url.rstrip('/')}/api/agent-tools/transfer-to-human",
+                                                headers={
+                                                    "Authorization": f"Bearer {token}",
+                                                    "Content-Type": "application/json",
+                                                },
+                                                json=payload,
+                                            )
+                                    except Exception:
+                                        clog.exception("safe_exit: transfer-to-human POST failed")
+                            except Exception:
+                                clog.exception("safe_exit: callback schedule failed")
+                            # 4. Hang up — patient said they can't talk.
+                            await _hangup("distress detected — safe exit")
+
+                        asyncio.create_task(_safe_exit())
+                        return
+        except Exception:
+            clog.debug("call hygiene: distress check failed", exc_info=True)
         # Voicemail detection: scan the first transcript chunks for the
         # signature phrases. Only effective inside voicemail_detect_window —
         # outside, the patient may legitimately mention these words.
