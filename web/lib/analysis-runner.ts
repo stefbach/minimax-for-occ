@@ -460,7 +460,10 @@ const AGENT_STAGE_GUIDE = [
   "Base-toi UNIQUEMENT sur le déroulé réel du transcript : un transfert annoncé mais sans suite reste à l'étape précédente. Si les noms diffèrent, raisonne sur le rôle (accueil → éligibilité → RDV).",
 ].join("\n");
 
-export async function qualifyCall(callId: string): Promise<QualifyResult> {
+export async function qualifyCall(
+  callId: string,
+  opts: { markNoEvidence?: boolean } = {},
+): Promise<QualifyResult> {
   const sb = supabaseServer();
   const { data: callRow, error } = await sb
     .from("calls")
@@ -491,13 +494,16 @@ export async function qualifyCall(callId: string): Promise<QualifyResult> {
   const transcript = await fetchTranscriptText(callId);
   const evidence = transcript.trim() || metaTranscriptText(call.metadata) || (call.summary?.trim() ?? "");
   if (!evidence) {
-    // Nothing to analyse (no transcript, no summary). Stamp a terminal marker so
-    // this call stops being a candidate forever — otherwise the background drain
-    // would re-attempt it on every page load. Default the agent stage to 1 (no
-    // transfer detectable) without touching the qualification.
-    const merged: Record<string, unknown> = { ...meta, analysis_skipped: "no_evidence" };
-    if (meta.agent_stage == null) merged.agent_stage = 1;
-    await sb.from("calls").update({ metadata: merged }).eq("id", callId);
+    // Nothing to analyse YET (no transcript, no summary). Only the backfill
+    // drain (markNoEvidence) stamps a terminal marker so an old, evidence-less
+    // call stops being a candidate forever. Real-time callers (call-end hooks)
+    // must NOT mark it — the transcript/summary may still be landing, and a
+    // premature marker would block qualification once it arrives.
+    if (opts.markNoEvidence) {
+      const merged: Record<string, unknown> = { ...meta, analysis_skipped: "no_evidence" };
+      if (meta.agent_stage == null) merged.agent_stage = 1;
+      await sb.from("calls").update({ metadata: merged }).eq("id", callId);
+    }
     return { call_id: callId, status: "no_evidence" };
   }
 

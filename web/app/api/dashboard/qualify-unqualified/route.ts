@@ -125,7 +125,7 @@ export async function POST(request: Request) {
     const results: QualifyResult[] = [];
     for (let i = 0; i < batch.length; i += CONCURRENCY) {
       const slice = batch.slice(i, i + CONCURRENCY);
-      const settled = await Promise.allSettled(slice.map((id) => qualifyCall(id)));
+      const settled = await Promise.allSettled(slice.map((id) => qualifyCall(id, { markNoEvidence: true })));
       settled.forEach((s, j) => {
         results.push(
           s.status === "fulfilled"
