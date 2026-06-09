@@ -1439,6 +1439,18 @@ def _install_call_hygiene(
             text_attr = getattr(item, "text_content", None) if item else None
             text = text_attr() if callable(text_attr) else (text_attr or "")
             state["last_agent_ts"] = _t.monotonic()
+            # Estimate TTS playback duration from the text length and pin a
+            # 'speaking until' deadline so the watchdog can't fire mid-TTS
+            # even when agent_state_changed events aren't delivered (observed
+            # on multi-agent swarm handoffs to Victoria — Cartesia was 60+s
+            # into a long question and idle 5s still triggered). Cartesia
+            # speaks ~14-17 chars/sec; we use 12 chars/sec as a conservative
+            # rate so the deadline never undershoots. Buffer +2s for any
+            # network/packet variability at the end.
+            text_len = len(str(text)) if text else 0
+            if text_len > 0:
+                estimated_secs = max(2.0, text_len / 12.0 + 2.0)
+                state["agent_speaking_until"] = _t.monotonic() + estimated_secs
             if text and _goodbye_re.search(str(text)):
                 state["goodbye_armed_at"] = _t.monotonic()
                 clog.info("call hygiene: goodbye detected — will hang up in %.1fs", goodbye_grace)
@@ -1519,8 +1531,15 @@ def _install_call_hygiene(
                 # speaking, hold off on the idle decision. Observed in
                 # prod: a long TTS turn (Charlotte explaining the NHS S2
                 # pathway) was cut at exactly idle_timeout because
-                # last_agent_ts froze at the START of the turn.
-                if state.get("agent_active"):
+                # last_agent_ts froze at the START of the turn. We honour
+                # two signals: the session.agent_state_changed event (when
+                # LiveKit delivers it — most reliable for single-agent
+                # sessions) AND the agent_speaking_until deadline computed
+                # from the latest assistant item's text length (backup for
+                # the multi-agent swarm path, where state events for
+                # Victoria/Isabelle weren't getting through and a 60s+
+                # Cartesia question still tripped the 5s idle).
+                if state.get("agent_active") or _t.monotonic() < state.get("agent_speaking_until", 0):
                     state["last_agent_ts"] = _t.monotonic()
                     continue
                 now = _t.monotonic()
