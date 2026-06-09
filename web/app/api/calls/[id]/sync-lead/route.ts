@@ -215,7 +215,15 @@ export async function POST(
     J3: ["date_j3", "j3_attempts"],
     J5: ["date_j5", "j5_attempts"],
   };
-  if (phase && phaseStamps[phase]) {
+  // Audio-drop bypass: auto_qualify_call stamps metadata.no_attempt=true
+  // when it detects a real conversation cut short by network issues. The
+  // campaign_target.next_attempt_at has already been reset to +1h there.
+  // From the lead's perspective the attempt didn't happen — don't bump
+  // jN_attempts and don't stamp date_jN, so the cadence engine still treats
+  // the lead as needing the same phase next slot.
+  const skipPhaseBump =
+    ((call.metadata as Record<string, unknown> | null)?.no_attempt) === true;
+  if (!skipPhaseBump && phase && phaseStamps[phase]) {
     const [dateCol, attemptsCol] = phaseStamps[phase];
     const newAttempts = (Number(lead?.[attemptsCol]) || 0) + 1;
     if (has(attemptsCol)) {

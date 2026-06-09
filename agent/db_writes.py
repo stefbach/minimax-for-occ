@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 
 import httpx
 
@@ -788,26 +788,97 @@ def auto_qualify_call(call_id: Optional[str]) -> None:
                 except Exception:
                     pass
 
-            if handoff_count > 0:
+            # ── Audio-drop heuristic (Scenario 1 — Mauvais réseau) ──────────
+            # Pattern: a real conversation that was interrupted by network
+            # quality, not finished naturally. We detect it without WebRTC
+            # metrics by combining three boundary-style signals:
+            #   • duration is between 5s and 30s (long enough for STT to
+            #     register a turn, short enough to be abnormal vs a real
+            #     conversation),
+            #   • the patient actually spoke at least once (a row in
+            #     public.call_transcripts with speaker='user'), proving the
+            #     mic was working — rules out PBX auto-200OK silence and AMD
+            #     voicemails,
+            #   • the hygiene watchdog did NOT fire its goodbye-shaped
+            #     hangup (call_events.kind='auto_hangup' with 'goodbye' in
+            #     payload.reason). A natural close would have triggered it.
+            #
+            # When matched, we stamp disposition='audio_dropped',
+            # qualification='RAPPEL' (real engagement happened, just got
+            # cut), and reschedule the campaign_target for +1h. We also set
+            # metadata.no_attempt=true so sync-lead doesn't bump
+            # j1_attempts / stamp date_j1 — the lead stays in the same
+            # phase as if the attempt never happened.
+            audio_dropped = False
+            if answered and 5 < duration < 30:
+                had_goodbye_hangup = False
+                try:
+                    ah = c.get(
+                        _supabase_url(
+                            f"/rest/v1/call_events?call_id=eq.{call_id}"
+                            "&kind=eq.auto_hangup&select=payload"
+                        ),
+                    )
+                    if ah.is_success:
+                        for ev in ah.json() or []:
+                            payload = ev.get("payload") or {}
+                            reason = (
+                                (payload.get("reason") or "").lower()
+                                if isinstance(payload, dict) else ""
+                            )
+                            if "goodbye" in reason:
+                                had_goodbye_hangup = True
+                                break
+                except Exception:
+                    pass
+                had_user_turn = False
+                try:
+                    ut = c.get(
+                        _supabase_url(
+                            f"/rest/v1/call_transcripts?call_id=eq.{call_id}"
+                            "&speaker=eq.user&select=seq&limit=1"
+                        ),
+                    )
+                    if ut.is_success:
+                        had_user_turn = bool(ut.json() or [])
+                except Exception:
+                    pass
+                audio_dropped = (not had_goodbye_hangup) and had_user_turn
+
+            if audio_dropped:
+                qual = "RAPPEL"
+                qualification_source = "audio_drop_heuristic"
+            elif handoff_count > 0:
                 qual = "A PASSER A L'HUMAIN"
+                qualification_source = "auto_inferred"
             elif not answered or duration == 0:
                 qual = "PAS DE REPONSE"
+                qualification_source = "auto_inferred"
             elif duration <= 5:
                 qual = "REPONDEUR"
+                qualification_source = "auto_inferred"
             elif duration <= 15:
                 qual = "PAS DE REPONSE"
+                qualification_source = "auto_inferred"
             elif duration < 30:
                 # Short engagement: don't lock the patient out unless
                 # they've already been bothered N_GIVEUP times.
                 qual = "PAS INTERESSE" if attempts >= n_giveup else "RAPPEL"
+                qualification_source = "auto_inferred"
             else:
                 qual = "RAPPEL"
+                qualification_source = "auto_inferred"
 
             merged = {
                 **(current_meta if isinstance(current_meta, dict) else {}),
                 "qualification": qual,
-                "qualification_source": "auto_inferred",
+                "qualification_source": qualification_source,
             }
+            # Audio-drop bypass: tell sync-lead this attempt doesn't count
+            # toward the phase cadence. Also stamp the call disposition so
+            # the dashboard can bucket these as a distinct failure mode.
+            if audio_dropped:
+                merged["no_attempt"] = True
             # Re-check just before write to avoid a race where
             # save_contact_data committed an explicit qualification
             # between our initial read and this PATCH. Without this guard,
@@ -825,6 +896,12 @@ def auto_qualify_call(call_id: Optional[str]) -> None:
                         call_id, chk.get("qualification"),
                     )
                     return
+            # If audio-dropped, write the metadata AND the disposition in
+            # one PATCH so the dashboard's disposition bucket and the
+            # metadata.qualification can't drift.
+            calls_patch: Dict[str, object] = {"metadata": merged}
+            if audio_dropped:
+                calls_patch["disposition"] = "audio_dropped"
             r2 = c.patch(
                 _supabase_url(f"/rest/v1/calls?id=eq.{call_id}"),
                 headers={
@@ -832,13 +909,50 @@ def auto_qualify_call(call_id: Optional[str]) -> None:
                     "Content-Type": "application/json",
                     "Prefer": "return=minimal",
                 },
-                json={"metadata": merged},
+                json=calls_patch,
             )
             r2.raise_for_status()
             logger.info(
-                "auto_qualify_call: %s -> %s (duration=%.0fs answered=%s handoffs=%d attempts=%d/%d)",
-                call_id, qual, duration, answered, handoff_count, attempts, n_giveup,
+                "auto_qualify_call: %s -> %s (duration=%.0fs answered=%s handoffs=%d attempts=%d/%d source=%s)",
+                call_id, qual, duration, answered, handoff_count, attempts, n_giveup, qualification_source,
             )
+
+            # Audio-drop retry: bring the lead back into the pending queue
+            # 1 hour from now instead of waiting for the next cadence slot
+            # (08/13/18 UK). The dialer's 30s poll loop picks pending rows
+            # with next_attempt_at <= now() so no other plumbing is needed.
+            if audio_dropped:
+                target_id = (
+                    current_meta.get("target_id")
+                    if isinstance(current_meta, dict) else None
+                )
+                if isinstance(target_id, str) and target_id:
+                    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+                    next_at = (_dt.now(_tz.utc) + _td(hours=1)).isoformat()
+                    try:
+                        c.patch(
+                            _supabase_url(
+                                f"/rest/v1/campaign_targets?id=eq.{target_id}"
+                            ),
+                            headers={
+                                **_supabase_headers(),
+                                "Content-Type": "application/json",
+                                "Prefer": "return=minimal",
+                            },
+                            json={
+                                "status": "pending",
+                                "next_attempt_at": next_at,
+                            },
+                        )
+                        logger.info(
+                            "audio_drop_retry: target=%s next_attempt_at=%s",
+                            target_id, next_at,
+                        )
+                    except Exception:
+                        logger.exception(
+                            "audio_drop_retry schedule failed (target=%s)",
+                            target_id,
+                        )
     except Exception:
         logger.exception("auto_qualify_call failed (call=%s)", call_id)
 
