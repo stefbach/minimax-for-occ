@@ -1110,6 +1110,39 @@ def _install_call_hygiene(
             _evt(cid, "auto_hangup", {"reason": reason})
         except Exception:
             pass
+        # Stamp an explicit qualification when the hangup reason carries one.
+        # Without this, auto_qualify_call runs at session shutdown BEFORE the
+        # Twilio status callback delivers the final CallDuration — duration is
+        # 0 at that moment, so the heuristic mis-classifies a clearly detected
+        # voicemail as PAS DE REPONSE. We pre-stamp REPONDEUR / A PASSER A
+        # L'HUMAIN here so auto_qualify_call sees an explicit qualification
+        # and skips its duration-based branching entirely.
+        qualification_for_reason: Optional[str] = None
+        if "voicemail" in reason.lower():
+            qualification_for_reason = "REPONDEUR"
+            qualification_source_for_reason = "voicemail_stt"
+        elif "distress" in reason.lower():
+            qualification_for_reason = "A PASSER A L'HUMAIN"
+            qualification_source_for_reason = "distress_detected"
+        else:
+            qualification_source_for_reason = None
+        if qualification_for_reason:
+            try:
+                cid = getattr(ctx, "_call_id", None)
+                if cid:
+                    from db_writes import update_call_metadata as _upd_meta
+                    await asyncio.to_thread(
+                        _upd_meta,
+                        cid,
+                        {
+                            "qualification": qualification_for_reason,
+                            "qualification_source": qualification_source_for_reason,
+                        },
+                    )
+            except Exception:
+                clog.exception(
+                    "auto_hangup: stamp qualification failed (call=%s)", cid,
+                )
         # Politely end the room. delete_room would be the hard kill but
         # disconnect lets the session shut down cleanly and the post-call
         # pipeline run.
