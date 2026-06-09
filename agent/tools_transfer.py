@@ -38,6 +38,13 @@ logger = logging.getLogger("axon.tools.transfer_to_human")
 # as a fallback if the human_callback_task insert ever failed.
 _DISPOSITION_VALUE = "transfer_humain"
 
+# OCC's standard qualification for "this patient needs a human to follow up".
+# Mirrors the values db_writes.auto_qualify_call writes so the dashboard,
+# /desk queue and leads_rdv writeback all agree. Anything else (RAPPEL,
+# RDV CONFIRME, etc.) is set through save_contact_data, not this tool —
+# transfer_to_human is the single, deterministic "give it to a human" path.
+_OCC_HANDOFF_QUALIFICATION = "A PASSER A L'HUMAIN"
+
 
 def _app_base_url() -> Optional[str]:
     """Mirror db_writes.trigger_post_call_pipeline's URL resolution."""
@@ -48,14 +55,35 @@ def _app_base_url() -> Optional[str]:
     return base.rstrip("/") if base else None
 
 
-def _stamp_disposition(call_id: Optional[str]) -> None:
-    """Best-effort: set calls.disposition='transfer_humain' so the desk's
-    Pool partagé picks the call up via its disposition ilike %humain% filter.
-    Never raises."""
+def _stamp_disposition_and_qualification(call_id: Optional[str]) -> None:
+    """Best-effort: set calls.disposition='transfer_humain' AND
+    calls.metadata.qualification='A PASSER A L'HUMAIN' so:
+      • the desk's Pool partagé picks the call via its disposition ilike
+        %humain% filter (legacy path),
+      • the dashboard's qualification bucket lights up correctly,
+      • the leads_rdv writeback (sync-lead) carries the OCC standard
+        qualification straight onto the lead row instead of whatever
+        heuristic auto_qualify_call would have inferred.
+
+    We do BOTH writes in a single PATCH so they can't drift. Never raises.
+    """
     if not call_id or not has_supabase():
         return
     try:
         with httpx.Client(timeout=httpx.Timeout(5.0), headers=_supabase_headers()) as c:
+            # Read current metadata so the qualification merge doesn't drop
+            # anything previous turns (campaign_id, target_id, source) wrote.
+            r0 = c.get(
+                _supabase_url(f"/rest/v1/calls?id=eq.{call_id}&select=metadata"),
+            )
+            r0.raise_for_status()
+            rows = r0.json() or []
+            current_meta = rows[0].get("metadata") if rows else None
+            merged_meta = {
+                **(current_meta if isinstance(current_meta, dict) else {}),
+                "qualification": _OCC_HANDOFF_QUALIFICATION,
+                "qualification_source": "transfer_to_human",
+            }
             r = c.patch(
                 _supabase_url(f"/rest/v1/calls?id=eq.{call_id}"),
                 headers={
@@ -63,11 +91,16 @@ def _stamp_disposition(call_id: Optional[str]) -> None:
                     "Content-Type": "application/json",
                     "Prefer": "return=minimal",
                 },
-                json={"disposition": _DISPOSITION_VALUE},
+                json={
+                    "disposition": _DISPOSITION_VALUE,
+                    "metadata": merged_meta,
+                },
             )
             r.raise_for_status()
     except Exception:
-        logger.exception("stamp disposition transfer_humain failed (call=%s)", call_id)
+        logger.exception(
+            "stamp disposition + qualification failed (call=%s)", call_id,
+        )
 
 
 async def _post_transfer(
@@ -147,42 +180,42 @@ def build_transfer_to_human_tool(
     @function_tool(
         name="transfer_to_human",
         description=(
-            "Use when the patient asks for an appointment, has a complex "
-            "question that requires a human, asks to be called back by a "
-            "person, or any situation where a human follow-up is more "
-            "appropriate than continuing with the AI. The patient will be "
-            "called by a human team member on the next business day."
+            "Call this IMMEDIATELY whenever the patient asks to speak to a "
+            "real person, says they don't want to talk to a bot, or any "
+            "equivalent — and also when their request is something the AI "
+            "cannot resolve (complex medical question, billing dispute, "
+            "anything outside this call's scope). Do not try to convince "
+            "them otherwise. A human team member will call them back on the "
+            "next business day. Always pass a short `reason` so the human "
+            "starts briefed."
         ),
     )
     async def transfer_to_human(
-        qualification: Annotated[
-            str,
-            (
-                "Short label of what the patient wants. One of: "
-                "'RDV demandé', 'Question complexe', 'Rappel demandé', 'Autre'."
-            ),
-        ],
         reason: Annotated[
             str,
             (
-                "1-2 sentences explaining why a human should call the patient "
-                "back. Include any context the human will need (e.g. preferred "
-                "time, what the patient asked about)."
+                "1-2 sentences for the human team-mate explaining why the "
+                "patient needs a callback. Include any concrete context: what "
+                "they asked, preferred callback time, language preference, "
+                "emotional state, etc. This becomes the note attached to the "
+                "callback task on the agent's desk."
             ),
         ],
     ) -> str:
         """Schedule a human follow-up call for the next business day.
 
-        Returns a short French confirmation the LLM can read out. Never blocks
-        the call: on HTTP failure we still confirm to the patient and log a
-        warning, on success we log the task id.
+        Always tagged with OCC qualification `A PASSER A L'HUMAIN` so it
+        surfaces consistently across the dashboard, /desk Pool partagé, and
+        the leads_rdv writeback. Returns a short French confirmation the LLM
+        can read out. Never blocks the call: on HTTP failure we still confirm
+        to the patient and log a warning.
         """
         payload = {
             "org_id": org_id,
             "contact_id": contact_id,
             "original_call_id": call_id,
             "transferred_by_agent_id": agent_handle_id,
-            "qualification": qualification,
+            "qualification": _OCC_HANDOFF_QUALIFICATION,
             "reason": reason,
         }
         ok, task_id, err = await _post_transfer(
@@ -191,23 +224,23 @@ def build_transfer_to_human_tool(
         if ok:
             logger.info(
                 'transfer_to_human: task=%s qualification="%s" reason="%s"',
-                task_id, qualification, (reason or "")[:200],
+                task_id, _OCC_HANDOFF_QUALIFICATION, (reason or "")[:200],
             )
         else:
             logger.warning(
-                'transfer_to_human: POST failed (%s) — qualification="%s" reason="%s"',
-                err, qualification, (reason or "")[:200],
+                'transfer_to_human: POST failed (%s) — reason="%s"',
+                err, (reason or "")[:200],
             )
 
-        # Fallback path: even if the human_callback_task insert ever fails,
-        # stamping the disposition makes the call surface in the desk's
-        # "Pool partagé" (which filters disposition ilike %humain%). Best
-        # effort — runs in a thread so we don't block the response.
+        # Always stamp the call too so the qualification is on calls.metadata
+        # even if the human_callback_task insert ever failed. Best effort —
+        # runs in a thread so we don't block the response.
         try:
-            await asyncio.to_thread(_stamp_disposition, call_id)
+            await asyncio.to_thread(_stamp_disposition_and_qualification, call_id)
         except Exception:
-            # Should never happen — _stamp_disposition swallows its own errors.
-            logger.exception("transfer_to_human: stamp_disposition raised")
+            logger.exception(
+                "transfer_to_human: stamp_disposition_and_qualification raised"
+            )
 
         return (
             "C'est noté, un membre de notre équipe vous rappellera demain "
