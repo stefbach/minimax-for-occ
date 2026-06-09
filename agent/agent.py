@@ -98,45 +98,67 @@ def _lookup_twilio_call_sid(call_id: Optional[str]) -> Optional[str]:
 
 
 def _twilio_end_call(call_sid: str, clog: logging.LoggerAdapter, call_id: Optional[str] = None) -> None:
-    """Force Twilio to mark a Call as completed via the REST API.
-    Cuts the patient leg instantly instead of waiting for the SIP BYE to
-    travel LK Cloud → Twilio. Never raises."""
+    """Force Twilio to mark a Call as completed.
+    Posts to /api/agent-tools/end-twilio-call on the Next.js app, which is
+    where Twilio creds actually live (the agent worker on LK Cloud has no
+    TWILIO_ACCOUNT_SID/AUTH_TOKEN). This cuts the patient leg in <1s
+    instead of waiting 8-12s for the SIP BYE to travel LK Cloud → Twilio.
+    Never raises."""
     import os as _os
-    sid = _os.getenv("TWILIO_ACCOUNT_SID")
-    token = _os.getenv("TWILIO_AUTH_TOKEN")
-    if not sid or not token:
-        clog.debug("twilio_end_call: TWILIO_ACCOUNT_SID/AUTH_TOKEN not set")
+    base = (
+        _os.getenv("NEXT_PUBLIC_APP_URL")
+        or (f"https://{_os.getenv('VERCEL_URL')}" if _os.getenv("VERCEL_URL") else None)
+    )
+    token = _os.getenv("INTERNAL_AGENT_API_TOKEN")
+    if not base or not token:
+        clog.debug(
+            "twilio_end_call: NEXT_PUBLIC_APP_URL or INTERNAL_AGENT_API_TOKEN not set"
+        )
+        try:
+            from db_writes import append_call_event as _evt
+            _evt(call_id, "twilio_rest_end", {
+                "ok": False, "error": "no_app_url_or_token",
+            })
+        except Exception:
+            pass
         return
     try:
         import httpx as _httpx
-        url = f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Calls/{call_sid}.json"
+        url = f"{base.rstrip('/')}/api/agent-tools/end-twilio-call"
         with _httpx.Client(timeout=_httpx.Timeout(5.0)) as c:
             r = c.post(
                 url,
-                auth=(sid, token),
-                data={"Status": "completed"},
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                },
+                json={"call_sid": call_sid},
             )
-        ok = r.status_code < 400
+        ok = False
+        try:
+            data = r.json() if r.status_code < 500 else {}
+            ok = bool(data.get("ok"))
+        except Exception:
+            data = {}
         if ok:
             clog.info("twilio_end_call: ended Twilio call sid=%s", call_sid)
         else:
             clog.warning(
-                "twilio_end_call: HTTP %d for sid=%s body=%s",
-                r.status_code, call_sid, (r.text or "")[:200],
+                "twilio_end_call: proxy returned ok=false sid=%s status=%d body=%s",
+                call_sid, r.status_code, (r.text or "")[:200],
             )
-        # Drop a call_event trace so we can prove in the DB (without Fly
-        # logs) that the REST shortcut fired. Best-effort.
         try:
             from db_writes import append_call_event as _evt
             _evt(call_id, "twilio_rest_end", {
                 "ok": ok,
-                "status_code": r.status_code,
+                "proxy_status": r.status_code,
+                "twilio_status_code": data.get("status_code"),
                 "twilio_call_sid": call_sid,
             })
         except Exception:
             pass
     except Exception:
-        clog.exception("twilio_end_call: REST call failed (sid=%s)", call_sid)
+        clog.exception("twilio_end_call: proxy call failed (sid=%s)", call_sid)
         try:
             from db_writes import append_call_event as _evt
             _evt(call_id, "twilio_rest_end", {"ok": False, "error": "exception"})
