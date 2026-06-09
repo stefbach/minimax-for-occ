@@ -186,20 +186,33 @@ async function dialViaLiveKit(args: {
       fromNumber: fromE164 ?? undefined,
       // Block until pickup/timeout so we only dispatch the agent on a real answer.
       waitUntilAnswered: true,
-      ringingTimeout: 30,
+      // Patient ring timeout, configurable via DIAL_RING_TIMEOUT_SECS (clamped
+      // 5-600s by Twilio). OCC operates at a fast cadence — 5s default = ~2 rings,
+      // catches dead numbers immediately without waiting for voicemail handoff.
+      ringingTimeout: Math.max(5, Math.min(600, Number(process.env.DIAL_RING_TIMEOUT_SECS ?? 5))),
     };
-    participant = await sip.createSipParticipant(
-      lk.trunk,
-      toE164,
-      roomName,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      sipOptions as any,
-    );
-
-    // 4. Call answered → dispatch the AI agent into the room now.
+    // Dispatch the AI agent IN PARALLEL with placing the SIP call. The previous
+    // ordering (call first, agent after pickup) let the patient hear several
+    // seconds of dead silence between pickup and the agent's greeting, because
+    // the agent worker only began warming up after `waitUntilAnswered` resolved.
+    // Now both run concurrently — the phone rings while the agent loads its
+    // prompt + knowledge base + TTS, so by pickup the agent is in the room
+    // ready to greet. If the SIP call fails (bad number, 403), the agent sits
+    // alone in the room for `emptyTimeout=30s` then auto-cleans — acceptable
+    // cost vs. the silence regression the sequential path produced.
     const agentName = process.env.LIVEKIT_AGENT_NAME ?? "minimax-voice-agent";
     const dispatch = new AgentDispatchClient(lk.host, lk.key, lk.secret);
-    await dispatch.createDispatch(roomName, agentName, { metadata: roomMeta });
+    const [participantResult] = await Promise.all([
+      sip.createSipParticipant(
+        lk.trunk,
+        toE164,
+        roomName,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        sipOptions as any,
+      ),
+      dispatch.createDispatch(roomName, agentName, { metadata: roomMeta }),
+    ]);
+    participant = participantResult;
   } catch (err) {
     await sb
       .from("calls")
@@ -383,17 +396,16 @@ export async function dialTarget(job: DialJob): Promise<void> {
   }
 
   // ─── Path selection ─────────────────────────────────────────────────────
-  // Default: Twilio createCall (Path B). Twilio only fetches the TwiML — and
-  // therefore only bridges to LiveKit — AFTER the PSTN side picks up, so the
-  // agent physically cannot greet into an unanswered phone. This is the
-  // pattern Retell uses and the one that survived production testing.
-  //
-  // Opt-in: LiveKit-originated outbound (Path A, the older code below). Set
-  // DIAL_PREFER_LIVEKIT_SIP=true to re-enable. In theory Path A is lower
-  // latency (no post-answer TwiML fetch) and `waitUntilAnswered: true` should
-  // gate the agent until pickup, but in practice patients hit silence on the
-  // greeting — kept here only as an escape hatch, not the default.
-  const preferLiveKitSip = (process.env.DIAL_PREFER_LIVEKIT_SIP ?? "false").toLowerCase() === "true";
+  // Default: LiveKit-originated outbound (Path A). LiveKit sends the SIP
+  // INVITE into the Twilio Elastic SIP Trunk, which routes to PSTN. Twilio
+  // bills this as a single `Trunking Terminating` line at the SIP trunk rate,
+  // not the double Phone+SIP that the createCall + TwiML <Dial><Sip> pattern
+  // produced (Path B). The previous "silence on pickup" regression that kept
+  // Path B as default was fixed by dispatching the agent in parallel with
+  // `createSipParticipant` (see dialViaLiveKit above) — the agent warms up
+  // during the ring instead of after pickup, so the patient gets the greeting
+  // immediately. Force Path B with DIAL_PREFER_LIVEKIT_SIP=false.
+  const preferLiveKitSip = (process.env.DIAL_PREFER_LIVEKIT_SIP ?? "true").toLowerCase() === "true";
   const lkTrunk = process.env.LIVEKIT_SIP_OUTBOUND_TRUNK_ID;
   const lkUrlRaw = process.env.LIVEKIT_URL;
   const lkKey = process.env.LIVEKIT_API_KEY;
@@ -448,14 +460,11 @@ export async function dialTarget(job: DialJob): Promise<void> {
       twimlUrl,
       statusCallback,
       amd: !!campaign.amd_enabled,
-      // Per-tenant ring timeout. Default 15s after deep-research review:
-      // industry standards are 20-30s (Amazon Connect recommends 25s, Vapi
-      // and Retell default to 30-60s) but OCC's ops want a faster cadence,
-      // so 15s is the agreed compromise — ~12s of actual ring after Twilio's
-      // setup+cancel overhead, enough for a patient to reach their phone
-      // without being too lenient on real dead numbers. Override via
-      // DIAL_RING_TIMEOUT_SECS without a redeploy. Twilio clamps 5-600s.
-      timeout: Math.max(5, Math.min(600, Number(process.env.DIAL_RING_TIMEOUT_SECS ?? 15))),
+      // Per-tenant ring timeout. Default 5s — OCC ops want a fast cadence,
+      // catching dead numbers immediately rather than waiting through 2-3
+      // rings for a voicemail handoff. Override via DIAL_RING_TIMEOUT_SECS
+      // without a redeploy. Twilio clamps 5-600s.
+      timeout: Math.max(5, Math.min(600, Number(process.env.DIAL_RING_TIMEOUT_SECS ?? 5))),
       record: recordingEnabled,
       recordingStatusCallback,
     });
