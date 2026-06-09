@@ -1045,12 +1045,13 @@ def _install_call_hygiene(
     idle_timeout = float(os.getenv("IDLE_HANGUP_SECONDS", str(idle_timeout)))
     goodbye_grace = float(os.getenv("GOODBYE_GRACE_SECONDS", str(goodbye_grace)))
     # In-conversation idle target. After the patient has spoken at least
-    # once, LLM thinking + TTS startup + the multi-agent handoff dance can
-    # routinely span 5-12s of silence even on a healthy session — staying
-    # at 5s cuts the agent mid-thought. 20s is generous enough to cover
-    # Cartesia cold-start tails without keeping a truly dropped call alive.
+    # once, LLM thinking + TTS startup latency routinely spans 3-7s of
+    # silence even on a healthy session — staying at 5s cuts the agent
+    # mid-thought. 10s is the agreed compromise: covers 95% of LLM
+    # response times on this stack while adding only ~5s to the voicemail-
+    # without-keywords / silent-after-greeting cases vs the pre-speech 5s.
     conversational_idle = float(
-        os.getenv("CONVERSATIONAL_IDLE_HANGUP_SECONDS", "20.0"),
+        os.getenv("CONVERSATIONAL_IDLE_HANGUP_SECONDS", "10.0"),
     )
 
     # Patterns that, when the AGENT says them, indicate the call is wrapping
