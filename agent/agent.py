@@ -1175,8 +1175,11 @@ def _install_call_hygiene(
     # Two tiers:
     #   • _medical_emergency_re : medical or life-threat — Charlotte ALSO
     #     reminds the patient to call 999.
-    #   • _distress_re : bereavement, family crisis, "can't talk now" —
-    #     Charlotte acknowledges, schedules callback, hangs up. No 999.
+    #   • _distress_re : bereavement, family crisis, hospital — Charlotte
+    #     acknowledges, schedules callback flagged URGENT, hangs up. No 999.
+    #     Note: "can't talk now" used to live here, but it's a polite RAPPEL
+    #     signal far more often than distress. We let the conversation handle
+    #     a callback request normally and reserve distress for actual crises.
     _medical_emergency_re = _re.compile(
         r"\b("
         r"chest\s+pain|can(?:'?t|\s+not)\s+breathe|breathing\s+(?:problem|difficulty)"
@@ -1191,13 +1194,11 @@ def _install_call_hygiene(
     )
     _distress_re = _re.compile(
         r"\b("
-        r"can(?:'?t|\s+not)\s+talk\s+(?:now|right\s+now|at\s+the\s+moment)"
-        r"|(?:my|a)\s+(?:mum|mom|mother|dad|father|husband|wife|son|daughter|brother|sister|child|baby)\s+"
+        r"(?:my|a)\s+(?:mum|mom|mother|dad|father|husband|wife|son|daughter|brother|sister|child|baby)\s+"
             r"(?:just\s+)?(?:died|passed\s+away|passed|is\s+dying)"
         r"|funeral|terminal\s+(?:illness|diagnos)|just\s+lost\s+(?:my|a)"
         r"|family\s+(?:emergency|crisis|tragedy)"
         r"|in\s+the\s+hospital|at\s+the\s+hospital|in\s+intensive\s+care|in\s+ICU"
-        r"|je\s+ne\s+peux\s+pas\s+(?:parler|vous\s+parler)\s+(?:maintenant|là)"
         r"|(?:ma|mon)\s+(?:mère|père|mari|femme|fils|fille|frère|sœur|enfant|bébé)\s+"
             r"(?:est|vient\s+de|viens\s+de)\s+(?:mourir|décéd|partir)"
         r"|enterrement|obsèques"
