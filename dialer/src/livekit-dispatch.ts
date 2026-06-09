@@ -3,6 +3,7 @@ import {
   RoomConfiguration,
   RoomAgentDispatch,
   type SIPDispatchRuleInfo,
+  type SIPInboundTrunkInfo,
 } from "@livekit/protocol";
 
 /**
@@ -92,5 +93,72 @@ export async function ensureInboundDispatchRuleAgent(): Promise<void> {
     );
   } catch (e) {
     console.error(`[livekit-dispatch] updateSipDispatchRule(${ruleId}) failed:`, (e as Error).message);
+  }
+}
+
+/**
+ * On dialer startup, make sure Krisp noise cancellation is enabled on the
+ * inbound SIP trunk. Krisp lives at the trunk level on LK Cloud — when on,
+ * inbound audio is filtered to suppress background noise (TV, kids,
+ * traffic, etc.) before it reaches the agent's STT pipeline. This handles
+ * OCC's Scenario 2 (background noise) and improves the signal-to-noise
+ * for Scenarios 3 (accents) and 5 (multiple voices) too.
+ *
+ * Idempotent: skips when already enabled; flips the bit otherwise.
+ */
+const INBOUND_TRUNK_NAME_HINT = "twilio-inbound"; // matches agent/sip/inbound-trunk.json
+
+export async function ensureInboundTrunkKrisp(): Promise<void> {
+  const url = process.env.LIVEKIT_URL;
+  const key = process.env.LIVEKIT_API_KEY;
+  const secret = process.env.LIVEKIT_API_SECRET;
+  if (!url || !key || !secret) {
+    console.log("[livekit-trunk-krisp] skipped — LIVEKIT env not fully set");
+    return;
+  }
+  const host = url.replace(/^wss:/i, "https:").replace(/^ws:/i, "http:");
+  const sip = new SipClient(host, key, secret);
+
+  let trunks: SIPInboundTrunkInfo[];
+  try {
+    trunks = await sip.listSipInboundTrunk();
+  } catch (e) {
+    console.error("[livekit-trunk-krisp] list inbound trunks failed:", (e as Error).message);
+    return;
+  }
+  if (!trunks || trunks.length === 0) {
+    console.warn("[livekit-trunk-krisp] no inbound trunks found — nothing to update");
+    return;
+  }
+
+  const target =
+    trunks.find((t) => t.name === INBOUND_TRUNK_NAME_HINT) ?? trunks[0];
+  const trunkId = target.sipTrunkId;
+  if (!trunkId) {
+    console.warn("[livekit-trunk-krisp] target trunk has no id, skipping");
+    return;
+  }
+
+  if (target.krispEnabled) {
+    console.log(
+      `[livekit-trunk-krisp] trunk ${trunkId} (${target.name}) already has krispEnabled=true — no change`,
+    );
+    return;
+  }
+
+  // Round-trip the full info object — there's no `krispEnabled` field on
+  // updateSipInboundTrunkFields, so we use the full updateSipInboundTrunk
+  // path and mutate the bit in place.
+  target.krispEnabled = true;
+  try {
+    await sip.updateSipInboundTrunk(trunkId, target);
+    console.log(
+      `[livekit-trunk-krisp] enabled Krisp on inbound trunk ${trunkId} (${target.name})`,
+    );
+  } catch (e) {
+    console.error(
+      `[livekit-trunk-krisp] updateSipInboundTrunk(${trunkId}) failed:`,
+      (e as Error).message,
+    );
   }
 }

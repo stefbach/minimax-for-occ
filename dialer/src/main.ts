@@ -1,7 +1,7 @@
 import { supabase } from "./supabase.js";
 import { dialTarget, type DialJob } from "./dial.js";
 import { ensureOutboundTrunkAuth } from "./livekit-trunk.js";
-import { ensureInboundDispatchRuleAgent } from "./livekit-dispatch.js";
+import { ensureInboundDispatchRuleAgent, ensureInboundTrunkKrisp } from "./livekit-dispatch.js";
 import { runDynamicSelection } from "./dynamic-selection.js";
 
 const POLL_INTERVAL_MS = Number(process.env.POLL_INTERVAL_MS ?? 30_000);
@@ -130,6 +130,12 @@ async function main() {
   // while the agent worker races to join an empty room.
   await ensureInboundDispatchRuleAgent().catch((e) =>
     console.error("[livekit-dispatch] startup check error:", e?.message),
+  );
+
+  // Krisp noise cancellation on the inbound trunk so background TV /
+  // kids / traffic don't bleed into the STT pipeline.
+  await ensureInboundTrunkKrisp().catch((e) =>
+    console.error("[livekit-trunk-krisp] startup check error:", e?.message),
   );
 
   await scheduleTick().catch((e) => console.error("[scheduler] initial tick error:", e));
