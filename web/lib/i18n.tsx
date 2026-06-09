@@ -324,6 +324,31 @@ const EN: Record<string, string> = {
   "Sauvegarder": "Save",
   "Enregistré.": "Saved.",
   "Pris en charge.": "Claimed.",
+  // ── Director: J1/J3/J5 follow-up tracking ──
+  "Suivi J1 / J3 / J5": "D1 / D3 / D5 follow-up",
+  "Relances programmées par phase et répartition des appels par créneau":
+    "Scheduled follow-ups by phase and call distribution by slot",
+  "Pipeline au": "Pipeline as of",
+  "leads au total": "leads in total",
+  "Leads marqués « à rappeler »": "Leads marked “to call back”",
+  "Relance prévue à J+1": "Follow-up due on D+1",
+  "Relance prévue à J+3": "Follow-up due on D+3",
+  "Relance prévue à J+5": "Follow-up due on D+5",
+  "À appeler aujourd'hui": "To call today",
+  "auj.": "today",
+  "Date de relance dépassée": "Follow-up date overdue",
+  "en retard": "overdue",
+  "Relance à venir": "Upcoming follow-up",
+  "à venir": "upcoming",
+  "Les volumes par phase couvrent l'ensemble du pipeline (indépendant de la période sélectionnée).":
+    "Phase volumes cover the whole pipeline (independent of the selected period).",
+  "Par créneau d'appel": "By call slot",
+  "autres heures": "other hours",
+  "Fenêtres d'appel Lun–Jeu. Vendredi : créneau matin élargi à 08h–11h UK, pas de midi/soir. Week-end : hors créneau.":
+    "Mon–Thu calling windows. Friday: morning slot extended to 08:00–11:00 UK, no midday/evening. Weekend: out of hours.",
+  "voir les appels": "view calls",
+  "Aucune table de phases configurée pour cette organisation.":
+    "No phase table configured for this organisation.",
 };
 
 function readLang(): Lang {

@@ -275,7 +275,11 @@ export function CampaignWizard({
     maxConcurrency: template?.defaults.maxConcurrency ?? 5,
     maxAttempts: template?.defaults.maxAttempts ?? 3,
     retryDelayMin: template?.defaults.retryDelayMin ?? 60,
-    amdEnabled: template?.defaults.amdEnabled ?? true,
+    // New campaigns default to AMD off. Twilio's MachineDetection has too
+    // many false positives on real humans who don't speak in the first 1-3s
+    // — the agent's STT regex + idle watchdog do the same job without
+    // cutting humans off. Templates can still re-enable it explicitly.
+    amdEnabled: template?.defaults.amdEnabled ?? false,
     days: template?.defaults.days ?? [1, 2, 3, 4, 5],
     timezone: template?.defaults.timezone ?? "Indian/Mauritius",
     hourStart: template?.defaults.hourStart ?? "09:00",
@@ -460,10 +464,16 @@ export function CampaignWizard({
     };
 
     // Single créneaux source of truth: when dynamic mode is on, mirror the
-    // step-3 days/timezone into engineConfig.slots so the continuous engine
-    // fires inside the same window the user just configured. Hours stay
-    // engine-defined (precise shot times) unless empty, in which case we seed
-    // them with the user's start time.
+    // step-3 days/timezone/hours into engineConfig.slots so the continuous
+    // engine fires at the times the operator actually configured. The hours
+    // come from the user's hourRanges START times (in the wizard's local
+    // timezone — the engine compares slot times against the same TZ stored
+    // in engine.slots.timezone). The template's default slots are only used
+    // as a fallback if the user somehow saved zero ranges.
+    const userSlotHours = hourRanges
+      .filter((r) => r.start)
+      .map((r) => r.start)
+      .sort();
     const finalEngine = dynamicMode && dataTableId && engineConfig
       ? {
           ...engineConfig,
@@ -471,9 +481,11 @@ export function CampaignWizard({
             ...engineConfig.slots,
             days,
             timezone,
-            hours: engineConfig.slots.hours.length > 0
-              ? engineConfig.slots.hours
-              : hourRanges.map((r) => r.start),
+            hours: userSlotHours.length > 0
+              ? userSlotHours
+              : (engineConfig.slots.hours.length > 0
+                  ? engineConfig.slots.hours
+                  : ["09:00"]),
           },
         }
       : null;
@@ -1036,6 +1048,44 @@ export function CampaignWizard({
 
       {/* ─── STEP 3: Quand ? ──────────────────────────────────────────── */}
       {currentStep === 3 && (<>
+      {/* Always-visible mode banner so the operator knows exactly what their
+          créneau settings will produce. Without this the wizard silently
+          picked static or dynamic based on whether a data table was selected
+          in step 2, and the operator had no way to know which model applied
+          to their "Plages horaires" input. */}
+      <section className="card" style={{
+        background: dynamicMode && dataTableId ? "var(--accent-soft)" : "var(--bg-2)",
+        borderLeft: `4px solid ${dynamicMode && dataTableId ? "var(--accent)" : "var(--muted)"}`,
+        marginBottom: 8,
+      }}>
+        <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 6 }}>
+          {dynamicMode && dataTableId
+            ? "🔁 Mode : campagne continue (tirée d’une table de contacts)"
+            : "📞 Mode : campagne one-shot (liste fixe)"}
+        </div>
+        <div className="muted" style={{ fontSize: 13, lineHeight: 1.5 }}>
+          {dynamicMode && dataTableId ? (
+            <>
+              À chaque <strong>début</strong> de plage horaire configurée
+              ci-dessous, le moteur lance une wave d’appels en piochant dans
+              la table {selectedDataTable ? <strong>{selectedDataTable.label}</strong> : "sélectionnée"} selon
+              les règles (statuts ciblés, cadence J1/J3/J5). Exemple : plage
+              10:00-12:00 = une wave qui démarre à 10:00.
+              <br />
+              Les leads en statut <strong>RAPPEL</strong> sont rappelés à la
+              prochaine plage qui suit leur <code>rappel_rdv</code>.
+            </>
+          ) : (
+            <>
+              Les appels de ta liste de contacts seront passés <strong>en continu pendant</strong> les
+              plages horaires ci-dessous. Aucun appel en dehors de ces
+              fenêtres. Une seule passe sur la liste — pas de re-tirage
+              automatique.
+            </>
+          )}
+        </div>
+      </section>
+
       {/* 5. Planning */}
       <section className="card">
         <h3>5. Créneaux & cadence</h3>
@@ -1129,6 +1179,47 @@ export function CampaignWizard({
             Les heures sont saisies en heure locale du fuseau choisi ci-dessus, converties
             en UTC pour le serveur d&apos;appels.
           </div>
+          {/* Concrete "what will happen" preview based on the operator's
+              actual ranges and mode. Read this before judging the wizard:
+              the operator was previously left guessing whether a range
+              meant "wave at start" or "continuous in window". */}
+          {hourRanges.length > 0 && hourRanges.some((r) => r.start && r.end) && (
+            <div style={{
+              marginTop: 10, padding: 10, background: "var(--bg-2)",
+              borderRadius: 6, fontSize: 12, lineHeight: 1.6,
+            }}>
+              <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                📅 Ce que cette config va produire :
+              </div>
+              {dynamicMode && dataTableId ? (
+                <ul style={{ margin: "4px 0 0 16px", padding: 0 }}>
+                  {hourRanges.filter((r) => r.start && r.end).map((r, i) => (
+                    <li key={i}>
+                      Une wave d&apos;appels qui démarre à <strong>{r.start}</strong> ({TZ_LABEL_BY_ID[timezone] ?? timezone}),
+                      et s&apos;arrête au plus tard à <strong>{r.end}</strong>.
+                    </li>
+                  ))}
+                  <li className="muted" style={{ marginTop: 4 }}>
+                    Soit <strong>{hourRanges.filter((r) => r.start && r.end).length}
+                    wave{hourRanges.filter((r) => r.start && r.end).length > 1 ? "s" : ""}/jour</strong> ·
+                    jours actifs : {days.map((d) => DAYS.find((x) => x.id === d)?.label).filter(Boolean).join(", ") || "aucun"}
+                  </li>
+                </ul>
+              ) : (
+                <ul style={{ margin: "4px 0 0 16px", padding: 0 }}>
+                  {hourRanges.filter((r) => r.start && r.end).map((r, i) => (
+                    <li key={i}>
+                      Appels passés en continu entre <strong>{r.start}</strong> et <strong>{r.end}</strong> ({TZ_LABEL_BY_ID[timezone] ?? timezone}).
+                    </li>
+                  ))}
+                  <li className="muted" style={{ marginTop: 4 }}>
+                    Jours actifs : {days.map((d) => DAYS.find((x) => x.id === d)?.label).filter(Boolean).join(", ") || "aucun"} ·
+                    Aucun appel en dehors de ces fenêtres.
+                  </li>
+                </ul>
+              )}
+            </div>
+          )}
         </div>
           </>
 
@@ -1160,7 +1251,7 @@ export function CampaignWizard({
             {showAdvanced ? "▾" : "▸"} Réglages avancés
           </span>
           <span className="muted" style={{ fontSize: 12 }}>
-            {maxConcurrency} simultanés · {maxAttempts} tentative{maxAttempts > 1 ? "s" : ""} · retry {retryDelayMin} min · AMD {amdEnabled ? "on" : "off"}
+            {maxConcurrency} simultanés · {maxAttempts} tentative{maxAttempts > 1 ? "s" : ""} · retry {retryDelayMin} min
           </span>
         </button>
 
@@ -1221,17 +1312,12 @@ export function CampaignWizard({
                 </div>
               </div>
             </div>
-            <div style={{ marginTop: 12 }}>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={amdEnabled}
-                  onChange={(e) => setAmdEnabled(e.target.checked)}
-                  style={{ width: "auto", marginRight: 8 }}
-                />
-                Détection de répondeur (AMD)
-              </label>
-            </div>
+            {/* AMD checkbox intentionally removed from the wizard — the
+                voicemail detection stack now relies on the agent's STT regex
+                + idle watchdog instead of Twilio AMD (which kept false-
+                positiving real humans who didn't speak in the first 1-3s).
+                The amd_enabled flag is preserved on the row so existing
+                campaigns and edit-page experiments keep working. */}
           </div>
         )}
       </section>
@@ -1262,8 +1348,7 @@ export function CampaignWizard({
                 : `${targets.length} cible${targets.length === 1 ? "" : "s"} (liste fixe)`}
           </li>
           <li>
-            Concurrence {maxConcurrency} · Retries {maxAttempts} ({retryDelayMin}min) · AMD{" "}
-            {amdEnabled ? "on" : "off"}
+            Concurrence {maxConcurrency} · Retries {maxAttempts} ({retryDelayMin}min)
           </li>
           {dynamicMode && engineConfig ? (
             <li>

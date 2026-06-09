@@ -36,13 +36,23 @@ export function normalizeQualification(raw: string | null | undefined): QualBuck
   if (/(non[\s_-]*éligible|non[\s_-]*eligible|ineligib|not[\s_-]*eligib)/.test(s)) return "non_eligible";
   if (/(faux[\s_-]*num|wrong[\s_-]*number|invalid[\s_-]*number|bad[\s_-]*number)/.test(s)) return "faux_numero";
   if (/(rdv|rendez|appointment|booked|confirm)/.test(s)) return "rdv_confirme";
-  if (/(passer[\s_-]*(à[\s_-]*l[''])?humain|to[\s_-]*human|human[\s_-]*callback|escalat)/.test(s)) return "passer_humain";
-  if (/(rappel|callback|call[\s_-]*back)/.test(s)) return "rappel";
+  // OCC's canonical label is "A PASSER A L'HUMAIN" (no accent on either A).
+  // The earlier pattern required à (accented) inside the optional 'à l''
+  // group, so "a passer a l'humain" silently fell through to 'autre' and
+  // the dashboard's À PASSER À L'HUMAIN bucket stayed at 0 even after the
+  // transfer_to_human tool fired. Accept both [àa] and tolerate the space
+  // between the apostrophe and 'humain' that real text carries.
+  if (/(passer[\s_-]*(?:[àa][\s_-]*l['''][\s_-]*)?humain|to[\s_-]*human|human[\s_-]*callback|escalat)/.test(s)) return "passer_humain";
+  if (/(rappel|callback|call[\s_-]*back|follow[\s_-]*up)/.test(s)) return "rappel";
   if (/(pas[\s_-]*intéress|pas[\s_-]*interess|not[\s_-]*interest|declin|refus)/.test(s)) return "pas_interesse";
   if (/(répondeur|repondeur|voicemail|machine|amd_machine)/.test(s)) return "repondeur";
   if (/(pas[\s_-]*de[\s_-]*r[ée]ponse|no[\s_-]*answer|no[\s_-]*response|noanswer|no_answer)/.test(s)) {
     return "pas_de_reponse";
   }
+  // Soft positives written by Charlotte's prompt — "interested" means the
+  // patient said yes to exploring but didn't make it to consultation_booked.
+  // Bucket as RAPPEL so the operator follows up tomorrow on /desk.
+  if (/(interested|interess|hot[\s_-]*lead|nouveau[\s_-]*dossier|new[\s_-]*case)/.test(s)) return "rappel";
   return "autre";
 }
 

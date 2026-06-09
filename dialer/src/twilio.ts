@@ -48,7 +48,24 @@ export async function createCall(opts: {
     body.append("StatusCallbackEvent", "answered");
     body.append("StatusCallbackEvent", "completed");
   }
-  if (opts.amd) body.set("MachineDetection", "DetectMessageEnd");
+  if (opts.amd) {
+    // `Enable` mode = Twilio classifies machine vs human as fast as it can
+    // and fires the TwiML webhook immediately with AnsweredBy. We used to
+    // run `DetectMessageEnd`, which waits for the entire voicemail greeting
+    // before bridging — great when you want to LEAVE a message after the
+    // beep, terrible for our case where we just want to hang up on voicemails.
+    // Observed pain: a real human picking up and saying "hello" was held in
+    // silence for 30s while Twilio tried (and failed) to find a "message end",
+    // then mis-classified them as machine_end_other and dropped the call.
+    body.set("MachineDetection", "Enable");
+    // Cap analysis at 5s. Twilio's default is 30s; on inconclusive audio,
+    // shorter wait + `AnsweredBy=unknown` → /api/twilio-voice bridges to the
+    // agent (safe fallback). Twilio enforces min 3 / max 59.
+    body.set(
+      "MachineDetectionTimeout",
+      String(Math.max(3, Math.min(59, Number(process.env.AMD_TIMEOUT_SECS ?? 5)))),
+    );
+  }
   if (opts.timeout !== undefined) body.set("Timeout", String(opts.timeout));
   // Twilio call recording — dual-channel (caller + agent on separate tracks
   // so we can listen to one side at a time in the dashboard). The recording

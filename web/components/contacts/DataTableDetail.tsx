@@ -217,6 +217,18 @@ export function DataTableDetail({ registryId, columns, phoneColumn, initialRows 
     return "text";
   }
 
+  // Column keys we expect to hold long free-text — render as textarea in
+  // the edit modal and let the table cell expand vertically.
+  const LONG_TEXT_KEYS = new Set([
+    "note", "notes", "call_1_note", "call_2_note", "call_3_note",
+    "raison_ne_pas_rappeler", "call_outcome", "call_error",
+    "nhs_wmp_details", "received_documents", "missing_documents",
+    "other_chronic_conditions", "past_surgeries", "current_medications",
+    "allergies", "anesthesia_allergies",
+  ]);
+  const isLongText = (key: string, type: string) =>
+    type === "text" && (LONG_TEXT_KEYS.has(key) || key.endsWith("_note") || key.endsWith("_notes"));
+
   return (
     <>
       <div className="card" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
@@ -311,21 +323,34 @@ export function DataTableDetail({ registryId, columns, phoneColumn, initialRows 
       {showAdd && (
         <form className="card" onSubmit={addRow} style={{ display: "grid", gap: 12 }}>
           <h3 style={{ margin: 0 }}>Nouveau contact</h3>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10 }}>
-            {displayCols.map((c) => (
-              <div key={c.key}>
-                <label style={{ fontSize: 12 }}>
-                  {c.label}
-                  {c.key === phoneColumn && <span style={{ color: "var(--accent)" }}> *</span>}
-                </label>
-                <input
-                  type={inputType(c.type)}
-                  value={draft[c.key] ?? ""}
-                  onChange={(e) => setDraft((d) => ({ ...d, [c.key]: e.target.value }))}
-                  placeholder={c.key === phoneColumn ? "+44..." : ""}
-                />
-              </div>
-            ))}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
+            {displayCols.map((c) => {
+              const long = isLongText(c.key, c.type);
+              return (
+                <div key={c.key} style={long ? { gridColumn: "1 / -1" } : undefined}>
+                  <label style={{ fontSize: 12 }}>
+                    {c.label}
+                    {c.key === phoneColumn && <span style={{ color: "var(--accent)" }}> *</span>}
+                  </label>
+                  {long ? (
+                    <textarea
+                      value={draft[c.key] ?? ""}
+                      onChange={(e) => setDraft((d) => ({ ...d, [c.key]: e.target.value }))}
+                      rows={4}
+                      style={{ width: "100%", resize: "vertical", minHeight: 80, fontFamily: "inherit", fontSize: 13 }}
+                    />
+                  ) : (
+                    <input
+                      type={inputType(c.type)}
+                      value={draft[c.key] ?? ""}
+                      onChange={(e) => setDraft((d) => ({ ...d, [c.key]: e.target.value }))}
+                      placeholder={c.key === phoneColumn ? "+44..." : ""}
+                      style={{ width: "100%" }}
+                    />
+                  )}
+                </div>
+              );
+            })}
           </div>
           {error && <div style={{ color: "#ff8080" }}>{error}</div>}
           <div>
@@ -354,7 +379,19 @@ export function DataTableDetail({ registryId, columns, phoneColumn, initialRows 
                 {displayCols.map((c) => (
                   <th key={c.key} style={{ whiteSpace: "nowrap" }}>{c.label}</th>
                 ))}
-                <th style={{ whiteSpace: "nowrap", textAlign: "right" }}>Actions</th>
+                <th
+                  style={{
+                    whiteSpace: "nowrap",
+                    textAlign: "right",
+                    position: "sticky",
+                    right: 0,
+                    background: "var(--panel)",
+                    boxShadow: "-4px 0 6px -4px rgba(0,0,0,0.25)",
+                    zIndex: 2,
+                  }}
+                >
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -363,12 +400,41 @@ export function DataTableDetail({ registryId, columns, phoneColumn, initialRows 
                 const isDeleting = deletingId === rowId;
                 return (
                   <tr key={rowId || i} style={{ opacity: isDeleting ? 0.4 : 1 }}>
-                    {displayCols.map((c) => (
-                      <td key={c.key} style={{ fontSize: 13, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {fmt(r[c.key]) || <em style={{ color: "var(--muted)" }}>—</em>}
-                      </td>
-                    ))}
-                    <td style={{ textAlign: "right", whiteSpace: "nowrap", padding: "4px 8px" }}>
+                    {displayCols.map((c) => {
+                      const long = isLongText(c.key, c.type);
+                      return (
+                        <td
+                          key={c.key}
+                          style={{
+                            fontSize: 13,
+                            // Long-text columns: wider and wrap multi-line.
+                            // Short columns: cap width but still allow wrap
+                            // so long values don't get truncated to "…".
+                            maxWidth: long ? 360 : 240,
+                            minWidth: long ? 220 : undefined,
+                            whiteSpace: "normal",
+                            wordBreak: "break-word",
+                            verticalAlign: "top",
+                            lineHeight: 1.35,
+                            padding: "8px 10px",
+                          }}
+                        >
+                          {fmt(r[c.key]) || <em style={{ color: "var(--muted)" }}>—</em>}
+                        </td>
+                      );
+                    })}
+                    <td
+                      style={{
+                        textAlign: "right",
+                        whiteSpace: "nowrap",
+                        padding: "4px 8px",
+                        position: "sticky",
+                        right: 0,
+                        background: "var(--panel)",
+                        boxShadow: "-4px 0 6px -4px rgba(0,0,0,0.25)",
+                        zIndex: 1,
+                      }}
+                    >
                       <button
                         className="ghost"
                         onClick={() => openEdit(r)}
@@ -376,7 +442,7 @@ export function DataTableDetail({ registryId, columns, phoneColumn, initialRows 
                         style={{ padding: "3px 8px", marginRight: 4, fontSize: 12 }}
                         title="Éditer"
                       >
-                        ✎
+                        ✎ Éditer
                       </button>
                       <button
                         className="ghost"
@@ -385,7 +451,7 @@ export function DataTableDetail({ registryId, columns, phoneColumn, initialRows 
                         style={{ padding: "3px 8px", fontSize: 12, color: "var(--bad)" }}
                         title="Supprimer"
                       >
-                        🗑
+                        🗑 Supprimer
                       </button>
                     </td>
                   </tr>
@@ -414,20 +480,33 @@ export function DataTableDetail({ registryId, columns, phoneColumn, initialRows 
               <h3 style={{ margin: 0 }}>Éditer le contact</h3>
               <button className="ghost" onClick={() => setEditingId(null)} disabled={editBusy} style={{ padding: "2px 8px" }}>×</button>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10 }}>
-              {displayCols.map((c) => (
-                <div key={c.key}>
-                  <label style={{ fontSize: 12 }}>
-                    {c.label}
-                    {c.key === phoneColumn && <span style={{ color: "var(--accent)" }}> *</span>}
-                  </label>
-                  <input
-                    type={inputType(c.type)}
-                    value={editDraft[c.key] ?? ""}
-                    onChange={(e) => setEditDraft((d) => ({ ...d, [c.key]: e.target.value }))}
-                  />
-                </div>
-              ))}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
+              {displayCols.map((c) => {
+                const long = isLongText(c.key, c.type);
+                return (
+                  <div key={c.key} style={long ? { gridColumn: "1 / -1" } : undefined}>
+                    <label style={{ fontSize: 12 }}>
+                      {c.label}
+                      {c.key === phoneColumn && <span style={{ color: "var(--accent)" }}> *</span>}
+                    </label>
+                    {long ? (
+                      <textarea
+                        value={editDraft[c.key] ?? ""}
+                        onChange={(e) => setEditDraft((d) => ({ ...d, [c.key]: e.target.value }))}
+                        rows={4}
+                        style={{ width: "100%", resize: "vertical", minHeight: 80, fontFamily: "inherit", fontSize: 13 }}
+                      />
+                    ) : (
+                      <input
+                        type={inputType(c.type)}
+                        value={editDraft[c.key] ?? ""}
+                        onChange={(e) => setEditDraft((d) => ({ ...d, [c.key]: e.target.value }))}
+                        style={{ width: "100%" }}
+                      />
+                    )}
+                  </div>
+                );
+              })}
             </div>
             {editError && <div style={{ color: "var(--bad)", fontSize: 13 }}>{editError}</div>}
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>

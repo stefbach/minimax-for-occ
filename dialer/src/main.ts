@@ -1,6 +1,7 @@
 import { supabase } from "./supabase.js";
 import { dialTarget, type DialJob } from "./dial.js";
 import { ensureOutboundTrunkAuth } from "./livekit-trunk.js";
+import { ensureInboundDispatchRuleAgent, ensureInboundTrunkKrisp } from "./livekit-dispatch.js";
 import { runDynamicSelection } from "./dynamic-selection.js";
 
 const POLL_INTERVAL_MS = Number(process.env.POLL_INTERVAL_MS ?? 30_000);
@@ -122,6 +123,19 @@ async function main() {
   // LiveKit→Twilio INVITE stops failing with 403 Forbidden.
   await ensureOutboundTrunkAuth().catch((e) =>
     console.error("[livekit-trunk] startup check error:", e?.message),
+  );
+
+  // Make sure the inbound SIP dispatch rule auto-dispatches our agent on
+  // every Twilio→LK SIP call so the patient doesn't hear a ringback tone
+  // while the agent worker races to join an empty room.
+  await ensureInboundDispatchRuleAgent().catch((e) =>
+    console.error("[livekit-dispatch] startup check error:", e?.message),
+  );
+
+  // Krisp noise cancellation on the inbound trunk so background TV /
+  // kids / traffic don't bleed into the STT pipeline.
+  await ensureInboundTrunkKrisp().catch((e) =>
+    console.error("[livekit-trunk-krisp] startup check error:", e?.message),
   );
 
   await scheduleTick().catch((e) => console.error("[scheduler] initial tick error:", e));

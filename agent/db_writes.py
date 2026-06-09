@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 
 import httpx
 
@@ -340,6 +340,11 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _iso_days_ago(n: int) -> str:
+    from datetime import datetime, timedelta, timezone
+    return (datetime.now(timezone.utc) - timedelta(days=int(n))).isoformat()
+
+
 def append_transcript_turn(
     call_id: Optional[str],
     speaker: str,
@@ -402,10 +407,14 @@ def append_transcript_turn(
 
 
 def trigger_post_call_pipeline(call_id: Optional[str]) -> None:
-    """Best-effort: ask the web app to generate the summary then run analyses.
+    """Best-effort: ask the web app to generate the summary, run analyses,
+    AND propagate the call's signals back into the tenant's data_table
+    (e.g. OCC's leads_rdv: call_count, last_call_datetime, date_jN,
+    cycle_status, etc.).
 
-    Uses NEXT_PUBLIC_APP_URL (or VERCEL_URL) so we hit the deployed API. If
-    neither is set, we no-op — the front-end can also trigger this manually.
+    Uses NEXT_PUBLIC_APP_URL (or VERCEL_URL) so we hit the deployed API.
+    If neither is set, we no-op — the front-end can also trigger this
+    manually from the call detail page.
     """
     if not call_id:
         return
@@ -418,11 +427,18 @@ def trigger_post_call_pipeline(call_id: Optional[str]) -> None:
         return
     base = base.rstrip("/")
     headers = {"Content-Type": "application/json"}
-    # Forward the service-role key as a bearer to skip user auth — the
-    # endpoints don't enforce auth on the server-only flow yet.
+    token = os.getenv("APP_SHARED_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
     try:
         with httpx.Client(timeout=httpx.Timeout(30.0), headers=headers) as c:
-            for path in (f"/api/calls/{call_id}/summary", f"/api/calls/{call_id}/analyze"):
+            # sync-lead first so leads_rdv reflects the latest state before
+            # the LLM summary uses it as context.
+            for path in (
+                f"/api/calls/{call_id}/sync-lead",
+                f"/api/calls/{call_id}/summary",
+                f"/api/calls/{call_id}/analyze",
+            ):
                 try:
                     r = c.post(f"{base}{path}", json={})
                     if r.status_code >= 400:
@@ -572,12 +588,26 @@ def finalize_call_state(
         logger.exception("finalize_call_state failed (call=%s)", call_id)
 
 
-# Qualifications that imply the lead wants a human follow-up tomorrow.
-# Kept in sync (loosely) with web/lib/qualification.ts buckets.
+# Qualification patterns — kept LOOSELY in sync with the canonical bucket
+# regexes in web/lib/qualification.ts. Centralising in JSON is overkill
+# since Python and TS regex syntax differ slightly; instead this list is
+# DERIVED from the TS one and any drift surfaces in two ways:
+#   (a) /api/calls/[id]/sync-lead writes the AI-set qualification verbatim
+#       to leads_rdv.qualification — the dashboard then uses normalizeQualification
+#       (TS) to bucket it for display, so display drift is self-healing.
+#   (b) _qualification_needs_callback (this file) decides whether to spawn a
+#       human_callback_tasks row. False negatives = a real RDV gets no /desk
+#       task. So the list MUST include every soft positive Charlotte's prompt
+#       can produce.
 _CALLBACK_QUAL_PATTERNS = (
-    "rdv", "rendez", "appointment", "confirm", "booked",
-    "rappel", "callback", "call_back", "call back",
-    "humain", "human", "to_human", "passer",
+    # Hard positives
+    "rdv", "rendez", "appointment", "confirm", "booked", "consultation_booked",
+    # Soft positives (the AI's prompts actually emit these)
+    "interested", "interess", "hot_lead", "hot lead", "warm_lead", "warm lead",
+    "nouveau dossier", "new case", "nouveau_dossier",
+    # Explicit callback / human transfer signals
+    "rappel", "callback", "call_back", "call back", "follow_up", "follow up",
+    "humain", "human", "to_human", "passer", "transferred_to_human",
 )
 
 
@@ -660,4 +690,269 @@ def _qualification_needs_callback(raw: Optional[str]) -> bool:
     if any(n in s for n in negative):
         return False
     return any(p in s for p in _CALLBACK_QUAL_PATTERNS)
+
+
+def auto_qualify_call(call_id: Optional[str]) -> None:
+    """Heuristic post-call qualification for calls where the AI agent never
+    wrote one explicitly via save_contact_data. Without this, every short
+    voicemail / dropped audio / patient hangup leaves
+    calls.metadata.qualification = NULL and the dashboard buckets it as
+    'Autre' instead of REPONDEUR / PAS DE REPONSE / etc.
+
+    Decision tree — biased toward "let the campaign retry" so we don't
+    permanently exclude patients who were just busy or in a meeting:
+
+      handoff_count > 0                    → A PASSER A L'HUMAIN
+      not answered                         → PAS DE REPONSE
+      duration ≤ 5s                        → REPONDEUR  (likely AMD voicemail)
+      duration ≤ 15s                       → PAS DE REPONSE  (carrier drop)
+      duration < 30s + attempts ≥ N_GIVEUP → PAS INTERESSE
+      duration < 30s + attempts < N_GIVEUP → RAPPEL  (retry later — they
+                                              were maybe just busy)
+      duration ≥ 30s                       → RAPPEL  (real conversation,
+                                              operator follow-up)
+
+    `N_GIVEUP` defaults to 10 and is env-overridable via
+    PAS_INTERESSE_AFTER_N_ATTEMPTS. The point is: a short call alone is
+    not a hard 'no' — the patient might pick up next time. Only after
+    repeated short hangups do we mark them PAS INTERESSE and exclude
+    them from the campaign's reselection (which uses the negative-list
+    filter in dialer/src/dynamic-selection.ts).
+
+    Never overrides an explicit qualification already in
+    calls.metadata.qualification (so save_contact_data winners win).
+    """
+    if not call_id or not has_supabase():
+        return
+    n_giveup = int(os.getenv("PAS_INTERESSE_AFTER_N_ATTEMPTS", "10"))
+    try:
+        with httpx.Client(timeout=httpx.Timeout(5.0), headers=_supabase_headers()) as c:
+            r = c.get(
+                _supabase_url(
+                    f"/rest/v1/calls?id=eq.{call_id}"
+                    "&select=metadata,duration_secs,answered_at,to_e164,org_id"
+                ),
+            )
+            r.raise_for_status()
+            rows = r.json() or []
+            if not rows:
+                return
+            row = rows[0]
+            current_meta = row.get("metadata") or {}
+            if isinstance(current_meta, dict) and current_meta.get("qualification"):
+                logger.debug(
+                    "auto_qualify_call: %s already has qualification=%s, skipping",
+                    call_id, current_meta.get("qualification"),
+                )
+                return
+
+            duration = float(row.get("duration_secs") or 0)
+            answered = bool(row.get("answered_at"))
+            to_e164 = row.get("to_e164")
+            org_id = row.get("org_id")
+
+            # Handoff events: objective signal that the patient engaged
+            # enough to be transferred to a specialist.
+            handoff_count = 0
+            try:
+                he = c.get(
+                    _supabase_url(
+                        f"/rest/v1/call_events?call_id=eq.{call_id}"
+                        "&kind=in.(handoff_initiated,handoff_to_handle)"
+                        "&select=id"
+                    ),
+                )
+                if he.is_success:
+                    handoff_count = len(he.json() or [])
+            except Exception:
+                pass
+
+            # Attempts so far on this number: counts every previous Axon-
+            # placed call to the same E.164 for the same org over the
+            # last 90 days. Used only when we'd otherwise mark the lead
+            # PAS INTERESSE — we want repeated rejections before giving
+            # up on a phone number.
+            attempts = 0
+            if to_e164 and org_id:
+                try:
+                    cr = c.get(
+                        _supabase_url(
+                            f"/rest/v1/calls?to_e164=eq.{to_e164}"
+                            f"&org_id=eq.{org_id}"
+                            "&select=id"
+                            "&started_at=gt." + _iso_days_ago(90)
+                        ),
+                    )
+                    if cr.is_success:
+                        attempts = len(cr.json() or [])
+                except Exception:
+                    pass
+
+            # ── Audio-drop heuristic (Scenario 1 — Mauvais réseau) ──────────
+            # Pattern: a real conversation that was interrupted by network
+            # quality, not finished naturally. We detect it without WebRTC
+            # metrics by combining three boundary-style signals:
+            #   • duration is between 5s and 30s (long enough for STT to
+            #     register a turn, short enough to be abnormal vs a real
+            #     conversation),
+            #   • the patient actually spoke at least once (a row in
+            #     public.call_transcripts with speaker='user'), proving the
+            #     mic was working — rules out PBX auto-200OK silence and AMD
+            #     voicemails,
+            #   • the hygiene watchdog did NOT fire its goodbye-shaped
+            #     hangup (call_events.kind='auto_hangup' with 'goodbye' in
+            #     payload.reason). A natural close would have triggered it.
+            #
+            # When matched, we stamp disposition='audio_dropped',
+            # qualification='RAPPEL' (real engagement happened, just got
+            # cut), and reschedule the campaign_target for +1h. We also set
+            # metadata.no_attempt=true so sync-lead doesn't bump
+            # j1_attempts / stamp date_j1 — the lead stays in the same
+            # phase as if the attempt never happened.
+            audio_dropped = False
+            if answered and 5 < duration < 30:
+                had_goodbye_hangup = False
+                try:
+                    ah = c.get(
+                        _supabase_url(
+                            f"/rest/v1/call_events?call_id=eq.{call_id}"
+                            "&kind=eq.auto_hangup&select=payload"
+                        ),
+                    )
+                    if ah.is_success:
+                        for ev in ah.json() or []:
+                            payload = ev.get("payload") or {}
+                            reason = (
+                                (payload.get("reason") or "").lower()
+                                if isinstance(payload, dict) else ""
+                            )
+                            if "goodbye" in reason:
+                                had_goodbye_hangup = True
+                                break
+                except Exception:
+                    pass
+                had_user_turn = False
+                try:
+                    ut = c.get(
+                        _supabase_url(
+                            f"/rest/v1/call_transcripts?call_id=eq.{call_id}"
+                            "&speaker=eq.user&select=seq&limit=1"
+                        ),
+                    )
+                    if ut.is_success:
+                        had_user_turn = bool(ut.json() or [])
+                except Exception:
+                    pass
+                audio_dropped = (not had_goodbye_hangup) and had_user_turn
+
+            if audio_dropped:
+                qual = "RAPPEL"
+                qualification_source = "audio_drop_heuristic"
+            elif handoff_count > 0:
+                qual = "A PASSER A L'HUMAIN"
+                qualification_source = "auto_inferred"
+            elif not answered or duration == 0:
+                qual = "PAS DE REPONSE"
+                qualification_source = "auto_inferred"
+            elif duration <= 5:
+                qual = "REPONDEUR"
+                qualification_source = "auto_inferred"
+            elif duration <= 15:
+                qual = "PAS DE REPONSE"
+                qualification_source = "auto_inferred"
+            elif duration < 30:
+                # Short engagement: don't lock the patient out unless
+                # they've already been bothered N_GIVEUP times.
+                qual = "PAS INTERESSE" if attempts >= n_giveup else "RAPPEL"
+                qualification_source = "auto_inferred"
+            else:
+                qual = "RAPPEL"
+                qualification_source = "auto_inferred"
+
+            merged = {
+                **(current_meta if isinstance(current_meta, dict) else {}),
+                "qualification": qual,
+                "qualification_source": qualification_source,
+            }
+            # Audio-drop bypass: tell sync-lead this attempt doesn't count
+            # toward the phase cadence. Also stamp the call disposition so
+            # the dashboard can bucket these as a distinct failure mode.
+            if audio_dropped:
+                merged["no_attempt"] = True
+            # Re-check just before write to avoid a race where
+            # save_contact_data committed an explicit qualification
+            # between our initial read and this PATCH. Without this guard,
+            # auto-inferred "PAS DE REPONSE" could overwrite an agent-set
+            # "consultation_booked" simply because the AI's HTTP write
+            # arrived a few ms later than ours.
+            r_chk = c.get(_supabase_url(
+                f"/rest/v1/calls?id=eq.{call_id}&select=metadata"
+            ))
+            if r_chk.is_success:
+                chk = (r_chk.json() or [{}])[0].get("metadata") or {}
+                if isinstance(chk, dict) and chk.get("qualification") and chk.get("qualification_source") != "auto_inferred":
+                    logger.info(
+                        "auto_qualify_call: %s skipped — explicit qualification %s appeared during inference",
+                        call_id, chk.get("qualification"),
+                    )
+                    return
+            # If audio-dropped, write the metadata AND the disposition in
+            # one PATCH so the dashboard's disposition bucket and the
+            # metadata.qualification can't drift.
+            calls_patch: Dict[str, object] = {"metadata": merged}
+            if audio_dropped:
+                calls_patch["disposition"] = "audio_dropped"
+            r2 = c.patch(
+                _supabase_url(f"/rest/v1/calls?id=eq.{call_id}"),
+                headers={
+                    **_supabase_headers(),
+                    "Content-Type": "application/json",
+                    "Prefer": "return=minimal",
+                },
+                json=calls_patch,
+            )
+            r2.raise_for_status()
+            logger.info(
+                "auto_qualify_call: %s -> %s (duration=%.0fs answered=%s handoffs=%d attempts=%d/%d source=%s)",
+                call_id, qual, duration, answered, handoff_count, attempts, n_giveup, qualification_source,
+            )
+
+            # Audio-drop retry: bring the lead back into the pending queue
+            # 1 hour from now instead of waiting for the next cadence slot
+            # (08/13/18 UK). The dialer's 30s poll loop picks pending rows
+            # with next_attempt_at <= now() so no other plumbing is needed.
+            if audio_dropped:
+                target_id = (
+                    current_meta.get("target_id")
+                    if isinstance(current_meta, dict) else None
+                )
+                if isinstance(target_id, str) and target_id:
+                    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+                    next_at = (_dt.now(_tz.utc) + _td(hours=1)).isoformat()
+                    try:
+                        c.patch(
+                            _supabase_url(
+                                f"/rest/v1/campaign_targets?id=eq.{target_id}"
+                            ),
+                            headers={
+                                **_supabase_headers(),
+                                "Content-Type": "application/json",
+                                "Prefer": "return=minimal",
+                            },
+                            json={
+                                "status": "pending",
+                                "next_attempt_at": next_at,
+                            },
+                        )
+                        logger.info(
+                            "audio_drop_retry: target=%s next_attempt_at=%s",
+                            target_id, next_at,
+                        )
+                    except Exception:
+                        logger.exception(
+                            "audio_drop_retry schedule failed (target=%s)",
+                            target_id,
+                        )
+    except Exception:
+        logger.exception("auto_qualify_call failed (call=%s)", call_id)
 

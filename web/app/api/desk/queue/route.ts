@@ -81,14 +81,29 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: pErr.message }, { status: 500 });
   }
 
-  // SHARED — disposition ilike %humain% or %rappel%, assigned_to is null,
-  // callback within today (or unset). Supabase OR filters need string form.
+  // SHARED — surfaces every call that should land in OCC's shared callback
+  // pool. We OR three conditions instead of one so legacy disposition tags
+  // (transfer_humain / rappel_demande) AND OCC's standard qualification
+  // labels (A PASSER A L'HUMAIN, RAPPEL) all match. The qualification
+  // pathway is what transfer_to_human / save_contact_data write today;
+  // disposition is kept for back-compat with rows the old IA stamped before
+  // the qualification-on-call writeback existed.
   const { data: sharedRaw, error: sErr } = await admin
     .from("calls")
     .select(baseSelect)
     .eq("org_id", orgId)
     .filter("metadata->>assigned_to", "is", null)
-    .or("disposition.ilike.%humain%,disposition.ilike.%rappel%")
+    .or(
+      [
+        "disposition.ilike.%humain%",
+        "disposition.ilike.%rappel%",
+        // OCC standard qualifications written by transfer_to_human and the
+        // auto_qualify_call heuristic. Match on the JSON path so the row
+        // surfaces even when disposition is still NULL.
+        "metadata->>qualification.eq.A PASSER A L'HUMAIN",
+        "metadata->>qualification.eq.RAPPEL",
+      ].join(","),
+    )
     .order("started_at", { ascending: false })
     .limit(200);
   if (sErr) {

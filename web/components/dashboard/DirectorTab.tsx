@@ -5,6 +5,7 @@ import type { DirectorResponse } from "@/app/api/dashboard/director/route";
 import type { QualBucket } from "@/lib/qualification";
 import { useT } from "@/lib/i18n";
 import { DrillSheet, type DrillFilters, type DrillSpec } from "./DrillSheet";
+import { SLOT_WINDOWS } from "@/lib/call-slots";
 
 function fmtDur(secs: number): string {
   const m = Math.floor(secs / 60);
@@ -22,6 +23,18 @@ function fmtDate(iso: string): string {
     day: "2-digit", month: "2-digit",
     hour: "2-digit", minute: "2-digit",
     hour12: false,
+  });
+}
+
+// Date-only DD/MM/YYYY, used to label the analysed period and the phases
+// "as of" stamp. Kept separate from fmtDate (which adds the time) so the
+// period range stays compact.
+function fmtDay(iso: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("fr-FR", {
+    day: "2-digit", month: "2-digit", year: "numeric",
   });
 }
 
@@ -403,50 +416,99 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
 
       {/* SUIVI J1 / J3 / J5 + CRÉNEAUX */}
       <div className="card">
-        <h3 style={{ marginTop: 0 }}>{t("Suivi J1 / J3 / J5")}</h3>
-        <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>
-          {t("Volume par phase et par créneau d'appel")}
-        </p>
-        {data.hints.phasesAvailable ? (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10 }}>
-            {([
-              ["RAPPEL", data.phases.rappel],
-              ["J1", data.phases.j1],
-              ["J3", data.phases.j3],
-              ["J5", data.phases.j5],
-            ] as const).map(([label, p]) => (
-              <div key={label} className="card" style={{ padding: 12 }}>
-                <div className="muted" style={{ fontSize: 11, letterSpacing: 0.4 }}>{label}</div>
-                <div style={{ fontSize: 20, fontWeight: 700, marginTop: 4 }}>{p.leads} <span className="muted" style={{ fontSize: 12, fontWeight: 400 }}>leads</span></div>
-                <div className="muted" style={{ fontSize: 12 }}>{p.calls} {t("appels")}</div>
-              </div>
-            ))}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+          <div>
+            <h3 style={{ marginTop: 0, marginBottom: 2 }}>{t("Suivi J1 / J3 / J5")}</h3>
+            <p className="muted" style={{ fontSize: 12, marginTop: 0, marginBottom: 0 }}>
+              {t("Relances programmées par phase et répartition des appels par créneau")}
+            </p>
           </div>
+          {data.hints.phasesAvailable && (
+            <div style={{ textAlign: "right", fontSize: 11 }} className="muted">
+              <div>
+                {t("Pipeline au")} <strong style={{ color: "var(--text)" }}>{fmtDay(data.phaseContext.asOf)}</strong>
+              </div>
+              <div>{data.phaseContext.totalLeads.toLocaleString("fr-FR")} {t("leads au total")}</div>
+            </div>
+          )}
+        </div>
+
+        {data.hints.phasesAvailable ? (
+          <>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10, marginTop: 12 }}>
+              {([
+                ["RAPPEL", data.phases.rappel, t("Leads marqués « à rappeler »")],
+                ["J1", data.phases.j1, t("Relance prévue à J+1")],
+                ["J3", data.phases.j3, t("Relance prévue à J+3")],
+                ["J5", data.phases.j5, t("Relance prévue à J+5")],
+              ] as const).map(([label, p, desc]) => (
+                <div key={label} className="card" style={{ padding: 12 }}>
+                  <div className="muted" style={{ fontSize: 11, letterSpacing: 0.4, fontWeight: 600 }}>{label}</div>
+                  <div className="muted" style={{ fontSize: 10, marginTop: 1, lineHeight: 1.3 }}>{desc}</div>
+                  <div style={{ fontSize: 20, fontWeight: 700, marginTop: 6 }}>{p.leads.toLocaleString("fr-FR")} <span className="muted" style={{ fontSize: 12, fontWeight: 400 }}>leads</span></div>
+                  <div className="muted" style={{ fontSize: 12 }}>{p.calls.toLocaleString("fr-FR")} {t("appels")}</div>
+                  {/* Date breakdown: where each lead's scheduled call sits vs today. */}
+                  <div style={{ display: "flex", gap: 4, marginTop: 8, fontSize: 10, flexWrap: "wrap" }}>
+                    <span title={t("À appeler aujourd'hui")} style={{ padding: "2px 6px", borderRadius: 4, background: "color-mix(in srgb, var(--accent) 14%, transparent)", color: "var(--accent)", fontWeight: 600 }}>
+                      {p.dueToday} {t("auj.")}
+                    </span>
+                    <span title={t("Date de relance dépassée")} style={{ padding: "2px 6px", borderRadius: 4, background: "color-mix(in srgb, var(--bad) 12%, transparent)", color: "var(--bad)", fontWeight: 600 }}>
+                      {p.overdue} {t("en retard")}
+                    </span>
+                    <span title={t("Relance à venir")} className="muted" style={{ padding: "2px 6px", borderRadius: 4, background: "var(--bg-2)" }}>
+                      {p.upcoming} {t("à venir")}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="muted" style={{ fontSize: 11, marginTop: 8, marginBottom: 0, fontStyle: "italic" }}>
+              {t("Les volumes par phase couvrent l'ensemble du pipeline (indépendant de la période sélectionnée).")}
+            </p>
+          </>
         ) : (
           <p className="muted" style={{ fontSize: 13 }}>
             {t("Aucune table de phases configurée pour cette organisation.")}
           </p>
         )}
-        <div style={{ marginTop: 14 }}>
-          <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>{t("Par créneau")}</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10 }}>
-            {([
-              ["Créneau 1 — matin", data.slots.matin, "matin", "🌅"],
-              ["Créneau 2 — midi", data.slots.midi, "midi", "☀"],
-              ["Créneau 3 — soir", data.slots.soir, "soir", "🌆"],
-              ["Hors créneau", data.slots.hors, "hors", "🌙"],
-            ] as const).map(([label, v, slot, icon]) => (
-              <ClickCard
-                key={label}
-                ariaLabel={`${label} — ${t("voir les appels")}`}
-                onClick={() => openDrill(label, icon, "var(--accent)", { slot })}
-                style={{ padding: 10 }}
-              >
-                <div className="muted" style={{ fontSize: 11 }}>{label}</div>
-                <div style={{ fontSize: 18, fontWeight: 700, marginTop: 2 }}>{v}</div>
-              </ClickCard>
-            ))}
+
+        <div style={{ marginTop: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+            <div className="muted" style={{ fontSize: 12, marginBottom: 6, fontWeight: 600 }}>{t("Par créneau d'appel")}</div>
+            <div className="muted" style={{ fontSize: 11, marginBottom: 6 }}>
+              {t("Période")} : {fmtDay(data.phaseContext.period.from)} – {fmtDay(data.phaseContext.period.to)}
+            </div>
           </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>
+            {([
+              ["Créneau 1 — matin", SLOT_WINDOWS.matin, data.slots.matin, "matin", "🌅"],
+              ["Créneau 2 — midi", SLOT_WINDOWS.midi, data.slots.midi, "midi", "☀"],
+              ["Créneau 3 — soir", SLOT_WINDOWS.soir, data.slots.soir, "soir", "🌆"],
+              ["Hors créneau", null, data.slots.hors, "hors", "🌙"],
+            ] as const).map(([label, win, v, slot, icon]) => {
+              const slotTotal = data.slots.matin + data.slots.midi + data.slots.soir + data.slots.hors;
+              const pct = slotTotal ? Math.round((v / slotTotal) * 100) : 0;
+              return (
+                <ClickCard
+                  key={label}
+                  ariaLabel={`${label} — ${t("voir les appels")}`}
+                  onClick={() => openDrill(label, icon, "var(--accent)", { slot })}
+                  style={{ padding: 10 }}
+                >
+                  <div className="muted" style={{ fontSize: 11 }}>{icon} {label}</div>
+                  <div className="muted" style={{ fontSize: 10 }}>
+                    {win ? `${win.uk} UK · ${win.mu} MU` : t("autres heures")}
+                  </div>
+                  <div style={{ fontSize: 18, fontWeight: 700, marginTop: 4 }}>
+                    {v.toLocaleString("fr-FR")} <span className="muted" style={{ fontSize: 11, fontWeight: 400 }}>· {pct}%</span>
+                  </div>
+                </ClickCard>
+              );
+            })}
+          </div>
+          <p className="muted" style={{ fontSize: 11, marginTop: 8, marginBottom: 0, fontStyle: "italic" }}>
+            {t("Fenêtres d'appel Lun–Jeu. Vendredi : créneau matin élargi à 08h–11h UK, pas de midi/soir. Week-end : hors créneau.")}
+          </p>
         </div>
       </div>
 

@@ -22,12 +22,17 @@ export interface CampaignDetail {
   state: string;
   mode: string;
   agent_handle_name: string | null;
+  agent_handle_id: string | null;
+  agent_team_id: string | null;
   phone_e164: string | null;
+  phone_number_id: string | null;
+  data_table_id: string | null;
   max_concurrency: number;
   max_attempts: number;
   retry_delay_min: number;
   amd_enabled: boolean;
   schedule: Record<string, unknown>;
+  metadata: Record<string, unknown> | null;
   created_at: string;
   engine: EngineSummary | null;
 }
@@ -500,11 +505,17 @@ export function CampaignDetailClient({
           campaignId={campaign.id}
           initial={{
             name: campaign.name,
+            description: campaign.description,
             schedule: campaign.schedule as { days?: number[]; hours?: { start?: string; end?: string; ranges?: { start: string; end: string }[] } },
             max_concurrency: campaign.max_concurrency,
             max_attempts: campaign.max_attempts,
             retry_delay_min: campaign.retry_delay_min,
             amd_enabled: campaign.amd_enabled,
+            agent_handle_id: campaign.agent_handle_id,
+            agent_team_id: campaign.agent_team_id,
+            phone_number_id: campaign.phone_number_id,
+            data_table_id: campaign.data_table_id,
+            metadata: campaign.metadata as Parameters<typeof EditCampaignModal>[0]["initial"]["metadata"],
           }}
           onClose={() => setEditOpen(false)}
         />

@@ -74,6 +74,98 @@ class CallIdAdapter(logging.LoggerAdapter):
         return msg, kwargs
 
 
+def _lookup_twilio_call_sid(call_id: Optional[str]) -> Optional[str]:
+    """Fetch the Twilio CallSid for an Axon call. Used by the hygiene
+    watchdog so it can REST-end the Twilio leg the moment the agent decides
+    to hang up — without this, SIP BYE propagation from LK Cloud to Twilio
+    adds 8-12 seconds of dead silence on the patient's side.
+    Returns None on any failure (the caller treats that as 'skip')."""
+    if not call_id:
+        return None
+    try:
+        from agent_config import _supabase_headers as _hdrs, _supabase_url as _url, has_supabase as _has
+        if not _has():
+            return None
+        import httpx as _httpx
+        with _httpx.Client(timeout=_httpx.Timeout(3.0), headers=_hdrs()) as c:
+            r = c.get(_url(f"/rest/v1/calls?id=eq.{call_id}&select=twilio_call_sid"))
+            r.raise_for_status()
+            rows = r.json() or []
+            sid = rows[0].get("twilio_call_sid") if rows else None
+            return sid if isinstance(sid, str) and sid else None
+    except Exception:
+        return None
+
+
+def _twilio_end_call(call_sid: str, clog: logging.LoggerAdapter, call_id: Optional[str] = None) -> None:
+    """Force Twilio to mark a Call as completed.
+    Posts to /api/agent-tools/end-twilio-call on the Next.js app, which is
+    where Twilio creds actually live (the agent worker on LK Cloud has no
+    TWILIO_ACCOUNT_SID/AUTH_TOKEN). This cuts the patient leg in <1s
+    instead of waiting 8-12s for the SIP BYE to travel LK Cloud → Twilio.
+    Never raises."""
+    import os as _os
+    base = (
+        _os.getenv("NEXT_PUBLIC_APP_URL")
+        or (f"https://{_os.getenv('VERCEL_URL')}" if _os.getenv("VERCEL_URL") else None)
+    )
+    token = _os.getenv("INTERNAL_AGENT_API_TOKEN")
+    if not base or not token:
+        clog.debug(
+            "twilio_end_call: NEXT_PUBLIC_APP_URL or INTERNAL_AGENT_API_TOKEN not set"
+        )
+        try:
+            from db_writes import append_call_event as _evt
+            _evt(call_id, "twilio_rest_end", {
+                "ok": False, "error": "no_app_url_or_token",
+            })
+        except Exception:
+            pass
+        return
+    try:
+        import httpx as _httpx
+        url = f"{base.rstrip('/')}/api/agent-tools/end-twilio-call"
+        with _httpx.Client(timeout=_httpx.Timeout(5.0)) as c:
+            r = c.post(
+                url,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                },
+                json={"call_sid": call_sid},
+            )
+        ok = False
+        try:
+            data = r.json() if r.status_code < 500 else {}
+            ok = bool(data.get("ok"))
+        except Exception:
+            data = {}
+        if ok:
+            clog.info("twilio_end_call: ended Twilio call sid=%s", call_sid)
+        else:
+            clog.warning(
+                "twilio_end_call: proxy returned ok=false sid=%s status=%d body=%s",
+                call_sid, r.status_code, (r.text or "")[:200],
+            )
+        try:
+            from db_writes import append_call_event as _evt
+            _evt(call_id, "twilio_rest_end", {
+                "ok": ok,
+                "proxy_status": r.status_code,
+                "twilio_status_code": data.get("status_code"),
+                "twilio_call_sid": call_sid,
+            })
+        except Exception:
+            pass
+    except Exception:
+        clog.exception("twilio_end_call: proxy call failed (sid=%s)", call_sid)
+        try:
+            from db_writes import append_call_event as _evt
+            _evt(call_id, "twilio_rest_end", {"ok": False, "error": "exception"})
+        except Exception:
+            pass
+
+
 def _logger_for_call(call_id: Optional[str]) -> logging.LoggerAdapter:
     """Return a LoggerAdapter bound to a call_id (None → unprefixed)."""
     return CallIdAdapter(logger, {"call_id": call_id} if call_id else {})
@@ -518,19 +610,30 @@ def _build_save_contact_tool(
         if notes:
             fields.setdefault("note", notes)
 
-        if use_table:
-            result = await asyncio.to_thread(_save_table, data_table, data_row_id, fields)
-        else:
-            result = await asyncio.to_thread(
-                _save_contact,
-                contact_id,
-                org_id,
-                fields,
-                display_name=display_name or None,
-                email=email or None,
-                notes=notes or None,
-                call_id=call_id,
-            )
+        # Race-safety against the idle watchdog. Bump save_in_flight so
+        # the watchdog defers its hangup decision while we PATCH leads_rdv.
+        # Without this, a 20s idle that lands exactly mid-HTTP can cancel
+        # the asyncio.to_thread call and silently drop the lead update.
+        _hyg = _HYGIENE_STATES.get(call_id or "") if call_id else None
+        if isinstance(_hyg, dict):
+            _hyg["save_in_flight"] = int(_hyg.get("save_in_flight", 0)) + 1
+        try:
+            if use_table:
+                result = await asyncio.to_thread(_save_table, data_table, data_row_id, fields)
+            else:
+                result = await asyncio.to_thread(
+                    _save_contact,
+                    contact_id,
+                    org_id,
+                    fields,
+                    display_name=display_name or None,
+                    email=email or None,
+                    notes=notes or None,
+                    call_id=call_id,
+                )
+        finally:
+            if isinstance(_hyg, dict):
+                _hyg["save_in_flight"] = max(0, int(_hyg.get("save_in_flight", 1)) - 1)
         if result.get("ok"):
             # Notify any configured n8n webhooks (post-RDV Email/WhatsApp etc.)
             # the moment a watched column like `qualification` is written.
@@ -567,31 +670,35 @@ class AxonVoiceAgent(Agent):
         self._greeting = greeting
 
     async def on_enter(self) -> None:
+        # MARKER v5-simple-2026-06-08 — if you see this line in fly logs the
+        # latest code is deployed; if not, fly/lk-cloud is still on old code.
+        logger.info("on_enter: marker v5-simple-2026-06-08 active")
         # Pure TTS greeting — avoids an LLM call with an empty user message.
-        if self._greeting:
-            # Brief pre-roll so the first words don't get clipped on slower
-            # PSTN setups (UK Twilio trunk takes ~2s to fully establish the
-            # audio path after pickup; Mauritius is faster). Configurable via
-            # env so we can A/B without redeploying.
-            preroll = float(os.getenv("GREETING_PREROLL_SECONDS", "1.0"))
-            if preroll > 0:
-                await asyncio.sleep(preroll)
-            import time as _t
-            _b = _t.monotonic()
-            logger.info("greeting: say() begin")
-            try:
-                await self.session.say(text=self._greeting, allow_interruptions=True)
-                logger.info("greeting: say() returned in %.2fs", _t.monotonic() - _b)
-            except Exception:
-                # Patient hung up mid-greeting / TTS crashed / pipeline torn
-                # down. Don't propagate — the session-shutdown hooks finalize
-                # the call cleanly. Without this catch the worker would log
-                # an "unhandled exception" and the call row would be left
-                # in an inconsistent state.
-                logger.info(
-                    "greeting: say() interrupted after %.2fs (likely hangup)",
-                    _t.monotonic() - _b,
-                )
+        # Brief pre-roll so the first syllable isn't clipped while the PSTN
+        # audio path finishes establishing (UK Twilio trunks take ~1s for
+        # full RTP setup after pickup; Mauritius / browser sessions are
+        # instant). 1.0s is the historically-known-good value — earlier
+        # attempts at lower preroll or at gating the greeting behind
+        # participant/track/sip.callStatus signals over-engineered things
+        # and ended up blocking the greeting entirely in some setups
+        # (notably the browser voice simulator, which has no SIP
+        # participant to wait on). Stay simple.
+        if not self._greeting:
+            return
+        preroll = float(os.getenv("GREETING_PREROLL_SECONDS", "3.0"))
+        if preroll > 0:
+            await asyncio.sleep(preroll)
+        import time as _t
+        _b = _t.monotonic()
+        logger.info("greeting: say() begin")
+        try:
+            await self.session.say(text=self._greeting, allow_interruptions=True)
+            logger.info("greeting: say() returned in %.2fs", _t.monotonic() - _b)
+        except Exception:
+            logger.info(
+                "greeting: say() interrupted after %.2fs (likely hangup)",
+                _t.monotonic() - _b,
+            )
 
 
 async def _watch_handoff(ctx: JobContext, session: AgentSession) -> None:
@@ -630,6 +737,13 @@ async def _watch_handoff(ctx: JobContext, session: AgentSession) -> None:
         except Exception:
             continue
     logger.debug("handoff watcher: no metadata_changed event on this LiveKit version")
+
+
+# Per-call mutable state shared between _install_call_hygiene (which owns
+# the idle watchdog) and the save_contact_data tool closure (which lives
+# in a separate scope and needs to bump save_in_flight to block hangups
+# during HTTP writes). Keyed by call_id; cleaned up at shutdown.
+_HYGIENE_STATES: dict[str, dict] = {}
 
 
 _LANG_NAMES = {
@@ -804,6 +918,30 @@ def _install_team_handoff_watcher(
                 "handoff: FULL swap -> %s (%s) voice=%s model=%s, %d tools",
                 axon_next.id, axon_next.name, axon_next.tts_voice_id, axon_next.llm_model, len(tools),
             )
+            # Reset hygiene state so the new agent inherits a clean slate.
+            # Charlotte's transition phrase ("I'm transferring you now, talk
+            # soon") can match the goodbye regex and arm a 5s hangup timer —
+            # without this reset, that timer fires DURING Isabelle's greeting
+            # and the engine closes mid-TTS.
+            if call_id:
+                _hyg = _HYGIENE_STATES.get(call_id)
+                if _hyg is not None:
+                    import time as _t_hyg
+                    _hyg["goodbye_armed_at"] = None
+                    _hyg["last_agent_ts"] = _t_hyg.monotonic()
+                    _hyg["last_user_ts"] = _t_hyg.monotonic()
+            # Persist as a call_event so auto_qualify_call (and the dashboard
+            # Chaîne d'agents widget) can count actual specialist handoffs
+            # instead of guessing from duration alone. Best-effort: never
+            # let a telemetry write break the live conversation.
+            try:
+                from db_writes import append_call_event as _evt
+                _evt(call_id, "handoff_initiated", {
+                    "to_agent_id": axon_next.id,
+                    "to_agent_name": axon_next.name,
+                })
+            except Exception:
+                clog.exception("handoff: failed to log call_event")
         except Exception:
             clog.exception("handoff: full swap failed")
 
@@ -881,22 +1019,27 @@ def _install_call_hygiene(
     session: AgentSession,
     clog,
     *,
-    idle_timeout: float = 20.0,
-    goodbye_grace: float = 5.0,
+    idle_timeout: float = 5.0,
+    goodbye_grace: float = 2.0,
 ) -> None:
     """Hang up the call automatically to stop the meter when there's no
-    point staying connected. Three triggers:
+    point staying connected. Triggers:
 
-      1. Idle: no user STT *and* no agent speech for `idle_timeout` seconds.
-         Catches voicemails (user says nothing after pickup), dropped audio,
-         and patients who forgot to hang up.
-      2. Goodbye: the agent says a clear closing phrase (e.g. "bye", "take
-         care"). After TTS finishes plus `goodbye_grace` seconds, disconnect.
-      3. Conversation already over: same path as #2 but covers the case
-         where the user said goodbye and the agent just acknowledged.
+      1. Idle: no user STT *and* no agent activity for `idle_timeout`
+         seconds. "Agent activity" tracks BOTH `conversation_item_added`
+         (when LLM output is committed) and `metrics_collected` (LLM-TTFT
+         and TTS-TTFB), so we don't false-trigger while the agent is in
+         the middle of a long TTS response (which can stream for 15-20s
+         before the conversation_item event finalises).
+      2. Goodbye: the agent says a clear closing phrase (regex matches
+         "bye / take care / see you / au revoir / etc."). After TTS
+         finishes plus `goodbye_grace` seconds of caller silence, we
+         disconnect.
 
-    All thresholds are env-overridable via IDLE_HANGUP_SECONDS /
-    GOODBYE_GRACE_SECONDS so we can tune in production without redeploying.
+    Defaults raised to 30s for idle after OCC pilots showed Charlotte
+    being cut mid-sentence on long explanations. Both thresholds are
+    env-overridable via IDLE_HANGUP_SECONDS / GOODBYE_GRACE_SECONDS so we
+    can tune in production without redeploying.
     """
     import time as _t
     idle_timeout = float(os.getenv("IDLE_HANGUP_SECONDS", str(idle_timeout)))
@@ -906,26 +1049,125 @@ def _install_call_hygiene(
     # up. Cover English (OCC primary), French, Spanish, German — same
     # language list as the language lock so OCC + EU campaigns are covered.
     import re as _re
+    # NOTE: only phrases that *unambiguously* end the call. Soft transition
+    # phrases ("talk soon", "speak soon", "see you", "we'll be in touch",
+    # "catch you later", "cheers") are deliberately excluded because agents
+    # use them during handoffs ("I'm transferring you now, talk soon") — if
+    # they armed the hangup timer, it would fire mid-greeting of the next
+    # specialist. Defense in depth: the handoff also resets goodbye_armed_at.
     _goodbye_re = _re.compile(
         r"\b("
         r"bye[\s,!.?-]*bye"
         r"|good\s*bye"
-        r"|take\s*care"
-        r"|talk\s+to\s+you\s+soon"
-        r"|speak\s+(soon|to\s+you\s+soon)"
-        r"|have\s+a\s+(great|good|nice|wonderful)\s+(day|evening|weekend|afternoon)"
+        r"|good\s*bye\s+for\s+now"
+        r"|have\s+a\s+(great|good|nice|wonderful|lovely)\s+(day|evening|weekend|afternoon|night)"
+        r"|cheerio"
+        r"|toodle\s*oo"
         # French — both accented and unaccented because LLM transcripts /
         # voice agents routinely drop accents.
         r"|au\s*revoir"
-        r"|[aà]\s*(bient[oô]t|bientot|plus\s*tard|tr[èe]s\s*vite)"
-        r"|bonne\s+(journ[ée]e|journee|soir[ée]e|soiree|fin\s+de\s+journ[ée]e)"
+        r"|[aà]\s*(bient[oô]t|bientot|plus\s*tard|tr[èe]s\s*vite|toute\s*[àa]\s*l[''](?:heure))"
+        r"|bonne\s+(journ[ée]e|journee|soir[ée]e|soiree|fin\s+de\s+journ[ée]e|continuation)"
+        r"|on\s+se\s+(rappelle|recontacte)"
         # Spanish
-        r"|hasta\s+(luego|pronto|ma[ñn]ana)"
+        r"|hasta\s+(luego|pronto|ma[ñn]ana|la\s+vista)"
         r"|adi[oó]s"
+        r"|nos\s+vemos"
         # German
         r"|tsch[üu]ss"
         r"|auf\s+wiederh[öo]ren"
         r"|sch[öo]nen\s+tag"
+        r"|bis\s+(bald|sp[äa]ter|morgen)"
+        # Italian
+        r"|arrivederci"
+        r"|ciao"
+        r")\b",
+        _re.IGNORECASE,
+    )
+
+    # Voicemail / answering machine signature phrases. AMD on the Twilio side
+    # filters most of these before they ever reach the bridge, but a smart
+    # network's voicemail can answer fast enough to fool DetectMessageEnd, and
+    # tenants who run AMD=off rely entirely on this hook. We match only on the
+    # FIRST few seconds of STT — past that, real conversations can legitimately
+    # mention "leave a message" etc. (e.g. patient saying "should I leave a
+    # message with reception?") without triggering a false hangup.
+    _voicemail_re = _re.compile(
+        r"\b("
+        r"voice\s*mail|leave\s+a\s+message|leave\s+your\s+(name|message)"
+        r"|please\s+(record|leave)|after\s+the\s+(tone|beep|signal)"
+        r"|recording\s+your\s+message|at\s+the\s+(tone|beep)"
+        r"|i('?m|\s+am)\s+(not|unable)\s+(available|able\s+to\s+(take|answer))"
+        r"|can(?:'?t|\s+not)\s+(take|come\s+to|answer)\s+(the|your|my)?\s*(call|phone)"
+        r"|you('?ve|\s+have)\s+reached\s+the\s+(voicemail|message)"
+        r"|sorry\s+i\s+(missed|can(?:'?t|\s+not)\s+(take|answer))"
+        # UK / Vodafone / EE / O2 / Three carrier announcements when the
+        # destination is busy, off, ringing-out, or out of service. These
+        # don't say "leave a message" but they're 100% deterministic — there
+        # is no human at the end. Drop the call before Charlotte burns 20s
+        # waiting for an answer.
+        r"|(?:is\s+|currently\s+|line\s+|number\s+|are\s+)?busy(?:\s+at\s+the\s+moment|\s+right\s+now)?"
+        r"|(?:please\s+)?try(?:\s+your\s+call)?\s+(?:again|later)"
+        r"|cannot\s+be\s+(reached|connected|completed)"
+        r"|(?:may\s+be\s+|is\s+)?(?:switched\s+off|powered\s+off|turned\s+off)"
+        r"|(?:is\s+)?(?:not\s+)?(?:reachable|available|in\s+service|recognised|recognized|valid)"
+        r"|no\s+longer\s+(?:in\s+service|available|exists|recognized|recognised)"
+        r"|the\s+(?:number|person|party|mobile|line)\s+you\s+(?:are\s+calling|have\s+(?:dialed|dialled))"
+        r"|number\s+(?:you('?ve|\s+have))?\s*dialed"
+        r"|out\s+of\s+(?:service|range|coverage|the\s+(?:office|country))"
+        r"|(?:please\s+)?(?:hang\s+up|redial)\s+and\s+try"
+        r"|disconnected|temporarily\s+unavailable"
+        # French (carrier-style)
+        r"|messagerie|laisser\s+un\s+message|laissez\s+(un\s+message|votre\s+message)"
+        r"|apr[èe]s\s+le\s+(bip|signal)|n'?est\s+pas\s+disponible"
+        r"|vous\s+[êe]tes\s+sur\s+la\s+messagerie"
+        r"|(?:est|sont)\s+occup[ée]e?s?|essayez\s+(?:de\s+nouveau|plus\s+tard|ult[ée]rieurement)"
+        r"|correspondant\s+(?:n[\s']*est\s+pas\s+(?:joignable|disponible)|est\s+inaccessible)"
+        r"|(?:hors\s+service|injoignable|pas\s+attribu[ée])"
+        r")\b",
+        _re.IGNORECASE,
+    )
+
+    # Window during which we accept STT-based voicemail detection. After this,
+    # we trust the agent is in a real conversation and don't second-guess it.
+    voicemail_detect_window = float(os.getenv("VOICEMAIL_DETECT_WINDOW_SECS", "8.0"))
+
+    # Distress / safety phrases that MUST trigger immediate handoff in a
+    # healthcare context. We listen across the WHOLE call (not just the first
+    # few seconds like voicemail) because a patient might disclose distress
+    # mid-conversation. Matches are not fatal on their own — we let the agent
+    # acknowledge the situation, schedule a human callback flagged URGENT,
+    # then hang up cleanly.
+    #
+    # Two tiers:
+    #   • _medical_emergency_re : medical or life-threat — Charlotte ALSO
+    #     reminds the patient to call 999.
+    #   • _distress_re : bereavement, family crisis, "can't talk now" —
+    #     Charlotte acknowledges, schedules callback, hangs up. No 999.
+    _medical_emergency_re = _re.compile(
+        r"\b("
+        r"chest\s+pain|can(?:'?t|\s+not)\s+breathe|breathing\s+(?:problem|difficulty)"
+        r"|heart\s+attack|stroke|seizure|unconscious|bleeding"
+        r"|overdose|allergic\s+reaction|anaphyla"
+        r"|suicid|self.?harm|kill\s+myself|end\s+my\s+life"
+        r"|999|112|emergency\s+(?:room|services|ambulance)|A&E|accident\s+and\s+emergency"
+        r"|douleur\s+(?:dans|à)\s+la\s+poitrine|crise\s+cardiaque|AVC"
+        r"|n('?est|\s+est)\s+plus\s+conscient"
+        r")\b",
+        _re.IGNORECASE,
+    )
+    _distress_re = _re.compile(
+        r"\b("
+        r"can(?:'?t|\s+not)\s+talk\s+(?:now|right\s+now|at\s+the\s+moment)"
+        r"|(?:my|a)\s+(?:mum|mom|mother|dad|father|husband|wife|son|daughter|brother|sister|child|baby)\s+"
+            r"(?:just\s+)?(?:died|passed\s+away|passed|is\s+dying)"
+        r"|funeral|terminal\s+(?:illness|diagnos)|just\s+lost\s+(?:my|a)"
+        r"|family\s+(?:emergency|crisis|tragedy)"
+        r"|in\s+the\s+hospital|at\s+the\s+hospital|in\s+intensive\s+care|in\s+ICU"
+        r"|je\s+ne\s+peux\s+pas\s+(?:parler|vous\s+parler)\s+(?:maintenant|là)"
+        r"|(?:ma|mon)\s+(?:mère|père|mari|femme|fils|fille|frère|sœur|enfant|bébé)\s+"
+            r"(?:est|vient\s+de|viens\s+de)\s+(?:mourir|décéd|partir)"
+        r"|enterrement|obsèques"
         r")\b",
         _re.IGNORECASE,
     )
@@ -933,9 +1175,27 @@ def _install_call_hygiene(
     state = {
         "last_user_ts": _t.monotonic(),
         "last_agent_ts": _t.monotonic(),
+        "call_started_at": _t.monotonic(),
         "goodbye_armed_at": None,  # monotonic ts when goodbye phrase was detected
         "hung_up": False,
+        # The agent is considered 'active' (speaking / thinking) while
+        # session.agent_state is "speaking" or "thinking". The idle watchdog
+        # skips its hangup check while the agent is active so a long TTS
+        # turn (e.g. Charlotte explaining the NHS S2 pathway) can't be
+        # cut off mid-sentence at the 5s idle threshold.
+        "agent_active": False,
+        # Race-safety: save_contact_data writes to leads_rdv via HTTP. If the
+        # idle timer fires WHILE that write is in flight, the asyncio.to_thread
+        # call can be cancelled and the leads_rdv update silently lost. The
+        # tool flips this counter around its call, and the watchdog refuses
+        # to hang up while it's > 0.
+        "save_in_flight": 0,
     }
+    # Stash the state on the module-level map keyed by call_id so the
+    # save_contact_data tool (built in a separate scope) can find it.
+    cid = getattr(ctx, "_call_id", None)
+    if cid:
+        _HYGIENE_STATES[cid] = state
 
     async def _hangup(reason: str) -> None:
         if state["hung_up"]:
@@ -948,6 +1208,57 @@ def _install_call_hygiene(
             _evt(cid, "auto_hangup", {"reason": reason})
         except Exception:
             pass
+        # Stamp an explicit qualification when the hangup reason carries one.
+        # Without this, auto_qualify_call runs at session shutdown BEFORE the
+        # Twilio status callback delivers the final CallDuration — duration is
+        # 0 at that moment, so the heuristic mis-classifies a clearly detected
+        # voicemail as PAS DE REPONSE. We pre-stamp REPONDEUR / A PASSER A
+        # L'HUMAIN here so auto_qualify_call sees an explicit qualification
+        # and skips its duration-based branching entirely.
+        qualification_for_reason: Optional[str] = None
+        # Match the STT-regex hangup specifically — the idle watchdog also
+        # mentions "voicemail" in its catch-all reason ("idle 5s — likely
+        # voicemail or dropped audio") and we MUST NOT auto-stamp REPONDEUR
+        # on a real human who just stayed silent after the greeting. Only
+        # the explicit voicemail STT detection writes REPONDEUR.
+        reason_lower = reason.lower()
+        if "voicemail detected via stt" in reason_lower:
+            qualification_for_reason = "REPONDEUR"
+            qualification_source_for_reason = "voicemail_stt"
+        elif "distress detected" in reason_lower:
+            qualification_for_reason = "A PASSER A L'HUMAIN"
+            qualification_source_for_reason = "distress_detected"
+        else:
+            qualification_source_for_reason = None
+        if qualification_for_reason:
+            try:
+                cid = getattr(ctx, "_call_id", None)
+                if cid:
+                    from db_writes import update_call_metadata as _upd_meta
+                    await asyncio.to_thread(
+                        _upd_meta,
+                        cid,
+                        {
+                            "qualification": qualification_for_reason,
+                            "qualification_source": qualification_source_for_reason,
+                        },
+                    )
+            except Exception:
+                clog.exception(
+                    "auto_hangup: stamp qualification failed (call=%s)", cid,
+                )
+        # Force-end the call on Twilio's side too. SIP BYE from LK Cloud to
+        # Twilio can take 8-12s to propagate, during which the patient's
+        # phone is still 'connected' to dead silence — patient experience
+        # 'why is this still on the line?' even though the agent left. The
+        # Twilio REST update completes in <1s.
+        try:
+            _call_id_now = getattr(ctx, "_call_id", None)
+            twilio_sid = await asyncio.to_thread(_lookup_twilio_call_sid, _call_id_now)
+            if twilio_sid:
+                await asyncio.to_thread(_twilio_end_call, twilio_sid, clog, _call_id_now)
+        except Exception:
+            clog.exception("auto_hangup: twilio end-call failed")
         # Politely end the room. delete_room would be the hard kill but
         # disconnect lets the session shut down cleanly and the post-call
         # pipeline run.
@@ -956,10 +1267,168 @@ def _install_call_hygiene(
         except Exception:
             clog.exception("auto_hangup: ctx.room.disconnect() failed")
 
-    def _on_user_speech(*_a, **_k) -> None:
+    # Low-confidence STT tracking — when AssemblyAI returns a transcript
+    # with a low confidence score it usually means the patient has a strong
+    # accent, is far from the mic, or the line is noisy. Two consecutive
+    # low-confidence final turns trigger a polite "could you repeat that?"
+    # instead of letting Charlotte plough on with a possibly-wrong intent.
+    # Threshold is conservative (0.6) — most clean AssemblyAI Universal-2
+    # turns sit above 0.85, accented but intelligible turns above 0.70.
+    low_conf_threshold = float(os.getenv("STT_LOW_CONFIDENCE_THRESHOLD", "0.6"))
+    state["low_conf_streak"] = 0
+
+    def _on_user_speech(ev=None, *_a, **_k) -> None:
         state["last_user_ts"] = _t.monotonic()
         # Patient is talking again — cancel any armed goodbye.
         state["goodbye_armed_at"] = None
+        # Track final-turn confidence. Only `is_final` turns are stable
+        # enough to act on; interims swing wildly. When we hit 2 lows in
+        # a row, ask the patient to repeat (in a thread to avoid blocking
+        # the STT callback) and reset the streak so we don't re-ask every
+        # turn.
+        try:
+            is_final = bool(getattr(ev, "is_final", True)) if ev is not None else True
+            confidence = (
+                getattr(ev, "confidence", None) if ev is not None else None
+            )
+            if is_final and isinstance(confidence, (int, float)) and confidence > 0:
+                if confidence < low_conf_threshold:
+                    state["low_conf_streak"] = state.get("low_conf_streak", 0) + 1
+                else:
+                    state["low_conf_streak"] = 0
+                if state["low_conf_streak"] >= 2 and not state["hung_up"]:
+                    state["low_conf_streak"] = 0
+                    clog.info(
+                        "call hygiene: low STT confidence streak (last=%.2f) — asking patient to repeat",
+                        float(confidence),
+                    )
+
+                    async def _ask_repeat() -> None:
+                        try:
+                            await session.say(
+                                text="I'm sorry, the line isn't very clear — could you repeat that?",
+                                allow_interruptions=True,
+                            )
+                        except Exception:
+                            clog.debug("call hygiene: repeat prompt failed", exc_info=True)
+
+                    asyncio.create_task(_ask_repeat())
+        except Exception:
+            clog.debug("call hygiene: confidence check failed", exc_info=True)
+        # Distress / medical-emergency detection — runs on EVERY user turn
+        # for the whole call, not just the voicemail window. A safety
+        # hit fires once, then the flag prevents re-triggering.
+        try:
+            if not state.get("distress_handled") and not state["hung_up"]:
+                text_for_distress = (
+                    getattr(ev, "transcript", None) or getattr(ev, "text", None)
+                    if ev is not None else None
+                )
+                if text_for_distress:
+                    txt = str(text_for_distress)
+                    is_medical = bool(_medical_emergency_re.search(txt))
+                    is_distress = is_medical or bool(_distress_re.search(txt))
+                    if is_distress:
+                        state["distress_handled"] = True
+                        clog.warning(
+                            "call hygiene: %s detected via STT: %r",
+                            "medical_emergency" if is_medical else "distress",
+                            txt[:160],
+                        )
+
+                        async def _safe_exit() -> None:
+                            # 1. Acknowledge + ALWAYS reference 999 if medical.
+                            try:
+                                if is_medical:
+                                    msg = (
+                                        "I'm really sorry to hear that. Please "
+                                        "call 999 right now if you need urgent "
+                                        "help. I'll have someone from our team "
+                                        "call you back as soon as possible."
+                                    )
+                                else:
+                                    msg = (
+                                        "I'm so sorry to hear that. I won't "
+                                        "keep you on the line — I'll have "
+                                        "someone from our team call you back "
+                                        "at a better time. Take care."
+                                    )
+                                await session.say(text=msg, allow_interruptions=False)
+                            except Exception:
+                                clog.debug("safe_exit: say failed", exc_info=True)
+                            # 2. Log a structured event so we can audit these.
+                            try:
+                                from db_writes import append_call_event as _evt
+                                cid = getattr(ctx, "_call_id", None)
+                                _evt(
+                                    cid,
+                                    "distress_detected",
+                                    {
+                                        "tier": "medical_emergency" if is_medical else "distress",
+                                        "snippet": txt[:200],
+                                    },
+                                )
+                            except Exception:
+                                clog.exception("safe_exit: distress event log failed")
+                            # 3. Schedule URGENT human callback so a real
+                            #    person follows up the same day.
+                            try:
+                                base_url = (
+                                    os.getenv("NEXT_PUBLIC_APP_URL")
+                                    or (f"https://{os.getenv('VERCEL_URL')}" if os.getenv("VERCEL_URL") else None)
+                                )
+                                token = os.getenv("INTERNAL_AGENT_API_TOKEN")
+                                cid = getattr(ctx, "_call_id", None)
+                                if base_url and token and axon and getattr(axon, "org_id", None):
+                                    import httpx as _httpx
+                                    payload = {
+                                        "org_id": axon.org_id,
+                                        "contact_id": (axon.contact.get("id") if getattr(axon, "contact", None) else None),
+                                        "original_call_id": cid,
+                                        "qualification": "A PASSER A L'HUMAIN",
+                                        "reason": (
+                                            "URGENT: "
+                                            + ("medical/safety distress" if is_medical else "patient distress / bereavement")
+                                            + " detected during call. Snippet: "
+                                            + txt[:160]
+                                        ),
+                                    }
+                                    try:
+                                        async with _httpx.AsyncClient(timeout=_httpx.Timeout(5.0)) as hc:
+                                            await hc.post(
+                                                f"{base_url.rstrip('/')}/api/agent-tools/transfer-to-human",
+                                                headers={
+                                                    "Authorization": f"Bearer {token}",
+                                                    "Content-Type": "application/json",
+                                                },
+                                                json=payload,
+                                            )
+                                    except Exception:
+                                        clog.exception("safe_exit: transfer-to-human POST failed")
+                            except Exception:
+                                clog.exception("safe_exit: callback schedule failed")
+                            # 4. Hang up — patient said they can't talk.
+                            await _hangup("distress detected — safe exit")
+
+                        asyncio.create_task(_safe_exit())
+                        return
+        except Exception:
+            clog.debug("call hygiene: distress check failed", exc_info=True)
+        # Voicemail detection: scan the first transcript chunks for the
+        # signature phrases. Only effective inside voicemail_detect_window —
+        # outside, the patient may legitimately mention these words.
+        try:
+            elapsed = _t.monotonic() - state["call_started_at"]
+            if elapsed > voicemail_detect_window or state["hung_up"]:
+                return
+            text = getattr(ev, "transcript", None) or getattr(ev, "text", None) if ev is not None else None
+            if not text:
+                return
+            if _voicemail_re.search(str(text)):
+                clog.info("call hygiene: voicemail detected via STT (t=%.1fs): %r", elapsed, str(text)[:120])
+                asyncio.create_task(_hangup("voicemail detected via STT"))
+        except Exception:
+            clog.debug("call hygiene: voicemail STT check failed", exc_info=True)
 
     def _on_item(ev) -> None:
         try:
@@ -970,15 +1439,67 @@ def _install_call_hygiene(
             text_attr = getattr(item, "text_content", None) if item else None
             text = text_attr() if callable(text_attr) else (text_attr or "")
             state["last_agent_ts"] = _t.monotonic()
+            # Estimate TTS playback duration from the text length and pin a
+            # 'speaking until' deadline so the watchdog can't fire mid-TTS
+            # even when agent_state_changed events aren't delivered (observed
+            # on multi-agent swarm handoffs to Victoria — Cartesia was 60+s
+            # into a long question and idle 5s still triggered). Cartesia
+            # speaks ~14-17 chars/sec; we use 12 chars/sec as a conservative
+            # rate so the deadline never undershoots. Buffer +2s for any
+            # network/packet variability at the end.
+            text_len = len(str(text)) if text else 0
+            if text_len > 0:
+                estimated_secs = max(2.0, text_len / 12.0 + 2.0)
+                state["agent_speaking_until"] = _t.monotonic() + estimated_secs
             if text and _goodbye_re.search(str(text)):
                 state["goodbye_armed_at"] = _t.monotonic()
                 clog.info("call hygiene: goodbye detected — will hang up in %.1fs", goodbye_grace)
         except Exception:
             clog.exception("call hygiene: item hook failed")
 
+    def _on_metrics(ev) -> None:
+        # LLMMetrics (TTFT) and TTSMetrics (TTFB) fire during the streaming
+        # window — much earlier than conversation_item_added, which only
+        # commits at the END of LLM generation. Without this hook a long
+        # TTS response (10-20s of Cartesia audio) looks like silence to
+        # the watchdog and the idle timer wrongly trips.
+        try:
+            metrics = getattr(ev, "metrics", None)
+            cls = type(metrics).__name__ if metrics is not None else ""
+            if cls in ("LLMMetrics", "TTSMetrics", "EOUMetrics"):
+                state["last_agent_ts"] = _t.monotonic()
+        except Exception:
+            pass
+
+    def _on_agent_state(ev) -> None:
+        # session.agent_state can be 'initializing' / 'listening' / 'thinking'
+        # / 'speaking'. Treat thinking + speaking as 'active': during these
+        # the agent is busy producing a turn and the idle watchdog must not
+        # fire (the patient is listening, not silent-and-gone). The flag is
+        # cleared the moment state goes back to 'listening', at which point
+        # the watchdog resumes from a fresh last_agent_ts.
+        try:
+            new_state = (
+                getattr(ev, "new_state", None)
+                or getattr(ev, "state", None)
+                or ""
+            )
+            new_state = str(new_state).lower()
+            if new_state in ("speaking", "thinking"):
+                state["agent_active"] = True
+                state["last_agent_ts"] = _t.monotonic()
+            else:
+                # transitions to listening / initializing / anything else
+                state["agent_active"] = False
+                state["last_agent_ts"] = _t.monotonic()
+        except Exception:
+            clog.debug("call hygiene: agent_state hook failed", exc_info=True)
+
     for ev_name, fn in (
         ("user_input_transcribed", _on_user_speech),
         ("conversation_item_added", _on_item),
+        ("metrics_collected", _on_metrics),
+        ("agent_state_changed", _on_agent_state),
     ):
         try:
             session.on(ev_name, fn)
@@ -989,9 +1510,38 @@ def _install_call_hygiene(
         try:
             # Give the first turn a head start — don't trip the timer
             # before the greeting + caller answer have had time to settle.
-            await asyncio.sleep(max(5.0, idle_timeout / 2))
+            # Head-start floor used to be 5.0 hardcoded. With idle_timeout
+            # now defaulting to 5.0 itself, max(5, 2.5) still gave 5 — fine.
+            # If an operator lowers IDLE_HANGUP_SECONDS below 5, also lower
+            # the head_start so a 2s idle target doesn't actually fire 5+ s
+            # late.
+            await asyncio.sleep(min(idle_timeout, max(3.0, idle_timeout / 2)))
             while not state["hung_up"]:
-                await asyncio.sleep(2.0)
+                # 1s poll keeps the worst-case overshoot of idle_timeout to
+                # 1s instead of the historic 2s. On a 5s idle target this
+                # changes 'fires at T+5..7' into 'fires at T+5..6' — patient
+                # hangs up one full second sooner on every silent call.
+                await asyncio.sleep(1.0)
+                # Honour in-flight saves: if save_contact_data is mid-PATCH,
+                # delay any hangup until it completes so leads_rdv writes
+                # don't get lost when the asyncio task is cancelled.
+                if state.get("save_in_flight", 0) > 0:
+                    continue
+                # Honour active agent turns: if Charlotte is thinking or
+                # speaking, hold off on the idle decision. Observed in
+                # prod: a long TTS turn (Charlotte explaining the NHS S2
+                # pathway) was cut at exactly idle_timeout because
+                # last_agent_ts froze at the START of the turn. We honour
+                # two signals: the session.agent_state_changed event (when
+                # LiveKit delivers it — most reliable for single-agent
+                # sessions) AND the agent_speaking_until deadline computed
+                # from the latest assistant item's text length (backup for
+                # the multi-agent swarm path, where state events for
+                # Victoria/Isabelle weren't getting through and a 60s+
+                # Cartesia question still tripped the 5s idle).
+                if state.get("agent_active") or _t.monotonic() < state.get("agent_speaking_until", 0):
+                    state["last_agent_ts"] = _t.monotonic()
+                    continue
                 now = _t.monotonic()
                 # Goodbye-armed path wins because it's the most deterministic.
                 ga = state["goodbye_armed_at"]
@@ -1383,6 +1933,28 @@ async def entrypoint(ctx: JobContext) -> None:
             if agent_id:
                 break
 
+    # Resolve call_id from the SIP participant attributes when the room
+    # metadata path didn't yield one. This is the Path B outbound case: the
+    # dialer doesn't pre-create the calls row, the Twilio status webhook does,
+    # and /api/twilio-voice forwards the resolved id on the SIP INVITE as
+    # X-LK-Call-Id. Without this fallback, ctx._call_id stays None for every
+    # Twilio-bridged call → auto_qualify_call(None) early-returns →
+    # calls.metadata.qualification is never written → dashboard's "Ce qu'ils
+    # ont dit" stays at zero. (Same sip.h.* gotcha as agent_id: the literal
+    # 'X-LK-Call-Id' string is what `axon.call_id` resolves to if it's mapped
+    # via the dispatch rule attributes block, so we prefer the lowercase
+    # forwarded-header key first.)
+    if not call_id:
+        candidate = (
+            p_attrs.get("sip.h.x-lk-call-id")
+            or p_attrs.get("call_id")
+            or p_attrs.get("axon.call_id")
+        )
+        if candidate and not str(candidate).startswith("X-LK-"):
+            call_id = str(candidate)
+            clog = _logger_for_call(call_id)
+            clog.info("resolved call_id=%s from SIP participant attrs", call_id)
+
     clog.info(
         "resolved agent_id=%s (room_meta=%s, p_attrs_keys=%s, p_meta=%s)",
         agent_id, bool(ctx.room.metadata), list(p_attrs.keys()), bool(p_meta),
@@ -1602,15 +2174,13 @@ async def entrypoint(ctx: JobContext) -> None:
     # and fall back to the old kwargs otherwise. Either way, signature-filter
     # so unknown kwargs are dropped instead of crashing.
     #
-    # Default raised from 0.10s → 0.80s after a real-world OCC call where the
-    # patient gave their name and date of birth as 3 separate fragments
-    # ("Megan, Claudia, Kenneth" / pause / "17 more" / pause / "1993").
-    # At 0.10s each pause looked like an end-of-turn and the LLM started a new
-    # turn, cancelling the previous one. After 3 cancellations the pipeline
-    # got wedged and Victoria stopped responding entirely. 0.80s groups
-    # natural fragmented speech into a single turn while still feeling
-    # conversational. Override via MIN_ENDPOINTING_DELAY env var if needed.
-    min_endp = float(os.getenv("MIN_ENDPOINTING_DELAY", "0.8"))
+    # Default 0.55s — measured compromise. 0.10s was too aggressive (fragmented
+    # speech like "Megan, Claudia, Kenneth / 17 / 1993" got split into 3 turns,
+    # wedging the pipeline). 0.80s was safe but added ~250ms perceived lag on
+    # every turn (EOU climbed from ~1.4s to ~1.7s in production logs).
+    # 0.55s preserves fragmented-speech grouping for short pauses while
+    # cutting the average response time. Override via MIN_ENDPOINTING_DELAY.
+    min_endp = float(os.getenv("MIN_ENDPOINTING_DELAY", "0.55"))
 
     new_api_applied = False
     try:
@@ -1765,10 +2335,21 @@ async def entrypoint(ctx: JobContext) -> None:
     try:
         from db_writes import update_call_metadata as _ucm
         room_name = getattr(ctx.room, "name", None)
-        if room_name and call_id:
-            await asyncio.to_thread(_ucm, call_id, {"lk_room_name": room_name})
+        meta_patch: dict = {}
+        if room_name:
+            meta_patch["lk_room_name"] = room_name
+        # Twilio CallSid is forwarded by LiveKit's SIP plugin as a participant
+        # attribute. Capture it so /api/dashboard/call-recording can lazily
+        # backfill the trunk-level recording (Twilio's trunk recording doesn't
+        # post a webhook — the only way to find the audio is the Recordings
+        # REST API, keyed by CallSid).
+        twilio_sid = p_attrs.get("sip.twilio.callSid") or p_attrs.get("sip.twilio.callsid")
+        if twilio_sid and call_id:
+            meta_patch["twilio_call_sid"] = str(twilio_sid)
+        if meta_patch and call_id:
+            await asyncio.to_thread(_ucm, call_id, meta_patch)
     except Exception:
-        clog.exception("could not stamp lk_room_name on calls.metadata")
+        clog.exception("could not stamp lk_room_name/twilio_call_sid on calls.metadata")
     _wire_transcript_hooks(session, call_id)
     _wire_latency_metrics(session, clog)
     _wire_debug_logs(session, clog)
@@ -1851,6 +2432,19 @@ async def entrypoint(ctx: JobContext) -> None:
             clog.exception("BackgroundAudioPlayer setup failed; continuing without filler audio")
 
     async def _on_shutdown():
+        # 0. Wait briefly for any in-flight save_contact_data to complete
+        #    BEFORE we finalize. The save_in_flight counter is bumped by
+        #    the tool around its HTTP PATCH; if the watchdog or the room
+        #    closed mid-call, the write may still be racing.
+        try:
+            _hyg = _HYGIENE_STATES.get(call_id or "")
+            if isinstance(_hyg, dict):
+                for _ in range(50):  # up to 5s waiting in 100ms slices
+                    if int(_hyg.get("save_in_flight", 0)) <= 0:
+                        break
+                    await asyncio.sleep(0.1)
+        except Exception:
+            pass
         # 1. Write definitive call state to the DB so the dashboard shows a
         #    finished call. Necessary because Twilio's StatusCallback often
         #    can't reach our Vercel endpoint (APP_URL env mismatch on Fly /
@@ -1877,6 +2471,16 @@ async def entrypoint(ctx: JobContext) -> None:
             )
         except Exception:
             clog.exception("finalize_call_state failed at shutdown")
+        # 1b. Heuristic qualification fallback when the AI didn't write one.
+        #     MUST run AFTER finalize_call_state so duration_secs is fresh,
+        #     and BEFORE the post-call summary pipeline so the LLM summary
+        #     can see the inferred bucket. Never overrides an explicit
+        #     qualification set by save_contact_data.
+        try:
+            from db_writes import auto_qualify_call as _auto_q
+            await asyncio.to_thread(_auto_q, call_id)
+        except Exception:
+            clog.exception("auto_qualify_call failed at shutdown")
         # 2. Trigger LLM summary + analysis (best-effort, needs APP_URL set).
         try:
             trigger_post_call_pipeline(call_id)
@@ -1903,6 +2507,13 @@ async def entrypoint(ctx: JobContext) -> None:
             # Best-effort. A failed DeleteRoom only leaks one room and the
             # post-call pipeline already fired above.
             clog.exception("room cleanup: DeleteRoom failed")
+        # Drop the per-call hygiene state from the module-level map so the
+        # process doesn't accumulate state for finished calls.
+        try:
+            if call_id and call_id in _HYGIENE_STATES:
+                _HYGIENE_STATES.pop(call_id, None)
+        except Exception:
+            pass
 
     try:
         ctx.add_shutdown_callback(_on_shutdown)

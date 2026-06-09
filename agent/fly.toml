@@ -37,5 +37,12 @@ primary_region = "cdg"
 [processes]
   worker = "python agent.py start"
 
+# NOTE: keep-warm settings (auto_stop_machines, min_machines_running) are
+# NOT valid at the root level of fly.toml for non-[http_service] apps —
+# adding them causes "cannot unmarshal bool into Config.processes" and
+# blocks every deploy. They are configured via the Fly Machines UI:
+#   Dashboard → axon-agent → Machines → click machine → Auto-stop = off
+# and the app-level Scale count = 1.
+
 [deploy]
   strategy = "rolling"
