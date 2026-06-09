@@ -109,24 +109,27 @@ export async function POST(request: Request) {
   // Cap how many calls one request will classify (cost / time guard). One pass
   // now also detects the agent-chain stage, and the client drains in a loop, so
   // keep batches comfortably under maxDuration.
-  const limit = Math.min(25, Math.max(1, Number(searchParams.get("limit") ?? 15)));
+  const limit = Math.min(40, Math.max(1, Number(searchParams.get("limit") ?? 20)));
   const source = parseLeadsSource(searchParams);
   const system = parseCallSystem(searchParams.get("system"));
 
   try {
     const { ids } = await countCandidates(orgId, days, source, system);
     const batch = ids.slice(0, limit);
+    // Process with light concurrency so a batch finishes in a few seconds
+    // instead of (limit × ~3s) sequentially — keeps the background drain quick.
+    const CONCURRENCY = 5;
     const results: QualifyResult[] = [];
-    for (const id of batch) {
-      try {
-        results.push(await qualifyCall(id));
-      } catch (e) {
-        results.push({
-          call_id: id,
-          status: "no_evidence",
-          reason: e instanceof Error ? e.message : String(e),
-        });
-      }
+    for (let i = 0; i < batch.length; i += CONCURRENCY) {
+      const slice = batch.slice(i, i + CONCURRENCY);
+      const settled = await Promise.allSettled(slice.map((id) => qualifyCall(id)));
+      settled.forEach((s, j) => {
+        results.push(
+          s.status === "fulfilled"
+            ? s.value
+            : { call_id: slice[j], status: "no_evidence", reason: s.reason instanceof Error ? s.reason.message : String(s.reason) },
+        );
+      });
     }
     const qualified = results.filter((r) => r.status === "qualified").length;
     return NextResponse.json({
