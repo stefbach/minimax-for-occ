@@ -75,6 +75,7 @@ const NAV: NavItem[] = [
   // visibility AND the requiredRoles fine-grained gate (since /desk
   // itself is open to agents).
   { href: "/desk/supervise", label: "Supervision Appels du jour", icon: "◷", group: "Opérations", module: "desk", requiredRoles: SUPERVISOR_ROLES },
+  { href: "/supervise/live", label: "Supervision live",            icon: "◉", group: "Opérations", module: "desk", requiredRoles: SUPERVISOR_ROLES },
 
   // ─── DONNÉES ───
   { href: "/contacts",       label: "CRM / Contacts",      icon: "◐", group: "Données", module: "contacts" },
