@@ -53,7 +53,8 @@ const NAV: NavItem[] = [
   { href: "/start",     label: "Démarrage guidé",  icon: "✦", group: "Overview" },
   { href: "/dashboard", label: "Tableau d'analyse", icon: "▣", group: "Overview", module: "dashboard" },
   { href: "/copilot",   label: "Co-pilot manager", icon: "✸", group: "Overview", module: "copilot" },
-  { href: "/desk",      label: "Mon poste",        icon: "⌂", group: "Overview", module: "desk" },
+  { href: "/desk",          label: "Mon poste",    icon: "⌂", group: "Overview", module: "desk" },
+  { href: "/mes-patients",  label: "Mes patients", icon: "☰", group: "Overview", module: "desk" },
   { href: "/alerts",    label: "Alertes",          icon: "!", group: "Overview", module: "alerts" },
 
   // ─── CONFIGURATION ───
