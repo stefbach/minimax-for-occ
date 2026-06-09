@@ -17,11 +17,14 @@ const SUPERVISOR_ROLES = new Set([
 /**
  * GET /api/desk/agents
  *
- * Returns the org's human agents (memberships.role = 'agent') joined with
- * profiles.is_active so the supervisor reassign dropdown can label users
- * + skip inactive ones. Restricted to supervisor+ roles since the user
- * list itself is sensitive.
+ * Returns the org's agents-eligible members joined with profiles.is_active
+ * so the supervisor reassign dropdown can label users + skip inactive
+ * ones. "Agents-eligible" = anyone who can take a call: the agent role
+ * itself, plus supervisor (so Summer can self-assign a lead she wants to
+ * handle directly) and manager. Restricted to supervisor+ roles since
+ * the user list itself is sensitive.
  */
+const CAN_TAKE_CALLS = ["agent", "supervisor", "manager"];
 export async function GET(req: Request) {
   if (!hasSupabase()) return NextResponse.json({ agents: [] });
   const sb = await supabaseSession();
@@ -40,7 +43,7 @@ export async function GET(req: Request) {
     .from("memberships")
     .select("user_id, role")
     .eq("org_id", orgId)
-    .eq("role", "agent");
+    .in("role", CAN_TAKE_CALLS);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   const ids = (mems ?? []).map((m) => (m as { user_id: string }).user_id);
