@@ -275,7 +275,11 @@ export function CampaignWizard({
     maxConcurrency: template?.defaults.maxConcurrency ?? 5,
     maxAttempts: template?.defaults.maxAttempts ?? 3,
     retryDelayMin: template?.defaults.retryDelayMin ?? 60,
-    amdEnabled: template?.defaults.amdEnabled ?? true,
+    // New campaigns default to AMD off. Twilio's MachineDetection has too
+    // many false positives on real humans who don't speak in the first 1-3s
+    // — the agent's STT regex + idle watchdog do the same job without
+    // cutting humans off. Templates can still re-enable it explicitly.
+    amdEnabled: template?.defaults.amdEnabled ?? false,
     days: template?.defaults.days ?? [1, 2, 3, 4, 5],
     timezone: template?.defaults.timezone ?? "Indian/Mauritius",
     hourStart: template?.defaults.hourStart ?? "09:00",
@@ -1247,7 +1251,7 @@ export function CampaignWizard({
             {showAdvanced ? "▾" : "▸"} Réglages avancés
           </span>
           <span className="muted" style={{ fontSize: 12 }}>
-            {maxConcurrency} simultanés · {maxAttempts} tentative{maxAttempts > 1 ? "s" : ""} · retry {retryDelayMin} min · AMD {amdEnabled ? "on" : "off"}
+            {maxConcurrency} simultanés · {maxAttempts} tentative{maxAttempts > 1 ? "s" : ""} · retry {retryDelayMin} min
           </span>
         </button>
 
@@ -1308,17 +1312,12 @@ export function CampaignWizard({
                 </div>
               </div>
             </div>
-            <div style={{ marginTop: 12 }}>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={amdEnabled}
-                  onChange={(e) => setAmdEnabled(e.target.checked)}
-                  style={{ width: "auto", marginRight: 8 }}
-                />
-                Détection de répondeur (AMD)
-              </label>
-            </div>
+            {/* AMD checkbox intentionally removed from the wizard — the
+                voicemail detection stack now relies on the agent's STT regex
+                + idle watchdog instead of Twilio AMD (which kept false-
+                positiving real humans who didn't speak in the first 1-3s).
+                The amd_enabled flag is preserved on the row so existing
+                campaigns and edit-page experiments keep working. */}
           </div>
         )}
       </section>
@@ -1349,8 +1348,7 @@ export function CampaignWizard({
                 : `${targets.length} cible${targets.length === 1 ? "" : "s"} (liste fixe)`}
           </li>
           <li>
-            Concurrence {maxConcurrency} · Retries {maxAttempts} ({retryDelayMin}min) · AMD{" "}
-            {amdEnabled ? "on" : "off"}
+            Concurrence {maxConcurrency} · Retries {maxAttempts} ({retryDelayMin}min)
           </li>
           {dynamicMode && engineConfig ? (
             <li>
