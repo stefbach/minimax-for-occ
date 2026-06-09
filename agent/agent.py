@@ -1118,10 +1118,16 @@ def _install_call_hygiene(
         # L'HUMAIN here so auto_qualify_call sees an explicit qualification
         # and skips its duration-based branching entirely.
         qualification_for_reason: Optional[str] = None
-        if "voicemail" in reason.lower():
+        # Match the STT-regex hangup specifically — the idle watchdog also
+        # mentions "voicemail" in its catch-all reason ("idle 5s — likely
+        # voicemail or dropped audio") and we MUST NOT auto-stamp REPONDEUR
+        # on a real human who just stayed silent after the greeting. Only
+        # the explicit voicemail STT detection writes REPONDEUR.
+        reason_lower = reason.lower()
+        if "voicemail detected via stt" in reason_lower:
             qualification_for_reason = "REPONDEUR"
             qualification_source_for_reason = "voicemail_stt"
-        elif "distress" in reason.lower():
+        elif "distress detected" in reason_lower:
             qualification_for_reason = "A PASSER A L'HUMAIN"
             qualification_source_for_reason = "distress_detected"
         else:
