@@ -1044,6 +1044,14 @@ def _install_call_hygiene(
     import time as _t
     idle_timeout = float(os.getenv("IDLE_HANGUP_SECONDS", str(idle_timeout)))
     goodbye_grace = float(os.getenv("GOODBYE_GRACE_SECONDS", str(goodbye_grace)))
+    # In-conversation idle target. After the patient has spoken at least
+    # once, LLM thinking + TTS startup + the multi-agent handoff dance can
+    # routinely span 5-12s of silence even on a healthy session — staying
+    # at 5s cuts the agent mid-thought. 20s is generous enough to cover
+    # Cartesia cold-start tails without keeping a truly dropped call alive.
+    conversational_idle = float(
+        os.getenv("CONVERSATIONAL_IDLE_HANGUP_SECONDS", "20.0"),
+    )
 
     # Patterns that, when the AGENT says them, indicate the call is wrapping
     # up. Cover English (OCC primary), French, Spanish, German — same
@@ -1184,6 +1192,14 @@ def _install_call_hygiene(
         # turn (e.g. Charlotte explaining the NHS S2 pathway) can't be
         # cut off mid-sentence at the 5s idle threshold.
         "agent_active": False,
+        # Two-mode watchdog. Before the patient has said anything, idle 5s
+        # is a fast voicemail / no-answer / silent-pickup detector. Once
+        # the patient has spoken at all the conversation is real and the
+        # idle target jumps to `conversational_idle_secs` — LLM thinking
+        # + TTS startup latency on the swarm path (Charlotte → Isabelle →
+        # Victoria) routinely spans 5-12s after a user turn, and the
+        # earlier 5s gate kept cutting the agent mid-thought.
+        "user_has_spoken": False,
         # Race-safety: save_contact_data writes to leads_rdv via HTTP. If the
         # idle timer fires WHILE that write is in flight, the asyncio.to_thread
         # call can be cancelled and the leads_rdv update silently lost. The
@@ -1279,6 +1295,7 @@ def _install_call_hygiene(
 
     def _on_user_speech(ev=None, *_a, **_k) -> None:
         state["last_user_ts"] = _t.monotonic()
+        state["user_has_spoken"] = True
         # Patient is talking again — cancel any armed goodbye.
         state["goodbye_armed_at"] = None
         # Track final-turn confidence. Only `is_final` turns are stable
@@ -1548,10 +1565,19 @@ def _install_call_hygiene(
                 if ga is not None and (now - ga) >= goodbye_grace and (now - state["last_user_ts"]) >= goodbye_grace:
                     await _hangup("goodbye + grace")
                     return
-                # Pure idle path.
+                # Pure idle path. The effective threshold escalates once
+                # the patient has spoken at all — see state['user_has_spoken']
+                # init for the rationale.
                 last_any = max(state["last_user_ts"], state["last_agent_ts"])
-                if now - last_any >= idle_timeout:
-                    await _hangup(f"idle {idle_timeout:.0f}s — likely voicemail or dropped audio")
+                effective_idle = (
+                    conversational_idle
+                    if state.get("user_has_spoken")
+                    else idle_timeout
+                )
+                if now - last_any >= effective_idle:
+                    await _hangup(
+                        f"idle {effective_idle:.0f}s — likely voicemail or dropped audio"
+                    )
                     return
         except asyncio.CancelledError:
             pass
