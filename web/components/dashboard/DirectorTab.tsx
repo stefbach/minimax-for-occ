@@ -128,7 +128,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
   const drainedSigRef = useRef<string>("");
 
   useEffect(() => {
-    if (!data || data.unqualified <= 0) return;
+    if (!data || (data.pendingAnalysis ?? data.unqualified) <= 0) return;
     const sig = `${from}|${to}|${leadsSource}|${system}`;
     if (drainedSigRef.current === sig) return; // already attempted this view
     drainedSigRef.current = sig;

@@ -18,10 +18,15 @@ type Row = {
   id: string;
   state: string | null;
   answered_at: string | null;
+  duration_secs: number | null;
   disposition: string | null;
   to_e164: string | null;
-  metadata: { qualification?: string | null } | null;
+  metadata: { qualification?: string | null; agent_stage?: number | null; source?: string } | null;
 };
+
+// Mirror analysis-runner's AGENT_STAGE_MIN_SECS: only long-enough calls are
+// candidates for agent-stage detection (a transfer never happens in seconds).
+const AGENT_STAGE_MIN_SECS = 60;
 
 // Backfill: find answered calls that currently fall into the hidden "autre"
 // bucket and have the AI assign a real qualification to each. Bounded per call
@@ -41,7 +46,7 @@ async function countCandidates(
     () =>
       sb
         .from("calls")
-        .select("id, state, answered_at, disposition, to_e164, metadata")
+        .select("id, state, answered_at, duration_secs, disposition, to_e164, metadata")
         .eq("org_id", orgId)
         .not("answered_at", "is", null)
         .gte("started_at", since)
@@ -50,11 +55,18 @@ async function countCandidates(
   );
   if (error) throw new Error(error);
   const scope = await leadsScopeFor(source);
+  // A call needs the AI pass if it's still unqualified ("autre") OR if it's a
+  // long-enough call whose agent-chain stage hasn't been detected yet. One pass
+  // handles both, so either reason makes it a candidate.
   const ids = data
     .filter((r) => !ACTIVE.has(r.state ?? ""))
     .filter((r) => callInLeadsScope(r.to_e164, scope))
-    .filter((r) => callMatchesSystem((r.metadata as { source?: string } | null)?.source, system))
-    .filter((r) => bucketForCall(r) === "autre")
+    .filter((r) => callMatchesSystem(r.metadata?.source, system))
+    .filter((r) => {
+      const needsQual = bucketForCall(r) === "autre";
+      const needsStage = r.metadata?.agent_stage == null && (r.duration_secs ?? 0) >= AGENT_STAGE_MIN_SECS;
+      return needsQual || needsStage;
+    })
     .map((r) => r.id);
   return { ids };
 }
@@ -94,8 +106,10 @@ export async function POST(request: Request) {
   }
   const { searchParams } = new URL(request.url);
   const days = Math.min(365, Math.max(1, Number(searchParams.get("days") ?? 30)));
-  // Cap how many calls one request will classify (cost / time guard).
-  const limit = Math.min(25, Math.max(1, Number(searchParams.get("limit") ?? 25)));
+  // Cap how many calls one request will classify (cost / time guard). One pass
+  // now also detects the agent-chain stage, and the client drains in a loop, so
+  // keep batches comfortably under maxDuration.
+  const limit = Math.min(25, Math.max(1, Number(searchParams.get("limit") ?? 15)));
   const source = parseLeadsSource(searchParams);
   const system = parseCallSystem(searchParams.get("system"));
 

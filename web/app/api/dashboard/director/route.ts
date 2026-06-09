@@ -38,6 +38,9 @@ export type DirectorResponse = {
   // Answered calls the agent left unqualified (hidden "autre" bucket). Surfaced
   // so the UI can offer post-hoc AI qualification instead of dropping them.
   unqualified: number;
+  // Answered calls still needing an AI pass — unqualified OR (long enough and)
+  // missing agent-chain stage detection. Drives the automatic background drain.
+  pendingAnalysis: number;
   slots: { matin: number; midi: number; soir: number; hors: number };
   phases: { rappel: PhaseStat; j1: PhaseStat; j3: PhaseStat; j5: PhaseStat };
   agentChain: { only1: number; plus2: number; plus3: number };
@@ -81,7 +84,7 @@ type CallRow = {
   contact_id: string | null;
   to_e164: string | null;
   summary: string | null;
-  metadata: { qualification?: string | null } | null;
+  metadata: { qualification?: string | null; agent_stage?: number | null } | null;
   agent_handles?: { display_name: string | null } | null;
   contacts?: { display_name: string | null } | null;
 };
@@ -257,8 +260,13 @@ export async function GET(request: Request) {
       const s = distinctByCall.get(ev.call_id);
       if (s) s.add(target);
     }
-    for (const s of distinctByCall.values()) {
-      const n = s.size || 1;
+    // Per call, the stage is the furthest agent reached — from structured
+    // handoff events (Axon/native) OR the AI-detected metadata.agent_stage
+    // (Retell, transcript-based). Whichever is higher wins; default 1.
+    for (const r of rows) {
+      const eventsN = distinctByCall.get(r.id)?.size ?? 0;
+      const stageMeta = Number(r.metadata?.agent_stage) || 0;
+      const n = Math.max(eventsN, stageMeta, 1);
       if (n >= 3) agentChain.plus3 += 1;
       else if (n === 2) agentChain.plus2 += 1;
       else agentChain.only1 += 1;
@@ -390,6 +398,12 @@ export async function GET(request: Request) {
       count: qcount[b.key],
     })),
     unqualified: qcount.autre,
+    pendingAnalysis: rows.filter((r) => {
+      if (!r.answered_at) return false;
+      const needsQual = bucketForCall(r) === "autre";
+      const needsStage = r.metadata?.agent_stage == null && (r.duration_secs ?? 0) >= 60;
+      return needsQual || needsStage;
+    }).length,
     slots,
     phases,
     agentChain,
