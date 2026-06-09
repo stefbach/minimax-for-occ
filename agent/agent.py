@@ -694,25 +694,58 @@ class AxonVoiceAgent(Agent):
         self._greeting = greeting
 
     async def on_enter(self) -> None:
-        # MARKER v5-simple-2026-06-08 — if you see this line in fly logs the
+        # MARKER v6-sip-gated-2026-06-09 — if you see this line in fly logs the
         # latest code is deployed; if not, fly/lk-cloud is still on old code.
-        logger.info("on_enter: marker v5-simple-2026-06-08 active")
-        # Pure TTS greeting — avoids an LLM call with an empty user message.
+        logger.info("on_enter: marker v6-sip-gated-2026-06-09 active")
+        if not self._greeting:
+            return
+        import time as _t
+        # Gate the greeting on the SIP participant actually being picked up.
+        # With Path A (LiveKit-originated outbound) the agent is dispatched
+        # in parallel with the SIP INVITE, so on_enter can run while the
+        # phone is still ringing. If we greet immediately, the patient hears
+        # the tail of the greeting at pickup (the bug: "I only caught the
+        # word 'megane'"). Wait until LiveKit reports sip.callStatus =
+        # "active" — that's the post-pickup state.
+        #
+        # Path B (Twilio createCall + TwiML <Dial><Sip>) and browser/desk
+        # sessions don't have a sip.callStatus attribute; on those we skip
+        # straight to the preroll like before.
+        max_gate_wait = float(os.getenv("GREETING_SIP_GATE_TIMEOUT_SECONDS", "30.0"))
+        gate_start = _t.monotonic()
+        sip_participant = None
+        try:
+            for p in self.session.room.remote_participants.values():
+                attrs = dict(getattr(p, "attributes", None) or {})
+                if "sip.callStatus" in attrs or any(k.startswith("sip.") for k in attrs):
+                    sip_participant = p
+                    break
+        except Exception:
+            sip_participant = None
+        if sip_participant is not None:
+            logger.info("greeting: SIP gate engaged, waiting for sip.callStatus=active")
+            while _t.monotonic() - gate_start < max_gate_wait:
+                attrs = dict(getattr(sip_participant, "attributes", None) or {})
+                status = (attrs.get("sip.callStatus") or "").lower()
+                if status == "active":
+                    logger.info(
+                        "greeting: SIP gate released (callStatus=active) after %.2fs",
+                        _t.monotonic() - gate_start,
+                    )
+                    break
+                await asyncio.sleep(0.2)
+            else:
+                logger.warning(
+                    "greeting: SIP gate timed out after %.1fs — greeting anyway",
+                    max_gate_wait,
+                )
         # Brief pre-roll so the first syllable isn't clipped while the PSTN
         # audio path finishes establishing (UK Twilio trunks take ~1s for
         # full RTP setup after pickup; Mauritius / browser sessions are
-        # instant). 1.0s is the historically-known-good value — earlier
-        # attempts at lower preroll or at gating the greeting behind
-        # participant/track/sip.callStatus signals over-engineered things
-        # and ended up blocking the greeting entirely in some setups
-        # (notably the browser voice simulator, which has no SIP
-        # participant to wait on). Stay simple.
-        if not self._greeting:
-            return
-        preroll = float(os.getenv("GREETING_PREROLL_SECONDS", "3.0"))
+        # instant).
+        preroll = float(os.getenv("GREETING_PREROLL_SECONDS", "1.0"))
         if preroll > 0:
             await asyncio.sleep(preroll)
-        import time as _t
         _b = _t.monotonic()
         logger.info("greeting: say() begin")
         try:
