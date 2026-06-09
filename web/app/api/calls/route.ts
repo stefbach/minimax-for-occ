@@ -94,10 +94,16 @@ export async function GET(request: Request) {
   // Prod/Test — the Live monitor shows all active calls regardless of the
   // selected source, but still labels each one.
   const testScope = await leadsScopeFor("test");
+  // Live monitor: trust ONLY the Twilio-tracked rows. The LiveKit agent path
+  // creates parallel, unlinked `calls` rows (no twilio_call_sid) for the same
+  // physical call, which never carry the ringing→in-progress→completed
+  // lifecycle and just add noise. twilio_only=1 keeps the authoritative leg.
+  const twilioOnly = searchParams.get("twilio_only") === "1";
 
-  const calls = ((data ?? []) as Array<{ id: string; started_at: string | null; to_e164: string | null; from_e164?: string | null; metadata: { source?: string } | null }>)
+  const calls = ((data ?? []) as Array<{ id: string; started_at: string | null; to_e164: string | null; from_e164?: string | null; metadata: { source?: string; twilio_call_sid?: string } | null }>)
     .filter((c) => callInLeadsScope(c.to_e164 ?? null, scope))
-    .filter((c) => callMatchesSystem(c.metadata?.source, system));
+    .filter((c) => callMatchesSystem(c.metadata?.source, system))
+    .filter((c) => !twilioOnly || Boolean(c.metadata?.twilio_call_sid));
 
   // Attach real cost per call (sum of usage_events whose metadata.call_id
   // matches). One aggregate query covers the whole list — cheap enough at

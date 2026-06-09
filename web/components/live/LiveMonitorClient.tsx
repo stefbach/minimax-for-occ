@@ -10,8 +10,8 @@ import { useT } from "@/lib/i18n";
 
 const ACTIVE_STATES = "ringing,ivr,in_progress,wrap_up";
 const RECENT_STATES = "ended,failed";
-const ACTIVE_POLL_MS = 5000;
-const RECENT_POLL_MS = 15000;
+const ACTIVE_POLL_MS = 2500;
+const RECENT_POLL_MS = 12000;
 
 const VOICEMAIL_RE = /repondeur|répondeur|voicemail|voice mail|mailbox/i;
 const ROBOT_RE = /robot|automate|automatique|bot/i;
@@ -174,7 +174,7 @@ export function LiveMonitorClient({ leadsSource = "prod", system = "all" }: { le
     try {
       // No leads_source filter on purpose: a live monitor must surface EVERY
       // active call (Prod or Test) — each card is tagged instead.
-      const r = await fetch(`/api/calls?state=${ACTIVE_STATES}&limit=100${sysQs}&enrich=lead`, { cache: "no-store" });
+      const r = await fetch(`/api/calls?state=${ACTIVE_STATES}&limit=100${sysQs}&enrich=lead&twilio_only=1`, { cache: "no-store" });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
       if (mounted.current) {
@@ -189,7 +189,7 @@ export function LiveMonitorClient({ leadsSource = "prod", system = "all" }: { le
 
   const fetchRecent = useCallback(async () => {
     try {
-      const r = await fetch(`/api/calls?state=${RECENT_STATES}&limit=40${sysQs}`, { cache: "no-store" });
+      const r = await fetch(`/api/calls?state=${RECENT_STATES}&limit=40${sysQs}&twilio_only=1`, { cache: "no-store" });
       const j = await r.json();
       if (r.ok && mounted.current) {
         const rows: CallRow[] = Array.isArray(j) ? j : [];
