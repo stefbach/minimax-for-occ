@@ -1487,7 +1487,14 @@ def _install_call_hygiene(
             # network/packet variability at the end.
             text_len = len(str(text)) if text else 0
             if text_len > 0:
-                estimated_secs = max(2.0, text_len / 12.0 + 2.0)
+                # Cartesia speaks ~15 chars/sec on average; +0.3s tail
+                # buffer is enough for the final phoneme to clear without
+                # adding multiple seconds of phantom "still speaking" time
+                # after every short utterance. The previous +2s buffer made
+                # a 20-char greeting look like 3.7s of speech (vs ~1.5s
+                # actual), which pushed the silence-detection floor from
+                # 5s to ~7s.
+                estimated_secs = max(1.0, text_len / 15.0 + 0.3)
                 state["agent_speaking_until"] = _t.monotonic() + estimated_secs
             if text and _goodbye_re.search(str(text)):
                 state["goodbye_armed_at"] = _t.monotonic()
@@ -1546,14 +1553,12 @@ def _install_call_hygiene(
 
     async def _watchdog() -> None:
         try:
-            # Give the first turn a head start — don't trip the timer
-            # before the greeting + caller answer have had time to settle.
-            # Head-start floor used to be 5.0 hardcoded. With idle_timeout
-            # now defaulting to 5.0 itself, max(5, 2.5) still gave 5 — fine.
-            # If an operator lowers IDLE_HANGUP_SECONDS below 5, also lower
-            # the head_start so a 2s idle target doesn't actually fire 5+ s
-            # late.
-            await asyncio.sleep(min(idle_timeout, max(3.0, idle_timeout / 2)))
+            # Give the first turn a small head start so the timer doesn't
+            # arm before the greeting has even started. With the 1s preroll
+            # + a short greeting + agent_speaking_until logic, a 1.5s
+            # head-start is plenty — the watchdog will then idle-skip if
+            # agent_speaking_until is still in the future.
+            await asyncio.sleep(min(idle_timeout, max(1.5, idle_timeout / 3)))
             while not state["hung_up"]:
                 # 1s poll keeps the worst-case overshoot of idle_timeout to
                 # 1s instead of the historic 2s. On a 5s idle target this
