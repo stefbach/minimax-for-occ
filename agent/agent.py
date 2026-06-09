@@ -97,7 +97,7 @@ def _lookup_twilio_call_sid(call_id: Optional[str]) -> Optional[str]:
         return None
 
 
-def _twilio_end_call(call_sid: str, clog: logging.LoggerAdapter) -> None:
+def _twilio_end_call(call_sid: str, clog: logging.LoggerAdapter, call_id: Optional[str] = None) -> None:
     """Force Twilio to mark a Call as completed via the REST API.
     Cuts the patient leg instantly instead of waiting for the SIP BYE to
     travel LK Cloud → Twilio. Never raises."""
@@ -116,15 +116,32 @@ def _twilio_end_call(call_sid: str, clog: logging.LoggerAdapter) -> None:
                 auth=(sid, token),
                 data={"Status": "completed"},
             )
-        if r.status_code >= 400:
+        ok = r.status_code < 400
+        if ok:
+            clog.info("twilio_end_call: ended Twilio call sid=%s", call_sid)
+        else:
             clog.warning(
                 "twilio_end_call: HTTP %d for sid=%s body=%s",
                 r.status_code, call_sid, (r.text or "")[:200],
             )
-        else:
-            clog.info("twilio_end_call: ended Twilio call sid=%s", call_sid)
+        # Drop a call_event trace so we can prove in the DB (without Fly
+        # logs) that the REST shortcut fired. Best-effort.
+        try:
+            from db_writes import append_call_event as _evt
+            _evt(call_id, "twilio_rest_end", {
+                "ok": ok,
+                "status_code": r.status_code,
+                "twilio_call_sid": call_sid,
+            })
+        except Exception:
+            pass
     except Exception:
         clog.exception("twilio_end_call: REST call failed (sid=%s)", call_sid)
+        try:
+            from db_writes import append_call_event as _evt
+            _evt(call_id, "twilio_rest_end", {"ok": False, "error": "exception"})
+        except Exception:
+            pass
 
 
 def _logger_for_call(call_id: Optional[str]) -> logging.LoggerAdapter:
@@ -1208,9 +1225,10 @@ def _install_call_hygiene(
         # 'why is this still on the line?' even though the agent left. The
         # Twilio REST update completes in <1s.
         try:
-            twilio_sid = await asyncio.to_thread(_lookup_twilio_call_sid, getattr(ctx, "_call_id", None))
+            _call_id_now = getattr(ctx, "_call_id", None)
+            twilio_sid = await asyncio.to_thread(_lookup_twilio_call_sid, _call_id_now)
             if twilio_sid:
-                await asyncio.to_thread(_twilio_end_call, twilio_sid, clog)
+                await asyncio.to_thread(_twilio_end_call, twilio_sid, clog, _call_id_now)
         except Exception:
             clog.exception("auto_hangup: twilio end-call failed")
         # Politely end the room. delete_room would be the hard kill but
@@ -1427,9 +1445,18 @@ def _install_call_hygiene(
         try:
             # Give the first turn a head start — don't trip the timer
             # before the greeting + caller answer have had time to settle.
-            await asyncio.sleep(max(5.0, idle_timeout / 2))
+            # Head-start floor used to be 5.0 hardcoded. With idle_timeout
+            # now defaulting to 5.0 itself, max(5, 2.5) still gave 5 — fine.
+            # If an operator lowers IDLE_HANGUP_SECONDS below 5, also lower
+            # the head_start so a 2s idle target doesn't actually fire 5+ s
+            # late.
+            await asyncio.sleep(min(idle_timeout, max(3.0, idle_timeout / 2)))
             while not state["hung_up"]:
-                await asyncio.sleep(2.0)
+                # 1s poll keeps the worst-case overshoot of idle_timeout to
+                # 1s instead of the historic 2s. On a 5s idle target this
+                # changes 'fires at T+5..7' into 'fires at T+5..6' — patient
+                # hangs up one full second sooner on every silent call.
+                await asyncio.sleep(1.0)
                 # Honour in-flight saves: if save_contact_data is mid-PATCH,
                 # delay any hangup until it completes so leads_rdv writes
                 # don't get lost when the asyncio task is cancelled.
