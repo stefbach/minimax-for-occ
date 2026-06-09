@@ -120,6 +120,10 @@ export function DeskWorkstation() {
   const [loading, setLoading] = useState(true);
   const [focused, setFocused] = useState<{ kind: DeskItem["kind"]; id: string } | null>(null);
   const [mobileView, setMobileView] = useState<"personal" | "shared">("personal");
+  // Pagination — "Voir plus" loads 10 more rows. Keeps the queues short
+  // by default so the agent never scrolls a wall of names.
+  const [personalLimit, setPersonalLimit] = useState(10);
+  const [sharedLimit, setSharedLimit] = useState(10);
   const [claimBusy, setClaimBusy] = useState<string | null>(null);
   const [releaseBusy, setReleaseBusy] = useState<string | null>(null);
   const [actionErr, setActionErr] = useState<string | null>(null);
