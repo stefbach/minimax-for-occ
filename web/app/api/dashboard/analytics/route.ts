@@ -25,6 +25,8 @@ export type AnalyticsKpis = {
   total: number;
   answered: number;
   answer_rate: number;
+  rdv_confirmed: number;     // distinct-ish RDV (rdv_confirme + passer_humain), like the funnel
+  conversion_rate: number;   // rdv_confirmed / total
   avg_duration_secs: number;
   abandon_rate: number;
   inbound: number;
@@ -44,14 +46,26 @@ export type AgentPerf = {
   answer_rate: number;
   avg_duration_secs: number;
 };
-export type HeatCell = { weekday: number; hour: number; count: number };
+export type HeatCell = { weekday: number; hour: number; count: number; answered: number; rdv: number };
 export type FunnelStep = { key: string; label: string; count: number; pct_of_total: number };
 export type SourceRow = { source: string; total: number; rdv: number; conv_rate: number };
+// Same-length previous period, for "vs prev" deltas on the KPI tiles.
+export type PreviousPeriod = { total: number; answered: number; cost: number; rdv: number };
+// Lead-pipeline metrics (forward-looking, from the leads table — not the period).
+export type BusinessMetrics = {
+  eligible_in_pipeline: number; // BMI ≥ 40 and not yet RDV
+  avg_calls_before_rdv: number; // mean call_count over booked leads
+  total_leads: number;
+  wrong_num: number;            // faux_numero + pas_de_reponse in the period
+  active_calls: number;         // live calls right now (in-scope)
+};
 export type AnalyticsResponse = {
   from: string;
   to: string;
   granularity: "hour" | "day";
   kpis: AnalyticsKpis;
+  previous: PreviousPeriod;
+  business: BusinessMetrics;
   volume: Bucket[];
   dispositions: Bucket[];
   qualifications: { key: QualBucket; label: string; count: number }[];
@@ -149,17 +163,28 @@ export async function GET(request: Request) {
   // Prod we want to count only calls placed to leads_rdv numbers, ditto
   // Test → leads_rdv_test_axon.
   const scope = await leadsScopeFor(leadsSource);
+  const inScope = (r: CallRow) =>
+    callInLeadsScope(r.to_e164 ?? null, scope)
+    && callMatchesSystem((r.metadata as { source?: string } | null)?.source, system);
+  // Live calls right now (in-scope) — captured before we drop ACTIVE rows.
+  const activeCalls = (rows as CallRow[]).filter((r) => ACTIVE_STATES.has(r.state ?? "") && inScope(r)).length;
   rows = rows.filter(
     (r) =>
       !ACTIVE_STATES.has(r.state ?? "")
       && (r.duration_secs ?? 0) >= minDuration
-      && callInLeadsScope(r.to_e164 ?? null, scope)
-      && callMatchesSystem((r.metadata as { source?: string } | null)?.source, system),
+      && inScope(r),
   );
+
+  // RDV = the booked outcome (matches the funnel / Vue d'ensemble definition).
+  const isRdv = (r: CallRow) => {
+    const b = bucketForCall(r);
+    return b === "rdv_confirme" || b === "passer_humain";
+  };
 
   // ── KPIs ──
   const total = rows.length;
   const answered = rows.filter(isAnswered).length;
+  const rdvCount = rows.filter(isRdv).length;
   const durSum = rows.reduce((a, r) => a + (r.duration_secs ?? 0), 0);
   const answeredDurSum = rows.filter(isAnswered).reduce((a, r) => a + (r.duration_secs ?? 0), 0);
   const inbound = rows.filter((r) => isInbound(r.direction)).length;
@@ -196,6 +221,8 @@ export async function GET(request: Request) {
     total,
     answered,
     answer_rate: total ? answered / total : 0,
+    rdv_confirmed: rdvCount,
+    conversion_rate: total ? rdvCount / total : 0,
     avg_duration_secs: answered ? Math.round(answeredDurSum / answered) : 0,
     abandon_rate: total ? (total - answered) / total : 0,
     inbound,
@@ -259,17 +286,22 @@ export async function GET(request: Request) {
     }))
     .sort((x, y) => y.total - x.total);
 
-  // ── Heatmap (weekday 0-6 × hour 0-23), local time ──
-  const heatMap = new Map<string, number>();
+  // ── Heatmap (weekday 0-6 × hour 0-23), local time ── now carries answered +
+  // RDV per slot so the UI can show answer-rate AND RDV-rate ("when to call").
+  const heatMap = new Map<string, { count: number; answered: number; rdv: number }>();
   for (const r of rows) {
     if (!r.started_at) continue;
     const d = new Date(r.started_at);
     const key = `${d.getDay()}_${d.getHours()}`;
-    heatMap.set(key, (heatMap.get(key) ?? 0) + 1);
+    const c = heatMap.get(key) ?? { count: 0, answered: 0, rdv: 0 };
+    c.count += 1;
+    if (isAnswered(r)) c.answered += 1;
+    if (isRdv(r)) c.rdv += 1;
+    heatMap.set(key, c);
   }
-  const heatmap: HeatCell[] = Array.from(heatMap.entries()).map(([k, count]) => {
+  const heatmap: HeatCell[] = Array.from(heatMap.entries()).map(([k, c]) => {
     const [weekday, hour] = k.split("_").map(Number);
-    return { weekday, hour, count };
+    return { weekday, hour, count: c.count, answered: c.answered, rdv: c.rdv };
   });
 
   // ── Duration histogram ──
@@ -354,16 +386,34 @@ export async function GET(request: Request) {
   // list, which the UI hides). Joined on phone number to call rows so we
   // can compute per-source conversion.
   let sources: SourceRow[] = [];
+  const business: BusinessMetrics = {
+    eligible_in_pipeline: 0,
+    avg_calls_before_rdv: 0,
+    total_leads: 0,
+    wrong_num: qcount.faux_numero + qcount.pas_de_reponse,
+    active_calls: activeCalls,
+  };
   try {
-    type LeadRow = { numero_telephone: string | null; source_lead: string | null };
+    type LeadRow = { numero_telephone: string | null; source_lead: string | null; bmi: number | null; qualification: string | null; call_count: number | null };
     // Page past the 1000-row cap so source attribution sees every lead.
     const { rows: leads, error: leadsErr } = await fetchAllPaged<LeadRow>(() =>
       sb
         .from(leadsTable as never)
-        .select("numero_telephone, source_lead")
+        .select("numero_telephone, source_lead, bmi, qualification, call_count")
         .not("numero_telephone", "is", null) as unknown as Rangeable<LeadRow>,
     );
     if (!leadsErr) {
+      // Lead-pipeline metrics (forward-looking; not bounded by the period).
+      let bookedLeads = 0;
+      let bookedCalls = 0;
+      for (const l of leads) {
+        business.total_leads += 1;
+        const isBooked = (l.qualification ?? "").toLowerCase().includes("rdv");
+        const bmi = Number(l.bmi);
+        if (Number.isFinite(bmi) && bmi >= 40 && !isBooked) business.eligible_in_pipeline += 1;
+        if (isBooked) { bookedLeads += 1; bookedCalls += Number(l.call_count) || 0; }
+      }
+      business.avg_calls_before_rdv = bookedLeads > 0 ? Math.round((bookedCalls / bookedLeads) * 10) / 10 : 0;
       const sourceByPhone = new Map<string, string>();
       for (const l of leads) {
         if (l.numero_telephone) {
@@ -405,11 +455,53 @@ export async function GET(request: Request) {
   const totalSpent = costReal > 0 ? costReal : kpis.cost_estimate;
   const cost_per_rdv = rdvBooked > 0 ? Math.round((totalSpent / rdvBooked) * 100) / 100 : 0;
 
+  // ── Previous equivalent period (same span, immediately before) for deltas ──
+  const span = Math.max(0, to.getTime() - from.getTime());
+  const previous: PreviousPeriod = { total: 0, answered: 0, cost: 0, rdv: 0 };
+  if (span > 0) {
+    const prevFrom = new Date(from.getTime() - span);
+    const prevTo = from;
+    const { rows: prevData } = await fetchAllPaged<CallRow>(() => {
+      let q = sb
+        .from("calls")
+        .select("id, direction, state, started_at, answered_at, duration_secs, disposition, to_e164, metadata")
+        .eq("org_id", orgId)
+        .gte("started_at", prevFrom.toISOString())
+        .lt("started_at", prevTo.toISOString());
+      if (dbDirection) q = q.eq("direction", dbDirection);
+      return q as unknown as Rangeable<CallRow>;
+    }, { maxRows: ROW_CAP + 1000 });
+    const prevRows = (prevData ?? []).filter(
+      (r) => !ACTIVE_STATES.has(r.state ?? "") && (r.duration_secs ?? 0) >= minDuration && inScope(r),
+    );
+    const prevIds = new Set(prevRows.map((r) => r.id));
+    previous.total = prevRows.length;
+    previous.answered = prevRows.filter(isAnswered).length;
+    previous.rdv = prevRows.filter(isRdv).length;
+    const { rows: prevUsage } = await fetchAllPaged<{ cost_cents: number; metadata: { call_id?: string } | null }>(() =>
+      sb
+        .from("usage_events")
+        .select("cost_cents, metadata")
+        .eq("org_id", orgId)
+        .gte("occurred_at", prevFrom.toISOString())
+        .lt("occurred_at", prevTo.toISOString()) as unknown as Rangeable<{ cost_cents: number; metadata: { call_id?: string } | null }>,
+    );
+    let prevCents = 0;
+    for (const u of prevUsage) {
+      const cid = u.metadata?.call_id;
+      if (cid ? !prevIds.has(cid) : scope !== null) continue;
+      prevCents += Number(u.cost_cents) || 0;
+    }
+    previous.cost = Math.round(prevCents) / 100;
+  }
+
   const body: AnalyticsResponse = {
     from: from.toISOString(),
     to: to.toISOString(),
     granularity,
     kpis,
+    previous,
+    business,
     volume,
     dispositions,
     qualifications,

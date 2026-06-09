@@ -18,11 +18,28 @@ function fmtMoney(n: number, unit = "$"): string {
 
 const DAY_LABELS = ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"];
 
+// "vs prev" delta — percentage change, and whether it's a "good" move (callers
+// can invert for cost, where down is good).
+function makeDelta(current: number, previous: number): { show: boolean; pct: number } {
+  if (current === 0 && previous === 0) return { show: false, pct: 0 };
+  if (previous === 0) return { show: true, pct: 100 };
+  return { show: true, pct: ((current - previous) / Math.abs(previous)) * 100 };
+}
+
+// Heatmap cell colour: light → deep emerald driven by the rate (0–60%+).
+function heatCellStyle(rate: number, total: number): { background: string; color: string } {
+  if (total === 0) return { background: "color-mix(in srgb, var(--muted) 8%, transparent)", color: "var(--muted)" };
+  const tt = Math.max(0, Math.min(1, rate / 60));
+  const lerp = (a: number, b: number) => Math.round(a + (b - a) * tt);
+  return { background: `rgb(${lerp(40, 6)}, ${lerp(60, 145)}, ${lerp(55, 90)})`, color: tt > 0.45 ? "#fff" : "var(--muted)" };
+}
+
 export function StatsTab({ from, to, direction, leadsSource = "prod", system = "all" }: { from: string; to: string; direction: string; leadsSource?: "prod" | "test"; system?: "all" | "retell" | "axon" }) {
   const t = useT();
   const [data, setData] = useState<AnalyticsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [heatMode, setHeatMode] = useState<"answer" | "rdv">("answer");
 
   useEffect(() => {
     let alive = true;
@@ -46,47 +63,57 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
   if (!data) return null;
 
   const k = data.kpis;
-  const rdvBooked = data.qualifications.find((q) => q.key === "rdv_confirme")?.count ?? 0;
-  const toHuman = data.qualifications.find((q) => q.key === "passer_humain")?.count ?? 0;
-  const totalRdv = rdvBooked + toHuman;
-  const convRate = k.total > 0 ? totalRdv / k.total : 0;
+  const prev = data.previous;
+  const biz = data.business;
+  const totalRdv = k.rdv_confirmed;
+  const cost = k.cost_real || k.cost_estimate;
   const maxVol = Math.max(1, ...data.volume.map((b) => b.count));
-  const maxHeat = Math.max(1, ...data.heatmap.map((c) => c.count));
   const maxHist = Math.max(1, ...data.duration_histogram.map((b) => b.count));
   const maxAttempt = Math.max(1, ...data.attempt_funnel.map((a) => a.total));
 
-  // ─── Row 1 — Business KPIs (6 cards) ───
-  const kpiCards: { label: string; value: string; sub?: string; tone?: string; highlight?: boolean }[] = [
-    { label: t("Appels totaux"), value: k.total.toLocaleString(), sub: `${k.answered} ${t("décrochés")}`, tone: "var(--info)" },
-    { label: t("RDV obtenus"), value: totalRdv.toLocaleString(), sub: `${rdvBooked} confirmés · ${toHuman} à passer humain`, tone: "var(--good)", highlight: true },
-    { label: t("Taux de conversion"), value: pct(convRate), sub: `${totalRdv} / ${k.total} ${t("appels")}`, tone: "var(--accent-2)" },
-    { label: t("Coût réel"), value: fmtMoney(k.cost_real || k.cost_estimate), sub: k.cost_is_real ? t("mesuré") : t("estimé"), tone: "var(--warn)" },
-    { label: t("Coût par RDV"), value: data.cost_per_rdv > 0 ? fmtMoney(data.cost_per_rdv) : "—", sub: data.cost_per_rdv > 0 ? t("ratio dépense / résultat") : t("pas encore de RDV"), tone: data.cost_per_rdv > 0 ? "var(--accent)" : "var(--muted)" },
-    { label: t("Durée moyenne (décrochés)"), value: fmtDuration(k.avg_duration_secs), sub: `${pct(k.answer_rate)} ${t("taux de décroché")}`, tone: "var(--info)" },
+  // ─── Row 1 — Business KPIs (8 cards, with "vs prev" deltas) ───
+  type Tile = {
+    label: string; value: string; sub?: string; tone?: string; highlight?: boolean;
+    delta?: { show: boolean; pct: number }; invertDelta?: boolean; pulse?: boolean;
+  };
+  const tiles: Tile[] = [
+    { label: t("RDV obtenus"), value: totalRdv.toLocaleString(), sub: `${pct(k.conversion_rate)} ${t("des appels")}`, tone: "var(--good)", highlight: true, delta: makeDelta(totalRdv, prev.rdv) },
+    { label: t("Taux de décroché"), value: pct(k.answer_rate), sub: `${k.answered.toLocaleString()} / ${k.total.toLocaleString()} ${t("appels")}`, tone: "var(--info)", delta: makeDelta(k.answered, prev.answered) },
+    { label: t("Coût période"), value: fmtMoney(cost), sub: `${data.cost_per_rdv > 0 ? fmtMoney(data.cost_per_rdv) : "—"} ${t("par RDV")}`, tone: "var(--warn)", delta: makeDelta(cost, prev.cost), invertDelta: true },
+    { label: t("Appels totaux"), value: k.total.toLocaleString(), sub: biz.total_leads > 0 ? `${biz.total_leads.toLocaleString()} ${t("leads en base")}` : undefined, tone: "var(--accent-2)", delta: makeDelta(k.total, prev.total) },
+    { label: t("Éligibles dans le pipeline"), value: biz.eligible_in_pipeline.toLocaleString(), sub: t("BMI ≥ 40 & pas encore RDV"), tone: "var(--accent)" },
+    { label: t("Appels moy. avant RDV"), value: biz.avg_calls_before_rdv > 0 ? biz.avg_calls_before_rdv.toFixed(1) : "—", sub: t("plus bas = mieux"), tone: "var(--accent)" },
+    { label: t("Faux n° / sans réponse"), value: biz.wrong_num.toLocaleString(), sub: t("qualité de la liste"), tone: "var(--bad)" },
+    { label: t("Actifs maintenant"), value: biz.active_calls.toLocaleString(), sub: biz.active_calls > 0 ? t("appels en direct") : t("au repos"), tone: "var(--good)", pulse: biz.active_calls > 0 },
   ];
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
-      {/* ─── KPI ROW ─── */}
+      {/* ─── KPI ROW (8 tiles + vs-prev deltas) ─── */}
       <div className="grid-kpi">
-        {kpiCards.map((tile) => (
-          <div
-            key={tile.label}
-            className="card"
-            style={{ padding: 16, borderColor: tile.highlight ? "var(--good)" : undefined }}
-          >
-            <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4 }}>
-              {tile.label}
+        {tiles.map((tile) => {
+          const good = tile.delta ? (tile.invertDelta ? tile.delta.pct <= 0 : tile.delta.pct >= 0) : true;
+          return (
+            <div key={tile.label} className="card" style={{ padding: 16, borderColor: tile.highlight ? "var(--good)" : undefined }}>
+              <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4 }}>{tile.label}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
+                <span style={{ fontSize: 26, fontWeight: 700, color: tile.tone }}>{tile.value}</span>
+                {tile.pulse && (
+                  <span style={{ width: 8, height: 8, borderRadius: 99, background: "var(--good)", animation: "stat-pulse 1.2s ease-in-out infinite" }} />
+                )}
+              </div>
+              {tile.delta?.show ? (
+                <div style={{ fontSize: 11, marginTop: 4, fontFamily: "ui-monospace, monospace", color: good ? "var(--good)" : "var(--bad)" }}>
+                  {tile.delta.pct >= 0 ? "↑ +" : "↓ "}{tile.delta.pct.toFixed(0)}% {t("vs préc.")}
+                </div>
+              ) : tile.sub ? (
+                <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>{tile.sub}</div>
+              ) : null}
             </div>
-            <div style={{ fontSize: 26, fontWeight: 700, marginTop: 6, color: tile.tone }}>
-              {tile.value}
-            </div>
-            {tile.sub && (
-              <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>{tile.sub}</div>
-            )}
-          </div>
-        ))}
+          );
+        })}
       </div>
+      <style jsx>{`@keyframes stat-pulse{0%,100%{opacity:.4}50%{opacity:1}}`}</style>
 
       {/* ─── CONVERSION FUNNEL ─── */}
       <div className="card">
@@ -177,46 +204,93 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
         </div>
       </div>
 
-      {/* ─── QUAND APPELER — Jour × Heure ─── */}
-      <div className="card">
-        <h3 style={{ marginTop: 0 }}>{t("Quand appeler — Jour × Heure")}</h3>
-        <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>
-          {t("Densité d'activité par créneau — heures locales du serveur")}
-        </p>
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ borderCollapse: "collapse", fontSize: 10 }}>
-            <thead>
-              <tr>
-                <th></th>
-                {Array.from({ length: 24 }, (_, h) => (
-                  <th key={h} style={{ width: 22, textAlign: "center", color: "var(--muted)", fontWeight: 400, paddingBottom: 4 }}>{h}</th>
+      {/* ─── QUAND APPELER — Jour × Heure (taux décroché / RDV) ─── */}
+      {(() => {
+        const rateOf = (c: { count: number; answered: number; rdv: number }) =>
+          c.count === 0 ? 0 : ((heatMode === "rdv" ? c.rdv : c.answered) / c.count) * 100;
+        const topSlots = [...data.heatmap]
+          .filter((c) => c.count >= 3)
+          .sort((a, b) => rateOf(b) - rateOf(a))
+          .slice(0, 3);
+        const topSet = new Set(topSlots.map((c) => `${c.weekday}-${c.hour}`));
+        return (
+          <div className="card">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+              <div>
+                <h3 style={{ marginTop: 0, marginBottom: 2 }}>🔥 {t("Quand appeler — Jour × Heure")}</h3>
+                <p className="muted" style={{ fontSize: 12, margin: 0 }}>
+                  {heatMode === "rdv" ? t("Taux de RDV par créneau (≥3 appels)") : t("Taux de décroché par créneau (>15s, disconnect valide)")}
+                </p>
+              </div>
+              <div style={{ display: "inline-flex", border: "1px solid var(--border)", borderRadius: 6, overflow: "hidden" }}>
+                {(["answer", "rdv"] as const).map((m) => (
+                  <button key={m} type="button" onClick={() => setHeatMode(m)}
+                    className={heatMode === m ? "" : "ghost"}
+                    style={{ padding: "4px 10px", fontSize: 12, border: "none", borderRadius: 0,
+                      background: heatMode === m ? "var(--accent)" : "transparent", color: heatMode === m ? "#fff" : "var(--text)" }}>
+                    {m === "answer" ? `📞 ${t("Décroché")}` : `📅 ${t("RDV")}`}
+                  </button>
                 ))}
-              </tr>
-            </thead>
-            <tbody>
-              {DAY_LABELS.map((day, dayIdx) => (
-                <tr key={day}>
-                  <td style={{ paddingRight: 8, color: "var(--muted)" }}>{day}</td>
-                  {Array.from({ length: 24 }, (_, h) => {
-                    const cell = data.heatmap.find((c) => c.weekday === dayIdx && c.hour === h);
-                    const intensity = cell ? cell.count / maxHeat : 0;
-                    const bg = intensity > 0
-                      ? `color-mix(in srgb, var(--accent) ${20 + intensity * 80}%, transparent)`
-                      : "var(--bg-2)";
-                    return (
-                      <td
-                        key={h}
-                        title={`${day} ${h}:00 — ${cell?.count ?? 0} appels`}
-                        style={{ width: 22, height: 18, background: bg, border: "1px solid var(--bg-1)" }}
-                      />
-                    );
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+              </div>
+            </div>
+            <div style={{ overflowX: "auto", marginTop: 10 }}>
+              <table style={{ borderCollapse: "separate", borderSpacing: 2, fontSize: 10 }}>
+                <thead>
+                  <tr>
+                    <th></th>
+                    {Array.from({ length: 24 }, (_, h) => (
+                      <th key={h} style={{ minWidth: 30, textAlign: "center", color: "var(--muted)", fontWeight: 400, paddingBottom: 4 }}>{h}h</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {DAY_LABELS.map((day, dayIdx) => (
+                    <tr key={day}>
+                      <td style={{ paddingRight: 8, color: "var(--muted)", fontWeight: 600 }}>{day}</td>
+                      {Array.from({ length: 24 }, (_, h) => {
+                        const cell = data.heatmap.find((c) => c.weekday === dayIdx && c.hour === h) ?? { count: 0, answered: 0, rdv: 0, weekday: dayIdx, hour: h };
+                        const rate = rateOf(cell);
+                        const st = heatCellStyle(rate, cell.count);
+                        const isTop = topSet.has(`${dayIdx}-${h}`);
+                        return (
+                          <td key={h}
+                            title={`${day} ${h}h · ${cell.count} appels · ${heatMode === "rdv" ? `${cell.rdv} RDV` : `${cell.answered} décrochés`} (${rate.toFixed(0)}%)`}
+                            style={{ minWidth: 30, height: 24, textAlign: "center", borderRadius: 4, fontWeight: 600,
+                              background: st.background, color: st.color,
+                              outline: isTop ? "2px solid var(--warn)" : undefined }}>
+                            {cell.count > 0 ? `${rate.toFixed(0)}%` : ""}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {/* Legend + top slots */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--muted)" }}>
+                <span>{t("Faible")}</span>
+                {[0, 15, 30, 45, 60].map((r) => {
+                  const s = heatCellStyle(r, 1);
+                  return <span key={r} style={{ background: s.background, color: s.color, padding: "1px 6px", borderRadius: 4, fontSize: 10 }}>{r}%</span>;
+                })}
+                <span>{t("Élevé")}</span>
+              </div>
+              {topSlots.length > 0 && (
+                <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                  <span className="muted" style={{ fontSize: 12 }}>{t("Top créneaux")} :</span>
+                  {topSlots.map((c) => (
+                    <span key={`${c.weekday}-${c.hour}`} style={{ fontSize: 11, padding: "2px 8px", borderRadius: 99, border: "1px solid color-mix(in srgb, var(--warn) 50%, transparent)", fontFamily: "ui-monospace, monospace" }}>
+                      {DAY_LABELS[c.weekday]} {c.hour}h · <strong style={{ color: "var(--good)" }}>{rateOf(c).toFixed(0)}%</strong> <span className="muted">({c.count})</span>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ─── TWO COLUMNS: Performance agent + Distribution durées ─── */}
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 16 }}>
