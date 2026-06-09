@@ -6,6 +6,7 @@ import { bucketForCall, QUAL_BUCKETS, type QualBucket } from "@/lib/qualificatio
 import { callInLeadsScope, leadsTableFor, leadsScopeFor, type LeadsSource } from "@/lib/leads-source";
 import { fetchAllPaged, type Rangeable } from "@/lib/supabase-page";
 import { callMatchesSystem, parseCallSystem } from "@/lib/call-system";
+import { slotForDate, SLOT_WINDOWS } from "@/lib/call-slots";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -49,6 +50,27 @@ export type AgentPerf = {
 export type HeatCell = { weekday: number; hour: number; count: number; answered: number; rdv: number };
 export type FunnelStep = { key: string; label: string; count: number; pct_of_total: number };
 export type SourceRow = { source: string; total: number; rdv: number; conv_rate: number };
+// Cost panel — spend broken down by outcome and by hour, plus the headline tiles.
+export type CostPanel = {
+  total: number;
+  avg_per_call: number;
+  cost_per_rdv: number;
+  wasted: number;       // spend on faux_numero + pas_de_reponse
+  wasted_pct: number;
+  by_outcome: { key: QualBucket; label: string; cost: number }[];
+  by_hour: { hour: number; cost: number }[];
+};
+export type SlotRow = { key: "matin" | "midi" | "soir" | "hors"; label: string; total: number; answered: number };
+// Eligibility pipeline (S2 UK NHS WMP) — eligible leads still callable vs lost.
+export type EligLead = { name: string | null; phone: string | null; bmi: number; status: string; calls: number; source: string };
+export type Eligibility = {
+  total_leads: number;
+  eligible_total: number;
+  pipeline_count: number;
+  in_pipeline: EligLead[];
+  lost_count: number;
+  lost_sample: { name: string | null; bmi: number; reason: string }[];
+};
 // Same-length previous period, for "vs prev" deltas on the KPI tiles.
 export type PreviousPeriod = { total: number; answered: number; cost: number; rdv: number };
 // Lead-pipeline metrics (forward-looking, from the leads table — not the period).
@@ -66,6 +88,9 @@ export type AnalyticsResponse = {
   kpis: AnalyticsKpis;
   previous: PreviousPeriod;
   business: BusinessMetrics;
+  cost_panel: CostPanel;
+  slots: SlotRow[];
+  eligibility: Eligibility;
   volume: Bucket[];
   dispositions: Bucket[];
   qualifications: { key: QualBucket; label: string; count: number }[];
@@ -204,6 +229,7 @@ export async function GET(request: Request) {
   );
   const breakdown = { call_minutes: 0, llm_tokens: 0, tts_chars: 0, stt_minutes: 0 };
   let totalCents = 0;
+  const costByCall = new Map<string, number>(); // call_id → cents, for the cost panel
   for (const u of usage) {
     const cid = u.metadata?.call_id;
     // Drop events that belong to filtered-out calls. Untagged events
@@ -211,6 +237,7 @@ export async function GET(request: Request) {
     if (cid ? !inScopeIds.has(cid) : scope !== null) continue;
     const cents = Number(u.cost_cents) || 0;
     totalCents += cents;
+    if (cid) costByCall.set(cid, (costByCall.get(cid) ?? 0) + cents);
     const k = u.event_type as keyof typeof breakdown;
     if (k in breakdown) breakdown[k] += cents;
   }
@@ -393,26 +420,56 @@ export async function GET(request: Request) {
     wrong_num: qcount.faux_numero + qcount.pas_de_reponse,
     active_calls: activeCalls,
   };
+  const eligibility: Eligibility = {
+    total_leads: 0, eligible_total: 0, pipeline_count: 0,
+    in_pipeline: [], lost_count: 0, lost_sample: [],
+  };
   try {
-    type LeadRow = { numero_telephone: string | null; source_lead: string | null; bmi: number | null; qualification: string | null; call_count: number | null };
+    type LeadRow = { nom: string | null; numero_telephone: string | null; source_lead: string | null; bmi: number | null; qualification: string | null; call_count: number | null };
     // Page past the 1000-row cap so source attribution sees every lead.
     const { rows: leads, error: leadsErr } = await fetchAllPaged<LeadRow>(() =>
       sb
         .from(leadsTable as never)
-        .select("numero_telephone, source_lead, bmi, qualification, call_count")
+        .select("nom, numero_telephone, source_lead, bmi, qualification, call_count")
         .not("numero_telephone", "is", null) as unknown as Rangeable<LeadRow>,
     );
     if (!leadsErr) {
       // Lead-pipeline metrics (forward-looking; not bounded by the period).
       let bookedLeads = 0;
       let bookedCalls = 0;
+      const pipelineRows: EligLead[] = [];
+      const lostRows: { name: string | null; bmi: number; reason: string }[] = [];
       for (const l of leads) {
         business.total_leads += 1;
-        const isBooked = (l.qualification ?? "").toLowerCase().includes("rdv");
+        const qual = (l.qualification ?? "").trim();
+        const ql = qual.toLowerCase();
+        const isBooked = ql.includes("rdv");
+        const isLost = ql.includes("faux") || ql.includes("interess");
         const bmi = Number(l.bmi);
-        if (Number.isFinite(bmi) && bmi >= 40 && !isBooked) business.eligible_in_pipeline += 1;
+        const eligible = Number.isFinite(bmi) && bmi >= 40; // S2: BMI ≥ 40 (comorbidity path needs structured data)
+        if (eligible && !isBooked) business.eligible_in_pipeline += 1;
         if (isBooked) { bookedLeads += 1; bookedCalls += Number(l.call_count) || 0; }
+        // Eligibility pipeline detail.
+        if (eligible) {
+          eligibility.eligible_total += 1;
+          if (isBooked) {
+            /* converted — out of pipeline */
+          } else if (isLost) {
+            eligibility.lost_count += 1;
+            if (lostRows.length < 10) lostRows.push({ name: l.nom, bmi, reason: qual || "—" });
+          } else {
+            eligibility.pipeline_count += 1;
+            pipelineRows.push({
+              name: l.nom, phone: l.numero_telephone, bmi,
+              status: qual || "—", calls: Number(l.call_count) || 0,
+              source: (l.source_lead || "—").trim(),
+            });
+          }
+        }
       }
+      eligibility.total_leads = business.total_leads;
+      eligibility.in_pipeline = pipelineRows.sort((a, b) => b.bmi - a.bmi).slice(0, 50);
+      eligibility.lost_sample = lostRows;
       business.avg_calls_before_rdv = bookedLeads > 0 ? Math.round((bookedCalls / bookedLeads) * 10) / 10 : 0;
       const sourceByPhone = new Map<string, string>();
       for (const l of leads) {
@@ -454,6 +511,52 @@ export async function GET(request: Request) {
   //    catch up.
   const totalSpent = costReal > 0 ? costReal : kpis.cost_estimate;
   const cost_per_rdv = rdvBooked > 0 ? Math.round((totalSpent / rdvBooked) * 100) / 100 : 0;
+
+  // ── Cost panel: spend by outcome + by hour, plus headline tiles ──
+  const d2 = (cents: number) => Math.round(cents) / 100;
+  const outCost = new Map<QualBucket, number>();
+  const hourCost = new Array<number>(24).fill(0);
+  let wastedCents = 0;
+  for (const r of rows) {
+    const c = costByCall.get(r.id) ?? 0;
+    const b = bucketForCall(r);
+    outCost.set(b, (outCost.get(b) ?? 0) + c);
+    if (r.started_at) hourCost[new Date(r.started_at).getHours()] += c;
+    if (b === "faux_numero" || b === "pas_de_reponse") wastedCents += c;
+  }
+  const cost_panel: CostPanel = {
+    total: costReal,
+    avg_per_call: total > 0 ? Math.round(totalCents / total) / 100 : 0,
+    cost_per_rdv,
+    wasted: d2(wastedCents),
+    wasted_pct: totalCents > 0 ? wastedCents / totalCents : 0,
+    by_outcome: QUAL_BUCKETS
+      .map((b) => ({ key: b.key, label: b.label, cost: d2(outCost.get(b.key) ?? 0) }))
+      .filter((x) => x.cost > 0)
+      .sort((a, b) => b.cost - a.cost),
+    by_hour: hourCost.map((c, h) => ({ hour: h, cost: d2(c) })),
+  };
+
+  // ── Volume per OCC call-slot (Matin / Midi / Soir / Hors), with answer rate ──
+  const slotAgg: Record<"matin" | "midi" | "soir" | "hors", { total: number; answered: number }> = {
+    matin: { total: 0, answered: 0 }, midi: { total: 0, answered: 0 },
+    soir: { total: 0, answered: 0 }, hors: { total: 0, answered: 0 },
+  };
+  for (const r of rows) {
+    if (!r.started_at) continue;
+    const s = slotForDate(new Date(r.started_at));
+    slotAgg[s].total += 1;
+    if (isAnswered(r)) slotAgg[s].answered += 1;
+  }
+  const slotLabel: Record<"matin" | "midi" | "soir" | "hors", string> = {
+    matin: `Matin (${SLOT_WINDOWS.matin.uk})`,
+    midi: `Midi (${SLOT_WINDOWS.midi.uk})`,
+    soir: `Soir (${SLOT_WINDOWS.soir.uk})`,
+    hors: "Hors créneau",
+  };
+  const slots: SlotRow[] = (["matin", "midi", "soir", "hors"] as const).map((key) => ({
+    key, label: slotLabel[key], total: slotAgg[key].total, answered: slotAgg[key].answered,
+  }));
 
   // ── Previous equivalent period (same span, immediately before) for deltas ──
   const span = Math.max(0, to.getTime() - from.getTime());
@@ -502,6 +605,9 @@ export async function GET(request: Request) {
     kpis,
     previous,
     business,
+    cost_panel,
+    slots,
+    eligibility,
     volume,
     dispositions,
     qualifications,

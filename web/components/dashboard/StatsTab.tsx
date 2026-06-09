@@ -115,6 +115,61 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
       </div>
       <style jsx>{`@keyframes stat-pulse{0%,100%{opacity:.4}50%{opacity:1}}`}</style>
 
+      {/* ─── CALL COSTS ─── */}
+      {(() => {
+        const cp = data.cost_panel;
+        const maxOut = Math.max(1, ...cp.by_outcome.map((o) => o.cost));
+        const maxHour = Math.max(0.01, ...cp.by_hour.map((h) => h.cost));
+        const costTiles: { label: string; value: string; sub?: string; tone?: string }[] = [
+          { label: t("Dépense totale"), value: fmtMoney(cp.total), sub: `${k.total.toLocaleString()} ${t("appels")}`, tone: "var(--warn)" },
+          { label: t("Coût moyen / appel"), value: fmtMoney(cp.avg_per_call), tone: "var(--info)" },
+          { label: t("Coût par RDV"), value: cp.cost_per_rdv > 0 ? fmtMoney(cp.cost_per_rdv) : "—", tone: "var(--accent)" },
+          { label: t("Gaspillé (faux n° / sans réponse)"), value: fmtMoney(cp.wasted), sub: `${pct(cp.wasted_pct)} ${t("de la dépense")}`, tone: "var(--bad)" },
+        ];
+        return (
+          <div className="card">
+            <h3 style={{ marginTop: 0, marginBottom: 2 }}>💸 {t("Coûts des appels")}</h3>
+            <p className="muted" style={{ fontSize: 12, margin: "0 0 12px" }}>{fmtMoney(cp.total)} {t("dépensés")} · {fmtMoney(data.previous.cost)} {t("période précédente")}</p>
+            <div className="grid-kpi" style={{ marginBottom: 14 }}>
+              {costTiles.map((tile) => (
+                <div key={tile.label} className="card" style={{ padding: 14 }}>
+                  <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4 }}>{tile.label}</div>
+                  <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4, color: tile.tone }}>{tile.value}</div>
+                  {tile.sub && <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>{tile.sub}</div>}
+                </div>
+              ))}
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 16 }}>
+              {/* Cost by hour */}
+              <div>
+                <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 8 }}>{t("Coût par heure")}</div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(24, 1fr)", gap: 2, alignItems: "end", height: 90 }}>
+                  {cp.by_hour.map((h) => (
+                    <div key={h.hour} title={`${h.hour}h — ${fmtMoney(h.cost)}`} style={{ background: h.cost > 0 ? "var(--warn)" : "var(--bg-2)", height: `${Math.max(2, (h.cost / maxHour) * 100)}%`, borderRadius: 2, minHeight: 2 }} />
+                  ))}
+                </div>
+                <div className="muted" style={{ fontSize: 9, display: "flex", justifyContent: "space-between", marginTop: 2 }}><span>0h</span><span>6h</span><span>12h</span><span>18h</span><span>23h</span></div>
+              </div>
+              {/* Cost by outcome */}
+              <div>
+                <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 8 }}>{t("Coût par issue")}</div>
+                {cp.by_outcome.length === 0 ? (
+                  <p className="muted" style={{ fontSize: 12 }}>{t("Aucun coût attribué.")}</p>
+                ) : cp.by_outcome.map((o) => (
+                  <div key={o.key} style={{ display: "grid", gridTemplateColumns: "120px 1fr 56px", gap: 8, alignItems: "center", marginBottom: 4 }}>
+                    <span style={{ fontSize: 11 }}>{o.label}</span>
+                    <div style={{ background: "var(--bg-2)", borderRadius: 4, height: 14, overflow: "hidden" }}>
+                      <div style={{ width: `${(o.cost / maxOut) * 100}%`, height: "100%", background: "var(--warn)" }} />
+                    </div>
+                    <span className="muted" style={{ fontSize: 11, textAlign: "right" }}>{fmtMoney(o.cost)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* ─── CONVERSION FUNNEL ─── */}
       <div className="card">
         <h3 style={{ marginTop: 0 }}>{t("Entonnoir de conversion")}</h3>
@@ -389,6 +444,111 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
           </p>
         )}
       </div>
+
+      {/* ─── VOLUME PAR CRÉNEAU (Matin / Midi / Soir / Hors) ─── */}
+      {(() => {
+        const maxSlot = Math.max(1, ...data.slots.map((s) => s.total));
+        const best = [...data.slots].filter((s) => s.total >= 3).sort((a, b) => (b.answered / b.total) - (a.answered / a.total))[0];
+        return (
+          <div className="card">
+            <h3 style={{ marginTop: 0, marginBottom: 2 }}>🕑 {t("Volume par créneau")}</h3>
+            <p className="muted" style={{ fontSize: 12, margin: "0 0 12px" }}>{t("Appels et taux de décroché · heure UK")}</p>
+            <div style={{ display: "grid", gridTemplateColumns: `repeat(${data.slots.length}, 1fr)`, gap: 12 }}>
+              {data.slots.map((s) => {
+                const ar = s.total > 0 ? s.answered / s.total : 0;
+                return (
+                  <div key={s.key} style={{ display: "grid", gap: 6 }}>
+                    <div style={{ height: 80, display: "flex", alignItems: "end", gap: 4 }}>
+                      <div title={`${s.total} appels`} style={{ flex: 1, background: "var(--info)", height: `${(s.total / maxSlot) * 100}%`, minHeight: 2, borderRadius: 3 }} />
+                      <div title={`${s.answered} décrochés`} style={{ flex: 1, background: "var(--good)", height: `${(s.answered / maxSlot) * 100}%`, minHeight: 2, borderRadius: 3 }} />
+                    </div>
+                    <div style={{ fontSize: 12, fontWeight: 600 }}>{s.label}</div>
+                    <div className="muted" style={{ fontSize: 11 }}><strong>{s.total}</strong> · <span style={{ color: "var(--good)" }}>{pct(ar)}</span></div>
+                  </div>
+                );
+              })}
+            </div>
+            {best && (
+              <p style={{ fontSize: 12, marginTop: 12, marginBottom: 0 }}>
+                💡 <strong style={{ color: "var(--accent)" }}>{t("Recommandation")} :</strong> {t("Meilleur taux de réponse sur")} <strong>{best.label}</strong> ({pct(best.answered / best.total)}). {t("Concentrer les prochains appels sur ce créneau.")}
+              </p>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* ─── ELIGIBILITY PIPELINE (S2 UK NHS WMP) ─── */}
+      {data.eligibility.eligible_total > 0 && (
+        <div className="card">
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+            <div>
+              <h3 style={{ marginTop: 0, marginBottom: 2 }}>✨ {t("Pipeline d'éligibilité (S2 UK NHS WMP)")}</h3>
+              <p className="muted" style={{ fontSize: 12, margin: 0 }}>{t("BMI ≥ 40 (ou ≥ 35 avec comorbidité)")}</p>
+            </div>
+            <span style={{ fontSize: 12, padding: "3px 10px", borderRadius: 99, border: "1px solid color-mix(in srgb, var(--good) 50%, transparent)", color: "var(--good)" }}>
+              {data.eligibility.eligible_total.toLocaleString()} {t("éligibles")} · {data.eligibility.total_leads.toLocaleString()} {t("total")}
+            </span>
+          </div>
+
+          <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.3, color: "var(--good)", margin: "12px 0 6px" }}>
+            🎯 {t("Éligibles & encore dans le pipeline")} ({data.eligibility.pipeline_count})
+          </div>
+          {data.eligibility.in_pipeline.length === 0 ? (
+            <p className="muted" style={{ fontSize: 13 }}>{t("Aucun éligible en attente.")}</p>
+          ) : (
+            <div style={{ overflowX: "auto" }}>
+              <table className="list" style={{ width: "100%", fontSize: 12 }}>
+                <thead>
+                  <tr>
+                    <th style={{ textAlign: "left" }}>{t("Patient")}</th>
+                    <th style={{ textAlign: "right" }}>BMI</th>
+                    <th style={{ textAlign: "left" }}>{t("Statut")}</th>
+                    <th style={{ textAlign: "right" }}>{t("Appels")}</th>
+                    <th style={{ textAlign: "left" }}>{t("Source")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.eligibility.in_pipeline.map((p, i) => (
+                    <tr key={`${p.phone}-${i}`}>
+                      <td>
+                        <div style={{ fontWeight: 600 }}>{p.name ?? t("Inconnu")}</div>
+                        <div className="muted" style={{ fontSize: 11, fontFamily: "ui-monospace, monospace" }}>{p.phone ?? "—"}</div>
+                      </td>
+                      <td style={{ textAlign: "right", color: "var(--good)", fontWeight: 600 }}>{p.bmi.toFixed(1)}</td>
+                      <td>{p.status}</td>
+                      <td style={{ textAlign: "right" }}>{p.calls}</td>
+                      <td className="muted">{p.source}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {data.eligibility.pipeline_count > data.eligibility.in_pipeline.length && (
+            <p className="muted" style={{ fontSize: 11, marginTop: 6 }}>
+              + {(data.eligibility.pipeline_count - data.eligibility.in_pipeline.length).toLocaleString()} {t("de plus — affine les filtres pour les voir.")}
+            </p>
+          )}
+
+          {data.eligibility.lost_count > 0 && (
+            <>
+              <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.3, color: "var(--warn)", margin: "14px 0 6px" }}>
+                ⚠️ {t("Éligibles mais perdus")} ({data.eligibility.lost_count.toLocaleString()}) — {t("revoir les raisons")}
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {data.eligibility.lost_sample.map((l, i) => (
+                  <span key={i} style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, border: "1px solid var(--border)" }}>
+                    {l.name ?? t("Inconnu")} · BMI {l.bmi.toFixed(1)} · <span style={{ color: "var(--warn)" }}>{l.reason}</span>
+                  </span>
+                ))}
+                {data.eligibility.lost_count > data.eligibility.lost_sample.length && (
+                  <span className="muted" style={{ fontSize: 11, alignSelf: "center" }}>+{(data.eligibility.lost_count - data.eligibility.lost_sample.length).toLocaleString()} {t("de plus")}</span>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
