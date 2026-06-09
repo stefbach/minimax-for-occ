@@ -136,28 +136,34 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
 
     (async () => {
       setQualifying(true);
-      let totalQualified = 0;
+      let madeProgress = false;
+      // Track the backlog size across batches: progress = the candidate count
+      // (pending_before) shrinking. We can't key off "qualified", because calls
+      // that only needed agent-stage detection (already qualified) report
+      // qualified=0 yet still made progress.
+      let lastPending = Infinity;
       try {
-        for (let iter = 0; iter < 30 && !cancelled; iter++) {
+        for (let iter = 0; iter < 60 && !cancelled; iter++) {
           const qs = new URLSearchParams({ leads_source: leadsSource });
           if (system !== "all") qs.set("system", system);
           const r = await fetch(`/api/dashboard/qualify-unqualified?${qs}`, { method: "POST" });
           const j = await r.json();
           if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
-          totalQualified += Number(j.qualified ?? 0);
-          const remaining = Number(j.remaining ?? 0);
-          setQualifyMsg(`${totalQualified} ${t("appel(s) qualifié(s) automatiquement")}` + (remaining > 0 ? ` · ${remaining} ${t("en cours…")}` : ""));
-          // Stop when the backlog is empty or a batch made no progress (e.g.
-          // calls with no transcript/summary that can't be classified).
-          if (remaining <= 0 || Number(j.qualified ?? 0) === 0) break;
+          const pending = Number(j.pending_before ?? 0);
+          const processed = Number(j.processed ?? 0);
+          if (processed > 0) madeProgress = true;
+          setQualifyMsg(`✨ ${t("Analyse IA automatique")} · ${Math.max(0, pending - processed)} ${t("restant(s)")}`);
+          if (pending <= 0 || processed === 0) break;     // nothing left to do
+          if (pending >= lastPending) break;              // last batch resolved nothing → stuck
+          lastPending = pending;
         }
       } catch (e) {
         if (!cancelled) setQualifyMsg(e instanceof Error ? e.message : "error");
       } finally {
         if (!cancelled) {
           setQualifying(false);
-          if (totalQualified > 0) setReloadKey((k) => k + 1);
-          else setQualifyMsg(null);
+          setQualifyMsg(null);
+          if (madeProgress) setReloadKey((k) => k + 1);
         }
       }
     })();
@@ -447,8 +453,13 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
       {/* CHAÎNE D'AGENTS */}
       <div className="card">
         <h3 style={{ marginTop: 0 }}>{t("Chaîne d'agents")}</h3>
-        <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>
+        <p className="muted" style={{ fontSize: 12, marginTop: 0, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
           {t("Combien de leads sont passés sur 1, 2 ou 3 agents")}
+          {qualifying && (
+            <span style={{ color: "var(--accent)", display: "inline-flex", alignItems: "center", gap: 4 }}>
+              <span className="ai-spin" aria-hidden>✨</span> {qualifyMsg ?? t("Analyse IA automatique…")}
+            </span>
+          )}
         </p>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
           {([
