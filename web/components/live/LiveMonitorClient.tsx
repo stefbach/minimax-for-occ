@@ -32,6 +32,7 @@ interface CallRow {
   contacts: { e164: string | null; display_name: string | null } | null;
   // CRM patient context (live monitor only, via ?enrich=lead).
   lead?: { name: string | null; bmi: number | null; source: string | null; call_count: number | null; qualification: string | null } | null;
+  is_test?: boolean;
 }
 
 type AlertTone = "short" | "voicemail" | "robot";
@@ -102,6 +103,9 @@ function LiveCallCard({ call, now }: { call: CallRow; now: number }) {
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <strong style={{ fontSize: 15 }}>{counterpartyWithLead(call)}</strong>
+            <span className="tag" style={{ fontSize: 10, background: call.is_test ? "color-mix(in srgb, var(--warn) 18%, transparent)" : "color-mix(in srgb, var(--good) 18%, transparent)", color: call.is_test ? "var(--warn)" : "var(--good)" }}>
+              {call.is_test ? "Test" : "Prod"}
+            </span>
             <span className="tag good" style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
               <span style={{ position: "relative", display: "inline-flex", width: 8, height: 8 }}>
                 <span style={{ position: "absolute", inset: 0, borderRadius: "50%", background: "var(--good,#16a34a)", opacity: 0.75, animation: "ping 1.2s cubic-bezier(0,0,.2,1) infinite" }} />
@@ -168,7 +172,9 @@ export function LiveMonitorClient({ leadsSource = "prod", system = "all" }: { le
 
   const fetchActive = useCallback(async () => {
     try {
-      const r = await fetch(`/api/calls?state=${ACTIVE_STATES}&limit=100&leads_source=${leadsSource}${sysQs}&enrich=lead`, { cache: "no-store" });
+      // No leads_source filter on purpose: a live monitor must surface EVERY
+      // active call (Prod or Test) — each card is tagged instead.
+      const r = await fetch(`/api/calls?state=${ACTIVE_STATES}&limit=100${sysQs}&enrich=lead`, { cache: "no-store" });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
       if (mounted.current) {
@@ -183,7 +189,7 @@ export function LiveMonitorClient({ leadsSource = "prod", system = "all" }: { le
 
   const fetchRecent = useCallback(async () => {
     try {
-      const r = await fetch(`/api/calls?state=${RECENT_STATES}&limit=40&leads_source=${leadsSource}${sysQs}`, { cache: "no-store" });
+      const r = await fetch(`/api/calls?state=${RECENT_STATES}&limit=40${sysQs}`, { cache: "no-store" });
       const j = await r.json();
       if (r.ok && mounted.current) {
         const rows: CallRow[] = Array.isArray(j) ? j : [];

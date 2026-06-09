@@ -90,8 +90,12 @@ export async function GET(request: Request) {
     leadsParam === "test" ? "test" : leadsParam === "prod" ? "prod" : null;
   const scope = leadsSource ? await leadsScopeFor(leadsSource) : null;
   const system = parseCallSystem(searchParams.get("system"));
+  // Always resolve the (tiny, 5-row) test set so every call can be tagged
+  // Prod/Test — the Live monitor shows all active calls regardless of the
+  // selected source, but still labels each one.
+  const testScope = await leadsScopeFor("test");
 
-  const calls = ((data ?? []) as Array<{ id: string; started_at: string | null; to_e164: string | null; metadata: { source?: string } | null }>)
+  const calls = ((data ?? []) as Array<{ id: string; started_at: string | null; to_e164: string | null; from_e164?: string | null; metadata: { source?: string } | null }>)
     .filter((c) => callInLeadsScope(c.to_e164 ?? null, scope))
     .filter((c) => callMatchesSystem(c.metadata?.source, system));
 
@@ -169,6 +173,7 @@ export async function GET(request: Request) {
       ...c,
       cost_cents: Math.round((costByCall.get(c.id) ?? 0) * 100) / 100,
       lead,
+      is_test: callInLeadsScope(cc.to_e164 ?? null, testScope),
     };
   });
   return NextResponse.json(enriched);
