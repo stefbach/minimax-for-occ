@@ -40,6 +40,10 @@ export type DirectorResponse = {
   unqualified: number;
   slots: { matin: number; midi: number; soir: number; hors: number };
   phases: { rappel: PhaseStat; j1: PhaseStat; j3: PhaseStat; j5: PhaseStat };
+  // Date context for the phases block. Phase counts span the WHOLE leads
+  // pipeline (not the selected period), so the UI needs an explicit "as of"
+  // timestamp and a total to label the section honestly.
+  phaseContext: { totalLeads: number; asOf: string; period: { from: string; to: string } };
   agentChain: { only1: number; plus2: number; plus3: number };
   durationBuckets: { lt15s: number; s15_60: number; m1_2: number; m2_3: number; m3_5: number; gt5m: number };
   summaries: SummaryRow[];
@@ -47,7 +51,16 @@ export type DirectorResponse = {
   hints: { phasesAvailable: boolean; summariesAvailable: boolean };
 };
 
-type PhaseStat = { leads: number; calls: number };
+// Per-phase counters. `leads`/`calls` are pipeline-wide totals; the date
+// buckets split leads by where their scheduled date_jX sits relative to today
+// so the operator can see what actually needs calling.
+type PhaseStat = {
+  leads: number;
+  calls: number;
+  dueToday: number;
+  overdue: number;
+  upcoming: number;
+};
 
 type SummaryRow = {
   call_id: string;
@@ -317,11 +330,25 @@ export async function GET(request: Request) {
   // as the dev sandbox kept alongside for safe testing). For orgs without it
   // we report zeros and a hint so the UI can label the section as N/A.
   const phases: DirectorResponse["phases"] = {
-    rappel: { leads: 0, calls: 0 },
-    j1: { leads: 0, calls: 0 },
-    j3: { leads: 0, calls: 0 },
-    j5: { leads: 0, calls: 0 },
+    rappel: { leads: 0, calls: 0, dueToday: 0, overdue: 0, upcoming: 0 },
+    j1: { leads: 0, calls: 0, dueToday: 0, overdue: 0, upcoming: 0 },
+    j3: { leads: 0, calls: 0, dueToday: 0, overdue: 0, upcoming: 0 },
+    j5: { leads: 0, calls: 0, dueToday: 0, overdue: 0, upcoming: 0 },
   };
+  // Today's UTC window, used to split each phase into overdue / due-today /
+  // upcoming based on its scheduled call date.
+  const todayStart = new Date(now);
+  todayStart.setUTCHours(0, 0, 0, 0);
+  const todayEnd = new Date(todayStart.getTime() + 86400_000);
+  const classifyDate = (iso: string | null): "overdue" | "dueToday" | "upcoming" | null => {
+    if (!iso) return null;
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return null;
+    if (d < todayStart) return "overdue";
+    if (d < todayEnd) return "dueToday";
+    return "upcoming";
+  };
+  let totalLeads = 0;
   let phasesAvailable = false;
   try {
     // OCC org has leads_rdv (production) and leads_rdv_test_axon (sandbox).
@@ -346,22 +373,31 @@ export async function GET(request: Request) {
     );
     if (!leadsErr) {
       phasesAvailable = true;
+      totalLeads = leads.length;
+      const tally = (p: PhaseStat, date: string | null) => {
+        const when = classifyDate(date);
+        if (when) p[when] += 1;
+      };
       for (const l of leads) {
         if ((l.qualification ?? "").toLowerCase().includes("rappel")) {
           phases.rappel.leads += 1;
           phases.rappel.calls += Number(l.j1_attempts ?? 0);
+          tally(phases.rappel, l.date_j1);
         }
         if (l.date_j1) {
           phases.j1.leads += 1;
           phases.j1.calls += Number(l.j1_attempts ?? 0);
+          tally(phases.j1, l.date_j1);
         }
         if (l.date_j3) {
           phases.j3.leads += 1;
           phases.j3.calls += Number(l.j3_attempts ?? 0);
+          tally(phases.j3, l.date_j3);
         }
         if (l.date_j5) {
           phases.j5.leads += 1;
           phases.j5.calls += Number(l.j5_attempts ?? 0);
+          tally(phases.j5, l.date_j5);
         }
       }
     }
@@ -392,6 +428,11 @@ export async function GET(request: Request) {
     unqualified: qcount.autre,
     slots,
     phases,
+    phaseContext: {
+      totalLeads,
+      asOf: now.toISOString(),
+      period: { from: from.toISOString(), to: to.toISOString() },
+    },
     agentChain,
     durationBuckets,
     summaries,
