@@ -236,7 +236,12 @@ export async function GET(request: Request) {
 
   // Chaîne d'agents — count distinct agents touched per call from call_events.
   // Initial agent is calls.agent_handle_id (may be null for inbound). Handoffs
-  // are logged with kind='handoff_initiated' and payload.to.
+  // are logged with kind='handoff_initiated' and payload.to_agent_id
+  // (the agent layer writes {to_agent_id, to_agent_name} — the older `to`
+  // shorthand never shipped, but we still accept it for forward-compat).
+  // We deliberately skip kind='transfer_pstn_requested': the PSTN target is a
+  // phone number, not a new AI agent, and counting it would over-inflate the
+  // chain for every A PASSER A L'HUMAIN outcome.
   const agentChain = { only1: 0, plus2: 0, plus3: 0 };
   if (rows.length > 0) {
     const callIds = rows.map((r) => r.id);
@@ -244,15 +249,18 @@ export async function GET(request: Request) {
       .from("call_events")
       .select("call_id, kind, payload")
       .in("call_id", callIds)
-      .in("kind", ["handoff_initiated", "transfer_pstn_requested"]);
+      .eq("kind", "handoff_initiated");
     const distinctByCall = new Map<string, Set<string>>();
     for (const r of rows) {
       const s = new Set<string>();
       if (r.agent_handle_id) s.add(r.agent_handle_id);
       distinctByCall.set(r.id, s);
     }
-    for (const ev of (evs ?? []) as Array<{ call_id: string; payload: { to?: string } | null }>) {
-      const target = ev.payload?.to;
+    for (const ev of (evs ?? []) as Array<{
+      call_id: string;
+      payload: { to_agent_id?: string; to?: string } | null;
+    }>) {
+      const target = ev.payload?.to_agent_id ?? ev.payload?.to;
       if (!target) continue;
       const s = distinctByCall.get(ev.call_id);
       if (s) s.add(target);
