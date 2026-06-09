@@ -71,6 +71,26 @@ async function fetchTranscriptText(callId: string): Promise<string> {
   return rows.map((r) => `${r.speaker}: ${r.text}`).join("\n");
 }
 
+// Retell calls don't populate call_transcripts; their transcript lives in
+// metadata (transcript_turns preferred, transcript_text fallback). Used so
+// auto-qualification reads the real dialogue, not just the summary.
+function metaTranscriptText(metadata: Record<string, unknown> | null | undefined): string {
+  const m = (metadata ?? {}) as Record<string, unknown>;
+  const turns = m.transcript_turns;
+  if (Array.isArray(turns) && turns.length) {
+    return turns
+      .map((t) => {
+        const o = (t ?? {}) as { role?: unknown; content?: unknown };
+        const who = o.role === "user" ? "customer" : "agent";
+        const text = typeof o.content === "string" ? o.content : "";
+        return text ? `${who}: ${text}` : "";
+      })
+      .filter(Boolean)
+      .join("\n");
+  }
+  return typeof m.transcript_text === "string" ? m.transcript_text.trim() : "";
+}
+
 interface LlmCallResult {
   parsed: unknown;
   tokensInput: number | null;
@@ -446,9 +466,10 @@ export async function qualifyCall(callId: string): Promise<QualifyResult> {
     return { call_id: callId, status: "skipped_existing", bucket: current };
   }
 
-  // Read whatever we have: full transcript preferred, summary as fallback.
+  // Read whatever we have: native transcript preferred, then the Retell
+  // transcript cached in metadata, then the summary as a last resort.
   const transcript = await fetchTranscriptText(callId);
-  const evidence = transcript.trim() || (call.summary?.trim() ?? "");
+  const evidence = transcript.trim() || metaTranscriptText(call.metadata) || (call.summary?.trim() ?? "");
   if (!evidence) return { call_id: callId, status: "no_evidence" };
 
   const key = process.env.DEEPSEEK_API_KEY;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { DirectorResponse } from "@/app/api/dashboard/director/route";
 import type { QualBucket } from "@/lib/qualification";
 import { useT } from "@/lib/i18n";
@@ -120,31 +120,50 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
     return () => { alive = false; };
   }, [from, to, direction, threshold, leadsSource, system, reloadKey]);
 
-  // Ask the AI to classify the answered-but-unqualified calls so they stop
-  // hiding in the "autre" bucket. Scoped to the current leads source so a
-  // Prod-only backlog isn't re-counted while the operator is browsing Test.
-  // Bounded server-side; may need a second run for large backlogs.
-  const runQualify = async () => {
-    setQualifying(true);
-    setQualifyMsg(null);
-    try {
-      const qs = new URLSearchParams({ leads_source: leadsSource });
-      if (system !== "all") qs.set("system", system);
-      const r = await fetch(`/api/dashboard/qualify-unqualified?${qs}`, { method: "POST" });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
-      const remaining = Number(j.remaining ?? 0);
-      setQualifyMsg(
-        `${j.qualified}/${j.processed} ${t("appel(s) qualifié(s) par l'IA")}` +
-          (remaining > 0 ? ` · ${remaining} ${t("restant(s)")}` : ""),
-      );
-      setReloadKey((k) => k + 1);
-    } catch (e) {
-      setQualifyMsg(e instanceof Error ? e.message : "error");
-    } finally {
-      setQualifying(false);
-    }
-  };
+  // AI qualification is automatic: any answered call left in the "autre" bucket
+  // is classified by the AI from its transcript. New calls are handled at
+  // ingestion (Retell webhook + sync); this drains any pre-existing backlog in
+  // the background when the dashboard is viewed — no button. Bounded per batch
+  // server-side, so we loop until the backlog is cleared (or stops shrinking).
+  const drainedSigRef = useRef<string>("");
+
+  useEffect(() => {
+    if (!data || data.unqualified <= 0) return;
+    const sig = `${from}|${to}|${leadsSource}|${system}`;
+    if (drainedSigRef.current === sig) return; // already attempted this view
+    drainedSigRef.current = sig;
+    let cancelled = false;
+
+    (async () => {
+      setQualifying(true);
+      let totalQualified = 0;
+      try {
+        for (let iter = 0; iter < 30 && !cancelled; iter++) {
+          const qs = new URLSearchParams({ leads_source: leadsSource });
+          if (system !== "all") qs.set("system", system);
+          const r = await fetch(`/api/dashboard/qualify-unqualified?${qs}`, { method: "POST" });
+          const j = await r.json();
+          if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
+          totalQualified += Number(j.qualified ?? 0);
+          const remaining = Number(j.remaining ?? 0);
+          setQualifyMsg(`${totalQualified} ${t("appel(s) qualifié(s) automatiquement")}` + (remaining > 0 ? ` · ${remaining} ${t("en cours…")}` : ""));
+          // Stop when the backlog is empty or a batch made no progress (e.g.
+          // calls with no transcript/summary that can't be classified).
+          if (remaining <= 0 || Number(j.qualified ?? 0) === 0) break;
+        }
+      } catch (e) {
+        if (!cancelled) setQualifyMsg(e instanceof Error ? e.message : "error");
+      } finally {
+        if (!cancelled) {
+          setQualifying(false);
+          if (totalQualified > 0) setReloadKey((k) => k + 1);
+          else setQualifyMsg(null);
+        }
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [data, from, to, leadsSource, system, t]);
 
   const summariesByQual = useMemo(() => {
     const m = new Map<string, DirectorResponse["summaries"]>();
@@ -329,17 +348,18 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
                 {t("Appels décrochés non qualifiés")}
               </div>
               <div className="muted" style={{ fontSize: 11 }}>
-                {t("Un appel décroché doit toujours être classé. L'IA lit le transcript et l'affecte à la bonne carte.")}
+                {t("Qualification IA automatique : chaque appel décroché est classé par l'IA d'après son transcript. Le reliquat se résorbe tout seul.")}
               </div>
             </div>
-            {qualifyMsg && (
-              <span className="muted" style={{ fontSize: 11 }}>{qualifyMsg}</span>
-            )}
-            <button onClick={runQualify} disabled={qualifying}>
-              {qualifying ? t("Qualification…") : `✨ ${t("Qualifier avec l'IA")}`}
-            </button>
+            <span className="muted" style={{ fontSize: 11, display: "inline-flex", alignItems: "center", gap: 6 }}>
+              {qualifying && <span className="ai-spin" aria-hidden>✨</span>}
+              {qualifying
+                ? (qualifyMsg ?? t("Qualification IA en cours…"))
+                : (qualifyMsg ?? `✨ ${t("Qualification IA automatique")}`)}
+            </span>
           </div>
         )}
+        <style jsx>{`@keyframes ai-spin-kf{0%,100%{opacity:.45}50%{opacity:1}} .ai-spin{animation:ai-spin-kf 1s ease-in-out infinite}`}</style>
       </div>
 
       {/* APPELS ENTRANTS — each figure drills into the matching call list. */}
