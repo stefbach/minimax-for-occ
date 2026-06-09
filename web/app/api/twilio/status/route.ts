@@ -162,33 +162,43 @@ export async function POST(req: Request) {
       started_at: nowIso,
       ...baseUpdate,
     };
-    // UPSERT on twilio_call_sid (UNIQUE INDEX) to defeat the race where
-    // Twilio's initiated/ringing/in-progress/completed webhooks arrive
-    // within milliseconds of each other. Without this, each concurrent
-    // handler's SELECT returned null, each INSERT created a fresh row,
-    // and we ended up with 2-3 ghost rows per Twilio call — the dashboard
-    // surfaced the queued/ringing one as 'Non décroché' even though the
-    // patient answered. ignoreDuplicates:false makes the upsert merge
-    // updates onto the existing row when the SID collides.
+    // Try INSERT — the UNIQUE partial index on twilio_call_sid makes
+    // duplicate inserts fail with PG error 23505 instead of silently
+    // creating ghost rows. When that happens (another concurrent webhook
+    // already inserted the row), we recover with SELECT-then-UPDATE so
+    // this handler's baseUpdate still merges onto the canonical row.
     const { data: inserted, error: insErr } = await sb
       .from("calls")
-      .upsert(insertRow, {
-        onConflict: "twilio_call_sid",
-        ignoreDuplicates: false,
-      })
+      .insert(insertRow)
       .select("id")
       .single();
     if (insErr) {
-      log.error(`twilio/status upsert calls failed: ${insErr.message}`, { call: CallSid });
-      // Last-ditch lookup in case the upsert raced and we need to recover
-      // the id from the row some other handler inserted between SELECT and
-      // upsert.
+      // 23505 = unique_violation. Anything else is a real bug worth
+      // logging hard; the recovery path below still gives us the id so
+      // call_events/billing don't break.
+      const isConflict =
+        insErr.code === "23505" ||
+        (insErr.message || "").toLowerCase().includes("duplicate");
+      if (!isConflict) {
+        log.error(`twilio/status insert calls failed: ${insErr.message}`, { call: CallSid });
+      }
       const { data: recovered } = await sb
         .from("calls")
         .select("id")
         .eq("twilio_call_sid", CallSid)
         .maybeSingle();
       callId = (recovered as { id?: string } | null)?.id ?? null;
+      if (callId) {
+        const { error: upErr } = await sb
+          .from("calls")
+          .update(baseUpdate)
+          .eq("id", callId);
+        if (upErr) {
+          log.error(`twilio/status update-on-conflict failed: ${upErr.message}`, {
+            call: callId,
+          });
+        }
+      }
     } else {
       callId = (inserted as { id?: string } | null)?.id ?? null;
     }
