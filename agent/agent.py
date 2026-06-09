@@ -1178,6 +1178,12 @@ def _install_call_hygiene(
         "call_started_at": _t.monotonic(),
         "goodbye_armed_at": None,  # monotonic ts when goodbye phrase was detected
         "hung_up": False,
+        # The agent is considered 'active' (speaking / thinking) while
+        # session.agent_state is "speaking" or "thinking". The idle watchdog
+        # skips its hangup check while the agent is active so a long TTS
+        # turn (e.g. Charlotte explaining the NHS S2 pathway) can't be
+        # cut off mid-sentence at the 5s idle threshold.
+        "agent_active": False,
         # Race-safety: save_contact_data writes to leads_rdv via HTTP. If the
         # idle timer fires WHILE that write is in flight, the asyncio.to_thread
         # call can be cancelled and the leads_rdv update silently lost. The
@@ -1453,10 +1459,35 @@ def _install_call_hygiene(
         except Exception:
             pass
 
+    def _on_agent_state(ev) -> None:
+        # session.agent_state can be 'initializing' / 'listening' / 'thinking'
+        # / 'speaking'. Treat thinking + speaking as 'active': during these
+        # the agent is busy producing a turn and the idle watchdog must not
+        # fire (the patient is listening, not silent-and-gone). The flag is
+        # cleared the moment state goes back to 'listening', at which point
+        # the watchdog resumes from a fresh last_agent_ts.
+        try:
+            new_state = (
+                getattr(ev, "new_state", None)
+                or getattr(ev, "state", None)
+                or ""
+            )
+            new_state = str(new_state).lower()
+            if new_state in ("speaking", "thinking"):
+                state["agent_active"] = True
+                state["last_agent_ts"] = _t.monotonic()
+            else:
+                # transitions to listening / initializing / anything else
+                state["agent_active"] = False
+                state["last_agent_ts"] = _t.monotonic()
+        except Exception:
+            clog.debug("call hygiene: agent_state hook failed", exc_info=True)
+
     for ev_name, fn in (
         ("user_input_transcribed", _on_user_speech),
         ("conversation_item_added", _on_item),
         ("metrics_collected", _on_metrics),
+        ("agent_state_changed", _on_agent_state),
     ):
         try:
             session.on(ev_name, fn)
@@ -1483,6 +1514,14 @@ def _install_call_hygiene(
                 # delay any hangup until it completes so leads_rdv writes
                 # don't get lost when the asyncio task is cancelled.
                 if state.get("save_in_flight", 0) > 0:
+                    continue
+                # Honour active agent turns: if Charlotte is thinking or
+                # speaking, hold off on the idle decision. Observed in
+                # prod: a long TTS turn (Charlotte explaining the NHS S2
+                # pathway) was cut at exactly idle_timeout because
+                # last_agent_ts froze at the START of the turn.
+                if state.get("agent_active"):
+                    state["last_agent_ts"] = _t.monotonic()
                     continue
                 now = _t.monotonic()
                 # Goodbye-armed path wins because it's the most deterministic.
