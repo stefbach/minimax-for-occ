@@ -848,7 +848,13 @@ function PermissionsModal({
       <div
         onClick={(e) => e.stopPropagation()}
         className="card modal-card"
-        style={{ width: "min(560px, 100%)", display: "grid", gap: 14 }}
+        style={{
+          width: "min(560px, 100%)",
+          display: "grid",
+          gap: 14,
+          maxHeight: "calc(100vh - 32px)",
+          overflowY: "auto",
+        }}
       >
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
           <h3 style={{ margin: 0 }}>{t("Permissions")}</h3>
@@ -1003,7 +1009,13 @@ function InviteModal({
       <div
         onClick={(e) => e.stopPropagation()}
         className="card"
-        style={{ width: "min(480px, 100%)", display: "grid", gap: 14 }}
+        style={{
+          width: "min(480px, 100%)",
+          display: "grid",
+          gap: 14,
+          maxHeight: "calc(100vh - 32px)",
+          overflowY: "auto",
+        }}
       >
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
           <h3 style={{ margin: 0 }}>{t("Créer un utilisateur")}</h3>
