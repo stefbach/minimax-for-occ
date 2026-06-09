@@ -71,6 +71,26 @@ async function fetchTranscriptText(callId: string): Promise<string> {
   return rows.map((r) => `${r.speaker}: ${r.text}`).join("\n");
 }
 
+// Retell calls don't populate call_transcripts; their transcript lives in
+// metadata (transcript_turns preferred, transcript_text fallback). Used so
+// auto-qualification reads the real dialogue, not just the summary.
+function metaTranscriptText(metadata: Record<string, unknown> | null | undefined): string {
+  const m = (metadata ?? {}) as Record<string, unknown>;
+  const turns = m.transcript_turns;
+  if (Array.isArray(turns) && turns.length) {
+    return turns
+      .map((t) => {
+        const o = (t ?? {}) as { role?: unknown; content?: unknown };
+        const who = o.role === "user" ? "customer" : "agent";
+        const text = typeof o.content === "string" ? o.content : "";
+        return text ? `${who}: ${text}` : "";
+      })
+      .filter(Boolean)
+      .join("\n");
+  }
+  return typeof m.transcript_text === "string" ? m.transcript_text.trim() : "";
+}
+
 interface LlmCallResult {
   parsed: unknown;
   tokensInput: number | null;
@@ -425,7 +445,25 @@ function coerceBucket(raw: unknown): { bucket: Exclude<QualBucket, "autre">; coe
   return { bucket: "passer_humain", coerced: true };
 }
 
-export async function qualifyCall(callId: string): Promise<QualifyResult> {
+// Agent-chain stage detection. Name-agnostic on purpose (must keep working
+// after Retell is gone): the model reasons on the ROLE progression in the
+// transcript — reception/qualification → eligibility → booking — using the
+// known names only as hints. Only calls at least this long are even considered
+// (a real transfer never happens in a few seconds), which bounds LLM spend.
+const AGENT_STAGE_MIN_SECS = 60;
+const AGENT_STAGE_GUIDE = [
+  '"agent_stage" : entier 1, 2 ou 3 = jusqu\'où l\'appel est réellement allé dans la chaîne d\'agents.',
+  "Repère métier (indices, pas une règle de noms) : Agent 1 = Charlotte (accueil + qualification), Agent 2 = Isabelle (vérification d'éligibilité), Agent 3 = Victoria (prise de rendez-vous).",
+  "- 1 = traité uniquement par le 1er agent ; AUCUN transfert effectif vers une autre personne.",
+  "- 2 = transféré ET réellement pris en charge par un 2e interlocuteur (rôle éligibilité / Isabelle).",
+  "- 3 = transféré plus loin et pris en charge par un 3e interlocuteur (rôle prise de RDV / Victoria).",
+  "Base-toi UNIQUEMENT sur le déroulé réel du transcript : un transfert annoncé mais sans suite reste à l'étape précédente. Si les noms diffèrent, raisonne sur le rôle (accueil → éligibilité → RDV).",
+].join("\n");
+
+export async function qualifyCall(
+  callId: string,
+  opts: { markNoEvidence?: boolean } = {},
+): Promise<QualifyResult> {
   const sb = supabaseServer();
   const { data: callRow, error } = await sb
     .from("calls")
@@ -440,16 +478,34 @@ export async function qualifyCall(callId: string): Promise<QualifyResult> {
   // human-side content to classify.
   if (!call.answered_at) return { call_id: callId, status: "skipped_not_answered" };
 
-  // Never override an existing real qualification (agent- or human-set).
+  const meta = (call.metadata ?? {}) as Record<string, unknown>;
   const current = bucketForCall(call);
-  if (current !== "autre") {
+  // We do two jobs in one LLM pass: (a) qualify the call IF it has no real
+  // qualification yet, and (b) detect the agent-chain stage (1/2/3) IF it's a
+  // long-enough call missing one. Either job alone is enough to run the pass.
+  const needQual = current === "autre";
+  const needStage = meta.agent_stage == null && (call.duration_secs ?? 0) >= AGENT_STAGE_MIN_SECS;
+  if (!needQual && !needStage) {
     return { call_id: callId, status: "skipped_existing", bucket: current };
   }
 
-  // Read whatever we have: full transcript preferred, summary as fallback.
+  // Read whatever we have: native transcript preferred, then the Retell
+  // transcript cached in metadata, then the summary as a last resort.
   const transcript = await fetchTranscriptText(callId);
-  const evidence = transcript.trim() || (call.summary?.trim() ?? "");
-  if (!evidence) return { call_id: callId, status: "no_evidence" };
+  const evidence = transcript.trim() || metaTranscriptText(call.metadata) || (call.summary?.trim() ?? "");
+  if (!evidence) {
+    // Nothing to analyse YET (no transcript, no summary). Only the backfill
+    // drain (markNoEvidence) stamps a terminal marker so an old, evidence-less
+    // call stops being a candidate forever. Real-time callers (call-end hooks)
+    // must NOT mark it — the transcript/summary may still be landing, and a
+    // premature marker would block qualification once it arrives.
+    if (opts.markNoEvidence) {
+      const merged: Record<string, unknown> = { ...meta, analysis_skipped: "no_evidence" };
+      if (meta.agent_stage == null) merged.agent_stage = 1;
+      await sb.from("calls").update({ metadata: merged }).eq("id", callId);
+    }
+    return { call_id: callId, status: "no_evidence" };
+  }
 
   const key = process.env.DEEPSEEK_API_KEY;
   if (!key) throw new Error("DEEPSEEK_API_KEY missing");
@@ -461,15 +517,18 @@ export async function qualifyCall(callId: string): Promise<QualifyResult> {
     qualification: QUAL_BUCKETS.map((b) => b.key),
     confidence: "number 0..1",
     reason: "string (max 160 chars, in French)",
+    agent_stage: "1 | 2 | 3",
   };
   const system = [
-    "Tu classifies l'issue d'un appel téléphonique décroché en EXACTEMENT une catégorie.",
+    "Tu analyses un appel téléphonique décroché : tu le classes en EXACTEMENT une catégorie ET tu détermines jusqu'où il est allé dans la chaîne d'agents.",
     "Réponds UNIQUEMENT en JSON valide conforme au schéma — aucune prose.",
     "Choisis la catégorie la plus probable même si l'appel est court ou ambigu :",
     "un appel décroché doit toujours être classé.",
   ].join(" ");
   const userContent = [
     `Catégories autorisées (champ "qualification") :\n${guide}`,
+    "",
+    AGENT_STAGE_GUIDE,
     "",
     `Schéma JSON à respecter : ${JSON.stringify(schema)}`,
     "",
@@ -497,7 +556,7 @@ export async function qualifyCall(callId: string): Promise<QualifyResult> {
   const data = (await res.json()) as {
     choices?: Array<{ message?: { content?: string } }>;
   };
-  let parsed: { qualification?: unknown; confidence?: unknown; reason?: unknown } = {};
+  let parsed: { qualification?: unknown; confidence?: unknown; reason?: unknown; agent_stage?: unknown } = {};
   try {
     parsed = JSON.parse(data.choices?.[0]?.message?.content ?? "{}");
   } catch {
@@ -510,29 +569,38 @@ export async function qualifyCall(callId: string): Promise<QualifyResult> {
       : null;
   const reason =
     typeof parsed.reason === "string" ? parsed.reason.slice(0, 200) : null;
+  const stageNum = Number(parsed.agent_stage);
+  const agentStage = Number.isFinite(stageNum) ? Math.min(3, Math.max(1, Math.round(stageNum))) : 1;
 
-  const mergedMeta: Record<string, unknown> = {
-    ...(call.metadata ?? {}),
-    qualification: bucket,
-    qualification_source: "ai_auto",
-    qualification_ai: {
+  const mergedMeta: Record<string, unknown> = { ...meta };
+  // (a) Qualification — only when the call had none; never override agent/human/Retell.
+  if (needQual) {
+    mergedMeta.qualification = bucket;
+    mergedMeta.qualification_source = "ai_auto";
+    mergedMeta.qualification_ai = {
       confidence: coerced ? 0 : confidence,
       reason: coerced ? "Indécidable par l'IA — escaladé à un humain." : reason,
       model: "deepseek-v4-flash",
       at: new Date().toISOString(),
-    },
-  };
+    };
+  }
+  // (b) Agent-chain stage — always stamped (we have it from this pass).
+  mergedMeta.agent_stage = agentStage;
+  mergedMeta.agent_stage_source = "ai_auto";
+
   const { error: upErr } = await sb
     .from("calls")
     .update({ metadata: mergedMeta })
     .eq("id", callId);
   if (upErr) throw new Error(upErr.message);
 
+  // "qualified" status only when we actually wrote a qualification, so the
+  // backlog-drain's progress check stays meaningful.
   return {
     call_id: callId,
-    status: "qualified",
-    bucket,
-    confidence: coerced ? 0 : confidence ?? undefined,
-    reason: mergedMeta.qualification_ai && typeof reason === "string" ? reason : undefined,
+    status: needQual ? "qualified" : "skipped_existing",
+    bucket: needQual ? bucket : current,
+    confidence: needQual ? (coerced ? 0 : confidence ?? undefined) : undefined,
+    reason: needQual && typeof reason === "string" ? reason : undefined,
   };
 }

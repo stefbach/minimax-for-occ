@@ -19,6 +19,7 @@
  */
 
 import { supabaseServer } from "./supabase";
+import { qualifyCall } from "./analysis-runner";
 
 const RETELL_LIST_URL = "https://api.retellai.com/v2/list-calls";
 const RETELL_GET_URL = "https://api.retellai.com/v2/get-call";
@@ -231,8 +232,14 @@ export interface RetellSyncResult {
   skipped_existing: number;
   skipped_invalid: number;
   cost_events: number;
+  auto_qualified: number;
   error?: string;
 }
+
+// Cap how many freshly-synced calls one run auto-qualifies (cost/time guard);
+// repeated syncs / the hourly cron drain any remainder.
+const AUTO_QUALIFY_CAP = 120;
+const AUTO_QUALIFY_CONCURRENCY = 5;
 
 export async function syncRetellCalls(
   orgId: string,
@@ -275,16 +282,22 @@ export async function syncRetellCalls(
 
   let inserted = 0;
   let costEvents = 0;
+  // Answered calls Retell left without an outcome → candidates for AI auto-
+  // qualification once they're inserted.
+  const qualifyCandidates: string[] = [];
   const CHUNK = 500;
   for (let i = 0; i < toInsert.length; i += CHUNK) {
     const chunk = toInsert.slice(i, i + CHUNK);
     const { data, error } = await sb
       .from("calls")
       .insert(chunk)
-      .select("id, started_at, metadata");
+      .select("id, started_at, answered_at, metadata");
     if (error) throw new Error(error.message);
-    const rows = (data ?? []) as Array<{ id: string; started_at: string; metadata: { retell_call_id?: string } | null }>;
+    const rows = (data ?? []) as Array<{ id: string; started_at: string; answered_at: string | null; metadata: { retell_call_id?: string; qualification?: string } | null }>;
     inserted += rows.length;
+    for (const r of rows) {
+      if (r.answered_at && !r.metadata?.qualification) qualifyCandidates.push(r.id);
+    }
 
     // Cost → usage_events, keyed by the freshly minted call id.
     const usageRows = rows
@@ -308,12 +321,26 @@ export async function syncRetellCalls(
     }
   }
 
+  // AI auto-qualification of the newly-synced answered calls, bounded and run
+  // with light concurrency. Best-effort: a failure on one call never aborts the
+  // sync. qualifyCall no-ops on calls that already have a real qualification.
+  let autoQualified = 0;
+  const toQualify = qualifyCandidates.slice(0, AUTO_QUALIFY_CAP);
+  for (let i = 0; i < toQualify.length; i += AUTO_QUALIFY_CONCURRENCY) {
+    const slice = toQualify.slice(i, i + AUTO_QUALIFY_CONCURRENCY);
+    const settled = await Promise.allSettled(slice.map((id) => qualifyCall(id)));
+    for (const s of settled) {
+      if (s.status === "fulfilled" && s.value.status === "qualified") autoQualified += 1;
+    }
+  }
+
   const result: RetellSyncResult = {
     fetched: raw.length,
     inserted,
     skipped_existing: raw.length - skippedInvalid - inserted,
     skipped_invalid: skippedInvalid,
     cost_events: costEvents,
+    auto_qualified: autoQualified,
   };
   console.log(`[retell-sync] org=${orgId} done`, result);
   return result;
@@ -371,6 +398,19 @@ export async function upsertRetellCall(
         occurred_at: mapped.row.started_at,
         metadata: { call_id: callId, source: "retell_sync", retell_call_id: mapped.retellId },
       });
+    }
+  }
+
+  // Auto-qualify in real time: an answered call that Retell left without an
+  // outcome is classified by the AI from its transcript/summary the moment it
+  // lands — no button, no batch. Best-effort: a failure must not break the
+  // webhook (Retell would retry the whole event). qualifyCall itself no-ops if
+  // the call already has a real qualification or has no evidence yet.
+  if (mapped.row.answered_at && !mapped.row.metadata.qualification) {
+    try {
+      await qualifyCall(callId);
+    } catch (e) {
+      console.warn(`[retell-sync] auto-qualify failed call=${callId}: ${e instanceof Error ? e.message : e}`);
     }
   }
 

@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { requestOrgId } from "@/lib/request-org";
-import { callInLeadsScope, leadsScopeFor, type LeadsSource } from "@/lib/leads-source";
+import { callInLeadsScope, leadsScopeFor, leadsTableFor, type LeadsSource } from "@/lib/leads-source";
 import { callMatchesSystem, parseCallSystem } from "@/lib/call-system";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 30;
 
 const VALID_STATES = new Set([
   "queued",
@@ -48,7 +49,7 @@ export async function GET(request: Request) {
         disposition: "stale_no_terminal_event",
       })
       .eq("org_id", orgId)
-      .in("state", ["queued", "ringing", "ivr", "in_progress"])
+      .in("state", ["queued", "ringing", "ivr", "in_progress", "wrap_up"])
       .lt("started_at", cutoff);
   } catch {
     /* sweep is best-effort — don't fail the list query if it errors */
@@ -89,8 +90,12 @@ export async function GET(request: Request) {
     leadsParam === "test" ? "test" : leadsParam === "prod" ? "prod" : null;
   const scope = leadsSource ? await leadsScopeFor(leadsSource) : null;
   const system = parseCallSystem(searchParams.get("system"));
+  // Always resolve the (tiny, 5-row) test set so every call can be tagged
+  // Prod/Test — the Live monitor shows all active calls regardless of the
+  // selected source, but still labels each one.
+  const testScope = await leadsScopeFor("test");
 
-  const calls = ((data ?? []) as Array<{ id: string; started_at: string | null; to_e164: string | null; metadata: { source?: string } | null }>)
+  const calls = ((data ?? []) as Array<{ id: string; started_at: string | null; to_e164: string | null; from_e164?: string | null; metadata: { source?: string } | null }>)
     .filter((c) => callInLeadsScope(c.to_e164 ?? null, scope))
     .filter((c) => callMatchesSystem(c.metadata?.source, system));
 
@@ -107,7 +112,12 @@ export async function GET(request: Request) {
         if (!c.started_at) return m;
         return !m || c.started_at < m ? c.started_at : m;
       }, null);
-      const window_start = from ?? oldest ?? undefined;
+      // Hard floor the lookback to 3 days when there's no explicit `from`, so a
+      // single stray/ghost call with an old started_at can't widen the
+      // usage_events scan to weeks and time the whole request out (which is
+      // exactly what froze the Live monitor: "Failed to fetch").
+      const floorIso = new Date(Date.now() - 3 * 86400_000).toISOString();
+      const window_start = from ?? (oldest && oldest > floorIso ? oldest : floorIso);
       const window_end = to ?? new Date().toISOString();
       let uq = admin
         .from("usage_events")
@@ -128,9 +138,43 @@ export async function GET(request: Request) {
     }
   }
 
-  const enriched = calls.map((c) => ({
-    ...c,
-    cost_cents: Math.round((costByCall.get(c.id) ?? 0) * 100) / 100,
-  }));
+  // Optional patient context from the CRM (live monitor: BMI / source / call
+  // count / name), keyed by phone. Bounded to small result sets (the live
+  // active list) so Call Logs stays light. Best-effort.
+  type LeadCtx = { name: string | null; bmi: number | null; source: string | null; call_count: number | null; qualification: string | null };
+  const leadByPhone = new Map<string, LeadCtx>();
+  if (searchParams.get("enrich") === "lead" && calls.length > 0 && calls.length <= 80) {
+    try {
+      const norm = (p: string | null | undefined) => (p ? String(p).replace(/\s+/g, "") : "");
+      const phones = Array.from(new Set((calls as Array<{ to_e164: string | null; from_e164?: string | null }>)
+        .flatMap((c) => [c.to_e164, c.from_e164]).filter(Boolean) as string[]));
+      if (phones.length > 0) {
+        const table = leadsTableFor(leadsSource ?? "prod");
+        const { data: leads } = await admin
+          .from(table as never)
+          .select("nom, numero_telephone, bmi, source_lead, call_count, qualification")
+          .in("numero_telephone", phones)
+          .limit(500);
+        for (const l of (leads ?? []) as Array<{ nom: string | null; numero_telephone: string | null; bmi: number | null; source_lead: string | null; call_count: number | null; qualification: string | null }>) {
+          const key = norm(l.numero_telephone);
+          if (key) leadByPhone.set(key, { name: l.nom, bmi: l.bmi != null ? Number(l.bmi) : null, source: l.source_lead, call_count: l.call_count, qualification: l.qualification });
+        }
+      }
+    } catch {
+      /* enrichment is best-effort */
+    }
+  }
+  const normPhone = (p: string | null | undefined) => (p ? String(p).replace(/\s+/g, "") : "");
+
+  const enriched = calls.map((c) => {
+    const cc = c as { to_e164: string | null; from_e164?: string | null };
+    const lead = leadByPhone.get(normPhone(cc.to_e164)) ?? leadByPhone.get(normPhone(cc.from_e164)) ?? null;
+    return {
+      ...c,
+      cost_cents: Math.round((costByCall.get(c.id) ?? 0) * 100) / 100,
+      lead,
+      is_test: callInLeadsScope(cc.to_e164 ?? null, testScope),
+    };
+  });
   return NextResponse.json(enriched);
 }

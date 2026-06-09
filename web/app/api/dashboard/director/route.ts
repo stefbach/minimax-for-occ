@@ -7,6 +7,7 @@ import { isInbound, normalizeDirectionForDb } from "@/lib/call-direction";
 import { callInLeadsScope, leadsTableFor, leadsScopeFor, type LeadsSource } from "@/lib/leads-source";
 import { fetchAllPaged, type Rangeable } from "@/lib/supabase-page";
 import { callMatchesSystem, parseCallSystem } from "@/lib/call-system";
+import { slotForDate } from "@/lib/call-slots";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,8 +39,15 @@ export type DirectorResponse = {
   // Answered calls the agent left unqualified (hidden "autre" bucket). Surfaced
   // so the UI can offer post-hoc AI qualification instead of dropping them.
   unqualified: number;
+  // Answered calls still needing an AI pass — unqualified OR (long enough and)
+  // missing agent-chain stage detection. Drives the automatic background drain.
+  pendingAnalysis: number;
   slots: { matin: number; midi: number; soir: number; hors: number };
   phases: { rappel: PhaseStat; j1: PhaseStat; j3: PhaseStat; j5: PhaseStat };
+  // Date context for the phases block. Phase counts span the WHOLE leads
+  // pipeline (not the selected period), so the UI needs an explicit "as of"
+  // timestamp and a total to label the section honestly.
+  phaseContext: { totalLeads: number; asOf: string; period: { from: string; to: string } };
   agentChain: { only1: number; plus2: number; plus3: number };
   durationBuckets: { lt15s: number; s15_60: number; m1_2: number; m2_3: number; m3_5: number; gt5m: number };
   summaries: SummaryRow[];
@@ -47,7 +55,16 @@ export type DirectorResponse = {
   hints: { phasesAvailable: boolean; summariesAvailable: boolean };
 };
 
-type PhaseStat = { leads: number; calls: number };
+// Per-phase counters. `leads`/`calls` are pipeline-wide totals; the date
+// buckets split leads by where their scheduled date_jX sits relative to today
+// so the operator can see what actually needs calling.
+type PhaseStat = {
+  leads: number;
+  calls: number;
+  dueToday: number;
+  overdue: number;
+  upcoming: number;
+};
 
 type SummaryRow = {
   call_id: string;
@@ -81,17 +98,10 @@ type CallRow = {
   contact_id: string | null;
   to_e164: string | null;
   summary: string | null;
-  metadata: { qualification?: string | null } | null;
+  metadata: { qualification?: string | null; agent_stage?: number | null; analysis_skipped?: string | null } | null;
   agent_handles?: { display_name: string | null } | null;
   contacts?: { display_name: string | null } | null;
 };
-
-function slotForHour(h: number): "matin" | "midi" | "soir" | "hors" {
-  if (h >= 9 && h < 12) return "matin";
-  if (h >= 12 && h < 15) return "midi";
-  if (h >= 15 && h < 19) return "soir";
-  return "hors";
-}
 
 function durationBucketFor(secs: number): keyof DirectorResponse["durationBuckets"] {
   if (secs < 15) return "lt15s";
@@ -188,12 +198,12 @@ export async function GET(request: Request) {
     notAnswered: inboundRows.filter((r) => !r.answered_at).length,
   };
 
-  // Créneaux matin / midi / soir / hors (UK-ish 09-12 / 12-15 / 15-19).
+  // Créneaux matin / midi / soir / hors — bucketed by the call's UK local time
+  // against the OCC calling windows (see lib/call-slots).
   const slots = { matin: 0, midi: 0, soir: 0, hors: 0 };
   for (const r of rows) {
     if (!r.started_at) continue;
-    const h = new Date(r.started_at).getUTCHours();
-    slots[slotForHour(h)] += 1;
+    slots[slotForDate(new Date(r.started_at))] += 1;
   }
 
   // Distribution des durées.
@@ -265,8 +275,13 @@ export async function GET(request: Request) {
       const s = distinctByCall.get(ev.call_id);
       if (s) s.add(target);
     }
-    for (const s of distinctByCall.values()) {
-      const n = s.size || 1;
+    // Per call, the stage is the furthest agent reached — from structured
+    // handoff events (Axon/native) OR the AI-detected metadata.agent_stage
+    // (Retell, transcript-based). Whichever is higher wins; default 1.
+    for (const r of rows) {
+      const eventsN = distinctByCall.get(r.id)?.size ?? 0;
+      const stageMeta = Number(r.metadata?.agent_stage) || 0;
+      const n = Math.max(eventsN, stageMeta, 1);
       if (n >= 3) agentChain.plus3 += 1;
       else if (n === 2) agentChain.plus2 += 1;
       else agentChain.only1 += 1;
@@ -325,11 +340,25 @@ export async function GET(request: Request) {
   // as the dev sandbox kept alongside for safe testing). For orgs without it
   // we report zeros and a hint so the UI can label the section as N/A.
   const phases: DirectorResponse["phases"] = {
-    rappel: { leads: 0, calls: 0 },
-    j1: { leads: 0, calls: 0 },
-    j3: { leads: 0, calls: 0 },
-    j5: { leads: 0, calls: 0 },
+    rappel: { leads: 0, calls: 0, dueToday: 0, overdue: 0, upcoming: 0 },
+    j1: { leads: 0, calls: 0, dueToday: 0, overdue: 0, upcoming: 0 },
+    j3: { leads: 0, calls: 0, dueToday: 0, overdue: 0, upcoming: 0 },
+    j5: { leads: 0, calls: 0, dueToday: 0, overdue: 0, upcoming: 0 },
   };
+  // Today's UTC window, used to split each phase into overdue / due-today /
+  // upcoming based on its scheduled call date.
+  const todayStart = new Date(now);
+  todayStart.setUTCHours(0, 0, 0, 0);
+  const todayEnd = new Date(todayStart.getTime() + 86400_000);
+  const classifyDate = (iso: string | null): "overdue" | "dueToday" | "upcoming" | null => {
+    if (!iso) return null;
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return null;
+    if (d < todayStart) return "overdue";
+    if (d < todayEnd) return "dueToday";
+    return "upcoming";
+  };
+  let totalLeads = 0;
   let phasesAvailable = false;
   try {
     // OCC org has leads_rdv (production) and leads_rdv_test_axon (sandbox).
@@ -354,22 +383,31 @@ export async function GET(request: Request) {
     );
     if (!leadsErr) {
       phasesAvailable = true;
+      totalLeads = leads.length;
+      const tally = (p: PhaseStat, date: string | null) => {
+        const when = classifyDate(date);
+        if (when) p[when] += 1;
+      };
       for (const l of leads) {
         if ((l.qualification ?? "").toLowerCase().includes("rappel")) {
           phases.rappel.leads += 1;
           phases.rappel.calls += Number(l.j1_attempts ?? 0);
+          tally(phases.rappel, l.date_j1);
         }
         if (l.date_j1) {
           phases.j1.leads += 1;
           phases.j1.calls += Number(l.j1_attempts ?? 0);
+          tally(phases.j1, l.date_j1);
         }
         if (l.date_j3) {
           phases.j3.leads += 1;
           phases.j3.calls += Number(l.j3_attempts ?? 0);
+          tally(phases.j3, l.date_j3);
         }
         if (l.date_j5) {
           phases.j5.leads += 1;
           phases.j5.calls += Number(l.j5_attempts ?? 0);
+          tally(phases.j5, l.date_j5);
         }
       }
     }
@@ -398,8 +436,19 @@ export async function GET(request: Request) {
       count: qcount[b.key],
     })),
     unqualified: qcount.autre,
+    pendingAnalysis: rows.filter((r) => {
+      if (!r.answered_at || r.metadata?.analysis_skipped) return false;
+      const needsQual = bucketForCall(r) === "autre";
+      const needsStage = r.metadata?.agent_stage == null && (r.duration_secs ?? 0) >= 60;
+      return needsQual || needsStage;
+    }).length,
     slots,
     phases,
+    phaseContext: {
+      totalLeads,
+      asOf: now.toISOString(),
+      period: { from: from.toISOString(), to: to.toISOString() },
+    },
     agentChain,
     durationBuckets,
     summaries,

@@ -13,20 +13,31 @@ import { LiveMonitorClient } from "@/components/live/LiveMonitorClient";
 import { CallLogsTab } from "./CallLogsTab";
 import { StatsTab } from "./StatsTab";
 import { DirectorTab } from "./DirectorTab";
+import { AiInsightsTab } from "./AiInsightsTab";
 import { NhsSuiviTab } from "./NhsSuiviTab";
 import { ErrorsAlertsTab } from "./ErrorsAlertsTab";
 import { PeriodBar, presetToRange, type Period, type Filters } from "./PeriodBar";
 import { useT } from "@/lib/i18n";
 
-type TabId = "overview" | "stats" | "logs" | "live" | "errors" | "nhs";
+type TabId = "overview" | "stats" | "logs" | "live" | "errors" | "ai" | "nhs";
 const ALL_TABS: { id: TabId; label: string; icon: string }[] = [
   { id: "overview", label: "Vue d'ensemble", icon: "🏠" },
   { id: "stats", label: "Statistiques", icon: "📊" },
   { id: "logs", label: "Call Logs", icon: "📋" },
   { id: "live", label: "Live", icon: "🔴" },
   { id: "errors", label: "Erreurs & Alertes", icon: "⚠️" },
+  { id: "ai", label: "AI Insights", icon: "✨" },
   { id: "nhs", label: "Suivi NHS S2", icon: "🏥" },
 ];
+
+// Short human label for the active period, e.g. "05/06" or "01/06 – 05/06".
+function periodLabelFor(p: Period): string {
+  const fmt = (iso: string) =>
+    new Date(iso).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
+  const a = fmt(p.from);
+  const b = fmt(p.to);
+  return a === b ? a : `${a} – ${b}`;
+}
 
 // Per-org feature flag: enable the NHS S2 tracking tab only for orgs whose
 // slug matches a configured pattern. Multi-tenant safe — other orgs never
@@ -166,6 +177,20 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
           <>
             <PeriodBar period={period} filters={filters} onPeriod={setPeriod} onFilters={setFilters} />
             <CallLogsTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} system={filters.system} />
+          </>
+        )}
+
+        {tab === "ai" && (
+          <>
+            <PeriodBar period={period} filters={filters} onPeriod={setPeriod} onFilters={setFilters} />
+            <AiInsightsTab
+              from={period.from}
+              to={period.to}
+              direction={filters.direction}
+              leadsSource={filters.leadsSource}
+              system={filters.system}
+              periodLabel={periodLabelFor(period)}
+            />
           </>
         )}
 

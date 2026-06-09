@@ -7,6 +7,7 @@ import { isInbound, normalizeDirectionForDb } from "@/lib/call-direction";
 import { callInLeadsScope, leadsScopeFor, leadNameMapFor, leadNameForPhone, type LeadsSource } from "@/lib/leads-source";
 import { fetchAllPaged, type Rangeable } from "@/lib/supabase-page";
 import { callMatchesSystem, parseCallSystem } from "@/lib/call-system";
+import { slotForDate } from "@/lib/call-slots";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -50,17 +51,10 @@ type Row = {
   agent_handle_id: string | null;
   from_e164: string | null;
   to_e164: string | null;
-  metadata: { qualification?: string | null } | null;
+  metadata: { qualification?: string | null; agent_stage?: number | null } | null;
   agent_handles?: { display_name: string | null } | null;
   contacts?: { display_name: string | null; e164: string | null } | null;
 };
-
-function slotForHour(h: number): "matin" | "midi" | "soir" | "hors" {
-  if (h >= 9 && h < 12) return "matin";
-  if (h >= 12 && h < 15) return "midi";
-  if (h >= 15 && h < 19) return "soir";
-  return "hors";
-}
 
 function inDurationBucket(secs: number, bucket: string): boolean {
   switch (bucket) {
@@ -94,6 +88,7 @@ export async function GET(request: Request) {
   const slot = searchParams.get("slot");
   const minDuration = Number(searchParams.get("min_duration") ?? 0);
   const inboundOnly = searchParams.get("inbound_only") === "1";
+  const agentStage = Number(searchParams.get("agent_stage")) || 0; // 1|2|3 (0 = no filter)
   // Same Prod/Test scoping as the rest of the dashboard so a drill-down on
   // "Prod totals" doesn't list Test calls (and vice-versa).
   const leadsSource: LeadsSource = searchParams.get("leads_source") === "test" ? "test" : "prod";
@@ -134,14 +129,20 @@ export async function GET(request: Request) {
   // dashboard via bucketForCall.
   const filtered = rows.filter((r) => {
     if (inboundOnly && !isInbound(r.direction)) return false;
+    if (agentStage) {
+      // Effective stage = furthest agent reached. Mirrors the director:
+      // max(handoff agents, AI-detected metadata.agent_stage, 1). Events are
+      // ~nil for Retell, so the stamped agent_stage drives it.
+      const eff = Math.max(Number(r.metadata?.agent_stage) || 0, 1);
+      if (agentStage >= 3 ? eff < 3 : eff !== agentStage) return false;
+    }
     if (answered === "yes" && !r.answered_at) return false;
     if (answered === "no" && r.answered_at) return false;
     if (minDuration > 0 && (r.duration_secs ?? 0) <= minDuration) return false;
     if (durationBucket && !inDurationBucket(r.duration_secs ?? 0, durationBucket)) return false;
     if (slot) {
       if (!r.started_at) return false;
-      const h = new Date(r.started_at).getUTCHours();
-      if (slotForHour(h) !== slot) return false;
+      if (slotForDate(new Date(r.started_at)) !== slot) return false;
     }
     if (qualParam) {
       const b = bucketForCall(r);

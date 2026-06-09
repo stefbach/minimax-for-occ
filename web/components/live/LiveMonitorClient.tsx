@@ -30,6 +30,9 @@ interface CallRow {
   metadata?: Record<string, unknown> | null;
   agent_handles: { display_name: string | null; kind: string | null } | null;
   contacts: { e164: string | null; display_name: string | null } | null;
+  // CRM patient context (live monitor only, via ?enrich=lead).
+  lead?: { name: string | null; bmi: number | null; source: string | null; call_count: number | null; qualification: string | null } | null;
+  is_test?: boolean;
 }
 
 type AlertTone = "short" | "voicemail" | "robot";
@@ -50,6 +53,9 @@ const STATE_LABEL: Record<string, string> = {
   failed: "Échec",
 };
 
+function counterpartyWithLead(c: CallRow): string {
+  return c.lead?.name || counterparty(c);
+}
 function counterparty(c: CallRow): string {
   const num = (c.direction === "inbound" || c.direction === "in") ? c.from_e164 : c.to_e164;
   return c.contacts?.display_name || num || "—";
@@ -96,7 +102,10 @@ function LiveCallCard({ call, now }: { call: CallRow; now: number }) {
         <div style={{ fontSize: 22, lineHeight: 1 }}>{isInbound ? "↘" : "↗"}</div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <strong style={{ fontSize: 15 }}>{counterparty(call)}</strong>
+            <strong style={{ fontSize: 15 }}>{counterpartyWithLead(call)}</strong>
+            <span className="tag" style={{ fontSize: 10, background: call.is_test ? "color-mix(in srgb, var(--warn) 18%, transparent)" : "color-mix(in srgb, var(--good) 18%, transparent)", color: call.is_test ? "var(--warn)" : "var(--good)" }}>
+              {call.is_test ? "Test" : "Prod"}
+            </span>
             <span className="tag good" style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
               <span style={{ position: "relative", display: "inline-flex", width: 8, height: 8 }}>
                 <span style={{ position: "absolute", inset: 0, borderRadius: "50%", background: "var(--good,#16a34a)", opacity: 0.75, animation: "ping 1.2s cubic-bezier(0,0,.2,1) infinite" }} />
@@ -117,6 +126,30 @@ function LiveCallCard({ call, now }: { call: CallRow; now: number }) {
           {fmtDuration(elapsed)}
         </span>
       </div>
+
+      {/* Patient context from the CRM (BMI / source / attempts), like the
+          legacy live card. Only shows when the number matched a lead. */}
+      {call.lead && (call.lead.bmi != null || call.lead.source || call.lead.call_count != null) && (
+        <div style={{ marginTop: 10, padding: "8px 10px", borderRadius: 8, background: "color-mix(in srgb, var(--good) 8%, transparent)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+            <span className="muted" style={{ fontSize: 11 }}>👤 {t("Lead identifié")}</span>
+            {call.lead.qualification && (
+              <span className="tag" style={{ fontSize: 10 }}>{call.lead.qualification}</span>
+            )}
+          </div>
+          <div style={{ display: "flex", gap: 18, marginTop: 6, flexWrap: "wrap" }}>
+            {call.lead.bmi != null && (
+              <div><div className="muted" style={{ fontSize: 10 }}>BMI</div><div style={{ fontWeight: 600, fontSize: 13 }}>{Number(call.lead.bmi).toFixed(1)}</div></div>
+            )}
+            {call.lead.source && (
+              <div><div className="muted" style={{ fontSize: 10 }}>{t("Source")}</div><div style={{ fontWeight: 600, fontSize: 13 }}>{call.lead.source}</div></div>
+            )}
+            {call.lead.call_count != null && (
+              <div><div className="muted" style={{ fontSize: 10 }}>{t("Appels")}</div><div style={{ fontWeight: 600, fontSize: 13 }}>{call.lead.call_count}</div></div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -139,7 +172,9 @@ export function LiveMonitorClient({ leadsSource = "prod", system = "all" }: { le
 
   const fetchActive = useCallback(async () => {
     try {
-      const r = await fetch(`/api/calls?state=${ACTIVE_STATES}&limit=100&leads_source=${leadsSource}${sysQs}`, { cache: "no-store" });
+      // No leads_source filter on purpose: a live monitor must surface EVERY
+      // active call (Prod or Test) — each card is tagged instead.
+      const r = await fetch(`/api/calls?state=${ACTIVE_STATES}&limit=100${sysQs}&enrich=lead`, { cache: "no-store" });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
       if (mounted.current) {
@@ -154,7 +189,7 @@ export function LiveMonitorClient({ leadsSource = "prod", system = "all" }: { le
 
   const fetchRecent = useCallback(async () => {
     try {
-      const r = await fetch(`/api/calls?state=${RECENT_STATES}&limit=40&leads_source=${leadsSource}${sysQs}`, { cache: "no-store" });
+      const r = await fetch(`/api/calls?state=${RECENT_STATES}&limit=40${sysQs}`, { cache: "no-store" });
       const j = await r.json();
       if (r.ok && mounted.current) {
         const rows: CallRow[] = Array.isArray(j) ? j : [];

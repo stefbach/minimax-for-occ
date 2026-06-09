@@ -1,5 +1,6 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { supabaseServer } from "@/lib/supabase";
+import { qualifyCall } from "@/lib/analysis-runner";
 import {
   recordUsage,
   secondsToBillableMinutes,
@@ -275,6 +276,25 @@ export async function POST(req: Request) {
       call_id: callId,
       CallStatus,
       AnsweredBy,
+    });
+  }
+
+  // ── 4. Auto-qualify after hangup (Axon equivalent of the Retell webhook) ─
+  // Every Twilio call ends with a `completed` status callback, so this is the
+  // reliable "after each call" hook — independent of Retell and of whether the
+  // LiveKit Cloud webhook is configured. We run it after responding (Twilio
+  // just wants a fast 200) and only when the call was actually answered.
+  // qualifyCall no-ops if there's already a real qualification, and — because
+  // we don't pass markNoEvidence — it leaves the call alone (to retry later) if
+  // the transcript hasn't finished landing yet.
+  if (CallStatus === "completed" && callId && answeredAtIso) {
+    const cid = callId;
+    after(async () => {
+      try {
+        await qualifyCall(cid);
+      } catch (e) {
+        log.error(`twilio/status auto-qualify failed: ${e instanceof Error ? e.message : String(e)}`, { call: cid });
+      }
     });
   }
 

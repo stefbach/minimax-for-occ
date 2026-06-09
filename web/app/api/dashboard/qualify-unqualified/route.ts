@@ -18,10 +18,15 @@ type Row = {
   id: string;
   state: string | null;
   answered_at: string | null;
+  duration_secs: number | null;
   disposition: string | null;
   to_e164: string | null;
-  metadata: { qualification?: string | null } | null;
+  metadata: { qualification?: string | null; agent_stage?: number | null; analysis_skipped?: string | null; source?: string } | null;
 };
+
+// Mirror analysis-runner's AGENT_STAGE_MIN_SECS: only long-enough calls are
+// candidates for agent-stage detection (a transfer never happens in seconds).
+const AGENT_STAGE_MIN_SECS = 60;
 
 // Backfill: find answered calls that currently fall into the hidden "autre"
 // bucket and have the AI assign a real qualification to each. Bounded per call
@@ -41,7 +46,7 @@ async function countCandidates(
     () =>
       sb
         .from("calls")
-        .select("id, state, answered_at, disposition, to_e164, metadata")
+        .select("id, state, answered_at, duration_secs, disposition, to_e164, metadata")
         .eq("org_id", orgId)
         .not("answered_at", "is", null)
         .gte("started_at", since)
@@ -50,11 +55,21 @@ async function countCandidates(
   );
   if (error) throw new Error(error);
   const scope = await leadsScopeFor(source);
+  // A call needs the AI pass if it's still unqualified ("autre") OR if it's a
+  // long-enough call whose agent-chain stage hasn't been detected yet. One pass
+  // handles both, so either reason makes it a candidate.
   const ids = data
     .filter((r) => !ACTIVE.has(r.state ?? ""))
     .filter((r) => callInLeadsScope(r.to_e164, scope))
-    .filter((r) => callMatchesSystem((r.metadata as { source?: string } | null)?.source, system))
-    .filter((r) => bucketForCall(r) === "autre")
+    .filter((r) => callMatchesSystem(r.metadata?.source, system))
+    .filter((r) => {
+      // A call we've already attempted but couldn't analyse (no evidence) is
+      // terminal — never a candidate again.
+      if (r.metadata?.analysis_skipped) return false;
+      const needsQual = bucketForCall(r) === "autre";
+      const needsStage = r.metadata?.agent_stage == null && (r.duration_secs ?? 0) >= AGENT_STAGE_MIN_SECS;
+      return needsQual || needsStage;
+    })
     .map((r) => r.id);
   return { ids };
 }
@@ -94,25 +109,30 @@ export async function POST(request: Request) {
   }
   const { searchParams } = new URL(request.url);
   const days = Math.min(365, Math.max(1, Number(searchParams.get("days") ?? 30)));
-  // Cap how many calls one request will classify (cost / time guard).
-  const limit = Math.min(25, Math.max(1, Number(searchParams.get("limit") ?? 25)));
+  // Cap how many calls one request will classify (cost / time guard). One pass
+  // now also detects the agent-chain stage, and the client drains in a loop, so
+  // keep batches comfortably under maxDuration.
+  const limit = Math.min(40, Math.max(1, Number(searchParams.get("limit") ?? 20)));
   const source = parseLeadsSource(searchParams);
   const system = parseCallSystem(searchParams.get("system"));
 
   try {
     const { ids } = await countCandidates(orgId, days, source, system);
     const batch = ids.slice(0, limit);
+    // Process with light concurrency so a batch finishes in a few seconds
+    // instead of (limit × ~3s) sequentially — keeps the background drain quick.
+    const CONCURRENCY = 5;
     const results: QualifyResult[] = [];
-    for (const id of batch) {
-      try {
-        results.push(await qualifyCall(id));
-      } catch (e) {
-        results.push({
-          call_id: id,
-          status: "no_evidence",
-          reason: e instanceof Error ? e.message : String(e),
-        });
-      }
+    for (let i = 0; i < batch.length; i += CONCURRENCY) {
+      const slice = batch.slice(i, i + CONCURRENCY);
+      const settled = await Promise.allSettled(slice.map((id) => qualifyCall(id, { markNoEvidence: true })));
+      settled.forEach((s, j) => {
+        results.push(
+          s.status === "fulfilled"
+            ? s.value
+            : { call_id: slice[j], status: "no_evidence", reason: s.reason instanceof Error ? s.reason.message : String(s.reason) },
+        );
+      });
     }
     const qualified = results.filter((r) => r.status === "qualified").length;
     return NextResponse.json({
