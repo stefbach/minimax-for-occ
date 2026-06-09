@@ -568,6 +568,7 @@ def _build_save_contact_tool(
     from db_writes import save_contact_data as _save_contact
     from db_writes import save_to_data_table as _save_table
     from db_writes import emit_qualification_webhooks as _emit_webhooks
+    from db_writes import update_call_metadata as _upd_call_meta
 
     use_table = bool(data_table and data_row_id)
     if not use_table and not contact_id:
@@ -620,6 +621,29 @@ def _build_save_contact_tool(
         try:
             if use_table:
                 result = await asyncio.to_thread(_save_table, data_table, data_row_id, fields)
+                # _save_table writes directly to the tenant's leads_rdv-style
+                # table, but doesn't mirror the qualification to
+                # calls.metadata.qualification the way the contacts path
+                # does. Without this the dashboard bucketed every save
+                # as 'AUTRE' even when Victoria's close stamped
+                # qualification='RDV CONFIRME' on the lead row. Mirror it
+                # ourselves so both views agree.
+                qual_in_fields = fields.get("qualification") if isinstance(fields, dict) else None
+                if result.get("ok") and qual_in_fields and call_id:
+                    try:
+                        await asyncio.to_thread(
+                            _upd_call_meta,
+                            call_id,
+                            {
+                                "qualification": str(qual_in_fields),
+                                "qualification_source": "save_contact_data",
+                            },
+                        )
+                    except Exception:
+                        logger.exception(
+                            "save_contact_data: mirror qualification to call failed (call=%s)",
+                            call_id,
+                        )
             else:
                 result = await asyncio.to_thread(
                     _save_contact,
