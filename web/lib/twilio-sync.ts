@@ -40,6 +40,25 @@ interface TwilioCall {
   start_time?: string;
   end_time?: string;
   answered_by?: string; // human | machine_* | fax | unknown (only if AMD ran)
+  price?: string | null; // what Twilio actually billed, NEGATIVE (e.g. "-0.04000")
+  price_unit?: string | null; // currency of `price` (USD | GBP | EUR | …)
+}
+
+/** Convert a Twilio-billed amount to USD cents (our usage_events currency).
+ *  Twilio rates in the account currency; override the fx via env if the
+ *  account isn't USD. Returns null when the call hasn't been rated yet. */
+function twilioPriceToCents(price: string | null | undefined, unit: string | null | undefined): number | null {
+  if (price === null || price === undefined || price === "") return null;
+  const n = Number(price);
+  if (!Number.isFinite(n)) return null;
+  const abs = Math.abs(n); // Twilio reports charges as negative numbers
+  const cur = (unit ?? "USD").toUpperCase();
+  const fx =
+    cur === "USD" ? 1 :
+    cur === "GBP" ? Number(process.env.TWILIO_FX_GBP_USD ?? 1.25) :
+    cur === "EUR" ? Number(process.env.TWILIO_FX_EUR_USD ?? 1.1) :
+    Number(process.env.TWILIO_FX_DEFAULT_USD ?? 1);
+  return abs * 100 * fx;
 }
 
 function authHeader(): string | null {
@@ -83,6 +102,7 @@ export interface TwilioSyncResult {
   reconciled: number; // stuck-active rows fixed to terminal
   skipped_existing: number;
   skipped_invalid: number;
+  costs_priced?: number; // usage_events stamped with Twilio's real billed price
   error?: string;
 }
 
@@ -128,6 +148,10 @@ export async function syncTwilioCalls(
   let skippedExisting = 0;
   let skippedInvalid = 0;
   const toInsert: Record<string, unknown>[] = [];
+  // Every Twilio call we can tie to an Axon calls.id gets its REAL billed
+  // price reconciled into usage_events below.
+  const costItems: CostItem[] = [];
+  const toInsertTw: TwilioCall[] = []; // parallel to toInsert, for cost items
 
   for (const c of calls) {
     const sid = str(c.sid);
@@ -144,6 +168,15 @@ export async function syncTwilioCalls(
 
     const row = existing.get(sid);
     if (row) {
+      costItems.push({
+        callId: row.id,
+        sid,
+        status: c.status ?? "",
+        durationSecs: duration,
+        priceCents: twilioPriceToCents(c.price, c.price_unit),
+        priceRaw: c.price ?? null,
+        priceUnit: c.price_unit ?? null,
+      });
       // Only reconcile a row the webhook left stuck in an active state.
       if (ACTIVE_DB_STATES.has(row.state ?? "")) {
         await sb.from("calls").update({
@@ -159,6 +192,7 @@ export async function syncTwilioCalls(
     }
 
     // New call the webhook never recorded → insert a full row.
+    toInsertTw.push(c);
     toInsert.push({
       org_id: orgId,
       direction,
@@ -180,6 +214,29 @@ export async function syncTwilioCalls(
     const { data, error } = await sb.from("calls").insert(chunk).select("id");
     if (error) throw new Error(error.message);
     inserted += (data ?? []).length;
+    // insert(...).select() returns rows in insertion order → zip with the
+    // parallel TwilioCall slice to know which calls.id belongs to which SID.
+    const twChunk = toInsertTw.slice(i, i + INS);
+    (data ?? []).forEach((r: { id: string }, j) => {
+      const c = twChunk[j];
+      if (!c?.sid) return;
+      costItems.push({
+        callId: r.id,
+        sid: c.sid,
+        status: c.status ?? "",
+        durationSecs: Number(c.duration) || 0,
+        priceCents: twilioPriceToCents(c.price, c.price_unit),
+        priceRaw: c.price ?? null,
+        priceUnit: c.price_unit ?? null,
+      });
+    });
+  }
+
+  let costsPriced = 0;
+  try {
+    costsPriced = await reconcileCallCosts(sb, orgId, costItems);
+  } catch (e) {
+    console.error(`[twilio-sync] cost reconciliation failed org=${orgId}:`, e instanceof Error ? e.message : e);
   }
 
   const result: TwilioSyncResult = {
@@ -188,7 +245,111 @@ export async function syncTwilioCalls(
     reconciled,
     skipped_existing: skippedExisting,
     skipped_invalid: skippedInvalid,
+    costs_priced: costsPriced,
   };
   console.log(`[twilio-sync] org=${orgId} done`, result);
   return result;
+}
+
+interface CostItem {
+  callId: string;
+  sid: string;
+  status: string;
+  durationSecs: number;
+  priceCents: number | null; // null = Twilio hasn't rated the call yet
+  priceRaw: string | null;
+  priceUnit: string | null;
+}
+
+const TERMINAL_TW = new Set(["completed", "busy", "no-answer", "failed", "canceled"]);
+
+/**
+ * Overwrite the ESTIMATED call cost with what Twilio actually billed.
+ *
+ * The agent's fallback usage event measures the LK session (ring time +
+ * dead-air included) at a rate-card price; Twilio's `price` field is the
+ * invoice truth — connected talk-time only, and 0 for unanswered/failed
+ * dials. One usage_events row per call (keyed metadata.call_id), updated in
+ * place; once a row carries twilio_priced=true it's final and never touched
+ * again, so the hourly cron converges instead of flapping.
+ */
+async function reconcileCallCosts(
+  sb: ReturnType<typeof supabaseServer>,
+  orgId: string,
+  items: CostItem[],
+): Promise<number> {
+  // Only terminal calls; a completed call with price=null just hasn't been
+  // rated yet — leave it for the next cron pass. Unanswered/failed dials are
+  // genuinely free (price stays null forever) → real cost 0.
+  const ready = items.filter(
+    (it) => TERMINAL_TW.has(it.status) && (it.priceCents !== null || it.status !== "completed"),
+  );
+  if (ready.length === 0) return 0;
+
+  // Existing call_minutes events for these calls, in chunks.
+  const byCallId = new Map<string, { id: string; metadata: Record<string, unknown> | null }>();
+  const CHUNK = 300;
+  const callIds = ready.map((it) => it.callId);
+  for (let i = 0; i < callIds.length; i += CHUNK) {
+    const slice = callIds.slice(i, i + CHUNK);
+    const { data } = await sb
+      .from("usage_events")
+      .select("id, metadata")
+      .eq("org_id", orgId)
+      .eq("event_type", "call_minutes")
+      .in("metadata->>call_id", slice);
+    for (const r of (data ?? []) as Array<{ id: string; metadata: Record<string, unknown> | null }>) {
+      const cid = r.metadata?.call_id;
+      if (typeof cid === "string") byCallId.set(cid, r);
+    }
+  }
+
+  let priced = 0;
+  for (const it of ready) {
+    const costCents = it.priceCents ?? 0;
+    const minutes = Math.ceil(it.durationSecs / 60); // Twilio bills per started minute
+    const existing = byCallId.get(it.callId);
+    if (existing) {
+      if (existing.metadata?.twilio_priced === true) continue; // already final
+      const { error } = await sb
+        .from("usage_events")
+        .update({
+          quantity: minutes,
+          cost_cents: costCents,
+          metadata: {
+            ...(existing.metadata ?? {}),
+            twilio_priced: true,
+            twilio_call_sid: it.sid,
+            twilio_price: it.priceRaw,
+            twilio_price_unit: it.priceUnit,
+            twilio_duration_secs: it.durationSecs,
+            twilio_status: it.status,
+          },
+        })
+        .eq("id", existing.id);
+      if (!error) priced += 1;
+    } else if (costCents > 0 || minutes > 0) {
+      // No estimate was ever written (webhook + fallback both missed) —
+      // record the real bill directly. Free failed dials stay event-less.
+      const { error } = await sb.from("usage_events").insert({
+        org_id: orgId,
+        event_type: "call_minutes",
+        quantity: minutes,
+        cost_cents: costCents,
+        metadata: {
+          source: "twilio_sync",
+          call_id: it.callId,
+          twilio_priced: true,
+          twilio_call_sid: it.sid,
+          twilio_price: it.priceRaw,
+          twilio_price_unit: it.priceUnit,
+          twilio_duration_secs: it.durationSecs,
+          twilio_status: it.status,
+        },
+      });
+      if (!error) priced += 1;
+    }
+  }
+  if (priced > 0) console.log(`[twilio-sync] org=${orgId} priced ${priced} call cost(s) from Twilio invoices`);
+  return priced;
 }
