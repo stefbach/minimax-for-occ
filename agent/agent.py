@@ -1472,6 +1472,35 @@ def _install_call_hygiene(
                 await asyncio.to_thread(_twilio_end_call, twilio_sid, clog, _call_id_now)
         except Exception:
             clog.exception("auto_hangup: twilio end-call failed")
+        # Stamp ended_at + duration at the REAL hangup moment. Without this
+        # the row only gets ended_at at process shutdown — post-call work
+        # (usage reporting, qualification, summary trigger) added 15-20s of
+        # phantom duration (Hannah Clayton's voicemail: detection at t=28s,
+        # ended_at written at t=48s, dashboard showed 0:45 for a call that
+        # really lasted ~30s). finalize_call_state respects an existing
+        # ended_at, so this wins.
+        try:
+            cid2 = getattr(ctx, "_call_id", None)
+            if cid2:
+                real_duration = int(_t.monotonic() - state["call_started_at"])
+
+                def _stamp_end(cid: str, dur: int) -> None:
+                    from datetime import datetime as _hdt, timezone as _htz
+                    from db_writes import _supabase_headers as _sb_h, _supabase_url as _sb_u
+                    import httpx as _hx
+                    with _hx.Client(timeout=_hx.Timeout(5.0), headers=_sb_h()) as _c:
+                        _c.patch(
+                            _sb_u(f"/rest/v1/calls?id=eq.{cid}"),
+                            headers={**_sb_h(), "Content-Type": "application/json", "Prefer": "return=minimal"},
+                            json={
+                                "ended_at": _hdt.now(_htz.utc).isoformat(),
+                                "duration_secs": dur,
+                            },
+                        )
+
+                await asyncio.to_thread(_stamp_end, cid2, real_duration)
+        except Exception:
+            clog.exception("auto_hangup: ended_at stamp failed")
         # Politely end the room. delete_room would be the hard kill but
         # disconnect lets the session shut down cleanly and the post-call
         # pipeline run.
