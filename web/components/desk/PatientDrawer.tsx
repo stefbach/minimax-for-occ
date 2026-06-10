@@ -15,39 +15,39 @@ interface Props {
 }
 
 interface PatientContext {
-  identity: { nom: string | null; email: string | null; dob: string | null };
-  clinical: {
-    bmi: number | null;
-    poids: number | null;
-    taille: number | null;
-    allergies: string | null;
-    anesthesia_allergies: string | null;
-    current_medications: string | null;
-    past_surgeries: string | null;
-    other_chronic_conditions: string | null;
+  identity?: { nom?: string | null; email?: string | null; dob?: string | null };
+  clinical?: {
+    bmi?: number | null;
+    poids?: number | null;
+    taille?: number | null;
+    allergies?: string | null;
+    anesthesia_allergies?: string | null;
+    current_medications?: string | null;
+    past_surgeries?: string | null;
+    other_chronic_conditions?: string | null;
   };
-  nhs: {
-    wmp_status: string | null;
-    wmp_details: string | null;
-    document_status: string | null;
-    received_documents: string | null;
-    missing_documents: string | null;
+  nhs?: {
+    wmp_status?: string | null;
+    wmp_details?: string | null;
+    document_status?: string | null;
+    received_documents?: string | null;
+    missing_documents?: string | null;
   };
-  funnel: {
-    qualification: string | null;
-    call_count: number;
-    last_call: string | null;
-    last_response: string | null;
-    cycle_status: string | null;
-    current_phase: string | null;
+  funnel?: {
+    qualification?: string | null;
+    call_count?: number;
+    last_call?: string | null;
+    last_response?: string | null;
+    cycle_status?: string | null;
+    current_phase?: string | null;
   };
-  notes: {
-    call_1: string | null;
-    call_2: string | null;
-    call_3: string | null;
-    free: string | null;
+  notes?: {
+    call_1?: string | null;
+    call_2?: string | null;
+    call_3?: string | null;
+    free?: string | null;
   };
-  source: { source_lead: string | null; form_facebook: string | null };
+  source?: { source_lead?: string | null; form_facebook?: string | null };
 }
 
 interface CallSummary {
@@ -87,7 +87,7 @@ export function PatientDrawer({ contactId, displayName, e164, onClose, headline 
       if (ctxR.ok) {
         const j = (await ctxR.json()) as { context: PatientContext | null };
         setCtx(j.context);
-        setNoteDraft(j.context?.notes.free ?? "");
+        setNoteDraft(j.context?.notes?.free ?? "");
       }
       if (callsR.ok) {
         const j = (await callsR.json()) as { calls: CallSummary[] };
@@ -154,7 +154,7 @@ export function PatientDrawer({ contactId, displayName, e164, onClose, headline 
       >
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
           <div>
-            <h2 style={{ margin: 0, fontSize: 20 }}>{ctx?.identity.nom ?? displayName ?? t("Fiche patient")}</h2>
+            <h2 style={{ margin: 0, fontSize: 20 }}>{ctx?.identity?.nom ?? displayName ?? t("Fiche patient")}</h2>
             <div className="muted" style={{ fontSize: 13 }}>
               {e164 ?? ""}
               {headline && <span style={{ marginLeft: 10, fontSize: 11 }} className="tag">{headline}</span>}
@@ -172,32 +172,32 @@ export function PatientDrawer({ contactId, displayName, e164, onClose, headline 
         ) : ctx ? (
           <>
             <Section title={t("Identité")}>
-              <Field label={t("Email")} value={ctx.identity.email} />
-              <Field label={t("Date de naissance")} value={ctx.identity.dob} />
-              <Field label={t("Qualification")} value={ctx.funnel.qualification} />
-              <Field label={t("Phase")} value={ctx.funnel.current_phase} />
-              <Field label={t("Cycle status")} value={ctx.funnel.cycle_status} />
-              <Field label={t("Nb appels")} value={ctx.funnel.call_count} />
-              <Field label={t("Dernier appel")} value={ctx.funnel.last_call} />
-              <Field label={t("Source")} value={ctx.source.source_lead} />
+              <Field label={t("Email")} value={ctx.identity?.email} />
+              <Field label={t("Date de naissance")} value={ctx.identity?.dob} />
+              <Field label={t("Qualification")} value={ctx.funnel?.qualification} />
+              <Field label={t("Phase")} value={ctx.funnel?.current_phase} />
+              <Field label={t("Cycle status")} value={ctx.funnel?.cycle_status} />
+              <Field label={t("Nb appels")} value={ctx.funnel?.call_count} />
+              <Field label={t("Dernier appel")} value={ctx.funnel?.last_call} />
+              <Field label={t("Source")} value={ctx.source?.source_lead} />
             </Section>
 
             <Section title={t("Clinique")}>
-              <Field label="BMI" value={ctx.clinical.bmi} />
-              <Field label={t("Poids")} value={ctx.clinical.poids ? `${ctx.clinical.poids} kg` : null} />
-              <Field label={t("Taille")} value={ctx.clinical.taille ? `${ctx.clinical.taille} cm` : null} />
-              <Field label={t("Allergies")} value={ctx.clinical.allergies} long />
-              <Field label={t("Traitements en cours")} value={ctx.clinical.current_medications} long />
-              <Field label={t("Antécédents chirurgicaux")} value={ctx.clinical.past_surgeries} long />
-              <Field label={t("Autres conditions chroniques")} value={ctx.clinical.other_chronic_conditions} long />
+              <Field label="BMI" value={ctx.clinical?.bmi} />
+              <Field label={t("Poids")} value={ctx.clinical?.poids ? `${ctx.clinical.poids} kg` : null} />
+              <Field label={t("Taille")} value={ctx.clinical?.taille ? `${ctx.clinical.taille} cm` : null} />
+              <Field label={t("Allergies")} value={ctx.clinical?.allergies} long />
+              <Field label={t("Traitements en cours")} value={ctx.clinical?.current_medications} long />
+              <Field label={t("Antécédents chirurgicaux")} value={ctx.clinical?.past_surgeries} long />
+              <Field label={t("Autres conditions chroniques")} value={ctx.clinical?.other_chronic_conditions} long />
             </Section>
 
             <Section title={t("NHS")}>
-              <Field label={t("Statut WMP")} value={ctx.nhs.wmp_status} />
-              <Field label={t("Détails WMP")} value={ctx.nhs.wmp_details} long />
-              <Field label={t("Statut documents")} value={ctx.nhs.document_status} />
-              <Field label={t("Documents reçus")} value={ctx.nhs.received_documents} long />
-              <Field label={t("Documents manquants")} value={ctx.nhs.missing_documents} long />
+              <Field label={t("Statut WMP")} value={ctx.nhs?.wmp_status} />
+              <Field label={t("Détails WMP")} value={ctx.nhs?.wmp_details} long />
+              <Field label={t("Statut documents")} value={ctx.nhs?.document_status} />
+              <Field label={t("Documents reçus")} value={ctx.nhs?.received_documents} long />
+              <Field label={t("Documents manquants")} value={ctx.nhs?.missing_documents} long />
             </Section>
 
             <Section title={t("Notes")}>
@@ -209,7 +209,7 @@ export function PatientDrawer({ contactId, displayName, e164, onClose, headline 
                 placeholder={t("Ajouter une note…")}
               />
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <button onClick={saveNote} disabled={savingNote || noteDraft === (ctx.notes.free ?? "")}>
+                <button onClick={saveNote} disabled={savingNote || noteDraft === (ctx.notes?.free ?? "")}>
                   {savingNote ? t("Enregistrement…") : t("Enregistrer la note")}
                 </button>
                 {noteSaved && <span style={{ color: "var(--good)", fontSize: 12 }}>{t("✓ Note enregistrée")}</span>}
@@ -217,7 +217,24 @@ export function PatientDrawer({ contactId, displayName, e164, onClose, headline 
             </Section>
           </>
         ) : (
-          <div className="muted">{t("Aucune fiche patient liée à ce contact.")}</div>
+          <div className="muted" style={{ padding: 16, fontSize: 13 }}>
+            {t("Aucune fiche patient liée à ce contact. Tu peux quand même prendre des notes ci-dessous.")}
+            <Section title={t("Notes")}>
+              <textarea
+                value={noteDraft}
+                onChange={(e) => setNoteDraft(e.target.value)}
+                rows={5}
+                style={{ width: "100%", resize: "vertical", fontSize: 13, fontFamily: "inherit", marginTop: 8 }}
+                placeholder={t("Ajouter une note…")}
+              />
+              <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
+                <button onClick={saveNote} disabled={savingNote}>
+                  {savingNote ? t("Enregistrement…") : t("Enregistrer la note")}
+                </button>
+                {noteSaved && <span style={{ color: "var(--good)", fontSize: 12 }}>{t("✓ Note enregistrée")}</span>}
+              </div>
+            </Section>
+          </div>
         )}
 
         <Section title={t("Derniers appels")}>
@@ -265,7 +282,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function Field({ label, value, long }: { label: string; value: string | number | null; long?: boolean }) {
+function Field({ label, value, long }: { label: string; value: string | number | null | undefined; long?: boolean }) {
   if (value === null || value === undefined || value === "") return null;
   return (
     <div style={{ display: long ? "block" : "grid", gridTemplateColumns: long ? undefined : "180px 1fr", gap: 6, fontSize: 13, alignItems: "baseline" }}>

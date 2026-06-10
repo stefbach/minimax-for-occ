@@ -27,23 +27,19 @@ export function MyCalendarClient() {
   const [tasks, setTasks] = useState<CalendarTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  // Filter mode controls which subset of tasks to show. 'today' /
-  // 'tomorrow' / 'date' restrict to a single day; 'horizon' shows the
-  // next N days (current default). Wati June 10: agents wanted a quick
-  // 'today' button to focus on what they have to do RIGHT NOW.
-  type FilterMode = "today" | "tomorrow" | "date" | "horizon";
+  // One-row filter bar (Wati June 10 v2): Today / Tomorrow / Date /
+  // 7j / 30j / Tous — all visible side-by-side. 'Tous' means all open
+  // tasks regardless of day. The 'À venir' tab was removed.
+  type FilterMode = "today" | "tomorrow" | "date" | "h7" | "h30" | "all";
   const [filterMode, setFilterMode] = useState<FilterMode>("today");
   const [customDate, setCustomDate] = useState<string>(() => isoToday());
-  const [horizon, setHorizon] = useState<number>(30);
 
-  // The server endpoint takes lookahead_days; we always ask for a
-  // generous window (90d) and filter client-side. Keeps the API surface
-  // small and lets the user re-pick a day without re-fetching.
+  // Always fetch a wide window (180 d) and filter client-side. Switching
+  // tabs becomes instant — no extra fetches.
   const refresh = useCallback(async () => {
     setErr(null);
     try {
-      const lookaheadDays = filterMode === "horizon" ? horizon : 90;
-      const r = await fetch(`/api/desk/tasks?scope=mine&lookahead_days=${lookaheadDays}`, { cache: "no-store" });
+      const r = await fetch(`/api/desk/tasks?scope=mine&lookahead_days=180`, { cache: "no-store" });
       if (!r.ok) {
         const j = (await r.json().catch(() => ({}))) as { error?: string };
         setErr(j.error ?? `HTTP ${r.status}`);
@@ -56,11 +52,20 @@ export function MyCalendarClient() {
     } finally {
       setLoading(false);
     }
-  }, [filterMode, horizon]);
+  }, []);
 
   // Apply the date filter client-side before grouping.
   const filteredTasks = useMemo(() => {
-    if (filterMode === "horizon") return tasks;
+    if (filterMode === "all") return tasks;
+    if (filterMode === "h7" || filterMode === "h30") {
+      const horizonDays = filterMode === "h7" ? 7 : 30;
+      const todayMs = Date.parse(isoToday() + "T00:00:00");
+      const horizonMs = todayMs + horizonDays * 86400000;
+      return tasks.filter((t) => {
+        const ts = Date.parse(t.scheduled_for);
+        return ts >= todayMs && ts < horizonMs;
+      });
+    }
     const targetISO =
       filterMode === "today"
         ? isoToday()
@@ -106,7 +111,9 @@ export function MyCalendarClient() {
           <FilterTab active={filterMode === "today"} onClick={() => setFilterMode("today")}>{t("Aujourd'hui")}</FilterTab>
           <FilterTab active={filterMode === "tomorrow"} onClick={() => setFilterMode("tomorrow")}>{t("Demain")}</FilterTab>
           <FilterTab active={filterMode === "date"} onClick={() => setFilterMode("date")}>{t("Date précise")}</FilterTab>
-          <FilterTab active={filterMode === "horizon"} onClick={() => setFilterMode("horizon")}>{t("À venir")}</FilterTab>
+          <FilterTab active={filterMode === "h7"} onClick={() => setFilterMode("h7")}>{t("7 prochains jours")}</FilterTab>
+          <FilterTab active={filterMode === "h30"} onClick={() => setFilterMode("h30")}>{t("30 prochains jours")}</FilterTab>
+          <FilterTab active={filterMode === "all"} onClick={() => setFilterMode("all")}>{t("Tous")}</FilterTab>
         </div>
         {filterMode === "date" && (
           <input
@@ -115,14 +122,6 @@ export function MyCalendarClient() {
             onChange={(e) => setCustomDate(e.target.value || isoToday())}
             style={{ fontSize: 13 }}
           />
-        )}
-        {filterMode === "horizon" && (
-          <select value={horizon} onChange={(e) => setHorizon(Number(e.target.value))} style={{ fontSize: 13 }}>
-            <option value={7}>{t("7 prochains jours")}</option>
-            <option value={14}>{t("14 prochains jours")}</option>
-            <option value={30}>{t("30 prochains jours")}</option>
-            <option value={90}>{t("3 prochains mois")}</option>
-          </select>
         )}
         <div style={{ display: "flex", gap: 18, marginLeft: "auto" }}>
           <Kpi label={t("À traiter")} value={filteredTasks.length} />

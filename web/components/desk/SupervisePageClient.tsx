@@ -34,6 +34,8 @@ export function SupervisePageClient() {
   // section (À assigner / Déjà assignés). Wati June 10 — same CRM-style
   // detail used on /mes-patients.
   const [openContact, setOpenContact] = useState<{ id: string; name: string | null; e164: string | null; headline?: string } | null>(null);
+  // Wati June 10 v2: filter by qualification (RAPPEL, A PASSER A L'HUMAIN, …).
+  const [qualFilter, setQualFilter] = useState<string>("all");
 
   const refresh = useCallback(async () => {
     setErr(null);
@@ -83,19 +85,36 @@ export function SupervisePageClient() {
     }
   }
 
-  const unassignedTasks = useMemo(() => tasks.filter((t) => !t.assigned_to), [tasks]);
-  const assignedTasks = useMemo(() => tasks.filter((t) => !!t.assigned_to), [tasks]);
+  const filteredTasks = useMemo(
+    () => qualFilter === "all" ? tasks : tasks.filter((t) => (t.qualification ?? "") === qualFilter),
+    [tasks, qualFilter],
+  );
+  const unassignedTasks = useMemo(() => filteredTasks.filter((t) => !t.assigned_to), [filteredTasks]);
+  const assignedTasks = useMemo(() => filteredTasks.filter((t) => !!t.assigned_to), [filteredTasks]);
   const counts = useMemo(() => {
-    const total = tasks.length;
-    const inProgress = tasks.filter((t) => t.status === "in_progress").length;
+    const total = filteredTasks.length;
+    const inProgress = filteredTasks.filter((t) => t.status === "in_progress").length;
     return { total, unassigned: unassignedTasks.length, assigned: assignedTasks.length, inProgress };
-  }, [tasks, unassignedTasks, assignedTasks]);
+  }, [filteredTasks, unassignedTasks, assignedTasks]);
+  const distinctQuals = useMemo(
+    () => Array.from(new Set(tasks.map((t) => t.qualification ?? "").filter(Boolean))).sort(),
+    [tasks],
+  );
 
   const activeAgents = useMemo(() => agents.filter((a) => a.is_active), [agents]);
 
   return (
     <div style={{ display: "grid", gap: 14 }}>
       <div className="card" style={{ display: "flex", gap: 18, alignItems: "center", flexWrap: "wrap" }}>
+        <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13 }}>
+          <span className="muted">{t("Qualification")}</span>
+          <select value={qualFilter} onChange={(e) => setQualFilter(e.target.value)} style={{ fontSize: 13 }}>
+            <option value="all">{t("Toutes")}</option>
+            {distinctQuals.map((q) => (
+              <option key={q} value={q}>{q}</option>
+            ))}
+          </select>
+        </label>
         <div className="grid-kpi" style={{ display: "flex", gap: 18, flexWrap: "wrap" }}>
           <Kpi label={t("À assigner")} value={counts.unassigned} />
           <Kpi label={t("Assignés")} value={counts.assigned} />

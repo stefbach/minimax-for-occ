@@ -769,7 +769,7 @@ def auto_qualify_call(call_id: Optional[str]) -> None:
             r = c.get(
                 _supabase_url(
                     f"/rest/v1/calls?id=eq.{call_id}"
-                    "&select=metadata,duration_secs,answered_at,to_e164,org_id"
+                    "&select=metadata,duration_secs,answered_at,to_e164,org_id,contact_id"
                 ),
             )
             r.raise_for_status()
@@ -1029,7 +1029,14 @@ def auto_qualify_call(call_id: Optional[str]) -> None:
             # does this on the explicit-tool path; we mirror it here so
             # the heuristic-only path is also covered.
             if _qualification_needs_callback(qual):
-                contact_id = current_meta.get("contact_id") if isinstance(current_meta, dict) else None
+                # Prefer the top-level calls.contact_id (always populated
+                # by the dialer for campaign targets); fall back to
+                # metadata.contact_id only if missing. Wati June 10 v2:
+                # tasks were spawning with contact_id=NULL so the
+                # PatientDrawer / Supervision couldn't show names.
+                contact_id = row.get("contact_id")
+                if not contact_id and isinstance(current_meta, dict):
+                    contact_id = current_meta.get("contact_id")
                 create_human_callback_task(
                     org_id,
                     contact_id if isinstance(contact_id, str) else None,

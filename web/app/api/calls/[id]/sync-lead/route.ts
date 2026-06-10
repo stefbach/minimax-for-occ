@@ -281,12 +281,26 @@ export async function POST(
   // Sabina Moussa was qualified A PASSER A L'HUMAIN but had 0 tasks), spin
   // one up here. Dedupe on contact_id so a webhook retry doesn't pile up
   // duplicate tasks for the same lead.
-  if (callQual === "A PASSER A L'HUMAIN" && target.contact_id) {
+  // Resolve a contact_id even when target.contact_id is null: look up
+  // the contact by the call's to_e164. Wati June 10 v2: many tasks were
+  // landing with contact_id=NULL so the PatientDrawer couldn't open.
+  let resolvedContactId: string | null = target.contact_id ?? null;
+  if (!resolvedContactId && call.to_e164) {
+    const { data: c } = await sb
+      .from("contacts")
+      .select("id")
+      .eq("org_id", call.org_id)
+      .eq("e164", call.to_e164)
+      .maybeSingle();
+    resolvedContactId = c?.id ?? null;
+  }
+
+  if (callQual === "A PASSER A L'HUMAIN" && resolvedContactId) {
     const { data: existingTasks } = await sb
       .from("human_callback_tasks")
       .select("id")
       .eq("org_id", call.org_id)
-      .eq("contact_id", target.contact_id)
+      .eq("contact_id", resolvedContactId)
       .in("status", ["pending", "in_progress"])
       .limit(1);
     if (!existingTasks || existingTasks.length === 0) {
@@ -295,7 +309,7 @@ export async function POST(
       // agent who handles it sets the next follow-up date themselves.
       await sb.from("human_callback_tasks").insert({
         org_id: call.org_id,
-        contact_id: target.contact_id,
+        contact_id: resolvedContactId,
         original_call_id: callId,
         qualification: "A PASSER A L'HUMAIN",
         transfer_reason: "auto from sync-lead (safety net)",

@@ -594,9 +594,10 @@ export function Softphone() {
           onSelect={(c) => setActiveCall(c)}
         />
 
-        <div className="card softphone-center">
-          <h3>Composer un numéro</h3>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div className="softphone-center" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(260px, 360px)", gap: 12, alignItems: "start" }}>
+          <div className="card" style={{ padding: 12 }}>
+          <h3 style={{ marginTop: 0 }}>Composer un numéro</h3>
+          <div style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", gap: 6, alignItems: "center" }}>
             <CountryPrefix
               value={dialNumber}
               onChange={setDialNumber}
@@ -606,12 +607,12 @@ export function Softphone() {
               value={dialNumber}
               onChange={(e) => setDialNumber(e.target.value)}
               placeholder="+44 7700 123456"
-              style={{ flex: 1, fontSize: 16, padding: "10px 12px" }}
+              style={{ fontSize: 16, padding: "10px 12px", minWidth: 0 }}
             />
             <button
               onClick={dial}
               disabled={dialing || !/^\+\d{6,15}$/.test(dialNumber)}
-              style={{ padding: "10px 16px" }}
+              style={{ padding: "10px 16px", whiteSpace: "nowrap" }}
             >
               {dialing ? "Appel…" : "☎ Appeler"}
             </button>
@@ -745,16 +746,18 @@ export function Softphone() {
           {/* Phase 4: "Script en cours" — only renders if the active
               call has a script attached (campaign with script_id). */}
           <ScriptPanel callId={activeCall?.id ?? null} />
+          </div>{/* close left card of softphone-center grid */}
 
           {/* Notes pendant l'appel + qualification dialog at hangup
-              (Wati June 10). Shown beside the softphone center column. */}
+              (Wati June 10). Sits to the RIGHT of the dialer so the agent
+              can take notes while the call rings/connects. */}
           <CallNotePanel
             e164={dialNumber}
             callActive={twilioCallState !== "idle"}
             lastCallEndedAt={lastCallEndedAt}
             lastCallId={lastCallId}
           />
-        </div>
+        </div>{/* close softphone-center grid */}
 
         <ContactPanel call={activeCall} />
       </div>
@@ -790,10 +793,10 @@ function CountryPrefix({ value, onChange }: { value: string; onChange: (v: strin
         const c = COUNTRIES.find((x) => x.code === e.target.value);
         if (c) onChange(c.prefix);
       }}
-      style={{ fontSize: 14, padding: "10px 6px" }}
+      style={{ fontSize: 13, padding: "10px 4px", width: 90, flex: "0 0 90px" }}
       title="Indicatif pays"
     >
-      {current === null && <option value="">🏳 Pays ?</option>}
+      {current === null && <option value="">🏳</option>}
       {COUNTRIES.map((c) => (
         <option key={c.code} value={c.code}>
           {c.flag} {c.prefix}
