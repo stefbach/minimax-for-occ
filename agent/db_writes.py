@@ -292,6 +292,23 @@ def emit_qualification_webhooks(
                 except Exception:
                     logger.exception("could not resolve data_table_id for %s", physical_table)
 
+            # Fetch the full row once so downstream automations (n8n email /
+            # WhatsApp on RDV CONFIRME) get everything they need — patient
+            # email, name, phone, email_sent/whatsapp_sent flags — without
+            # needing their own Supabase credentials for the read.
+            full_row: dict[str, Any] | None = None
+            if physical_table and row_id:
+                try:
+                    rr = c.get(_supabase_url(
+                        f"/rest/v1/{physical_table}?id=eq.{row_id}&limit=1"
+                    ))
+                    rr.raise_for_status()
+                    rows = rr.json() or []
+                    if rows:
+                        full_row = rows[0]
+                except Exception:
+                    logger.exception("could not fetch row for webhook payload (%s/%s)", physical_table, row_id)
+
             for h in hooks:
                 col = h.get("watch_column") or "qualification"
                 if col not in fields:
@@ -316,6 +333,7 @@ def emit_qualification_webhooks(
                     "watch_column": col,
                     "value": new_val,
                     "fields": fields,
+                    "row": full_row,
                     "occurred_at": _now_iso(),
                 }
                 extra_headers = h.get("headers") if isinstance(h.get("headers"), dict) else {}
