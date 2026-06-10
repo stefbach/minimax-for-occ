@@ -941,28 +941,15 @@ function PatientCard({ item }: { item: DeskItem | null }) {
     };
   }, [item?.contact_id]);
 
-  if (!item) {
+  // Wati June 10 v5: when no patient is focused, render nothing. The
+  // 'Prêt à prendre un appel' empty-state is shown in the BOTTOM-RIGHT
+  // slot of the 2x2 grid instead — keeping it twice (here + bottom-right)
+  // was ugly and confusing.
+  if (!item) return null;
+  // (legacy empty-state body kept commented for reference)
+  if (false) {
     return (
-      <div
-        className="card"
-        style={{
-          padding: 24,
-          minHeight: 220,
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          textAlign: "center",
-          gap: 14,
-        }}
-      >
-        <div style={{ fontSize: 42, opacity: 0.45 }}>☎</div>
-        <h3 style={{ margin: 0 }}>{t("Prêt à prendre un appel")}</h3>
-        <p className="muted" style={{ margin: 0, fontSize: 13, maxWidth: 360, lineHeight: 1.6 }}>
-          {t(
-            "Choisis un patient à gauche dans Ma file, ou prends-en un depuis le Pool partagé à droite. Son contexte (historique, qualification, notes) s'affichera ici.",
-          )}
-        </p>
+      <div className="card" style={{ display: "none" }}>
         <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4 }}>
           ↓ {t("Passe en « available » ci-dessous pour recevoir des appels")}
         </div>

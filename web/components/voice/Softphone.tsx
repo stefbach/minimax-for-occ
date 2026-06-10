@@ -597,7 +597,7 @@ export function Softphone() {
         <div className="softphone-center" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(260px, 360px)", gap: 12, alignItems: "start" }}>
           <div className="card" style={{ padding: 12 }}>
           <h3 style={{ marginTop: 0 }}>Composer un numéro</h3>
-          <div style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", gap: 6, alignItems: "center" }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
             <CountryPrefix
               value={dialNumber}
               onChange={setDialNumber}
@@ -607,7 +607,16 @@ export function Softphone() {
               value={dialNumber}
               onChange={(e) => setDialNumber(e.target.value)}
               placeholder="+44 7700 123456"
-              style={{ fontSize: 16, padding: "10px 12px", minWidth: 0 }}
+              style={{
+                fontSize: 16,
+                padding: "10px 12px",
+                flex: "1 1 160px",
+                minWidth: 140,
+                border: "1px solid var(--border)",
+                borderRadius: 6,
+                background: "var(--bg)",
+                color: "var(--text)",
+              }}
             />
             <button
               onClick={dial}
