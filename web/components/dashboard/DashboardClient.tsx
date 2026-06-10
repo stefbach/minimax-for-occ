@@ -18,6 +18,7 @@ import { NhsSuiviTab } from "./NhsSuiviTab";
 import { ErrorsAlertsTab } from "./ErrorsAlertsTab";
 import { PeriodBar, presetToRange, type Period, type Filters } from "./PeriodBar";
 import { SyncRetellButton } from "./SyncRetellButton";
+import { SyncTwilioButton } from "./SyncTwilioButton";
 import { useT } from "@/lib/i18n";
 
 type TabId = "overview" | "stats" | "logs" | "live" | "errors" | "ai" | "nhs";
@@ -161,6 +162,7 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
                 <button className="ghost">{t("◐ Contacts")}</button>
               </Link>
               <SyncRetellButton />
+              <SyncTwilioButton />
             </div>
             <PeriodBar period={period} filters={filters} onPeriod={setPeriod} onFilters={setFilters} />
             <DirectorTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} system={filters.system} />

@@ -116,18 +116,19 @@ export async function POST(request: Request) {
   // the room name (back-compat for rooms created before that stamp).
   let { data: byMeta } = await sb
     .from("calls")
-    .select("id, metadata, summary")
+    .select("id, metadata, summary, state, answered_at, duration_secs, started_at")
     .eq("metadata->>lk_room_name", roomName)
     .order("started_at", { ascending: false })
     .limit(1);
-  let row = (byMeta ?? [])[0] as { id: string; metadata: Record<string, unknown> | null; summary: string | null } | undefined;
+  type CallLkRow = { id: string; metadata: Record<string, unknown> | null; summary: string | null; state: string | null; answered_at: string | null; duration_secs: number | null; started_at: string | null };
+  let row = (byMeta ?? [])[0] as CallLkRow | undefined;
 
   if (!row) {
     const prefix = parseCallIdFromRoom(roomName);
     if (prefix) {
       const { data: byPrefix } = await sb
         .from("calls")
-        .select("id, metadata, summary")
+        .select("id, metadata, summary, state, answered_at, duration_secs, started_at")
         .ilike("id", `${prefix}%`)
         .order("started_at", { ascending: false })
         .limit(1);
@@ -162,6 +163,28 @@ export async function POST(request: Request) {
   if (summary) {
     update.summary = summary;
     update.summary_generated_at = new Date().toISOString();
+  }
+
+  // ── LiveKit as a FALLBACK for the call lifecycle ──────────────────────────
+  // Twilio's StatusCallback is the primary source for state/duration/answered.
+  // But if Twilio didn't report correctly (dropped webhook, missing data), use
+  // the LK session as a backstop so the call still counts as real and isn't
+  // dropped as a phantom. We only FILL gaps — never override good Twilio data.
+  const sess = (payload.session ?? {}) as { duration_secs?: number; ended_at?: string };
+  const lkDuration = typeof sess.duration_secs === "number" && sess.duration_secs > 0 ? Math.round(sess.duration_secs) : null;
+  const sessionEnded = evt === "session.ended" || payload.event === "session.ended" || payload.type === "session.ended";
+  if (sessionEnded) {
+    // Mark terminal if Twilio left it stuck active.
+    if (["queued", "ringing", "ivr", "in_progress", "wrap_up"].includes(row.state ?? "")) {
+      update.state = "ended";
+      update.ended_at = sess.ended_at ? new Date(sess.ended_at).toISOString() : new Date().toISOString();
+    }
+    // Fill duration only if Twilio didn't.
+    if ((row.duration_secs ?? 0) === 0 && lkDuration) update.duration_secs = lkDuration;
+    // A real LK conversation means the call WAS answered — fill if missing.
+    if (!row.answered_at && lkDuration && lkDuration >= 5) {
+      update.answered_at = row.started_at ?? new Date(Date.now() - lkDuration * 1000).toISOString();
+    }
   }
 
   const { error: upErr } = await sb.from("calls").update(update).eq("id", row.id);

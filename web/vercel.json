@@ -8,6 +8,10 @@
     {
       "path": "/api/dashboard/sync-retell?days=2",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/dashboard/sync-twilio?days=2",
+      "schedule": "15 * * * *"
     }
   ]
 }

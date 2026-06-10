@@ -7,6 +7,7 @@ import { isInbound, normalizeDirectionForDb } from "@/lib/call-direction";
 import { callInLeadsScope, leadsTableFor, leadsScopeFor, type LeadsSource } from "@/lib/leads-source";
 import { fetchAllPaged, type Rangeable } from "@/lib/supabase-page";
 import { callMatchesSystem, parseCallSystem } from "@/lib/call-system";
+import { isPhantomCall } from "@/lib/call-quality";
 import { slotForDate } from "@/lib/call-slots";
 
 export const runtime = "nodejs";
@@ -164,6 +165,7 @@ export async function GET(request: Request) {
   const rows = ((data ?? []) as unknown as CallRow[]).filter(
     (r) =>
       !ACTIVE.has(r.state ?? "")
+      && !isPhantomCall(r)
       && callInLeadsScope(r.to_e164 ?? null, scope)
       && callMatchesSystem((r.metadata as { source?: string } | null)?.source, system),
   );
