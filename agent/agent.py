@@ -1326,7 +1326,11 @@ def _install_call_hygiene(
     # signature phrase, which burned the entire 8s window on Jeff Hollis's
     # mailbox. A real patient saying "leave a message" / "press hash" within
     # their first 20 seconds is implausible, so the wider window stays safe.
-    voicemail_detect_window = float(os.getenv("VOICEMAIL_DETECT_WINDOW_SECS", "20.0"))
+    # 10 s from FIRST SPEECH — Wati's spec: a voicemail call must not exceed
+    # ~10 s total agent time. A real patient saying "leave a message" or
+    # "press hash" inside their first 10 s is implausible, so the window
+    # stays safe against false REPONDEUR on humans.
+    voicemail_detect_window = float(os.getenv("VOICEMAIL_DETECT_WINDOW_SECS", "10.0"))
 
     # Distress / safety phrases that MUST trigger immediate handoff in a
     # healthcare context. We listen across the WHOLE call (not just the first
@@ -1482,23 +1486,42 @@ def _install_call_hygiene(
         try:
             cid2 = getattr(ctx, "_call_id", None)
             if cid2:
-                real_duration = int(_t.monotonic() - state["call_started_at"])
-
-                def _stamp_end(cid: str, dur: int) -> None:
+                def _stamp_end(cid: str) -> None:
+                    # Anchor duration on the row's started_at (INVITE time)
+                    # so the displayed duration matches the Twilio recording.
+                    # Wati's Frank Taylor case: agent-session clock said 0:26
+                    # but the recording was 0:53 — the 27 s of ring were
+                    # missing. Reading started_at here means we always include
+                    # ring time, matching what the recording captures.
                     from datetime import datetime as _hdt, timezone as _htz
                     from db_writes import _supabase_headers as _sb_h, _supabase_url as _sb_u
                     import httpx as _hx
                     with _hx.Client(timeout=_hx.Timeout(5.0), headers=_sb_h()) as _c:
+                        gr = _c.get(_sb_u(f"/rest/v1/calls?id=eq.{cid}&select=started_at"))
+                        started_iso = None
+                        try:
+                            rows = gr.json() or []
+                            started_iso = rows[0].get("started_at") if rows else None
+                        except Exception:
+                            started_iso = None
+                        ended_dt = _hdt.now(_htz.utc)
+                        dur = None
+                        if started_iso:
+                            try:
+                                s = _hdt.fromisoformat(str(started_iso).replace("Z", "+00:00"))
+                                dur = max(0, int((ended_dt - s).total_seconds()))
+                            except Exception:
+                                dur = None
+                        body = {"ended_at": ended_dt.isoformat()}
+                        if dur is not None:
+                            body["duration_secs"] = dur
                         _c.patch(
                             _sb_u(f"/rest/v1/calls?id=eq.{cid}"),
                             headers={**_sb_h(), "Content-Type": "application/json", "Prefer": "return=minimal"},
-                            json={
-                                "ended_at": _hdt.now(_htz.utc).isoformat(),
-                                "duration_secs": dur,
-                            },
+                            json=body,
                         )
 
-                await asyncio.to_thread(_stamp_end, cid2, real_duration)
+                await asyncio.to_thread(_stamp_end, cid2)
         except Exception:
             clog.exception("auto_hangup: ended_at stamp failed")
         # Politely end the room. delete_room would be the hard kill but
