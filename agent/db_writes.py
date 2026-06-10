@@ -568,7 +568,7 @@ def finalize_call_state(
             r = c.get(
                 _supabase_url(
                     f"/rest/v1/calls?id=eq.{call_id}"
-                    "&select=state,answered_at,ended_at,duration_secs"
+                    "&select=state,answered_at,ended_at,duration_secs,started_at"
                 ),
             )
             r.raise_for_status()
@@ -587,7 +587,25 @@ def finalize_call_state(
                 body["ended_at"] = ended_at
             if answered_at and not cur.get("answered_at"):
                 body["answered_at"] = answered_at
-            if duration_secs is not None and not cur.get("duration_secs"):
+            # Duration matches the Twilio recording: from INVITE (started_at)
+            # to BYE (ended_at). Wati noticed that Frank Taylor's display
+            # said 0:26 while the recording was 0:53 — the 0:26 was the
+            # agent-session-only clock and skipped the ring. We prefer the
+            # row's started_at over any local duration passed in.
+            effective_ended = ended_at or cur.get("ended_at")
+            started_iso = cur.get("started_at")
+            full_duration: Optional[int] = None
+            if started_iso and effective_ended:
+                try:
+                    from datetime import datetime as _dt_fcs
+                    s = _dt_fcs.fromisoformat(str(started_iso).replace("Z", "+00:00"))
+                    e = _dt_fcs.fromisoformat(str(effective_ended).replace("Z", "+00:00"))
+                    full_duration = max(0, int((e - s).total_seconds()))
+                except Exception:
+                    full_duration = None
+            if full_duration is not None and not cur.get("duration_secs"):
+                body["duration_secs"] = full_duration
+            elif duration_secs is not None and not cur.get("duration_secs"):
                 body["duration_secs"] = int(duration_secs)
             r2 = c.patch(
                 _supabase_url(f"/rest/v1/calls?id=eq.{call_id}"),

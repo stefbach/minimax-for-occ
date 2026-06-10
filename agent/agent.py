@@ -840,7 +840,12 @@ class AxonVoiceAgent(Agent):
             # speaking, so the greeting can't be cut off by their continuing
             # speech, and suppressing the reply means no double-greeting.
             self._pending_first_greeting = True
-            speech_wait = float(os.getenv("GREETING_WAIT_FOR_SPEECH_SECONDS", "25.0"))
+            # Stretched to 45 s on Wati's June 10 carrier-ringback findings.
+            # UK Three/O2 acquit the SIP leg in <2 s then play ringback
+            # IN-BAND for up to 30 s before the handset actually rings the
+            # patient. Marina Gorton answered for real at t=18 s, Dorota
+            # Walid at t=50 s — both well past the previous 25 s window.
+            speech_wait = float(os.getenv("GREETING_WAIT_FOR_SPEECH_SECONDS", "45.0"))
             speech_start = _t.monotonic()
             while self._pending_first_greeting and _t.monotonic() - speech_start < speech_wait:
                 await asyncio.sleep(0.25)
@@ -850,13 +855,24 @@ class AxonVoiceAgent(Agent):
                     _t.monotonic() - speech_start,
                 )
                 return
-            # Timeout: silent pickup or dead air — disarm the interceptor
-            # and fall through to the direct say() below.
-            self._pending_first_greeting = False
+            # Timeout WITHOUT speech: do NOT fall through to a direct say().
+            # On UK mobile routes the audio path is still in-band ringback
+            # at this point — the carrier swallows the greeting and the
+            # patient hears nothing, but `_pending_first_greeting` was being
+            # disarmed, so when the patient finally picked up (Marina at
+            # 18 s, Dorota at 50 s) on_user_turn_completed had no canned
+            # greeting left to fire and the agent stayed mute.
+            # Keep the interceptor armed for the rest of the call: the next
+            # real user turn will trigger the greeting. True silent pickups
+            # are caught by the first_agent_turn watchdog ceiling
+            # (no_speech_heuristic → PAS DE REPONSE) — no agent talking
+            # into a dead line.
             logger.warning(
-                "greeting: no speech within %.0fs — speaking static greeting (silent pickup or dead air)",
+                "greeting: no speech within %.0fs — leaving interceptor armed "
+                "for late pickup (in-band ringback suspected)",
                 speech_wait,
             )
+            return
 
         # Static greeting path: non-SIP sessions (desk/browser) and the
         # silent-pickup timeout. Tiny pre-roll so the first syllable isn't
@@ -1326,7 +1342,11 @@ def _install_call_hygiene(
     # signature phrase, which burned the entire 8s window on Jeff Hollis's
     # mailbox. A real patient saying "leave a message" / "press hash" within
     # their first 20 seconds is implausible, so the wider window stays safe.
-    voicemail_detect_window = float(os.getenv("VOICEMAIL_DETECT_WINDOW_SECS", "20.0"))
+    # 10 s from FIRST SPEECH — Wati's spec: a voicemail call must not exceed
+    # ~10 s total agent time. A real patient saying "leave a message" or
+    # "press hash" inside their first 10 s is implausible, so the window
+    # stays safe against false REPONDEUR on humans.
+    voicemail_detect_window = float(os.getenv("VOICEMAIL_DETECT_WINDOW_SECS", "10.0"))
 
     # Distress / safety phrases that MUST trigger immediate handoff in a
     # healthcare context. We listen across the WHOLE call (not just the first
@@ -1482,23 +1502,42 @@ def _install_call_hygiene(
         try:
             cid2 = getattr(ctx, "_call_id", None)
             if cid2:
-                real_duration = int(_t.monotonic() - state["call_started_at"])
-
-                def _stamp_end(cid: str, dur: int) -> None:
+                def _stamp_end(cid: str) -> None:
+                    # Anchor duration on the row's started_at (INVITE time)
+                    # so the displayed duration matches the Twilio recording.
+                    # Wati's Frank Taylor case: agent-session clock said 0:26
+                    # but the recording was 0:53 — the 27 s of ring were
+                    # missing. Reading started_at here means we always include
+                    # ring time, matching what the recording captures.
                     from datetime import datetime as _hdt, timezone as _htz
                     from db_writes import _supabase_headers as _sb_h, _supabase_url as _sb_u
                     import httpx as _hx
                     with _hx.Client(timeout=_hx.Timeout(5.0), headers=_sb_h()) as _c:
+                        gr = _c.get(_sb_u(f"/rest/v1/calls?id=eq.{cid}&select=started_at"))
+                        started_iso = None
+                        try:
+                            rows = gr.json() or []
+                            started_iso = rows[0].get("started_at") if rows else None
+                        except Exception:
+                            started_iso = None
+                        ended_dt = _hdt.now(_htz.utc)
+                        dur = None
+                        if started_iso:
+                            try:
+                                s = _hdt.fromisoformat(str(started_iso).replace("Z", "+00:00"))
+                                dur = max(0, int((ended_dt - s).total_seconds()))
+                            except Exception:
+                                dur = None
+                        body = {"ended_at": ended_dt.isoformat()}
+                        if dur is not None:
+                            body["duration_secs"] = dur
                         _c.patch(
                             _sb_u(f"/rest/v1/calls?id=eq.{cid}"),
                             headers={**_sb_h(), "Content-Type": "application/json", "Prefer": "return=minimal"},
-                            json={
-                                "ended_at": _hdt.now(_htz.utc).isoformat(),
-                                "duration_secs": dur,
-                            },
+                            json=body,
                         )
 
-                await asyncio.to_thread(_stamp_end, cid2, real_duration)
+                await asyncio.to_thread(_stamp_end, cid2)
         except Exception:
             clog.exception("auto_hangup: ended_at stamp failed")
         # Politely end the room. delete_room would be the hard kill but

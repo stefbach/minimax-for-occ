@@ -187,14 +187,15 @@ async function dialViaLiveKit(args: {
       // Block until pickup/timeout so we only dispatch the agent on a real answer.
       waitUntilAnswered: true,
       // Patient ring timeout, configurable via DIAL_RING_TIMEOUT_SECS.
-      // 25s default (industry standard). The earlier 5s default killed the
-      // June 10 go-live wave: humans need 10-15s median to physically reach
-      // their phone, so 2/3 of calls "failed" before anyone could answer —
-      // only early-answer carriers (Three's in-band ringback) survived the
-      // cutoff. The "hang up fast when nobody's there" requirement is
-      // handled POST-answer by the agent (speech-wait timeout + 4s idle
-      // watchdog), not by chopping the ring.
-      ringingTimeout: Math.max(5, Math.min(600, Number(process.env.DIAL_RING_TIMEOUT_SECS ?? 25))),
+      // 10s default — this is Wati's validated value from the Day-Before-Go-Live
+      // test plan ("Ne pas repondre, doit raccrocher automatiquement apres
+      // 10sec"). Yes, a few mobile carriers ring for >10s before voicemail
+      // kicks in, but on this batch lengthening to 25s ballooned PAS DE
+      // REPONSE durations to 41-67s (Lauren Checkley rang for 1:03 dead-air)
+      // without measurably raising the pickup rate. The "hang up fast when
+      // nobody's there" requirement is enforced POST-answer by the agent
+      // (speech-wait timeout + 4s idle watchdog), not by waiting on the ring.
+      ringingTimeout: Math.max(5, Math.min(600, Number(process.env.DIAL_RING_TIMEOUT_SECS ?? 10))),
     };
     // ────────────────────────────────────────────────────────────────────
     // "Agent First" sequencing (Wati's architectural insight): instead of
@@ -532,7 +533,7 @@ export async function dialTarget(job: DialJob): Promise<void> {
       // catching dead numbers immediately rather than waiting through 2-3
       // rings for a voicemail handoff. Override via DIAL_RING_TIMEOUT_SECS
       // without a redeploy. Twilio clamps 5-600s.
-      timeout: Math.max(5, Math.min(600, Number(process.env.DIAL_RING_TIMEOUT_SECS ?? 25))),
+      timeout: Math.max(5, Math.min(600, Number(process.env.DIAL_RING_TIMEOUT_SECS ?? 10))),
       record: recordingEnabled,
       recordingStatusCallback,
     });
