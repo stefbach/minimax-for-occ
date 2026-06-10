@@ -9,6 +9,7 @@ import { fetchAllPaged, type Rangeable } from "@/lib/supabase-page";
 import { callMatchesSystem, parseCallSystem } from "@/lib/call-system";
 import { isPhantomCall } from "@/lib/call-quality";
 import { slotForDate } from "@/lib/call-slots";
+import { cleanPhone, cleanName } from "@/lib/phone-clean";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -311,7 +312,7 @@ export async function GET(request: Request) {
     .slice(0, 80)
     .map(({ row, bucket }) => ({
       call_id: row.id,
-      contact_name: row.contacts?.display_name ?? null,
+      contact_name: cleanName(row.contacts?.display_name) ?? null,
       qualification: bucket,
       qualification_label:
         QUAL_BUCKETS.find((b) => b.key === bucket)?.label ?? bucket,
@@ -341,8 +342,8 @@ export async function GET(request: Request) {
     }>
   ).map((t) => ({
     task_id: t.id,
-    contact_name: t.contacts?.display_name ?? null,
-    phone: t.contacts?.e164 ?? null,
+    contact_name: cleanName(t.contacts?.display_name) ?? null,
+    phone: cleanPhone(t.contacts?.e164 ?? null),
     qualification: t.qualification,
     scheduled_for: t.scheduled_for,
     status: t.status,

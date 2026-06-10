@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useT } from "@/lib/i18n";
 import { bucketForCall, QUAL_BUCKETS, type QualBucket } from "@/lib/qualification";
 import { fixAudioDuration } from "@/lib/fix-audio-duration";
+import { cleanPhone, cleanName } from "@/lib/phone-clean";
 
 // Call Logs tab — Twilio-style call history with our specifics on top:
 // the AI agent's name, the normalised qualification (9 fixed buckets),
@@ -96,10 +97,11 @@ function fmtCost(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 function counterpartyName(c: CallRow): string {
-  return c.contacts?.display_name || "Inconnu";
+  return cleanName(c.contacts?.display_name) || "Inconnu";
 }
 function counterpartyNumber(c: CallRow): string | null {
-  return (c.direction === "inbound" || c.direction === "in") ? c.from_e164 : c.to_e164;
+  // Strip SIP URIs / Client identities to a real E.164 (or "—" via the caller).
+  return cleanPhone((c.direction === "inbound" || c.direction === "in") ? c.from_e164 : c.to_e164);
 }
 
 export function CallLogsTab({ from, to, direction, leadsSource = "prod", system = "all" }: { from: string; to: string; direction: string; leadsSource?: "prod" | "test"; system?: "all" | "retell" | "axon" }) {

@@ -16,6 +16,7 @@
  */
 
 import { supabaseServer } from "./supabase";
+import { cleanPhone } from "./phone-clean";
 
 const TWILIO_API = "https://api.twilio.com";
 const ACTIVE_DB_STATES = new Set(["queued", "ringing", "ivr", "in_progress", "wrap_up"]);
@@ -197,8 +198,10 @@ export async function syncTwilioCalls(
       org_id: orgId,
       direction,
       state,
-      from_e164: str(c.from),
-      to_e164: str(c.to),
+      // Recover the real E.164 from SIP URIs ("sip:+44…@host") and drop Twilio
+      // Client identities ("client:user-…") so the dashboard shows numbers/names.
+      from_e164: cleanPhone(c.from),
+      to_e164: cleanPhone(c.to),
       started_at: new Date(startMs).toISOString(),
       answered_at: answered ? new Date(startMs).toISOString() : null,
       ended_at: c.end_time ? new Date(c.end_time).toISOString() : null,

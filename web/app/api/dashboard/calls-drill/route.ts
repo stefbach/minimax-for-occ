@@ -9,6 +9,7 @@ import { fetchAllPaged, type Rangeable } from "@/lib/supabase-page";
 import { callMatchesSystem, parseCallSystem } from "@/lib/call-system";
 import { isPhantomCall } from "@/lib/call-quality";
 import { slotForDate } from "@/lib/call-slots";
+import { cleanPhone, cleanName } from "@/lib/phone-clean";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -164,7 +165,9 @@ export async function GET(request: Request) {
     returned: sliced.length,
     truncated: filtered.length > LIMIT,
     calls: sliced.map((r) => {
-      const phone = isInbound(r.direction) ? r.from_e164 : r.to_e164;
+      // Counterparty number, with SIP URIs / Client identities stripped to a
+      // real E.164 (or null) so the list never renders `sip:…` / `client:user-…`.
+      const phone = cleanPhone(isInbound(r.direction) ? r.from_e164 : r.to_e164);
       return {
         id: r.id,
         started_at: r.started_at,
@@ -172,9 +175,9 @@ export async function GET(request: Request) {
         duration_secs: r.duration_secs,
         answered: !!r.answered_at,
         qualification: bucketForCall(r),
-        // Prefer the Axon contact; fall back to the lead name (Retell calls
-        // have no contact) so the list shows people, not bare numbers.
-        contact_name: r.contacts?.display_name ?? leadNameForPhone(phone, leadNames),
+        // Prefer the Axon contact (sanitised); fall back to the lead name
+        // (Retell calls have no contact) so the list shows people, not numbers.
+        contact_name: cleanName(r.contacts?.display_name) ?? leadNameForPhone(phone, leadNames),
         agent_name: r.agent_handles?.display_name ?? null,
         phone,
         disposition: r.disposition,

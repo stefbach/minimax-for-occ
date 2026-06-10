@@ -5,6 +5,7 @@ import { requireModule } from "@/lib/permissions-server";
 import { fetchRetellCallExtras, type TranscriptTurn } from "@/lib/retell-sync";
 import { bucketForCall, QUAL_BUCKETS } from "@/lib/qualification";
 import { isInbound } from "@/lib/call-direction";
+import { cleanPhone } from "@/lib/phone-clean";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -204,7 +205,9 @@ export async function GET(request: Request) {
   }
 
   // ── Patient / follow-up / medical from the CRM lead (by phone) ────────────
-  const patientPhone = isInbound(call.direction ?? null) ? call.from_e164 : call.to_e164;
+  // Strip SIP URIs / Client identities so the lead lookup keys on a real E.164
+  // and the pane never shows `sip:…` / `client:user-…` as the patient number.
+  const patientPhone = cleanPhone(isInbound(call.direction ?? null) ? call.from_e164 : call.to_e164);
   let patient: PatientInfo | null = null;
   let followup: FollowupInfo | null = null;
   let medical: MedicalInfo | null = null;

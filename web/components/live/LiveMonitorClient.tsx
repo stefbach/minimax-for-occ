@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useT } from "@/lib/i18n";
+import { cleanPhone, cleanName } from "@/lib/phone-clean";
 
 // Live Monitor — real-time view of calls in flight, adapted to Axon's `calls`
 // table (LiveKit-driven) via the existing org-scoped /api/calls route. No
@@ -57,8 +58,9 @@ function counterpartyWithLead(c: CallRow): string {
   return c.lead?.name || counterparty(c);
 }
 function counterparty(c: CallRow): string {
-  const num = (c.direction === "inbound" || c.direction === "in") ? c.from_e164 : c.to_e164;
-  return c.contacts?.display_name || num || "—";
+  // Strip SIP URIs / Client identities so a live card never shows `sip:…` / `client:user-…`.
+  const num = cleanPhone((c.direction === "inbound" || c.direction === "in") ? c.from_e164 : c.to_e164);
+  return cleanName(c.contacts?.display_name) || num || "—";
 }
 
 function fmtDuration(totalSecs: number): string {
@@ -115,7 +117,7 @@ function LiveCallCard({ call, now }: { call: CallRow; now: number }) {
             </span>
           </div>
           <div className="muted" style={{ fontSize: 12, fontFamily: "ui-monospace, monospace" }}>
-            {isInbound ? call.from_e164 : call.to_e164}
+            {cleanPhone(isInbound ? call.from_e164 : call.to_e164) ?? "—"}
           </div>
           <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
             {t("Agent")} : <span style={{ color: "var(--text)" }}>{call.agent_handles?.display_name ?? "—"}</span>

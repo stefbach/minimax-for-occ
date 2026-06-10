@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { requestOrgId } from "@/lib/request-org";
 import { leadNameMapFor, leadNameForPhone } from "@/lib/leads-source";
+import { cleanPhone, cleanName } from "@/lib/phone-clean";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -143,9 +144,9 @@ export async function GET(request: Request) {
       const robotFlag =
         (r.metadata && (r.metadata as Record<string, unknown>).robot_awareness === "true") ||
         (r.metadata && (r.metadata as Record<string, unknown>).robot_awareness === true);
-      const e164 = (r.direction === "in" || r.direction === "inbound") ? r.from_e164 : r.to_e164;
+      const e164 = cleanPhone((r.direction === "in" || r.direction === "inbound") ? r.from_e164 : r.to_e164);
       const contact = Array.isArray(r.contacts) ? r.contacts[0] ?? null : r.contacts;
-      const name = contact?.display_name ?? leadNameForPhone(e164, leadNames);
+      const name = cleanName(contact?.display_name) ?? leadNameForPhone(e164, leadNames);
       if (ROBOT_RE.test(disp) || robotFlag) {
         robotRows.push({
           call_id: r.id,
@@ -193,11 +194,12 @@ export async function GET(request: Request) {
       answered_at: string | null;
     }>) {
       const answered = !!r.answered_at;
-      if (r.to_e164) {
-        const cur = neverReachedMap.get(r.to_e164) ?? { attempts: 0, everAnswered: false };
+      const toClean = cleanPhone(r.to_e164);
+      if (toClean) {
+        const cur = neverReachedMap.get(toClean) ?? { attempts: 0, everAnswered: false };
         cur.attempts += 1;
         cur.everAnswered = cur.everAnswered || answered;
-        neverReachedMap.set(r.to_e164, cur);
+        neverReachedMap.set(toClean, cur);
       }
       if (r.contact_id) {
         const cur = contactAttemptsMap.get(r.contact_id) ?? { attempts: 0, everAnswered: false };
@@ -240,10 +242,10 @@ export async function GET(request: Request) {
   }
   const threeAttempts: ThreeAttemptsRow[] = candidateContacts
     .map(([contact_id, v]) => {
-      const e164 = contactsMap.get(contact_id)?.e164 ?? null;
+      const e164 = cleanPhone(contactsMap.get(contact_id)?.e164 ?? null);
       return {
         contact_id,
-        contact_name: contactsMap.get(contact_id)?.display_name ?? leadNameForPhone(e164, leadNames),
+        contact_name: cleanName(contactsMap.get(contact_id)?.display_name) ?? leadNameForPhone(e164, leadNames),
         e164,
         attempts: v.attempts,
       };
