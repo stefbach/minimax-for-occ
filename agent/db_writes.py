@@ -896,7 +896,7 @@ def auto_qualify_call(call_id: Optional[str]) -> None:
                 vt = c.get(
                     _supabase_url(
                         f"/rest/v1/call_transcripts?call_id=eq.{call_id}"
-                        "&speaker=in.(user,customer)&select=text&order=seq.asc&limit=6"
+                        "&speaker=in.(user,customer)&select=text&order=seq.asc&limit=8"
                     ),
                 )
                 if vt.is_success:
@@ -912,9 +912,25 @@ def auto_qualify_call(call_id: Optional[str]) -> None:
                         r"|voice\s*mail|messaging\s+service|unable\s+to\s+take\s+your\s+call"
                         r"|record\s+your\s+(name|message)|message\s+deposited|mailbox"
                         r"|press\s+(hash|pound|star|\d)\b|recording\s+now"
-                        r"|when\s+you('?re|\s+are)\s+done",
+                        r"|when\s+you('?re|\s+are)\s+done"
+                        # Google Pixel / iOS / Hiya call-screening assistants.
+                        r"|call\s+(assistant|screening)|recording\s+this\s+call"
+                        r"|the\s+person\s+(you('?re|\s+are)\s+(trying\s+to\s+reach|calling))"
+                        r"|please\s+say\s+who\s+you\s+are|please\s+hold\s+while\s+i\s+(connect|transfer)"
+                        r"|what(?:'?s|\s+is)\s+the\s+purpose\s+of\s+(this|your)\s+call"
+                        r"|is\s+busy\s+(now|at\s+the\s+moment)",
                         joined,
                     ))
+                    # STRUCTURAL fallback: the first 3+ user turns are a
+                    # monologue (≥14 words combined, no question mark
+                    # awaiting our reply). Real humans answer with one
+                    # short turn first; voicemails/screeners produce
+                    # several long scripted lines back-to-back.
+                    if not voicemail_transcript and len(user_rows) >= 3:
+                        first3 = user_rows[:3]
+                        total_words = sum(len(str(r.get("text") or "").split()) for r in first3)
+                        if total_words >= 14:
+                            voicemail_transcript = True
             except Exception:
                 pass
 

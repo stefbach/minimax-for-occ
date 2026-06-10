@@ -264,8 +264,23 @@ async function dialViaLiveKit(args: {
   } catch (err) {
     await sb
       .from("calls")
-      .update({ state: "failed", ended_at: new Date().toISOString() })
+      .update({ state: "failed", ended_at: new Date().toISOString(), duration_secs: 0 })
       .eq("id", callId);
+    // Kill the room so the warm-dispatched agent doesn't sit idle for
+    // 60 s waiting on its own watchdog — without this, every ring
+    // timeout produced a 1:06 "PAS DE REPONSE" on the dashboard because
+    // the agent kept the room alive until first_agent_turn expired and
+    // its _stamp_end overwrote our 10 s ended_at with the watchdog
+    // timestamp. deleteRoom is best-effort: a missing room (LK GC,
+    // racey shutdown) is fine — we already wrote ended_at.
+    try {
+      const cleanupRooms = new RoomServiceClient(lk.host, lk.key, lk.secret);
+      await cleanupRooms.deleteRoom(roomName);
+    } catch (rmErr) {
+      console.warn(
+        `[dialer] deleteRoom ${roomName} failed after ring timeout: ${rmErr instanceof Error ? rmErr.message : String(rmErr)}`,
+      );
+    }
     throw err;
   }
 

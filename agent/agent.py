@@ -1309,6 +1309,21 @@ def _install_call_hygiene(
         r"|recording\s+now|message\s+hasn'?t\s+been\s+saved"
         r"|to\s+(leave|re.?record|listen\s+to)\s+(a|your|the)\s+message"
         r"|when\s+you('?re|\s+are)\s+done"
+        # Google Pixel Call Screening / iOS Live Voicemail / similar AI
+        # call-screening assistants. Imi Rothon's call: "I'm a call
+        # assistant recording this call for the person you're trying to
+        # reach. Please say who you are." Charlotte then chatted with the
+        # robot for 2 minutes. None of these phrases appear in a real
+        # patient's first 10 s.
+        r"|call\s+(assistant|screening)|screening\s+(this|your)\s+call"
+        r"|recording\s+this\s+call|this\s+call\s+(is\s+being|may\s+be)\s+recorded"
+        r"|the\s+person\s+(you('?re|\s+are)\s+(trying\s+to\s+reach|calling)|you('?ve|\s+have)\s+(reached|called))"
+        r"|(?:please\s+)?(?:say|tell\s+me)\s+(who\s+you\s+are|your\s+name|the\s+purpose)"
+        r"|what(?:'?s|\s+is)\s+(?:the\s+)?(?:purpose|reason)\s+(?:of|for)\s+(?:this|your)\s+call"
+        r"|could\s+you\s+tell\s+me\s+(?:what|why|the\s+purpose)"
+        r"|please\s+hold\s+while\s+i\s+(connect|transfer|forward)"
+        r"|(?:the\s+person\s+you('?re|\s+are)\s+calling\s+is\s+busy|is\s+(?:currently\s+)?busy\s+(?:now|at\s+the\s+moment))"
+        r"|google\s+(?:assistant|voice)|hey,?\s+who's\s+calling"
         # UK / Vodafone / EE / O2 / Three carrier announcements when the
         # destination is busy, off, ringing-out, or out of service. These
         # don't say "leave a message" but they're 100% deterministic — there
@@ -1509,17 +1524,32 @@ def _install_call_hygiene(
                     # but the recording was 0:53 — the 27 s of ring were
                     # missing. Reading started_at here means we always include
                     # ring time, matching what the recording captures.
+                    #
+                    # CRITICAL: respect a pre-existing ended_at. The dialer
+                    # already stamps ended_at when the SIP ring times out
+                    # (Wati's June 10 "115 non-décrochés à 1:06" — without
+                    # this guard the watchdog 60 s later would overwrite the
+                    # real 10 s timeout with its own timestamp and inflate
+                    # the displayed duration to 66 s.).
                     from datetime import datetime as _hdt, timezone as _htz
                     from db_writes import _supabase_headers as _sb_h, _supabase_url as _sb_u
                     import httpx as _hx
                     with _hx.Client(timeout=_hx.Timeout(5.0), headers=_sb_h()) as _c:
-                        gr = _c.get(_sb_u(f"/rest/v1/calls?id=eq.{cid}&select=started_at"))
+                        gr = _c.get(_sb_u(f"/rest/v1/calls?id=eq.{cid}&select=started_at,ended_at"))
                         started_iso = None
+                        already_ended = None
                         try:
                             rows = gr.json() or []
-                            started_iso = rows[0].get("started_at") if rows else None
+                            if rows:
+                                started_iso = rows[0].get("started_at")
+                                already_ended = rows[0].get("ended_at")
                         except Exception:
-                            started_iso = None
+                            pass
+                        if already_ended:
+                            # Someone (dialer ring timeout, Twilio webhook,
+                            # earlier finalize) has stamped the real end —
+                            # don't move it.
+                            return
                         ended_dt = _hdt.now(_htz.utc)
                         dur = None
                         if started_iso:
@@ -1721,6 +1751,27 @@ def _install_call_hygiene(
             if _voicemail_re.search(str(text)):
                 clog.info("call hygiene: voicemail detected via STT (t=%.1fs after first speech): %r", elapsed, str(text)[:120])
                 asyncio.create_task(_hangup("voicemail detected via STT"))
+                return
+            # STRUCTURAL HEURISTIC — monologue without our reply.
+            # Voicemails and AI screeners (Google Pixel, iOS Live VM)
+            # produce CONSECUTIVE customer turns at machine pace with no
+            # waiting for our reply. A real human says "Hello?" once and
+            # then waits — even if they later launch into a long answer,
+            # it's AFTER our greeting (the agent turn resets the counter).
+            # We bail when ≥3 CONSECUTIVE customer turns totalling ≥14
+            # words arrive before the agent has said anything. _on_item
+            # resets customer_consec_turns whenever the assistant speaks.
+            turns = state.get("customer_consec_turns") or []
+            turns.append(str(text))
+            state["customer_consec_turns"] = turns
+            total_words = sum(len(t.split()) for t in turns)
+            if len(turns) >= 3 and total_words >= 14:
+                clog.info(
+                    "call hygiene: voicemail/screener inferred from monologue "
+                    "(t=%.1fs, %d consecutive customer turns, %d words): %r",
+                    elapsed, len(turns), total_words, " | ".join(turns)[:160],
+                )
+                asyncio.create_task(_hangup("voicemail detected via monologue heuristic"))
         except Exception:
             clog.debug("call hygiene: voicemail STT check failed", exc_info=True)
 
@@ -1737,6 +1788,10 @@ def _install_call_hygiene(
             # mode (waiting for the SIP participant to arrive in the Agent
             # First flow) into normal idle-detection mode.
             state["first_agent_turn"] = True
+            # An agent turn breaks any in-progress customer monologue —
+            # subsequent customer turns are responses to our greeting, not
+            # a robotic broadcast, so reset the voicemail monologue counter.
+            state["customer_consec_turns"] = []
             # Estimate TTS playback duration from the text length and pin a
             # 'speaking until' deadline so the watchdog can't fire mid-TTS
             # even when agent_state_changed events aren't delivered (observed
