@@ -6,6 +6,7 @@ import { fetchTwilioRecordingUrl, findTwilioRecordingForCall } from "@/lib/twili
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 30;
 
 // Streams a call recording through our own origin instead of linking the
 // browser straight at the upstream (Retell CloudFront) URL. Direct playback of
@@ -85,12 +86,14 @@ export async function GET(request: Request) {
   }
   if (!url) return new Response("no_recording", { status: 404 });
 
-  // Forward the browser's Range header so seeking / partial loads work.
-  const range = request.headers.get("range");
-  // Twilio's recording .mp3 endpoint requires Basic Auth — the URL alone
-  // isn't enough. Other origins (Retell, etc.) are public.
+  // Twilio's recording .mp3 endpoint requires Basic Auth (and Retell/CloudFront
+  // is public). We DON'T forward the browser's Range to the upstream: Twilio
+  // transcodes the MP3 on the fly and returns it chunked with no Content-Length
+  // and no Range support, so the browser ends up with duration=Infinity and the
+  // playhead pinned to the end. Instead we buffer the (small) recording and
+  // serve Range requests ourselves with an exact Content-Length, so the player
+  // always knows the real duration and can seek.
   const upstreamHeaders: Record<string, string> = {};
-  if (range) upstreamHeaders["Range"] = range;
   if (url.startsWith("https://api.twilio.com/") && process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
     const tok = Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString("base64");
     upstreamHeaders["Authorization"] = `Basic ${tok}`;
@@ -105,15 +108,38 @@ export async function GET(request: Request) {
     return new Response("upstream_error", { status: 502 });
   }
 
-  const headers = new Headers();
-  headers.set("content-type", audioContentType(upstream.headers.get("content-type"), url));
-  headers.set("accept-ranges", "bytes");
-  const cl = upstream.headers.get("content-length");
-  if (cl) headers.set("content-length", cl);
-  const cr = upstream.headers.get("content-range");
-  if (cr) headers.set("content-range", cr);
-  // Private cache: the recording is immutable, but it's PHI-adjacent.
-  headers.set("cache-control", "private, max-age=3600");
+  const buf = Buffer.from(await upstream.arrayBuffer());
+  const total = buf.length;
+  const contentType = audioContentType(upstream.headers.get("content-type"), url);
+  const baseHeaders: Record<string, string> = {
+    "content-type": contentType,
+    "accept-ranges": "bytes",
+    // Immutable but PHI-adjacent — private cache only.
+    "cache-control": "private, max-age=3600",
+  };
 
-  return new Response(upstream.body, { status: upstream.status, headers });
+  // Partial content for seeking.
+  const range = request.headers.get("range");
+  const m = range ? /bytes=(\d*)-(\d*)/.exec(range) : null;
+  if (m && total > 0) {
+    let start = m[1] ? parseInt(m[1], 10) : 0;
+    let end = m[2] ? parseInt(m[2], 10) : total - 1;
+    if (!Number.isFinite(start) || start < 0) start = 0;
+    if (!Number.isFinite(end) || end >= total) end = total - 1;
+    if (start > end) start = 0;
+    const chunk = buf.subarray(start, end + 1);
+    return new Response(chunk, {
+      status: 206,
+      headers: {
+        ...baseHeaders,
+        "content-range": `bytes ${start}-${end}/${total}`,
+        "content-length": String(chunk.length),
+      },
+    });
+  }
+
+  return new Response(buf, {
+    status: 200,
+    headers: { ...baseHeaders, "content-length": String(total) },
+  });
 }

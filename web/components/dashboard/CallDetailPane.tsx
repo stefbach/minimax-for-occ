@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useT } from "@/lib/i18n";
+import { fixAudioDuration } from "@/lib/fix-audio-duration";
 import { QUAL_BUCKETS, type QualBucket } from "@/lib/qualification";
 import type { DrillCall } from "@/app/api/dashboard/calls-drill/route";
 import type { CallDetailResponse } from "@/app/api/dashboard/call-detail/route";
@@ -150,7 +151,7 @@ export function CallDetailPane({
               {/* Stream through our own origin (see /api/dashboard/call-recording)
                   so playback works regardless of the upstream host's CORS /
                   content-type. */}
-              <audio controls preload="metadata" src={`/api/dashboard/call-recording?id=${encodeURIComponent(call.id)}`} style={{ width: "100%" }} />
+              <audio controls preload="metadata" src={`/api/dashboard/call-recording?id=${encodeURIComponent(call.id)}`} style={{ width: "100%" }} onLoadedMetadata={fixAudioDuration} />
               <a
                 href={`/api/dashboard/call-recording?id=${encodeURIComponent(call.id)}`}
                 target="_blank"
