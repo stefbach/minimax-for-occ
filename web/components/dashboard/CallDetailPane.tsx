@@ -216,8 +216,13 @@ export function CallDetailPane({
                       borderTopRightRadius: isAgent ? 10 : 2,
                     }}
                   >
-                    <div style={{ fontSize: 10, fontWeight: 600, color: "var(--muted)", marginBottom: 2, textTransform: "uppercase", letterSpacing: 0.3 }}>
-                      {isAgent ? t("Agent") : t("Client")}
+                    <div style={{ fontSize: 10, fontWeight: 600, color: "var(--muted)", marginBottom: 2, textTransform: "uppercase", letterSpacing: 0.3, display: "flex", justifyContent: "space-between", gap: 8 }}>
+                      <span>{isAgent ? t("Agent") : t("Client")}</span>
+                      {typeof turn.t === "number" && (
+                        <span style={{ fontFamily: "ui-monospace, monospace", letterSpacing: 0 }}>
+                          {Math.floor(turn.t / 60)}:{String(turn.t % 60).padStart(2, "0")}
+                        </span>
+                      )}
                     </div>
                     {turn.text}
                   </div>

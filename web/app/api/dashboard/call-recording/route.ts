@@ -2,7 +2,7 @@ import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { requestOrgId } from "@/lib/request-org";
 import { requireModule } from "@/lib/permissions-server";
 import { fetchRetellCallExtras } from "@/lib/retell-sync";
-import { fetchTwilioRecordingUrl } from "@/lib/twilio-recording";
+import { fetchTwilioRecordingUrl, findTwilioRecordingForCall } from "@/lib/twilio-recording";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,14 +38,15 @@ export async function GET(request: Request) {
   const sb = supabaseServer();
   const { data } = await sb
     .from("calls")
-    .select("recording_url, metadata")
+    .select("recording_url, metadata, to_e164, from_e164, started_at, answered_at")
     .eq("id", id)
     .eq("org_id", orgId)
     .maybeSingle();
   if (!data) return new Response("not_found", { status: 404 });
 
-  let url = (data as { recording_url: string | null }).recording_url;
-  const meta = ((data as { metadata: Record<string, unknown> | null }).metadata ?? {}) as Record<string, unknown>;
+  const row = data as { recording_url: string | null; metadata: Record<string, unknown> | null; to_e164: string | null; from_e164: string | null; started_at: string | null; answered_at: string | null };
+  let url = row.recording_url;
+  const meta = (row.metadata ?? {}) as Record<string, unknown>;
 
   // Lazy backfill #1: pull the recording from Retell if we never stored one.
   if (!url && meta.source === "retell_sync" && typeof meta.retell_call_id === "string") {
@@ -64,6 +65,22 @@ export async function GET(request: Request) {
     if (fetched) {
       url = fetched;
       await sb.from("calls").update({ recording_url: url }).eq("id", id).eq("org_id", orgId);
+    }
+  }
+  // Lazy backfill #3: Axon/LiveKit call whose row never got a twilio_call_sid
+  // (LiveKit + Twilio legs landed on separate rows). Find the Twilio call by
+  // number + start time, resolve its recording, and stamp the sid so we don't
+  // search again. Only for answered, non-Retell rows with a number + time.
+  if (!url && meta.source !== "retell_sync" && !meta.twilio_call_sid && meta.twilio_recording_unavailable !== true
+      && row.answered_at && row.started_at) {
+    const found = await findTwilioRecordingForCall({
+      to: row.to_e164, from: row.from_e164, startedAtMs: Date.parse(row.started_at),
+    });
+    if (found) {
+      url = found.url;
+      await sb.from("calls").update({ recording_url: url, metadata: { ...meta, twilio_call_sid: found.sid } }).eq("id", id).eq("org_id", orgId);
+    } else {
+      await sb.from("calls").update({ metadata: { ...meta, twilio_recording_unavailable: true } }).eq("id", id).eq("org_id", orgId);
     }
   }
   if (!url) return new Response("no_recording", { status: 404 });

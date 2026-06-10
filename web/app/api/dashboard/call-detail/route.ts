@@ -3,6 +3,7 @@ import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { requestOrgId } from "@/lib/request-org";
 import { requireModule } from "@/lib/permissions-server";
 import { fetchRetellCallExtras, type TranscriptTurn } from "@/lib/retell-sync";
+import { findTwilioRecordingForCall } from "@/lib/twilio-recording";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,7 +19,7 @@ export const dynamic = "force-dynamic";
 //     rows synced before transcript storage existed are backfilled lazily by
 //     calling Retell get-call once, then cached back into metadata.
 
-export type CallDetailTurn = { speaker: "agent" | "customer"; text: string };
+export type CallDetailTurn = { speaker: "agent" | "customer"; text: string; t?: number };
 export type CallDetailResponse = {
   recording_url: string | null;
   summary: string | null;
@@ -31,11 +32,19 @@ type CallRow = {
   org_id: string;
   recording_url: string | null;
   summary: string | null;
+  started_at: string | null;
+  answered_at: string | null;
+  to_e164: string | null;
+  from_e164: string | null;
   metadata: Record<string, unknown> | null;
 };
 
 function turnsToDetail(turns: TranscriptTurn[]): CallDetailTurn[] {
-  return turns.map((t) => ({ speaker: t.role === "user" ? "customer" : "agent", text: t.content }));
+  return turns.map((t) => ({
+    speaker: t.role === "user" ? "customer" : "agent",
+    text: t.content,
+    ...(typeof t.start === "number" ? { t: Math.max(0, Math.round(t.start)) } : {}),
+  }));
 }
 
 export async function GET(request: Request) {
@@ -51,7 +60,7 @@ export async function GET(request: Request) {
   const sb = supabaseServer();
   const { data, error } = await sb
     .from("calls")
-    .select("id, org_id, recording_url, summary, metadata")
+    .select("id, org_id, recording_url, summary, started_at, answered_at, to_e164, from_e164, metadata")
     .eq("id", id)
     .eq("org_id", orgId)
     .maybeSingle();
@@ -60,25 +69,34 @@ export async function GET(request: Request) {
   const call = data as CallRow;
   const meta = (call.metadata ?? {}) as Record<string, unknown>;
 
-  // 1. Native Axon transcript turns.
+  // 1. Native Axon transcript turns (LiveKit STT). started_at per turn gives us
+  // the timestamp; anchor on answered_at (talk start) else the call start.
   const { data: trData } = await sb
     .from("call_transcripts")
-    .select("speaker, text, seq")
+    .select("speaker, text, seq, started_at")
     .eq("call_id", id)
     .order("seq", { ascending: true });
-  const axonTurns = (trData ?? []) as Array<{ speaker: string | null; text: string | null }>;
+  const axonTurns = (trData ?? []) as Array<{ speaker: string | null; text: string | null; started_at: string | null }>;
 
   let transcript: CallDetailTurn[] = [];
   let transcriptSource: "axon" | "retell" | null = null;
   let recordingUrl = call.recording_url;
 
   if (axonTurns.length) {
+    const anchorMs = call.answered_at ? Date.parse(call.answered_at)
+      : call.started_at ? Date.parse(call.started_at) : NaN;
     transcript = axonTurns
       .filter((t) => t.text)
-      .map((t) => ({
-        speaker: t.speaker === "customer" || t.speaker === "user" ? "customer" : "agent",
-        text: t.text as string,
-      }));
+      .map((t) => {
+        const turnMs = t.started_at ? Date.parse(t.started_at) : NaN;
+        const rel = Number.isFinite(anchorMs) && Number.isFinite(turnMs)
+          ? Math.max(0, Math.round((turnMs - anchorMs) / 1000)) : undefined;
+        return {
+          speaker: (t.speaker === "customer" || t.speaker === "user" ? "customer" : "agent") as "agent" | "customer",
+          text: t.text as string,
+          ...(rel != null ? { t: rel } : {}),
+        };
+      });
     transcriptSource = "axon";
   } else if (meta.source === "retell_sync") {
     transcriptSource = "retell";
@@ -88,12 +106,15 @@ export async function GET(request: Request) {
     }
 
     // Lazy backfill from Retell — ONE get-call fills whatever's still missing
-    // (recording and/or transcript) so older rows become listenable/readable.
-    // Skip the remote call once we've already tried for each, so re-opening a
-    // row doesn't keep hammering Retell.
+    // (recording and/or transcript, including per-turn timestamps) so older
+    // rows become listenable/readable. Skip once tried, to avoid re-hammering.
     const retellId = typeof meta.retell_call_id === "string" ? meta.retell_call_id : null;
-    const needTranscript = transcript.length === 0 && meta.transcript_unavailable !== true
-      && !(typeof meta.transcript_text === "string" && meta.transcript_text.trim());
+    const storedHasTime = Boolean(stored && stored.some((t) => typeof t.start === "number"));
+    // Re-fetch when there's no transcript, or when we have one without per-turn
+    // timestamps and haven't already learned Retell doesn't provide them.
+    const needTranscript = (transcript.length === 0
+      || (transcript.length > 0 && !storedHasTime && meta.transcript_no_timestamps !== true))
+      && meta.transcript_unavailable !== true;
     const needRecording = !recordingUrl && meta.recording_unavailable !== true;
     if (retellId && (needTranscript || needRecording)) {
       const fetched = await fetchRetellCallExtras(retellId);
@@ -112,6 +133,8 @@ export async function GET(request: Request) {
           transcript = turnsToDetail(fetched.turns);
           metaUpdate.transcript_turns = fetched.turns;
           if (fetched.text) metaUpdate.transcript_text = fetched.text;
+          // Remember if Retell gave no word timings, so we stop retrying.
+          if (!fetched.turns.some((t) => typeof t.start === "number")) metaUpdate.transcript_no_timestamps = true;
           metaChanged = true;
         } else if (fetched.text) {
           transcript = [{ speaker: "agent", text: fetched.text }];
@@ -133,6 +156,23 @@ export async function GET(request: Request) {
     // Last resort: a flat transcript string with no turns.
     if (transcript.length === 0 && typeof meta.transcript_text === "string" && meta.transcript_text.trim()) {
       transcript = [{ speaker: "agent", text: meta.transcript_text }];
+    }
+  }
+
+  // Recording fallback for Axon/LiveKit calls with no recording yet: find the
+  // matching Twilio call by number + start time and resolve its trunk recording
+  // (LiveKit and Twilio legs often land on separate rows, so the sid isn't on
+  // this one). Stamp the sid so the streaming proxy resolves it next time too.
+  if (!recordingUrl && meta.source !== "retell_sync" && !meta.twilio_call_sid
+      && meta.twilio_recording_unavailable !== true && call.answered_at && call.started_at) {
+    const found = await findTwilioRecordingForCall({
+      to: call.to_e164, from: call.from_e164, startedAtMs: Date.parse(call.started_at),
+    });
+    if (found) {
+      recordingUrl = found.url;
+      await sb.from("calls").update({ recording_url: found.url, metadata: { ...meta, twilio_call_sid: found.sid } }).eq("id", id).eq("org_id", orgId);
+    } else {
+      await sb.from("calls").update({ metadata: { ...meta, twilio_recording_unavailable: true } }).eq("id", id).eq("org_id", orgId);
     }
   }
 
