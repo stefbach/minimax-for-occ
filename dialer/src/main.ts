@@ -46,6 +46,11 @@ async function scheduleTick() {
 
   const now = new Date();
   for (const c of campaigns) {
+    // ALL campaigns honour the schedule gate, dynamic and static both —
+    // Wati saw a call leak out at 10:04 UK while the slot ended at 10:00
+    // UK because the dynamic branch bypassed withinSchedule() entirely.
+    if (!withinSchedule((c as any).schedule, now)) continue;
+
     // Dynamic (continuous) campaigns re-select leads from their data table at
     // each configured slot, seeding fresh `pending` targets. The dialing loop
     // below then places those calls. Static campaigns skip this entirely.
@@ -60,10 +65,6 @@ async function scheduleTick() {
       } catch (e) {
         console.error(`[scheduler] dynamic selection failed for ${c.id}:`, (e as Error)?.message);
       }
-    } else if (!withinSchedule((c as any).schedule, now)) {
-      // Static campaigns honour the legacy schedule gate; dynamic ones manage
-      // their own slot windows inside runDynamicSelection.
-      continue;
     }
 
     const { count: dialingCount } = await sb
