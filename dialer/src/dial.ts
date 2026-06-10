@@ -191,14 +191,63 @@ async function dialViaLiveKit(args: {
       // catches dead numbers immediately without waiting for voicemail handoff.
       ringingTimeout: Math.max(5, Math.min(600, Number(process.env.DIAL_RING_TIMEOUT_SECS ?? 5))),
     };
-    // Place the SIP call FIRST and wait for pickup, THEN dispatch the agent.
-    // Parallel dispatch was tested and produced the OPPOSITE bug: the agent
-    // warmed up while the phone was still ringing and greeted before pickup
-    // — patient picked up mid-greeting and only heard the tail ("...is that
-    // Megane?"). Sequential keeps the timing predictable: pickup → agent
-    // dispatch → ~1s warmup + 1s preroll → greeting. The patient hears
-    // ~1.5-2s of silence after pickup before the greeting starts, which is
-    // close to industry norm and far better than missing the first words.
+    // ────────────────────────────────────────────────────────────────────
+    // "Agent First" sequencing (Wati's architectural insight): instead of
+    // creating the SIP call → waiting for pickup → dispatching the agent
+    // (which leaves a 1-2s gap where the patient hears nothing useful while
+    // the agent worker subscribes to audio), we:
+    //   1. Pre-create the room
+    //   2. Dispatch the agent and WAIT until the worker is physically in
+    //      the room with its audio publisher armed
+    //   3. THEN createSipParticipant outbound. When the patient answers
+    //      they land in a "warm" room where the agent is already
+    //      publishing, so the audio path is established before the SIP
+    //      participant joins — no buffer for Twilio's residual ringback
+    //      to leak into.
+    // This is how Vapi / Bland / Twilio <Conference>-based platforms avoid
+    // the early-media bleed-through that plain SIP outbound suffers from.
+    const agentName = process.env.LIVEKIT_AGENT_NAME ?? "minimax-voice-agent";
+    const dispatch = new AgentDispatchClient(lk.host, lk.key, lk.secret);
+    await dispatch.createDispatch(roomName, agentName, { metadata: roomMeta });
+
+    // Poll the room until the agent worker shows up as a remote
+    // participant. Bounded by AGENT_WARMUP_TIMEOUT_SECS so we never block
+    // forever if the worker pool is saturated.
+    const warmupTimeoutMs = Math.max(
+      3000,
+      Math.min(30000, Number(process.env.AGENT_WARMUP_TIMEOUT_SECS ?? 10) * 1000),
+    );
+    const warmupStart = Date.now();
+    let agentReady = false;
+    while (Date.now() - warmupStart < warmupTimeoutMs) {
+      try {
+        const participants = await rooms.listParticipants(roomName);
+        // The agent worker's identity starts with "agent-" (LiveKit's
+        // convention for dispatched agents) — we only need at least one
+        // such participant to be present and connected.
+        const agentIn = participants.some((p) =>
+          (p.identity ?? "").toLowerCase().startsWith("agent-"),
+        );
+        if (agentIn) {
+          agentReady = true;
+          break;
+        }
+      } catch {
+        // Transient list failures (race vs createRoom) — keep polling.
+      }
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    if (!agentReady) {
+      // Don't fatal the call — fall through to the SIP outbound anyway.
+      // Worst case we degrade to the old "patient picks up then waits a
+      // beat" behaviour rather than dropping the call entirely.
+      console.warn(
+        `[dialer] agent didn't enter room ${roomName} within ${warmupTimeoutMs}ms — proceeding with SIP outbound regardless`,
+      );
+    }
+
+    // Now the room is warm — start the SIP outbound. Patient lands in a
+    // room where the agent is already audio-active.
     participant = await sip.createSipParticipant(
       lk.trunk,
       toE164,
@@ -206,9 +255,6 @@ async function dialViaLiveKit(args: {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       sipOptions as any,
     );
-    const agentName = process.env.LIVEKIT_AGENT_NAME ?? "minimax-voice-agent";
-    const dispatch = new AgentDispatchClient(lk.host, lk.key, lk.secret);
-    await dispatch.createDispatch(roomName, agentName, { metadata: roomMeta });
   } catch (err) {
     await sb
       .from("calls")

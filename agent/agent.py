@@ -694,17 +694,74 @@ class AxonVoiceAgent(Agent):
         self._greeting = greeting
 
     async def on_enter(self) -> None:
-        # MARKER v7-simple-2026-06-09 — if you see this line in fly logs the
-        # latest code is deployed; if not, fly/lk-cloud is still on old code.
-        logger.info("on_enter: marker v7-simple-2026-06-09 active")
+        # MARKER v8-agent-first-2026-06-10 — if you see this line in fly logs
+        # the latest "Agent First" code is deployed; if not, fly/lk-cloud is
+        # still on old code.
+        logger.info("on_enter: marker v8-agent-first-2026-06-10 active")
         if not self._greeting:
             return
         import time as _t
-        # Simple greeting: short preroll, then say. The dialer dispatches the
-        # agent AFTER createSipParticipant resolves (sequential path), so by
-        # the time on_enter runs the patient has already picked up. The 1s
-        # preroll is just a buffer for the PSTN RTP path to fully settle
-        # (UK Twilio trunks need ~1s for full audio setup after pickup).
+        # ────────────────────────────────────────────────────────────────
+        # "Agent First" sequencing: the dialer now dispatches the agent
+        # BEFORE the SIP outbound, so on_enter often runs in a room that
+        # still has only the agent (no patient). Greeting now would speak
+        # to an empty room — we have to wait for the SIP participant to
+        # arrive AND be on an active call (sip.callStatus = "active")
+        # before saying anything.
+        #
+        # Path B (Twilio createCall + TwiML <Dial><Sip>) and browser /
+        # desk sessions don't have a SIP participant — those paths skip
+        # the gate and greet immediately after the preroll.
+        max_gate = float(os.getenv("GREETING_SIP_GATE_TIMEOUT_SECONDS", "30.0"))
+        gate_start = _t.monotonic()
+        sip_participant = None
+        # First wait until ANY SIP participant joins. With the warm-room
+        # flow the agent often arrives 100-500ms before SIP — so we have
+        # to poll, not just inspect the room once.
+        while _t.monotonic() - gate_start < max_gate:
+            try:
+                for p in self.session.room.remote_participants.values():
+                    attrs = dict(getattr(p, "attributes", None) or {})
+                    if "sip.callStatus" in attrs or any(
+                        k.startswith("sip.") for k in attrs
+                    ):
+                        sip_participant = p
+                        break
+            except Exception:
+                sip_participant = None
+            if sip_participant is not None:
+                break
+            await asyncio.sleep(0.15)
+        # Then wait for sip.callStatus to transition to "active" (patient
+        # answered, audio is bidirectional). On the warm-room flow this
+        # is the actual pickup moment.
+        if sip_participant is not None:
+            while _t.monotonic() - gate_start < max_gate:
+                try:
+                    attrs = dict(getattr(sip_participant, "attributes", None) or {})
+                    status = (attrs.get("sip.callStatus") or "").lower()
+                    if status == "active":
+                        logger.info(
+                            "greeting: SIP gate released (callStatus=active) after %.2fs",
+                            _t.monotonic() - gate_start,
+                        )
+                        break
+                except Exception:
+                    pass
+                await asyncio.sleep(0.15)
+            else:
+                logger.warning(
+                    "greeting: SIP gate timed out at %.1fs — greeting anyway",
+                    max_gate,
+                )
+        else:
+            logger.info(
+                "greeting: no SIP participant after %.1fs — assuming non-SIP session (desk/browser)",
+                _t.monotonic() - gate_start,
+            )
+        # Tiny pre-roll for the PSTN RTP path to fully settle after the
+        # 200 OK transition. 0.3s default is enough on UK Twilio trunks
+        # to flush any residual ringback before we speak.
         preroll = float(os.getenv("GREETING_PREROLL_SECONDS", "0.3"))
         if preroll > 0:
             await asyncio.sleep(preroll)
