@@ -13,6 +13,13 @@ export type Filters = {
   // Calling-system axis (orthogonal to leadsSource): show calls from Retell,
   // from Axon, or both. Useful during the Retell→Axon migration.
   system: "all" | "retell" | "axon";
+  // Calling slot: OCC's prospection cadence has three discrete windows
+  // each weekday. The filter post-restricts the period to calls whose
+  // started_at falls inside the slot (UK BST). 'all' = no slot filter.
+  //   matin       = 08:00-11:00 UK = 07:00-10:00 UTC
+  //   après-midi  = 13:00-14:00 UK = 12:00-13:00 UTC
+  //   soir        = 18:00-20:00 UK = 17:00-19:00 UTC
+  slot: "all" | "morning" | "afternoon" | "evening";
 };
 
 function startOfDay(d: Date): Date {
@@ -113,7 +120,7 @@ export function PeriodBar({
   };
   const resetAll = () => {
     onPeriod({ ...presetToRange("today"), preset: "today" });
-    onFilters({ direction: "all", leadsSource: "prod", system: "all" });
+    onFilters({ direction: "all", leadsSource: "prod", system: "all", slot: "all" });
   };
   return (
     <div
@@ -214,6 +221,20 @@ export function PeriodBar({
             <option value="all">{t("Tous")}</option>
             <option value="inbound">{t("↘ Entrants")}</option>
             <option value="outbound">{t("↗ Sortants")}</option>
+          </select>
+        </div>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+          <span className="muted" style={{ fontSize: 12 }}>{t("Créneau")}</span>
+          <select
+            value={filters.slot}
+            onChange={(e) => onFilters({ ...filters, slot: e.target.value as Filters["slot"] })}
+            style={{ width: "auto", padding: "5px 8px", fontSize: 13 }}
+            title={t("Filtrer par créneau d'appel OCC")}
+          >
+            <option value="all">{t("Tous")}</option>
+            <option value="morning">{t("Matin (08h-11h)")}</option>
+            <option value="afternoon">{t("Après-midi (13h-14h)")}</option>
+            <option value="evening">{t("Soir (18h-20h)")}</option>
           </select>
         </div>
         <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>

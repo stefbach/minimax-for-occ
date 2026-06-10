@@ -82,7 +82,7 @@ function ClickCard({
   );
 }
 
-export function DirectorTab({ from, to, direction, leadsSource = "prod", system = "all" }: { from: string; to: string; direction: string; leadsSource?: "prod" | "test"; system?: "all" | "retell" | "axon" }) {
+export function DirectorTab({ from, to, direction, leadsSource = "prod", system = "all", slot = "all" }: { from: string; to: string; direction: string; leadsSource?: "prod" | "test"; system?: "all" | "retell" | "axon"; slot?: "all" | "morning" | "afternoon" | "evening" }) {
   const t = useT();
   const [data, setData] = useState<DirectorResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -122,6 +122,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
     const qs = new URLSearchParams({ from, to, threshold: String(threshold), leads_source: leadsSource });
     if (direction !== "all") qs.set("direction", direction);
     if (system !== "all") qs.set("system", system);
+    if (slot !== "all") qs.set("slot", slot);
     fetch(`/api/dashboard/director?${qs}`, { cache: "no-store" })
       .then(async (r) => {
         const j = await r.json();
@@ -131,7 +132,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
       .catch((e) => alive && setError(e instanceof Error ? e.message : "error"))
       .finally(() => alive && setLoading(false));
     return () => { alive = false; };
-  }, [from, to, direction, threshold, leadsSource, system, reloadKey]);
+  }, [from, to, direction, threshold, leadsSource, system, slot, reloadKey]);
 
   // AI qualification is automatic: any answered call left in the "autre" bucket
   // is classified by the AI from its transcript. New calls are handled at

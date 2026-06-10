@@ -61,8 +61,11 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
   const [error, setError] = useState<string | null>(initialError);
   const [refreshing, setRefreshing] = useState(false);
   // Period + filters drive the Statistiques and Call Logs tabs.
-  const [period, setPeriod] = useState<Period>({ ...presetToRange("7d"), preset: "7d" });
-  const [filters, setFilters] = useState<Filters>({ direction: "all", leadsSource: "prod", system: "all" });
+  // Default to "Aujourd'hui" so the manager opens onto today's activity
+  // rather than 7 days of history (Wati's June 10 preference — they want
+  // the live picture first, drill back if needed).
+  const [period, setPeriod] = useState<Period>({ ...presetToRange("today"), preset: "today" });
+  const [filters, setFilters] = useState<Filters>({ direction: "all", leadsSource: "prod", system: "all", slot: "all" });
 
   const fetchData = useCallback(async () => {
     try {
@@ -165,7 +168,7 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
               <SyncTwilioButton />
             </div>
             <PeriodBar period={period} filters={filters} onPeriod={setPeriod} onFilters={setFilters} />
-            <DirectorTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} system={filters.system} />
+            <DirectorTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} system={filters.system} slot={filters.slot} />
             {data && <CampaignsTable rows={data.campaigns} />}
           </>
         )}

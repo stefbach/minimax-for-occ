@@ -134,6 +134,17 @@ export async function GET(request: Request) {
   const leadsSource: LeadsSource = searchParams.get("leads_source") === "test" ? "test" : "prod";
   const leadsTable = leadsTableFor(leadsSource);
   const system = parseCallSystem(searchParams.get("system"));
+  // Optional slot filter: limit every KPI on the page to calls that
+  // started during the chosen UK calling window. Computed below with
+  // slotForDate so the SQL stays simple (broad time range) and the
+  // post-filter handles the DST-aware bucket.
+  const slotFilter = ((): "matin" | "midi" | "soir" | null => {
+    const s = searchParams.get("slot");
+    if (s === "morning") return "matin";
+    if (s === "afternoon") return "midi";
+    if (s === "evening") return "soir";
+    return null;
+  })();
 
   const sb = supabaseServer();
 
@@ -167,7 +178,8 @@ export async function GET(request: Request) {
       !ACTIVE.has(r.state ?? "")
       && !isPhantomCall(r)
       && callInLeadsScope(r.to_e164 ?? null, scope)
-      && callMatchesSystem((r.metadata as { source?: string } | null)?.source, system),
+      && callMatchesSystem((r.metadata as { source?: string } | null)?.source, system)
+      && (!slotFilter || (r.started_at && slotForDate(new Date(r.started_at)) === slotFilter)),
   );
 
   // Qualification bucketing — one pass (computed before the KPIs because
