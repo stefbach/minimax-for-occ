@@ -63,7 +63,21 @@ async function scheduleTick() {
       .lte("next_attempt_at", now.toISOString())
       .limit(slots);
 
+    let first = true;
     for (const t of due ?? []) {
+      // Pace call STARTS to respect the Twilio trunk's CPS limit. Until
+      // OCC's Business Profile is approved, Elastic SIP Trunking caps new
+      // call setups at 1 CPS per region — firing 5 createSipParticipant
+      // in the same tick gets 4 of them rejected (the 82% failed-in-6s
+      // storm of June 9). 1.3s spacing keeps us safely under 1 CPS while
+      // still allowing max_concurrency simultaneous IN-PROGRESS calls.
+      // Tune via DIAL_STAGGER_MS; drop to ~100 once the Business Profile
+      // raises the trunk's CPS.
+      if (!first) {
+        const staggerMs = Math.max(0, Number(process.env.DIAL_STAGGER_MS ?? 1300));
+        if (staggerMs > 0) await new Promise((r) => setTimeout(r, staggerMs));
+      }
+      first = false;
       const job: DialJob = { target_id: t.id as string, campaign_id: t.campaign_id as string };
       activeDials++;
       dialTarget(job)
