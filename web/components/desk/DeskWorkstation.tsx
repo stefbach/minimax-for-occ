@@ -442,22 +442,21 @@ export function DeskWorkstation() {
           )}
         </aside>
 
-        {/* BOTTOM-RIGHT — empty placeholder. The shared pool was removed
-            June 10 (Wati's pivot: all unassigned leads now live in
-            /desk/supervise where the manager assigns them). This pane is
-            kept as an empty card so the 2x2 grid layout stays balanced
-            and as a hint to the agent on where unassigned work lives. */}
+        {/* BOTTOM-RIGHT — 'Prêt à prendre un appel' empty-state, moved
+            here June 10 v4 (Wati). The big ContactPanel on the top right
+            used to render this and ate half the screen; now ContactPanel
+            returns null when there's no active call so the right column
+            shrinks to fit, and this small message tells the agent where
+            patient context will appear. */}
         <aside
           className="card desk-pane"
           data-pane="shared"
-          style={{ display: "flex", flexDirection: "column", gap: 8, padding: 12, alignItems: "center", justifyContent: "center", textAlign: "center" }}
+          style={{ display: "flex", flexDirection: "column", gap: 6, padding: 16, alignItems: "center", justifyContent: "center", textAlign: "center" }}
         >
-          <div style={{ fontSize: 28, opacity: 0.4 }}>👥</div>
-          <div className="muted" style={{ fontSize: 13, maxWidth: 220, lineHeight: 1.5 }}>
-            {t("Les leads non assignés sont gérés par le superviseur dans")}{" "}
-            <a href="/desk/supervise" style={{ color: "var(--accent)", textDecoration: "underline" }}>
-              {t("Supervision")}
-            </a>.
+          <div style={{ fontSize: 32, opacity: 0.5 }}>☎</div>
+          <div style={{ fontSize: 14, fontWeight: 500 }}>{t("Prêt à prendre un appel")}</div>
+          <div className="muted" style={{ fontSize: 12, maxWidth: 280, lineHeight: 1.5 }}>
+            {t("Choisis un patient à gauche dans Ma file ou compose un numéro. Son contexte (historique, qualification, notes) s'affichera ici.")}
           </div>
         </aside>
       </div>

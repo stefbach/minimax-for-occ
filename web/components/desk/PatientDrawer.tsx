@@ -14,40 +14,18 @@ interface Props {
   headline?: string;
 }
 
-interface PatientContext {
-  identity?: { nom?: string | null; email?: string | null; dob?: string | null };
-  clinical?: {
-    bmi?: number | null;
-    poids?: number | null;
-    taille?: number | null;
-    allergies?: string | null;
-    anesthesia_allergies?: string | null;
-    current_medications?: string | null;
-    past_surgeries?: string | null;
-    other_chronic_conditions?: string | null;
-  };
-  nhs?: {
-    wmp_status?: string | null;
-    wmp_details?: string | null;
-    document_status?: string | null;
-    received_documents?: string | null;
-    missing_documents?: string | null;
-  };
-  funnel?: {
-    qualification?: string | null;
-    call_count?: number;
-    last_call?: string | null;
-    last_response?: string | null;
-    cycle_status?: string | null;
-    current_phase?: string | null;
-  };
-  notes?: {
-    call_1?: string | null;
-    call_2?: string | null;
-    call_3?: string | null;
-    free?: string | null;
-  };
-  source?: { source_lead?: string | null; form_facebook?: string | null };
+interface ColumnSpec {
+  key: string;
+  label: string;
+  type: string;
+}
+
+interface PatientRowResponse {
+  table_label: string | null;
+  physical_table: string | null;
+  row_id: string | null;
+  row: Record<string, unknown> | null;
+  columns: ColumnSpec[];
 }
 
 interface CallSummary {
@@ -60,34 +38,59 @@ interface CallSummary {
   agent_name: string | null;
 }
 
+const LONG_TEXT_KEYS = new Set([
+  "note", "notes", "call_1_note", "call_2_note", "call_3_note",
+  "raison_ne_pas_rappeler", "call_outcome", "call_error",
+  "nhs_wmp_details", "received_documents", "missing_documents",
+  "other_chronic_conditions", "past_surgeries", "current_medications",
+  "allergies", "anesthesia_allergies",
+]);
+
+// Column groups shown as sections; everything else goes in 'Autres champs'.
+const SECTIONS: Array<{ title: string; cols: string[] }> = [
+  { title: "Identité", cols: ["nom", "email", "patient_dob", "numero_telephone"] },
+  { title: "Suivi", cols: ["qualification", "current_phase", "cycle_status", "rappel_rdv", "next_call_at", "do_not_call", "voicemail_detected", "call_count", "last_call_datetime", "last_qualification_update"] },
+  { title: "Clinique", cols: ["bmi", "poids", "taille", "allergies", "anesthesia_allergies", "current_medications", "past_surgeries", "other_chronic_conditions"] },
+  { title: "NHS / Documents", cols: ["nhs_wmp_status", "nhs_wmp_details", "document_status", "received_documents", "missing_documents"] },
+  { title: "Cadence", cols: ["date_j1", "date_j3", "date_j5", "j1_attempts", "j3_attempts", "j5_attempts"] },
+  { title: "Notes & Source", cols: ["note", "call_1_note", "call_2_note", "call_3_note", "raison_ne_pas_rappeler", "source_lead", "form_facebook"] },
+];
+
 /**
- * CRM-style patient details overlay. Opens on click from /desk/supervise
- * and /mes-patients (Wati June 10 spec: 'patient cliquable comme dans
- * CRM'). Loads patient-context + last 10 calls, lets the agent edit the
- * note column inline.
+ * CRM-style patient drawer (Wati June 10 v4): loads the FULL leads_rdv
+ * row + all column definitions, renders every column grouped in
+ * meaningful sections, lets the agent edit any field including
+ * rappel_rdv. Save sends a single PATCH per click.
  */
 export function PatientDrawer({ contactId, displayName, e164, onClose, headline }: Props) {
   const t = useT();
-  const [ctx, setCtx] = useState<PatientContext | null>(null);
+  const [data, setData] = useState<PatientRowResponse | null>(null);
+  const [draft, setDraft] = useState<Record<string, string>>({});
   const [calls, setCalls] = useState<CallSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [noteDraft, setNoteDraft] = useState<string>("");
-  const [savingNote, setSavingNote] = useState(false);
-  const [noteSaved, setNoteSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setErr(null);
     try {
-      const [ctxR, callsR] = await Promise.all([
-        fetch(`/api/desk/patient-context/${contactId}`, { cache: "no-store" }),
+      const [rowR, callsR] = await Promise.all([
+        fetch(`/api/desk/patient-row/${contactId}`, { cache: "no-store" }),
         fetch(`/api/desk/contact-calls/${contactId}?limit=10`, { cache: "no-store" }),
       ]);
-      if (ctxR.ok) {
-        const j = (await ctxR.json()) as { context: PatientContext | null };
-        setCtx(j.context);
-        setNoteDraft(j.context?.notes?.free ?? "");
+      if (rowR.ok) {
+        const j = (await rowR.json()) as PatientRowResponse;
+        setData(j);
+        const initial: Record<string, string> = {};
+        for (const [k, v] of Object.entries(j.row ?? {})) {
+          initial[k] = v == null ? "" : typeof v === "object" ? JSON.stringify(v) : String(v);
+        }
+        setDraft(initial);
+      } else {
+        const j = (await rowR.json().catch(() => ({}))) as { error?: string };
+        setErr(j.error ?? `HTTP ${rowR.status}`);
       }
       if (callsR.ok) {
         const j = (await callsR.json()) as { calls: CallSummary[] };
@@ -104,7 +107,6 @@ export function PatientDrawer({ contactId, displayName, e164, onClose, headline 
     void load();
   }, [load]);
 
-  // Close on Esc.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -113,28 +115,117 @@ export function PatientDrawer({ contactId, displayName, e164, onClose, headline 
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  async function saveNote() {
-    setSavingNote(true);
-    setNoteSaved(false);
+  function setField(k: string, v: string) {
+    setDraft((d) => ({ ...d, [k]: v }));
+  }
+
+  async function save() {
+    if (!data) return;
+    setSaving(true);
+    setErr(null);
     try {
-      const r = await fetch(`/api/desk/patient-note/${contactId}`, {
+      // Only send fields whose value actually changed vs the loaded row.
+      const original = data.row ?? {};
+      const values: Record<string, string> = {};
+      for (const [k, v] of Object.entries(draft)) {
+        const o = original[k];
+        const oStr = o == null ? "" : typeof o === "object" ? JSON.stringify(o) : String(o);
+        if (v !== oStr) values[k] = v;
+      }
+      if (Object.keys(values).length === 0) {
+        setSaving(false);
+        return;
+      }
+      const r = await fetch(`/api/desk/patient-row/${contactId}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ note: noteDraft }),
+        body: JSON.stringify({ values }),
       });
-      if (r.ok) {
-        setNoteSaved(true);
-        setTimeout(() => setNoteSaved(false), 2000);
-      } else {
-        const j = (await r.json().catch(() => ({}))) as { error?: string };
-        setErr(j.error ?? `HTTP ${r.status}`);
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setErr((j as { error?: string }).error ?? `HTTP ${r.status}`);
+        return;
       }
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
+      setSavedAt(Date.now());
+      // Refresh local data after save.
+      if ("row" in j && j.row) {
+        setData((d) => (d ? { ...d, row: (j as { row: Record<string, unknown> }).row } : d));
+      }
     } finally {
-      setSavingNote(false);
+      setSaving(false);
     }
   }
+
+  const allCols = data?.columns ?? [];
+  const colsByKey = new Map(allCols.map((c) => [c.key, c]));
+  const usedKeys = new Set(SECTIONS.flatMap((s) => s.cols));
+  // Any column declared on the table but not in our known SECTIONS goes here.
+  const otherCols = allCols
+    .map((c) => c.key)
+    .filter((k) => !usedKeys.has(k) && k !== "id" && k !== "created_at");
+
+  function inputType(c: ColumnSpec): string {
+    if (c.key === "rappel_rdv" || c.key === "next_call_at" || c.key === "last_call_datetime" || c.key === "last_qualification_update") return "datetime-local";
+    if (c.key.startsWith("date_") || c.type === "date") return "date";
+    if (c.type === "number") return "number";
+    if (c.type === "email" || c.key === "email") return "email";
+    if (c.type === "phone" || c.key.includes("telephone") || c.key === "phone") return "tel";
+    return "text";
+  }
+
+  function isLong(c: ColumnSpec): boolean {
+    if (c.type === "text" && (LONG_TEXT_KEYS.has(c.key) || c.key.endsWith("_note"))) return true;
+    return false;
+  }
+
+  function renderInput(c: ColumnSpec) {
+    const long = isLong(c);
+    const v = draft[c.key] ?? "";
+    if (c.key === "do_not_call" || c.key === "voicemail_detected") {
+      const checked = v === "true" || v === "1";
+      return (
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={(e) => setField(c.key, e.target.checked ? "true" : "false")}
+        />
+      );
+    }
+    if (long) {
+      return (
+        <textarea
+          value={v}
+          onChange={(e) => setField(c.key, e.target.value)}
+          rows={4}
+          style={{ width: "100%", resize: "vertical", fontSize: 13, fontFamily: "inherit" }}
+        />
+      );
+    }
+    // datetime-local needs a specific format
+    let val = v;
+    const it = inputType(c);
+    if ((it === "datetime-local" || it === "date") && v) {
+      const d = new Date(v);
+      if (!Number.isNaN(d.getTime())) {
+        if (it === "date") {
+          val = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        } else {
+          val = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}T${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+        }
+      }
+    }
+    return (
+      <input
+        type={it}
+        value={val}
+        onChange={(e) => setField(c.key, e.target.value)}
+        style={{ width: "100%", fontSize: 13 }}
+      />
+    );
+  }
+
+  const headerName = (data?.row?.nom as string | undefined) ?? displayName ?? t("Fiche patient");
+  const headerPhone = (data?.row?.numero_telephone as string | undefined) ?? e164 ?? "";
 
   return (
     <div
@@ -147,21 +238,29 @@ export function PatientDrawer({ contactId, displayName, e164, onClose, headline 
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
-          width: "min(720px, 100%)", background: "var(--panel)",
+          width: "min(820px, 100%)", background: "var(--panel)",
           borderLeft: "1px solid var(--border)", overflow: "auto",
           padding: 20, display: "flex", flexDirection: "column", gap: 14,
         }}
       >
-        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, position: "sticky", top: -20, background: "var(--panel)", zIndex: 1, paddingTop: 8, paddingBottom: 8 }}>
           <div>
-            <h2 style={{ margin: 0, fontSize: 20 }}>{ctx?.identity?.nom ?? displayName ?? t("Fiche patient")}</h2>
+            <h2 style={{ margin: 0, fontSize: 20 }}>{headerName}</h2>
             <div className="muted" style={{ fontSize: 13 }}>
-              {e164 ?? ""}
+              {headerPhone}
               {headline && <span style={{ marginLeft: 10, fontSize: 11 }} className="tag">{headline}</span>}
             </div>
           </div>
-          <button className="ghost" onClick={onClose} style={{ padding: "4px 10px", fontSize: 16 }}>×</button>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={save} disabled={saving || loading}>
+              {saving ? t("Enregistrement…") : t("Enregistrer")}
+            </button>
+            <button className="ghost" onClick={onClose} disabled={saving} style={{ padding: "4px 10px", fontSize: 16 }}>×</button>
+          </div>
         </div>
+        {savedAt && Date.now() - savedAt < 3000 && (
+          <div style={{ color: "var(--good)", fontSize: 12, textAlign: "right" }}>{t("✓ Enregistré")}</div>
+        )}
 
         {err && (
           <div className="card" style={{ borderColor: "var(--bad)", color: "var(--bad)", fontSize: 13 }}>{err}</div>
@@ -169,71 +268,32 @@ export function PatientDrawer({ contactId, displayName, e164, onClose, headline 
 
         {loading ? (
           <div className="muted">{t("Chargement…")}</div>
-        ) : ctx ? (
+        ) : data?.row ? (
           <>
-            <Section title={t("Identité")}>
-              <Field label={t("Email")} value={ctx.identity?.email} />
-              <Field label={t("Date de naissance")} value={ctx.identity?.dob} />
-              <Field label={t("Qualification")} value={ctx.funnel?.qualification} />
-              <Field label={t("Phase")} value={ctx.funnel?.current_phase} />
-              <Field label={t("Cycle status")} value={ctx.funnel?.cycle_status} />
-              <Field label={t("Nb appels")} value={ctx.funnel?.call_count} />
-              <Field label={t("Dernier appel")} value={ctx.funnel?.last_call} />
-              <Field label={t("Source")} value={ctx.source?.source_lead} />
-            </Section>
-
-            <Section title={t("Clinique")}>
-              <Field label="BMI" value={ctx.clinical?.bmi} />
-              <Field label={t("Poids")} value={ctx.clinical?.poids ? `${ctx.clinical.poids} kg` : null} />
-              <Field label={t("Taille")} value={ctx.clinical?.taille ? `${ctx.clinical.taille} cm` : null} />
-              <Field label={t("Allergies")} value={ctx.clinical?.allergies} long />
-              <Field label={t("Traitements en cours")} value={ctx.clinical?.current_medications} long />
-              <Field label={t("Antécédents chirurgicaux")} value={ctx.clinical?.past_surgeries} long />
-              <Field label={t("Autres conditions chroniques")} value={ctx.clinical?.other_chronic_conditions} long />
-            </Section>
-
-            <Section title={t("NHS")}>
-              <Field label={t("Statut WMP")} value={ctx.nhs?.wmp_status} />
-              <Field label={t("Détails WMP")} value={ctx.nhs?.wmp_details} long />
-              <Field label={t("Statut documents")} value={ctx.nhs?.document_status} />
-              <Field label={t("Documents reçus")} value={ctx.nhs?.received_documents} long />
-              <Field label={t("Documents manquants")} value={ctx.nhs?.missing_documents} long />
-            </Section>
-
-            <Section title={t("Notes")}>
-              <textarea
-                value={noteDraft}
-                onChange={(e) => setNoteDraft(e.target.value)}
-                rows={5}
-                style={{ width: "100%", resize: "vertical", fontSize: 13, fontFamily: "inherit" }}
-                placeholder={t("Ajouter une note…")}
-              />
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <button onClick={saveNote} disabled={savingNote || noteDraft === (ctx.notes?.free ?? "")}>
-                  {savingNote ? t("Enregistrement…") : t("Enregistrer la note")}
-                </button>
-                {noteSaved && <span style={{ color: "var(--good)", fontSize: 12 }}>{t("✓ Note enregistrée")}</span>}
-              </div>
-            </Section>
+            {SECTIONS.map((s) => {
+              const cols = s.cols
+                .map((k) => colsByKey.get(k))
+                .filter((c): c is ColumnSpec => !!c);
+              if (cols.length === 0) return null;
+              return (
+                <Section key={s.title} title={t(s.title)}>
+                  <Grid cols={cols} renderInput={renderInput} isLong={isLong} />
+                </Section>
+              );
+            })}
+            {otherCols.length > 0 && (
+              <Section title={t("Autres champs")}>
+                <Grid
+                  cols={otherCols.map((k) => colsByKey.get(k)!).filter(Boolean)}
+                  renderInput={renderInput}
+                  isLong={isLong}
+                />
+              </Section>
+            )}
           </>
         ) : (
-          <div className="muted" style={{ padding: 16, fontSize: 13 }}>
-            {t("Aucune fiche patient liée à ce contact. Tu peux quand même prendre des notes ci-dessous.")}
-            <Section title={t("Notes")}>
-              <textarea
-                value={noteDraft}
-                onChange={(e) => setNoteDraft(e.target.value)}
-                rows={5}
-                style={{ width: "100%", resize: "vertical", fontSize: 13, fontFamily: "inherit", marginTop: 8 }}
-                placeholder={t("Ajouter une note…")}
-              />
-              <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
-                <button onClick={saveNote} disabled={savingNote}>
-                  {savingNote ? t("Enregistrement…") : t("Enregistrer la note")}
-                </button>
-                {noteSaved && <span style={{ color: "var(--good)", fontSize: 12 }}>{t("✓ Note enregistrée")}</span>}
-              </div>
-            </Section>
+          <div className="card muted" style={{ padding: 16 }}>
+            {t("Aucune fiche dans la table leads_rdv pour ce contact.")}
           </div>
         )}
 
@@ -282,12 +342,23 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function Field({ label, value, long }: { label: string; value: string | number | null | undefined; long?: boolean }) {
-  if (value === null || value === undefined || value === "") return null;
+function Grid({
+  cols, renderInput, isLong,
+}: {
+  cols: ColumnSpec[];
+  renderInput: (c: ColumnSpec) => React.ReactNode;
+  isLong: (c: ColumnSpec) => boolean;
+}) {
   return (
-    <div style={{ display: long ? "block" : "grid", gridTemplateColumns: long ? undefined : "180px 1fr", gap: 6, fontSize: 13, alignItems: "baseline" }}>
-      <span className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4 }}>{label}</span>
-      <span style={{ whiteSpace: long ? "pre-wrap" : "normal" }}>{String(value)}</span>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
+      {cols.map((c) => (
+        <div key={c.key} style={isLong(c) ? { gridColumn: "1 / -1" } : undefined}>
+          <label style={{ fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.4, display: "block", marginBottom: 4 }}>
+            {c.label}
+          </label>
+          {renderInput(c)}
+        </div>
+      ))}
     </div>
   );
 }

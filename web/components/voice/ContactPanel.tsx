@@ -87,16 +87,11 @@ export function ContactPanel({ call }: { call: ContactCall | null }) {
     }
   }, [contactId, noteDraft, call?.id, refresh]);
 
-  if (!call) {
-    return (
-      <div className="card softphone-right">
-        <h3>Fiche contact</h3>
-        <p className="muted" style={{ margin: 0 }}>
-          Sélectionnez un appel pour afficher la fiche contact et le transcript.
-        </p>
-      </div>
-    );
-  }
+  // Wati June 10 v4: when no active call, render nothing. The empty-state
+  // placeholder ('Prêt à prendre un appel') used to live here and ate
+  // half the screen — now it's a small message in the bottom-right slot
+  // of /desk's 2x2 grid instead.
+  if (!call) return null;
   const phone = call.direction === "in" ? call.from_e164 : call.to_e164;
   return (
     <div className="card softphone-right">
