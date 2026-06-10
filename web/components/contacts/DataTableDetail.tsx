@@ -24,10 +24,24 @@ type ImportReport = {
   errors: { row: number; reason: string }[];
 };
 
+// Columns we render INLINE in the table — Zoho-style short summary that
+// fits on one line per row. Everything else (call_history, notes,
+// documents, etc.) only shows in the detail drawer. Wati's June 10
+// note: the table was scrolling 20 lines per contact because every
+// long column was inlined ("trop scroller pour voir toute la liste").
+const SUMMARY_COL_KEYS = new Set([
+  "nom", "email", "bmi", "qualification", "current_phase",
+  "j1_attempts", "j3_attempts", "j5_attempts",
+  "last_qualification_update", "date_rdv", "rappel_rdv",
+  "do_not_call", "voicemail_detected", "cycle_status",
+]);
+
 export function DataTableDetail({ registryId, columns, phoneColumn, initialRows }: Props) {
   const router = useRouter();
   const [rows, setRows] = useState(initialRows);
   const [search, setSearch] = useState("");
+  const [qualFilter, setQualFilter] = useState<string>("");
+  const [phaseFilter, setPhaseFilter] = useState<string>("");
   const [showAdd, setShowAdd] = useState(false);
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
@@ -106,11 +120,34 @@ export function DataTableDetail({ registryId, columns, phoneColumn, initialRows 
     }
   }
 
-  // Columns to render: phone first, then declared columns (deduped).
-  const displayCols: ColumnSpec[] = [
+  // Full column list (used by the detail drawer + import + add form).
+  const allCols: ColumnSpec[] = [
     { key: phoneColumn, label: "Téléphone", type: "phone" },
     ...columns.filter((c) => c.key !== phoneColumn),
   ];
+  // Inline-table columns: phone + curated summary set. Any column that's
+  // declared and matches SUMMARY_COL_KEYS shows up; the rest stay in the
+  // drawer.
+  const displayCols: ColumnSpec[] = [
+    { key: phoneColumn, label: "Téléphone", type: "phone" },
+    ...columns.filter((c) => c.key !== phoneColumn && SUMMARY_COL_KEYS.has(c.key)),
+  ];
+
+  // Distinct values for the quick filters (qualification + current_phase).
+  const distinctQuals = Array.from(
+    new Set(
+      rows
+        .map((r) => String(r["qualification"] ?? "").trim())
+        .filter(Boolean),
+    ),
+  ).sort();
+  const distinctPhases = Array.from(
+    new Set(
+      rows
+        .map((r) => String(r["current_phase"] ?? "").trim())
+        .filter(Boolean),
+    ),
+  ).sort();
 
   function fmt(v: unknown): string {
     if (v === null || v === undefined) return "";
@@ -120,6 +157,8 @@ export function DataTableDetail({ registryId, columns, phoneColumn, initialRows 
   }
 
   const filtered = rows.filter((r) => {
+    if (qualFilter && String(r["qualification"] ?? "") !== qualFilter) return false;
+    if (phaseFilter && String(r["current_phase"] ?? "") !== phaseFilter) return false;
     const q = search.trim().toLowerCase();
     if (!q) return true;
     return JSON.stringify(r).toLowerCase().includes(q);
@@ -153,8 +192,10 @@ export function DataTableDetail({ registryId, columns, phoneColumn, initialRows 
   function openEdit(row: Record<string, unknown>) {
     const id = row.id as string;
     if (!id) return;
+    // Load EVERY column into the edit drawer — the inline table only shows
+    // summary columns, but the drawer is where the full record lives.
     const initial: Record<string, string> = {};
-    for (const c of displayCols) {
+    for (const c of allCols) {
       const v = row[c.key];
       initial[c.key] = v === null || v === undefined ? "" : String(v);
     }
@@ -236,8 +277,33 @@ export function DataTableDetail({ registryId, columns, phoneColumn, initialRows 
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Rechercher…"
-          style={{ flex: "1 1 240px", minWidth: 200 }}
+          style={{ flex: "1 1 200px", minWidth: 160 }}
         />
+        {distinctQuals.length > 0 && (
+          <select value={qualFilter} onChange={(e) => setQualFilter(e.target.value)} style={{ fontSize: 13 }}>
+            <option value="">Toutes qualifications</option>
+            {distinctQuals.map((q) => (
+              <option key={q} value={q}>{q}</option>
+            ))}
+          </select>
+        )}
+        {distinctPhases.length > 0 && (
+          <select value={phaseFilter} onChange={(e) => setPhaseFilter(e.target.value)} style={{ fontSize: 13 }}>
+            <option value="">Toutes phases</option>
+            {distinctPhases.map((p) => (
+              <option key={p} value={p}>{p}</option>
+            ))}
+          </select>
+        )}
+        {(qualFilter || phaseFilter || search) && (
+          <button className="ghost" onClick={() => { setQualFilter(""); setPhaseFilter(""); setSearch(""); }} style={{ fontSize: 12 }}>
+            ✕ Réinitialiser
+          </button>
+        )}
+        <span className="muted" style={{ fontSize: 12, marginLeft: 4 }}>
+          {filtered.length} / {rows.length}
+        </span>
+        <div style={{ flex: 1 }} />
         <button onClick={() => setShowAdd((v) => !v)}>{showAdd ? "Annuler" : "+ Ajouter un contact"}</button>
         <button
           className="ghost"
@@ -324,7 +390,7 @@ export function DataTableDetail({ registryId, columns, phoneColumn, initialRows 
         <form className="card" onSubmit={addRow} style={{ display: "grid", gap: 12 }}>
           <h3 style={{ margin: 0 }}>Nouveau contact</h3>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
-            {displayCols.map((c) => {
+            {allCols.map((c) => {
               const long = isLongText(c.key, c.type);
               return (
                 <div key={c.key} style={long ? { gridColumn: "1 / -1" } : undefined}>
@@ -399,27 +465,34 @@ export function DataTableDetail({ registryId, columns, phoneColumn, initialRows 
                 const rowId = (r.id as string) ?? "";
                 const isDeleting = deletingId === rowId;
                 return (
-                  <tr key={rowId || i} style={{ opacity: isDeleting ? 0.4 : 1 }}>
+                  <tr
+                    key={rowId || i}
+                    style={{ opacity: isDeleting ? 0.4 : 1, cursor: rowId ? "pointer" : "default" }}
+                    onClick={(e) => {
+                      // Don't open the drawer when the click landed on the
+                      // Actions column buttons (sticky right column).
+                      const target = e.target as HTMLElement;
+                      if (target.closest("button, a, select, input, textarea")) return;
+                      if (rowId) openEdit(r);
+                    }}
+                  >
                     {displayCols.map((c) => {
-                      const long = isLongText(c.key, c.type);
+                      const raw = fmt(r[c.key]);
                       return (
                         <td
                           key={c.key}
                           style={{
                             fontSize: 13,
-                            // Long-text columns: wider and wrap multi-line.
-                            // Short columns: cap width but still allow wrap
-                            // so long values don't get truncated to "…".
-                            maxWidth: long ? 360 : 240,
-                            minWidth: long ? 220 : undefined,
-                            whiteSpace: "normal",
-                            wordBreak: "break-word",
-                            verticalAlign: "top",
-                            lineHeight: 1.35,
+                            maxWidth: 200,
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            verticalAlign: "middle",
                             padding: "8px 10px",
                           }}
+                          title={raw || undefined}
                         >
-                          {fmt(r[c.key]) || <em style={{ color: "var(--muted)" }}>—</em>}
+                          {raw || <em style={{ color: "var(--muted)" }}>—</em>}
                         </td>
                       );
                     })}
@@ -440,9 +513,9 @@ export function DataTableDetail({ registryId, columns, phoneColumn, initialRows 
                         onClick={() => openEdit(r)}
                         disabled={!rowId || isDeleting}
                         style={{ padding: "3px 8px", marginRight: 4, fontSize: 12 }}
-                        title="Éditer"
+                        title="Voir la fiche complète"
                       >
-                        ✎ Éditer
+                        Voir
                       </button>
                       <button
                         className="ghost"
@@ -451,7 +524,7 @@ export function DataTableDetail({ registryId, columns, phoneColumn, initialRows 
                         style={{ padding: "3px 8px", fontSize: 12, color: "var(--bad)" }}
                         title="Supprimer"
                       >
-                        🗑 Supprimer
+                        🗑
                       </button>
                     </td>
                   </tr>
@@ -477,11 +550,11 @@ export function DataTableDetail({ registryId, columns, phoneColumn, initialRows 
             style={{ width: "min(720px, 100%)", marginTop: 30, display: "grid", gap: 12 }}
           >
             <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
-              <h3 style={{ margin: 0 }}>Éditer le contact</h3>
+              <h3 style={{ margin: 0 }}>Fiche complète du contact</h3>
               <button className="ghost" onClick={() => setEditingId(null)} disabled={editBusy} style={{ padding: "2px 8px" }}>×</button>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
-              {displayCols.map((c) => {
+              {allCols.map((c) => {
                 const long = isLongText(c.key, c.type);
                 return (
                   <div key={c.key} style={long ? { gridColumn: "1 / -1" } : undefined}>

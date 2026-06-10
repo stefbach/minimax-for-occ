@@ -30,12 +30,22 @@ export function SupervisePageClient() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [date, setDate] = useState(() => isoToday());
+  // Default to "À venir 7 jours" so a manager who opens the page sees
+  // tomorrow's and next-week's tasks too — without this default, Wati's
+  // June 10 review showed an empty page because Sarah Cafearo and Sabina
+  // Moussa were both scheduled for the days AFTER today.
+  const [viewMode, setViewMode] = useState<"upcoming" | "single_day">("upcoming");
+  const lookahead = viewMode === "upcoming" ? 7 : 0;
 
   const refresh = useCallback(async () => {
     setErr(null);
     try {
+      const qs =
+        viewMode === "upcoming"
+          ? `scope=all&lookahead_days=${lookahead}`
+          : `scope=all&date=${date}`;
       const [t1, t2] = await Promise.all([
-        fetch(`/api/desk/tasks?scope=all&date=${date}`, { cache: "no-store" }),
+        fetch(`/api/desk/tasks?${qs}`, { cache: "no-store" }),
         fetch("/api/desk/agents", { cache: "no-store" }),
       ]);
       if (t1.ok) {
@@ -54,7 +64,7 @@ export function SupervisePageClient() {
     } finally {
       setLoading(false);
     }
-  }, [date]);
+  }, [date, viewMode, lookahead]);
 
   useEffect(() => {
     void refresh();
@@ -92,14 +102,32 @@ export function SupervisePageClient() {
   return (
     <div style={{ display: "grid", gap: 14 }}>
       <div className="card" style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
-        <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13 }}>
-          <span className="muted">{t("Date")}</span>
-          <input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value || isoToday())}
-          />
-        </label>
+        <div role="group" aria-label={t("Vue")} style={{ display: "inline-flex", border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
+          <button
+            onClick={() => setViewMode("upcoming")}
+            className={viewMode === "upcoming" ? "" : "ghost"}
+            style={{ borderRadius: 0, borderRight: "1px solid var(--border)" }}
+          >
+            {t("À venir (7 jours)")}
+          </button>
+          <button
+            onClick={() => setViewMode("single_day")}
+            className={viewMode === "single_day" ? "" : "ghost"}
+            style={{ borderRadius: 0 }}
+          >
+            {t("Jour précis")}
+          </button>
+        </div>
+        {viewMode === "single_day" && (
+          <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13 }}>
+            <span className="muted">{t("Date")}</span>
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value || isoToday())}
+            />
+          </label>
+        )}
         <div className="grid-kpi" style={{ display: "flex", gap: 18, flexWrap: "wrap" }}>
           <Kpi label={t("Total")} value={counts.total} />
           <Kpi label={t("Non assignés")} value={counts.unassigned} />
@@ -127,7 +155,7 @@ export function SupervisePageClient() {
                 <Th>{t("Téléphone")}</Th>
                 <Th>{t("Qualification")}</Th>
                 <Th>{t("Raison")}</Th>
-                <Th>{t("Heure")}</Th>
+                <Th>{viewMode === "upcoming" ? t("Quand") : t("Heure")}</Th>
                 <Th>{t("Statut")}</Th>
                 <Th>{t("Assigné à")}</Th>
               </tr>
@@ -142,7 +170,9 @@ export function SupervisePageClient() {
               ) : tasks.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="muted" style={{ padding: 16, textAlign: "center" }}>
-                    {t("Aucune tâche pour cette date.")}
+                    {viewMode === "upcoming"
+                      ? t("Aucune tâche à venir dans les 7 prochains jours.")
+                      : t("Aucune tâche pour cette date.")}
                   </td>
                 </tr>
               ) : (
@@ -162,7 +192,7 @@ export function SupervisePageClient() {
                         {truncate(task.transfer_reason, 60) ?? "—"}
                       </span>
                     </Td>
-                    <Td>{formatTime(task.scheduled_for)}</Td>
+                    <Td>{viewMode === "upcoming" ? formatRelative(task.scheduled_for) : formatTime(task.scheduled_for)}</Td>
                     <Td>
                       <span className="tag" style={{ fontSize: 11 }}>{task.status}</span>
                     </Td>
@@ -242,6 +272,26 @@ function formatTime(iso: string): string {
   const t = Date.parse(iso);
   if (!Number.isFinite(t)) return iso;
   return new Date(t).toLocaleString();
+}
+function formatRelative(iso: string): string {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return iso;
+  const d = new Date(t);
+  const todayMs = startOfTodayLocalMs();
+  const taskDayMs = startOfDayLocalMs(d);
+  const dayDelta = Math.round((taskDayMs - todayMs) / 86400000);
+  const hhmm = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  if (dayDelta < 0) return `${d.toLocaleDateString()} ${hhmm} (en retard)`;
+  if (dayDelta === 0) return `Aujourd'hui ${hhmm}`;
+  if (dayDelta === 1) return `Demain ${hhmm}`;
+  return `${d.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" })} ${hhmm}`;
+}
+function startOfTodayLocalMs(): number {
+  const n = new Date();
+  return new Date(n.getFullYear(), n.getMonth(), n.getDate()).getTime();
+}
+function startOfDayLocalMs(d: Date): number {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
 }
 function truncate(s: string | null, n: number): string | null {
   if (!s) return null;

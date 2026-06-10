@@ -81,12 +81,23 @@ export async function GET(req: Request) {
     if (!role || !SUPERVISOR_ROLES.has(role)) {
       return NextResponse.json({ error: "forbidden" }, { status: 403 });
     }
+    // Optional `lookahead_days` widens the window from a single day to
+    // [today, today + N days]. Lets a manager land on "everything coming
+    // up this week" instead of having to scrub the date picker forward
+    // when today is empty (Wati June 10: Sarah was scheduled for
+    // tomorrow, Sabina for the day after, and Summer the manager saw
+    // 'Aucune tâche' on the default today view).
+    const lookahead = Number(url.searchParams.get("lookahead_days") ?? "0");
+    const rangeEnd = lookahead > 0
+      ? endOfDayUtc(addDays(utcTodayDate(), Math.min(60, Math.max(1, lookahead))))
+      : dayEnd;
+    const rangeStart = lookahead > 0 ? startOfDayUtc(utcTodayDate()) : dayStart;
     const { data: allRaw, error: aErr } = await admin
       .from("human_callback_tasks")
       .select(TASK_SELECT)
       .eq("org_id", orgId)
-      .gte("scheduled_for", dayStart.toISOString())
-      .lte("scheduled_for", dayEnd.toISOString())
+      .gte("scheduled_for", rangeStart.toISOString())
+      .lte("scheduled_for", rangeEnd.toISOString())
       .order("scheduled_for", { ascending: true })
       .limit(500);
     if (aErr) return NextResponse.json({ error: aErr.message }, { status: 500 });
@@ -286,4 +297,7 @@ function startOfDayUtc(d: Date): Date {
 }
 function endOfDayUtc(d: Date): Date {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 23, 59, 59, 999));
+}
+function addDays(d: Date, n: number): Date {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + n));
 }
