@@ -44,6 +44,27 @@ function qualLabel(q: QualBucket): string {
   return QUAL_BUCKETS.find((b) => b.key === q)?.label ?? q;
 }
 
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return (
+    <h4 style={{ margin: "0 0 8px", fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4, color: "var(--muted)" }}>
+      {children}
+    </h4>
+  );
+}
+
+// One label / value pair. Renders "—" (muted) when the value is empty so the
+// grid stays aligned and the operator sees which fields are still missing.
+function Field({ label, value, mono }: { label: string; value: string | null | undefined; mono?: boolean }) {
+  return (
+    <div style={{ minWidth: 0 }}>
+      <div className="muted" style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 0.3 }}>{label}</div>
+      <div style={{ fontSize: 13, fontWeight: value ? 600 : 400, color: value ? "var(--text)" : "var(--muted)", fontFamily: mono ? "ui-monospace, monospace" : undefined, wordBreak: "break-word" }}>
+        {value || "—"}
+      </div>
+    </div>
+  );
+}
+
 export function CallDetailPane({
   call,
   leadsSource,
@@ -139,8 +160,72 @@ export function CallDetailPane({
         {call.agent_name && (<><span>·</span><span>{call.agent_name}</span></>)}
       </div>
 
-      {/* Scrollable body: recording, summary, transcript */}
+      {/* Scrollable body: patient, follow-up, history, recording, summary, transcript */}
       <div style={{ flex: 1, overflowY: "auto", padding: "12px 16px", display: "grid", gap: 16 }}>
+        {/* Patient (from the CRM lead) */}
+        {detail?.patient && (
+          <section>
+            <SectionTitle>👤 {t("Patient")}</SectionTitle>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px 16px" }}>
+              <Field label={t("Nom")} value={detail.patient.name} />
+              <Field label={t("Téléphone")} value={detail.patient.phone} mono />
+              <Field label="Email" value={detail.patient.email} />
+              <Field label={t("Date de naissance")} value={detail.patient.dob} />
+              <Field label="BMI" value={detail.patient.bmi != null ? String(detail.patient.bmi) : null} />
+              <Field label={t("Poids / Taille")} value={[detail.patient.weight != null ? `${detail.patient.weight} kg` : null, detail.patient.height != null ? `${detail.patient.height} cm` : null].filter(Boolean).join(" · ") || null} />
+              <Field label={t("Source")} value={detail.patient.source} />
+              <Field label={t("Appels au total")} value={detail.patient.calls_so_far != null ? String(detail.patient.calls_so_far) : null} />
+              <Field label={t("Qualification")} value={detail.patient.qualification} />
+              <Field label={t("Phase")} value={detail.patient.phase} />
+            </div>
+          </section>
+        )}
+
+        {/* Appointment & follow-up */}
+        {detail?.followup && (
+          <section>
+            <SectionTitle>📅 {t("RDV & suivi")}</SectionTitle>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px 16px" }}>
+              <Field label={t("Date de RDV")} value={detail.followup.appointment_date} />
+              <Field label={t("Rappel")} value={detail.followup.reminder} />
+              <Field label={t("Dernier appel")} value={detail.followup.last_call} />
+              <Field label={t("Email envoyé")} value={detail.followup.email_sent == null ? null : detail.followup.email_sent ? t("Oui") : t("Non")} />
+              <Field label={t("1er email")} value={detail.followup.first_email} />
+              <Field label={t("2e email")} value={detail.followup.second_email} />
+            </div>
+          </section>
+        )}
+
+        {/* Medical (AI / CRM-extracted) — only when something is filled */}
+        {detail?.medical && (
+          <section>
+            <SectionTitle>🩺 {t("Données médicales")}</SectionTitle>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px 16px" }}>
+              <Field label={t("Allergies")} value={detail.medical.allergies} />
+              <Field label={t("Médicaments")} value={detail.medical.medications} />
+              <Field label={t("Chirurgies passées")} value={detail.medical.past_surgeries} />
+              <Field label={t("Autres pathologies")} value={detail.medical.other_conditions} />
+              <Field label={t("Statut NHS WMP")} value={detail.medical.nhs_status} />
+            </div>
+          </section>
+        )}
+
+        {/* Call history timeline */}
+        {detail && detail.history.length > 0 && (
+          <section>
+            <SectionTitle>🕑 {t("Historique des appels")}</SectionTitle>
+            <div style={{ display: "grid", gap: 4 }}>
+              {detail.history.map((h, i) => (
+                <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 12, padding: "4px 0", borderBottom: "1px solid var(--border)" }}>
+                  <span className="muted" style={{ fontFamily: "ui-monospace, monospace" }}>{fmtDateTime(h.date)}</span>
+                  <span style={{ flex: 1 }}>{h.label}</span>
+                  <span className="muted">{fmtDur(h.duration_secs)}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
         {/* Recording */}
         <section>
           <h4 style={{ margin: "0 0 6px", fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4, color: "var(--muted)" }}>

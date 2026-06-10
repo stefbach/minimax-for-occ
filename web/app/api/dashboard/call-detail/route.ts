@@ -3,6 +3,8 @@ import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { requestOrgId } from "@/lib/request-org";
 import { requireModule } from "@/lib/permissions-server";
 import { fetchRetellCallExtras, type TranscriptTurn } from "@/lib/retell-sync";
+import { bucketForCall, QUAL_BUCKETS } from "@/lib/qualification";
+import { isInbound } from "@/lib/call-direction";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,11 +21,31 @@ export const dynamic = "force-dynamic";
 //     calling Retell get-call once, then cached back into metadata.
 
 export type CallDetailTurn = { speaker: "agent" | "customer"; text: string; t?: number };
+// Patient + follow-up + medical context, pulled from the CRM lead by phone, so
+// the call-detail view is as informative as the legacy "Patient call detail".
+export type PatientInfo = {
+  name: string | null; phone: string | null; email: string | null; dob: string | null;
+  bmi: number | null; weight: number | null; height: number | null;
+  source: string | null; calls_so_far: number | null; qualification: string | null; phase: string | null;
+};
+export type FollowupInfo = {
+  appointment_date: string | null; reminder: string | null; last_call: string | null;
+  email_sent: boolean | null; first_email: string | null; second_email: string | null;
+};
+export type MedicalInfo = {
+  allergies: string | null; medications: string | null; past_surgeries: string | null;
+  other_conditions: string | null; nhs_status: string | null;
+};
+export type HistoryItem = { date: string | null; label: string; duration_secs: number | null };
 export type CallDetailResponse = {
   recording_url: string | null;
   summary: string | null;
   transcript: CallDetailTurn[];
   transcript_source: "axon" | "retell" | null;
+  patient: PatientInfo | null;
+  followup: FollowupInfo | null;
+  medical: MedicalInfo | null;
+  history: HistoryItem[];
 };
 
 type CallRow = {
@@ -31,6 +53,7 @@ type CallRow = {
   org_id: string;
   recording_url: string | null;
   summary: string | null;
+  direction: string | null;
   started_at: string | null;
   answered_at: string | null;
   to_e164: string | null;
@@ -59,7 +82,7 @@ export async function GET(request: Request) {
   const sb = supabaseServer();
   const { data, error } = await sb
     .from("calls")
-    .select("id, org_id, recording_url, summary, started_at, answered_at, to_e164, from_e164, metadata")
+    .select("id, org_id, direction, recording_url, summary, started_at, answered_at, to_e164, from_e164, metadata")
     .eq("id", id)
     .eq("org_id", orgId)
     .maybeSingle();
@@ -180,11 +203,75 @@ export async function GET(request: Request) {
     }
   }
 
+  // ── Patient / follow-up / medical from the CRM lead (by phone) ────────────
+  const patientPhone = isInbound(call.direction ?? null) ? call.from_e164 : call.to_e164;
+  let patient: PatientInfo | null = null;
+  let followup: FollowupInfo | null = null;
+  let medical: MedicalInfo | null = null;
+  if (patientPhone) {
+    const norm = patientPhone.replace(/\s+/g, "");
+    type Lead = Record<string, unknown>;
+    const cols = "nom, email, numero_telephone, bmi, poids, taille, source_lead, call_count, patient_dob, date_rdv, rappel_rdv, last_call_datetime, email_sent, \"1st_mail\", \"2nd_mail\", qualification, current_phase, allergies, current_medications, past_surgeries, other_chronic_conditions, nhs_wmp_status";
+    let lead: Lead | null = null;
+    for (const table of ["leads_rdv", "leads_rdv_test_axon"]) {
+      try {
+        const { data: leads } = await sb
+          .from(table as never)
+          .select(cols)
+          .or(`numero_telephone.eq.${norm},numero_telephone.eq.${patientPhone}`)
+          .limit(1);
+        if (leads && leads.length) { lead = leads[0] as Lead; break; }
+      } catch { /* table/column missing — skip */ }
+    }
+    if (lead) {
+      const s = (k: string) => { const v = lead![k]; return v == null || v === "" ? null : String(v); };
+      const n = (k: string) => { const v = Number(lead![k]); return Number.isFinite(v) ? v : null; };
+      patient = {
+        name: s("nom"), phone: s("numero_telephone") ?? patientPhone, email: s("email"), dob: s("patient_dob"),
+        bmi: n("bmi"), weight: n("poids"), height: n("taille"),
+        source: s("source_lead"), calls_so_far: n("call_count"),
+        qualification: s("qualification"), phase: s("current_phase"),
+      };
+      followup = {
+        appointment_date: s("date_rdv"), reminder: s("rappel_rdv"), last_call: s("last_call_datetime"),
+        email_sent: typeof lead["email_sent"] === "boolean" ? (lead["email_sent"] as boolean) : null,
+        first_email: s("1st_mail"), second_email: s("2nd_mail"),
+      };
+      const med: MedicalInfo = {
+        allergies: s("allergies"), medications: s("current_medications"), past_surgeries: s("past_surgeries"),
+        other_conditions: s("other_chronic_conditions"), nhs_status: s("nhs_wmp_status"),
+      };
+      // Only surface the medical block when at least one field is filled.
+      if (Object.values(med).some((v) => v != null)) medical = med;
+    }
+  }
+
+  // ── Call history: every call to this number, newest first (timeline) ──────
+  const history: HistoryItem[] = [];
+  if (patientPhone) {
+    const { data: hist } = await sb
+      .from("calls")
+      .select("started_at, duration_secs, disposition, answered_at, metadata, to_e164, from_e164")
+      .eq("org_id", orgId)
+      .or(`to_e164.eq.${patientPhone},from_e164.eq.${patientPhone}`)
+      .order("started_at", { ascending: false })
+      .limit(20);
+    for (const h of (hist ?? []) as Array<{ started_at: string | null; duration_secs: number | null; disposition: string | null; answered_at: string | null; metadata: Record<string, unknown> | null }>) {
+      const b = bucketForCall(h);
+      const label = QUAL_BUCKETS.find((x) => x.key === b)?.label ?? h.disposition ?? "—";
+      history.push({ date: h.started_at, label, duration_secs: h.duration_secs });
+    }
+  }
+
   const body: CallDetailResponse = {
     recording_url: recordingUrl,
     summary: call.summary,
     transcript,
     transcript_source: transcriptSource,
+    patient,
+    followup,
+    medical,
+    history,
   };
   return NextResponse.json(body);
 }
