@@ -82,6 +82,23 @@ export async function POST(req: Request) {
     );
   }
 
+  if (twilioStatus === 404) {
+    // Twilio's Voice REST API can only terminate calls created via the Voice
+    // API itself ("Outgoing API" direction). Elastic SIP Trunking legs
+    // (Trunking Originating / Terminating) are managed by the trunk service
+    // and return 404 on POST /Calls/{sid}.json with Status=completed —
+    // even when the SID is valid and the call is in progress. Wati June 10:
+    // every agent-initiated hangup logged this 404. The actual leg
+    // termination must come from LiveKit Cloud sending the SIP BYE; this
+    // proxy is a no-op for trunk legs (~most of OCC's prospection calls).
+    // Future: use LK Sip API deleteSipParticipant directly for instant kill.
+    return NextResponse.json({
+      ok: true,
+      noop: true,
+      reason: "trunk_leg_not_voice_api",
+      status_code: 404,
+    });
+  }
   if (twilioStatus >= 400) {
     return NextResponse.json(
       { ok: false, status_code: twilioStatus, body: twilioBody },
