@@ -697,11 +697,45 @@ class AxonVoiceAgent(Agent):
         # poll sip.callStatus directly instead of relying on room events
         # whose names/semantics differ across LK SDK versions.
         self._sip_participant = sip_participant
+        # Agent-First flow: when True, the next completed user turn (the
+        # patient's "Hello?") is answered with the STATIC greeting instead
+        # of a free-form LLM reply. Set by on_enter for SIP sessions,
+        # cleared by on_user_turn_completed or the silence timeout.
+        self._pending_first_greeting = False
+
+    async def on_user_turn_completed(self, turn_ctx, new_message) -> None:
+        # First patient utterance on the Agent-First flow: speak the canned
+        # greeting ("Hi, is that Megane?") and SUPPRESS the LLM's free-form
+        # reply for this turn. Without the suppression the LLM answers
+        # "Hello?" with its own full intro, which races/duplicates the
+        # greeting (June 10 trace) — and Wati explicitly wants the short
+        # canned opener first.
+        if self._pending_first_greeting:
+            self._pending_first_greeting = False
+            import time as _t
+            logger.info("first user turn completed — speaking static greeting, suppressing LLM reply")
+
+            async def _say_greeting() -> None:
+                _b = _t.monotonic()
+                logger.info("greeting: say() begin (turn-triggered)")
+                try:
+                    await self.session.say(text=self._greeting, allow_interruptions=True)
+                    logger.info("greeting: say() returned in %.2fs", _t.monotonic() - _b)
+                except Exception:
+                    logger.info(
+                        "greeting: say() interrupted after %.2fs (likely hangup)",
+                        _t.monotonic() - _b,
+                    )
+
+            asyncio.create_task(_say_greeting())
+            from livekit.agents import StopResponse
+            raise StopResponse()
 
     async def on_enter(self) -> None:
-        # MARKER v12-llm-first-turn-2026-06-10 — patient speech hands the
-        # first turn straight to the LLM; static greeting only on timeout.
-        logger.info("on_enter: marker v12-llm-first-turn-2026-06-10 active")
+        # MARKER v13-canned-first-2026-06-10 — patient's first utterance is
+        # answered with the static greeting (LLM reply suppressed via
+        # StopResponse); free-form LLM takes over from turn 2.
+        logger.info("on_enter: marker v13-canned-first-2026-06-10 active")
         if not self._greeting:
             return
         import time as _t
@@ -798,50 +832,31 @@ class AxonVoiceAgent(Agent):
         # — covers the silent-pickup minority without leaving dead air
         # forever.
         if sp is not None:
+            # Arm the first-turn interceptor: the patient's "Hello?" turn is
+            # answered with the STATIC greeting ("Hi, is that Megane?") via
+            # on_user_turn_completed + StopResponse — the LLM's free-form
+            # reply is suppressed for that single turn. Triggering on turn
+            # COMPLETION (not partials) means the patient has finished
+            # speaking, so the greeting can't be cut off by their continuing
+            # speech, and suppressing the reply means no double-greeting.
+            self._pending_first_greeting = True
             speech_wait = float(os.getenv("GREETING_WAIT_FOR_SPEECH_SECONDS", "25.0"))
-            spoke = asyncio.Event()
-
-            def _on_first_speech(ev) -> None:
-                try:
-                    txt = (
-                        getattr(ev, "transcript", None)
-                        or getattr(ev, "text", None)
-                        or ""
-                    )
-                    if str(txt).strip():
-                        spoke.set()
-                except Exception:
-                    pass
-
-            try:
-                self.session.on("user_input_transcribed", _on_first_speech)
-            except Exception:
-                logger.warning("greeting: could not hook user_input_transcribed")
             speech_start = _t.monotonic()
-            try:
-                await asyncio.wait_for(spoke.wait(), timeout=speech_wait)
-                # The patient spoke. Do NOT fire the static say() here —
-                # the June 10 latency trace showed the static greeting
-                # racing the normal turn pipeline: say() started while the
-                # patient was still mid-"Hello?", got interrupted by their
-                # speech, and the session then re-endpointed and ran the
-                # LLM turn anyway — net ~8s before the patient heard
-                # anything. Letting the LLM answer the first utterance
-                # directly costs one LLM round-trip (~2.5s) but avoids the
-                # interrupted-say + re-endpoint dance entirely, and the
-                # model's contextual opener ("Hi Megane, it's Charlotte
-                # from the Obesity Care Clinic…") is as good as the
-                # canned one.
+            while self._pending_first_greeting and _t.monotonic() - speech_start < speech_wait:
+                await asyncio.sleep(0.25)
+            if not self._pending_first_greeting:
                 logger.info(
-                    "greeting: patient spoke after %.2fs — handing first turn to the LLM",
+                    "greeting: first turn intercepted after %.2fs — static greeting handled by interceptor",
                     _t.monotonic() - speech_start,
                 )
                 return
-            except asyncio.TimeoutError:
-                logger.warning(
-                    "greeting: no speech within %.0fs — speaking static greeting (silent pickup or dead air)",
-                    speech_wait,
-                )
+            # Timeout: silent pickup or dead air — disarm the interceptor
+            # and fall through to the direct say() below.
+            self._pending_first_greeting = False
+            logger.warning(
+                "greeting: no speech within %.0fs — speaking static greeting (silent pickup or dead air)",
+                speech_wait,
+            )
 
         # Static greeting path: non-SIP sessions (desk/browser) and the
         # silent-pickup timeout. Tiny pre-roll so the first syllable isn't
