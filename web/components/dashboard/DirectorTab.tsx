@@ -82,7 +82,7 @@ function ClickCard({
   );
 }
 
-export function DirectorTab({ from, to, direction, leadsSource = "prod", system = "all", slot = "all" }: { from: string; to: string; direction: string; leadsSource?: "prod" | "test"; system?: "all" | "retell" | "axon"; slot?: "all" | "morning" | "afternoon" | "evening" }) {
+export function DirectorTab({ from, to, direction, leadsSource = "prod", system = "all", slot = "all", refreshKey = 0 }: { from: string; to: string; direction: string; leadsSource?: "prod" | "test"; system?: "all" | "retell" | "axon"; slot?: "all" | "morning" | "afternoon" | "evening"; refreshKey?: number }) {
   const t = useT();
   const [data, setData] = useState<DirectorResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -132,7 +132,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
       .catch((e) => alive && setError(e instanceof Error ? e.message : "error"))
       .finally(() => alive && setLoading(false));
     return () => { alive = false; };
-  }, [from, to, direction, threshold, leadsSource, system, slot, reloadKey]);
+  }, [from, to, direction, threshold, leadsSource, system, slot, reloadKey, refreshKey]);
 
   // AI qualification is automatic: any answered call left in the "autre" bucket
   // is classified by the AI from its transcript. New calls are handled at

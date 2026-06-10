@@ -66,6 +66,13 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
   // the live picture first, drill back if needed).
   const [period, setPeriod] = useState<Period>({ ...presetToRange("today"), preset: "today" });
   const [filters, setFilters] = useState<Filters>({ direction: "all", leadsSource: "prod", system: "all", slot: "all" });
+  // Bumped by 'Actualiser' so every active tab re-fetches, not just the
+  // overview tile. Each tab includes refreshKey in its dependency array;
+  // a change forces useEffect to fire even when from/to/filters didn't
+  // move (Wati June 10: the button looked broken because it only
+  // refreshed the overview header, leaving the Vue d'ensemble tiles
+  // stale).
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const fetchData = useCallback(async () => {
     try {
@@ -79,6 +86,7 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
       const j = (await res.json()) as DashboardOverviewResponse;
       setData(j);
       setError(null);
+      setRefreshKey((k) => k + 1);
     } catch (e) {
       setError(e instanceof Error ? e.message : "fetch error");
     } finally {
@@ -168,7 +176,7 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
               <SyncTwilioButton />
             </div>
             <PeriodBar period={period} filters={filters} onPeriod={setPeriod} onFilters={setFilters} />
-            <DirectorTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} system={filters.system} slot={filters.slot} />
+            <DirectorTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} system={filters.system} slot={filters.slot} refreshKey={refreshKey} />
             {data && <CampaignsTable rows={data.campaigns} />}
           </>
         )}
