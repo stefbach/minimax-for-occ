@@ -27,6 +27,7 @@
     "livekit-client": "^2.18.0",
     "livekit-server-sdk": "^2.15.0",
     "next": "^15.5.0",
+    "nodemailer": "^8.0.10",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "vercel-minimax-ai-provider": "^0.0.2",
@@ -35,6 +36,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "@types/nodemailer": "^8.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitest/ui": "^2.1.9",

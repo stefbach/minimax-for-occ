@@ -4,6 +4,7 @@ import { HelpButton } from "@/components/help/HelpButton";
 import { hasSupabase, supabaseServer } from "@/lib/supabase";
 import { currentOrgIdForServer } from "@/lib/supabase-auth";
 import { OrgWebhooksPanel, type WebhookRow, type DataTableOption } from "@/components/workflows/OrgWebhooksPanel";
+import { NativeAutomationsPanel } from "@/components/workflows/NativeAutomationsPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -92,6 +93,8 @@ export default async function WorkflowsPage() {
           </div>
         </div>
       )}
+
+      <NativeAutomationsPanel />
 
       <OrgWebhooksPanel initial={webhooks} dataTables={dataTables} />
 
