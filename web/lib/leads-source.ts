@@ -35,6 +35,12 @@ export function leadsTableFor(source: LeadsSource | null | undefined): string {
   return source === "test" ? "leads_rdv_test_axon" : "leads_rdv";
 }
 
+// Every sandbox table whose numbers must stay OUT of the Prod stats. The
+// dashboard's Test scope is the union of these; Prod excludes the union.
+// leads_rdv_test_megane is the single-lead table used for agent-first /
+// latency debugging against Wati's own UK number.
+const TEST_TABLES = ["leads_rdv_test_axon", "leads_rdv_test_megane"] as const;
+
 function normalisePhone(raw: string | null | undefined): string | null {
   if (!raw) return null;
   const stripped = String(raw).replace(/\s+/g, "");
@@ -68,14 +74,21 @@ async function loadPhoneSet(table: string): Promise<Set<string> | null> {
 export async function leadsScopeFor(
   source: LeadsSource | null | undefined,
 ): Promise<LeadsScope> {
-  const test = await loadPhoneSet(leadsTableFor("test"));
+  // Union of every sandbox table's numbers. A missing table contributes
+  // nothing (loadPhoneSet returns null → skipped).
+  const sets = await Promise.all(TEST_TABLES.map((t) => loadPhoneSet(t)));
+  const test = new Set<string>();
+  for (const s of sets) {
+    if (!s) continue;
+    for (const p of s) test.add(p);
+  }
   if (source === "test") {
-    // Test = only calls to the sandbox numbers. A missing/empty test table
-    // yields an empty include-set, i.e. the Test view shows nothing (correct).
-    return { mode: "include", phones: test ?? new Set() };
+    // Test = only calls to the sandbox numbers. Empty test tables yield an
+    // empty include-set, i.e. the Test view shows nothing (correct).
+    return { mode: "include", phones: test };
   }
   // Prod = everything that is NOT a sandbox test call.
-  return { mode: "exclude", phones: test ?? new Set() };
+  return { mode: "exclude", phones: test };
 }
 
 /** Predicate matching a call's to_e164 against the resolved leads scope. Trims
