@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from typing import Any, Dict, Optional
 
 import httpx
@@ -863,7 +864,39 @@ def auto_qualify_call(call_id: Optional[str]) -> None:
                     pass
                 audio_dropped = (not had_goodbye_hangup) and had_user_turn
 
-            if audio_dropped:
+            # Voicemail safety net: regardless of duration, if the patient
+            # side of the transcript reads like a voicemail announcement,
+            # it IS a voicemail. The in-call STT detector normally hangs up
+            # early with an explicit REPONDEUR pre-stamp, but calls that
+            # slip through (detector window edge cases, exotic greetings)
+            # used to land in the 30s+ bucket and get mislabeled RAPPEL —
+            # the June 10 go-live had Charlotte 'conversing' with O2's
+            # messaging service and the lead tagged as a callback.
+            voicemail_transcript = False
+            try:
+                vt = c.get(
+                    _supabase_url(
+                        f"/rest/v1/call_transcripts?call_id=eq.{call_id}"
+                        "&speaker=in.(user,customer)&select=text&order=seq.asc&limit=6"
+                    ),
+                )
+                if vt.is_success:
+                    joined = " ".join(
+                        str(r.get("text") or "") for r in (vt.json() or [])
+                    ).lower()
+                    voicemail_transcript = bool(re.search(
+                        r"leave\s+(a|your)\s+message|after\s+the\s+(tone|beep)"
+                        r"|voice\s*mail|messaging\s+service|unable\s+to\s+take\s+your\s+call"
+                        r"|record\s+your\s+(name|message)|message\s+deposited|mailbox",
+                        joined,
+                    ))
+            except Exception:
+                pass
+
+            if voicemail_transcript:
+                qual = "REPONDEUR"
+                qualification_source = "voicemail_transcript"
+            elif audio_dropped:
                 qual = "RAPPEL"
                 qualification_source = "audio_drop_heuristic"
             elif handoff_count > 0:
