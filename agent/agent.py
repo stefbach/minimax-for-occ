@@ -2613,6 +2613,30 @@ async def entrypoint(ctx: JobContext) -> None:
             meta_patch["twilio_call_sid"] = str(twilio_sid)
         if meta_patch and call_id:
             await asyncio.to_thread(_ucm, call_id, meta_patch)
+        # Agent First race: p_attrs is snapshotted when the entrypoint
+        # resolves the participant — often while the SIP leg is still
+        # 'dialing', BEFORE LiveKit's plugin publishes sip.twilio.callSid.
+        # Result on the June 10 wave: only 4/50 calls had the SID stamped,
+        # so recordings (resolved via the Twilio Recordings API keyed by
+        # CallSid) showed "indisponible" everywhere. Poll the LIVE attrs in
+        # the background and stamp as soon as the SID appears.
+        if call_id and not twilio_sid and participant is not None:
+            async def _stamp_sid_when_available() -> None:
+                try:
+                    for _ in range(90):
+                        attrs = dict(getattr(participant, "attributes", None) or {})
+                        sid = attrs.get("sip.twilio.callSid") or attrs.get("sip.twilio.callsid")
+                        if sid:
+                            await asyncio.to_thread(
+                                _ucm, call_id, {"twilio_call_sid": str(sid)},
+                            )
+                            clog.info("twilio_call_sid stamped late (deferred poll): %s", sid)
+                            return
+                        await asyncio.sleep(1.0)
+                    clog.warning("twilio_call_sid never appeared in participant attrs (90s)")
+                except Exception:
+                    clog.exception("deferred twilio_call_sid stamp failed")
+            asyncio.create_task(_stamp_sid_when_available())
     except Exception:
         clog.exception("could not stamp lk_room_name/twilio_call_sid on calls.metadata")
     _wire_transcript_hooks(session, call_id)

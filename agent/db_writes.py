@@ -873,6 +873,7 @@ def auto_qualify_call(call_id: Optional[str]) -> None:
             # the June 10 go-live had Charlotte 'conversing' with O2's
             # messaging service and the lead tagged as a callback.
             voicemail_transcript = False
+            any_user_speech = False
             try:
                 vt = c.get(
                     _supabase_url(
@@ -881,13 +882,19 @@ def auto_qualify_call(call_id: Optional[str]) -> None:
                     ),
                 )
                 if vt.is_success:
+                    user_rows = vt.json() or []
+                    any_user_speech = any(
+                        str(r.get("text") or "").strip() for r in user_rows
+                    )
                     joined = " ".join(
-                        str(r.get("text") or "") for r in (vt.json() or [])
+                        str(r.get("text") or "") for r in user_rows
                     ).lower()
                     voicemail_transcript = bool(re.search(
                         r"leave\s+(a|your)\s+message|after\s+the\s+(tone|beep)"
                         r"|voice\s*mail|messaging\s+service|unable\s+to\s+take\s+your\s+call"
-                        r"|record\s+your\s+(name|message)|message\s+deposited|mailbox",
+                        r"|record\s+your\s+(name|message)|message\s+deposited|mailbox"
+                        r"|press\s+(hash|pound|star|\d)\b|recording\s+now"
+                        r"|when\s+you('?re|\s+are)\s+done",
                         joined,
                     ))
             except Exception:
@@ -905,6 +912,15 @@ def auto_qualify_call(call_id: Optional[str]) -> None:
             elif not answered or duration == 0:
                 qual = "PAS DE REPONSE"
                 qualification_source = "auto_inferred"
+            elif not any_user_speech:
+                # 'Answered' but the patient never said a single word, at ANY
+                # duration. On UK mobile routes the carrier answers the SIP
+                # leg at the network level (in-band ringback), so a phone
+                # ringing in an empty room shows up as a 30-60s 'answered'
+                # call — those were all mislabeled RAPPEL on the June 10
+                # wave. No human speech = nobody picked up.
+                qual = "PAS DE REPONSE"
+                qualification_source = "no_speech_heuristic"
             elif duration <= 5:
                 qual = "REPONDEUR"
                 qualification_source = "auto_inferred"
