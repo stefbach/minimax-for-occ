@@ -3,7 +3,7 @@ import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { requestOrgId } from "@/lib/request-org";
 import { requireModule } from "@/lib/permissions-server";
 import { fetchRetellCallExtras, type TranscriptTurn } from "@/lib/retell-sync";
-import { findTwilioRecordingForCall } from "@/lib/twilio-recording";
+import { fetchTwilioRecordingUrl, findTwilioRecordingForCall } from "@/lib/twilio-recording";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -83,7 +83,13 @@ export async function GET(request: Request) {
   let recordingUrl = call.recording_url;
 
   if (axonTurns.length) {
-    const anchorMs = call.answered_at ? Date.parse(call.answered_at)
+    // Anchor on the FIRST transcript turn, not answered_at: Twilio's
+    // answered/in-progress timestamp can land well after the conversation
+    // actually started (observed ~76s late), which would push every early turn
+    // negative → all 0:00. The first turn's time is the true t=0.
+    const firstTurnIso = axonTurns.find((t) => t.started_at)?.started_at ?? null;
+    const anchorMs = firstTurnIso ? Date.parse(firstTurnIso)
+      : call.answered_at ? Date.parse(call.answered_at)
       : call.started_at ? Date.parse(call.started_at) : NaN;
     transcript = axonTurns
       .filter((t) => t.text)
@@ -159,10 +165,19 @@ export async function GET(request: Request) {
     }
   }
 
-  // Recording fallback for Axon/LiveKit calls with no recording yet: find the
-  // matching Twilio call by number + start time and resolve its trunk recording
-  // (LiveKit and Twilio legs often land on separate rows, so the sid isn't on
-  // this one). Stamp the sid so the streaming proxy resolves it next time too.
+  // Recording for Twilio/Axon calls that HAVE a CallSid: resolve the trunk
+  // recording via the Twilio REST API (no per-call webhook for trunk recording).
+  if (!recordingUrl && typeof meta.twilio_call_sid === "string" && meta.twilio_call_sid) {
+    const u = await fetchTwilioRecordingUrl(meta.twilio_call_sid);
+    if (u) {
+      recordingUrl = u;
+      await sb.from("calls").update({ recording_url: u }).eq("id", id).eq("org_id", orgId);
+    }
+  }
+  // Recording fallback for Axon/LiveKit calls with NO CallSid on the row: find
+  // the matching Twilio call by number + start time and resolve its recording
+  // (LiveKit and Twilio legs often land on separate rows). Stamp the sid so the
+  // streaming proxy resolves it next time too.
   if (!recordingUrl && meta.source !== "retell_sync" && !meta.twilio_call_sid
       && meta.twilio_recording_unavailable !== true && call.answered_at && call.started_at) {
     const found = await findTwilioRecordingForCall({
