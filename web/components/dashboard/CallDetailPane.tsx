@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useT } from "@/lib/i18n";
+import { fixAudioDuration } from "@/lib/fix-audio-duration";
 import { QUAL_BUCKETS, type QualBucket } from "@/lib/qualification";
 import type { DrillCall } from "@/app/api/dashboard/calls-drill/route";
 import type { CallDetailResponse } from "@/app/api/dashboard/call-detail/route";
@@ -150,7 +151,7 @@ export function CallDetailPane({
               {/* Stream through our own origin (see /api/dashboard/call-recording)
                   so playback works regardless of the upstream host's CORS /
                   content-type. */}
-              <audio controls preload="metadata" src={`/api/dashboard/call-recording?id=${encodeURIComponent(call.id)}`} style={{ width: "100%" }} />
+              <audio controls preload="metadata" src={`/api/dashboard/call-recording?id=${encodeURIComponent(call.id)}`} style={{ width: "100%" }} onLoadedMetadata={fixAudioDuration} />
               <a
                 href={`/api/dashboard/call-recording?id=${encodeURIComponent(call.id)}`}
                 target="_blank"
@@ -216,8 +217,13 @@ export function CallDetailPane({
                       borderTopRightRadius: isAgent ? 10 : 2,
                     }}
                   >
-                    <div style={{ fontSize: 10, fontWeight: 600, color: "var(--muted)", marginBottom: 2, textTransform: "uppercase", letterSpacing: 0.3 }}>
-                      {isAgent ? t("Agent") : t("Client")}
+                    <div style={{ fontSize: 10, fontWeight: 600, color: "var(--muted)", marginBottom: 2, textTransform: "uppercase", letterSpacing: 0.3, display: "flex", justifyContent: "space-between", gap: 8 }}>
+                      <span>{isAgent ? t("Agent") : t("Client")}</span>
+                      {typeof turn.t === "number" && (
+                        <span style={{ fontFamily: "ui-monospace, monospace", letterSpacing: 0 }}>
+                          {Math.floor(turn.t / 60)}:{String(turn.t % 60).padStart(2, "0")}
+                        </span>
+                      )}
                     </div>
                     {turn.text}
                   </div>
