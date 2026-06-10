@@ -186,10 +186,15 @@ async function dialViaLiveKit(args: {
       fromNumber: fromE164 ?? undefined,
       // Block until pickup/timeout so we only dispatch the agent on a real answer.
       waitUntilAnswered: true,
-      // Patient ring timeout, configurable via DIAL_RING_TIMEOUT_SECS (clamped
-      // 5-600s by Twilio). OCC operates at a fast cadence — 5s default = ~2 rings,
-      // catches dead numbers immediately without waiting for voicemail handoff.
-      ringingTimeout: Math.max(5, Math.min(600, Number(process.env.DIAL_RING_TIMEOUT_SECS ?? 5))),
+      // Patient ring timeout, configurable via DIAL_RING_TIMEOUT_SECS.
+      // 25s default (industry standard). The earlier 5s default killed the
+      // June 10 go-live wave: humans need 10-15s median to physically reach
+      // their phone, so 2/3 of calls "failed" before anyone could answer —
+      // only early-answer carriers (Three's in-band ringback) survived the
+      // cutoff. The "hang up fast when nobody's there" requirement is
+      // handled POST-answer by the agent (speech-wait timeout + 4s idle
+      // watchdog), not by chopping the ring.
+      ringingTimeout: Math.max(5, Math.min(600, Number(process.env.DIAL_RING_TIMEOUT_SECS ?? 25))),
     };
     // ────────────────────────────────────────────────────────────────────
     // "Agent First" sequencing (Wati's architectural insight): instead of
@@ -506,7 +511,7 @@ export async function dialTarget(job: DialJob): Promise<void> {
       // catching dead numbers immediately rather than waiting through 2-3
       // rings for a voicemail handoff. Override via DIAL_RING_TIMEOUT_SECS
       // without a redeploy. Twilio clamps 5-600s.
-      timeout: Math.max(5, Math.min(600, Number(process.env.DIAL_RING_TIMEOUT_SECS ?? 5))),
+      timeout: Math.max(5, Math.min(600, Number(process.env.DIAL_RING_TIMEOUT_SECS ?? 25))),
       record: recordingEnabled,
       recordingStatusCallback,
     });
