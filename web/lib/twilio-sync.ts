@@ -17,6 +17,7 @@
 
 import { supabaseServer } from "./supabase";
 import { cleanPhone } from "./phone-clean";
+import { isInternalLeg } from "./call-quality";
 
 const TWILIO_API = "https://api.twilio.com";
 const ACTIVE_DB_STATES = new Set(["queued", "ringing", "ivr", "in_progress", "wrap_up"]);
@@ -167,6 +168,16 @@ export async function syncTwilioCalls(
     const answered = c.status === "completed" && duration >= 15 && !isVoicemail;
     const direction: "in" | "out" = (c.direction ?? "").startsWith("inbound") ? "in" : "out";
 
+    // Skip the LiveKit ↔ Twilio SIP transport legs (counterparty is empty or
+    // OCC's own number). They duplicate the real call row and otherwise surface
+    // as "Unknown / —" entries in the dashboard.
+    const fromClean = cleanPhone(c.from);
+    const toClean = cleanPhone(c.to);
+    if (!existing.has(sid) && isInternalLeg({ direction, from_e164: fromClean, to_e164: toClean })) {
+      skippedInvalid += 1;
+      continue;
+    }
+
     const row = existing.get(sid);
     if (row) {
       costItems.push({
@@ -200,8 +211,8 @@ export async function syncTwilioCalls(
       state,
       // Recover the real E.164 from SIP URIs ("sip:+44…@host") and drop Twilio
       // Client identities ("client:user-…") so the dashboard shows numbers/names.
-      from_e164: cleanPhone(c.from),
-      to_e164: cleanPhone(c.to),
+      from_e164: fromClean,
+      to_e164: toClean,
       started_at: new Date(startMs).toISOString(),
       answered_at: answered ? new Date(startMs).toISOString() : null,
       ended_at: c.end_time ? new Date(c.end_time).toISOString() : null,

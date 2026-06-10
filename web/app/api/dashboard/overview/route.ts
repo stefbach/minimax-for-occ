@@ -61,13 +61,17 @@ async function kpisForWindow(
   // Calls in window
   const { data: calls } = await sb
     .from("calls")
-    .select("id, started_at, ended_at, answered_at, duration_secs, disposition, agent_handle_id, metadata")
+    .select("id, started_at, ended_at, answered_at, duration_secs, disposition, agent_handle_id, direction, from_e164, to_e164, metadata")
     .eq("org_id", orgId)
     .gte("started_at", from.toISOString())
     .lt("started_at", to.toISOString());
 
-  // Drop phantom LiveKit dispatch artifacts so the count reflects real calls.
-  const rows = (calls ?? []).filter((r) => !isPhantomCall(r as { answered_at?: string | null; duration_secs?: number | null; metadata?: Record<string, unknown> | null }));
+  // Drop phantom LiveKit dispatch artifacts and internal SIP-trunk legs so the
+  // count reflects real patient calls.
+  const rows = (calls ?? []).filter((r) => !isPhantomCall(r as {
+    direction?: string | null; from_e164?: string | null; to_e164?: string | null;
+    answered_at?: string | null; duration_secs?: number | null; metadata?: Record<string, unknown> | null;
+  }));
   const callsCount = rows.length;
 
   const endedRows = rows.filter((r) => r.ended_at && typeof r.duration_secs === "number");

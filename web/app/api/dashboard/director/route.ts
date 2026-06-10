@@ -98,6 +98,7 @@ type CallRow = {
   disposition: string | null;
   agent_handle_id: string | null;
   contact_id: string | null;
+  from_e164: string | null;
   to_e164: string | null;
   summary: string | null;
   metadata: { qualification?: string | null; agent_stage?: number | null; analysis_skipped?: string | null } | null;
@@ -146,7 +147,7 @@ export async function GET(request: Request) {
     let q = sb
       .from("calls")
       .select(
-        "id, direction, state, answered_at, started_at, duration_secs, disposition, agent_handle_id, contact_id, to_e164, summary, metadata, agent_handles(display_name), contacts(display_name)",
+        "id, direction, state, answered_at, started_at, duration_secs, disposition, agent_handle_id, contact_id, from_e164, to_e164, summary, metadata, agent_handles(display_name), contacts(display_name)",
       )
       .eq("org_id", orgId)
       .gte("started_at", from.toISOString())
