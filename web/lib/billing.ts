@@ -75,9 +75,17 @@ export function secondsToBillableMinutes(seconds: number): number {
  *  minutes) — only these rates are configurable estimates. */
 export const COST_RATES = {
   call_minute_cents: Number(process.env.RATE_CALL_MIN_CENTS ?? 2),    // Twilio voice / min (default UK Local)
-  llm_1k_tokens_cents: Number(process.env.RATE_LLM_1K_CENTS ?? 0.3),  // DeepSeek blended in/out
+  // DeepSeek v4-flash, calibrated against OCC's REAL June invoices (CSV
+  // export from platform.deepseek.com): output $0.28/M, cache-hit input
+  // $0.0028/M, cache-miss input $0.14/M. Our agent runs 95-97% prompt-cache
+  // hits, so the measured blended rate over June 9-10 was $0.04-0.05 per
+  // MILLION tokens ≈ 0.005¢/1k. The old default (0.3¢/1k = $3/M) modelled a
+  // cache-less premium model and over-reported LLM cost by ~40x.
+  llm_1k_tokens_cents: Number(process.env.RATE_LLM_1K_CENTS ?? 0.005),
   tts_1k_chars_cents: Number(process.env.RATE_TTS_1K_CENTS ?? 3),     // Cartesia Sonic
-  stt_minute_cents: Number(process.env.RATE_STT_MIN_CENTS ?? 1),      // AssemblyAI / min
+  // AssemblyAI Universal-Streaming: $0.15/hour = 0.25¢/min (old default 1¢
+  // was 4x the list price).
+  stt_minute_cents: Number(process.env.RATE_STT_MIN_CENTS ?? 0.25),
 } as const;
 
 /** Destination-aware Twilio call rate (cents per BILLED minute, i.e. minutes
