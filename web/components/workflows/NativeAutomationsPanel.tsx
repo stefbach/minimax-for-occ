@@ -164,6 +164,11 @@ export function NativeAutomationsPanel() {
                 >
                   {busy === wf.id ? "…" : t("Exécuter maintenant")}
                 </button>
+                <a href={`/workflows/automations/${wf.id}`}>
+                  <button className="ghost" style={{ padding: "6px 12px" }}>
+                    {t("Ouvrir / Éditer")}
+                  </button>
+                </a>
                 <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>
                   {wf.last_run_at
                     ? `${t("Dernier run")}: ${new Date(wf.last_run_at).toLocaleString("fr-FR")} (${wf.last_status ?? "—"})`

@@ -8,9 +8,12 @@ import { NativeAutomationsPanel } from "@/components/workflows/NativeAutomations
 
 export const dynamic = "force-dynamic";
 
+/**
+ * /workflows — home of the NATIVE Axon automations (mini-n8n). The legacy
+ * n8n flow catalogue lives on the /workflows/n8n sub-page, reachable via
+ * the "Voir les flows n8n" button.
+ */
 export default async function WorkflowsPage() {
-  // Resolve this client's n8n tag first — the Workflows list is filtered by it
-  // so a tenant only ever sees its own flows on the shared n8n instance.
   let orgTag: string | null = null;
   let webhooks: WebhookRow[] = [];
   let dataTables: DataTableOption[] = [];
@@ -30,18 +33,14 @@ export default async function WorkflowsPage() {
     }
   }
 
-  let workflows: Awaited<ReturnType<typeof listN8nWorkflows>> = [];
-  let error: string | null = null;
+  // Count only — the list itself lives on /workflows/n8n.
+  let n8nCount = 0;
   try {
-    // Only this org's tagged workflows. Without a tag we show nothing rather
-    // than leaking every tenant's flows.
-    workflows = orgTag ? await listN8nWorkflows({ tags: orgTag }) : [];
-  } catch (e) {
-    error = e instanceof Error ? e.message : String(e);
+    n8nCount = orgTag ? (await listN8nWorkflows({ tags: orgTag })).length : 0;
+  } catch {
+    /* n8n unreachable — the sub-page surfaces the error */
   }
 
-  // Outbound webhook triggers (post-RDV automations) + the org's data tables
-  // (for scoping the dropdown). Loaded best-effort.
   if (hasSupabase() && orgId) {
     try {
       const sb = supabaseServer();
@@ -49,8 +48,7 @@ export default async function WorkflowsPage() {
         .from("org_webhooks")
         .select("id,name,url,event,data_table_id,watch_column,match_values,active")
         .eq("org_id", orgId)
-        .order("created_at", { ascending: false })
-        .limit(200);
+        .order("created_at", { ascending: true });
       webhooks = (wh ?? []) as WebhookRow[];
       const { data: dt } = await sb
         .from("tenant_data_tables")
@@ -64,104 +62,28 @@ export default async function WorkflowsPage() {
     }
   }
 
-  const editorBase = (process.env.N8N_BASE_URL ?? "").replace(/\/$/, "");
-  const active = workflows.filter((w) => w.active);
-  const inactive = workflows.filter((w) => !w.active);
-
   return (
     <>
       <div className="page-header">
         <div>
-          <h1>Workflows n8n</h1>
+          <h1>Automatisation</h1>
           <div className="subtitle">
-            {workflows.length} workflow{workflows.length === 1 ? "" : "s"}
-            {orgTag ? <> · filtré sur le tag <span className="kbd">{orgTag}</span></> : null}
+            Workflows natifs Axon : déclencheur cron, filtres, actions (email,
+            WhatsApp, mise à jour), credentials gérés côté serveur.
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <Link href="/workflows/n8n">
+            <button className="ghost">Voir les flows n8n ({n8nCount}) →</button>
+          </Link>
           <Link href="/workflows/new"><button>+ Nouveau workflow</button></Link>
           <HelpButton contextKey="workflows" />
         </div>
       </div>
 
-      {error && (
-        <div className="card" style={{ borderColor: "var(--bad)", color: "var(--bad)" }}>
-          {error}
-          <div className="muted" style={{ marginTop: 6 }}>
-            Vérifiez que <span className="kbd">N8N_BASE_URL</span> et{" "}
-            <span className="kbd">N8N_API_KEY</span> sont définis sur Vercel.
-          </div>
-        </div>
-      )}
-
       <NativeAutomationsPanel />
 
       <OrgWebhooksPanel initial={webhooks} dataTables={dataTables} />
-
-      {!error && (
-        <>
-          <Section title="Actifs" rows={active} editorBase={editorBase} />
-          <Section title="Inactifs" rows={inactive} editorBase={editorBase} dim />
-        </>
-      )}
     </>
-  );
-}
-
-function Section({
-  title,
-  rows,
-  editorBase,
-  dim,
-}: {
-  title: string;
-  rows: Awaited<ReturnType<typeof listN8nWorkflows>>;
-  editorBase: string;
-  dim?: boolean;
-}) {
-  if (rows.length === 0) return null;
-  return (
-    <section style={{ marginBottom: 18 }}>
-      <h2 style={{ fontSize: 16, color: dim ? "var(--muted)" : "var(--text)" }}>{title} · {rows.length}</h2>
-      <div className="card" style={{ padding: 0, overflow: "hidden", opacity: dim ? 0.6 : 1 }}>
-        <table className="list">
-          <thead>
-            <tr><th>Nom</th><th>Webhooks</th><th>Tags</th><th></th></tr>
-          </thead>
-          <tbody>
-            {rows.map((w) => (
-              <tr key={w.id}>
-                <td style={{ fontWeight: 600 }}>{w.name}</td>
-                <td>
-                  {w.webhook_paths.length === 0
-                    ? <span className="muted" style={{ fontSize: 12 }}>—</span>
-                    : w.webhook_paths.map((p) => (
-                        <span key={p} className="kbd" style={{ marginRight: 6 }}>/{p}</span>
-                      ))}
-                </td>
-                <td>
-                  {w.tags.length === 0
-                    ? <span className="muted" style={{ fontSize: 12 }}>—</span>
-                    : w.tags.map((t) => <span key={t} className="tag" style={{ marginRight: 4 }}>{t}</span>)}
-                </td>
-                <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-                  <Link
-                    href={`/workflows/${w.id}`}
-                    style={{ marginRight: 6 }}
-                  >
-                    <button className="ghost" style={{ padding: "5px 9px" }}>Éditer (intégré)</button>
-                  </Link>
-                  {editorBase && (
-                    <a href={`${editorBase}/workflow/${w.id}`} target="_blank" rel="noopener noreferrer">
-                      <button className="subtle" style={{ padding: "5px 9px" }}>Ouvrir n8n ↗</button>
-                    </a>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
   );
 }
