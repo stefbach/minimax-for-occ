@@ -1619,15 +1619,27 @@ def _install_call_hygiene(
         # Voicemail detection: scan the first transcript chunks for the
         # signature phrases. Only effective inside voicemail_detect_window —
         # outside, the patient may legitimately mention these words.
+        #
+        # The window is anchored on the FIRST SPEECH HEARD, not on room
+        # creation. With the Agent-First flow the room exists 20-30s before
+        # the carrier voicemail picks up and starts talking, so a
+        # room-creation anchor expired before the announcement even began —
+        # Charlotte then chatted with the voicemail for 30-80s until the
+        # idle watchdog gave up (observed on the June 10 go-live wave).
         try:
-            elapsed = _t.monotonic() - state["call_started_at"]
-            if elapsed > voicemail_detect_window or state["hung_up"]:
+            if state.get("hung_up"):
                 return
             text = getattr(ev, "transcript", None) or getattr(ev, "text", None) if ev is not None else None
             if not text:
                 return
+            now_ts = _t.monotonic()
+            if state.get("first_speech_ts") is None:
+                state["first_speech_ts"] = now_ts
+            elapsed = now_ts - float(state["first_speech_ts"])
+            if elapsed > voicemail_detect_window:
+                return
             if _voicemail_re.search(str(text)):
-                clog.info("call hygiene: voicemail detected via STT (t=%.1fs): %r", elapsed, str(text)[:120])
+                clog.info("call hygiene: voicemail detected via STT (t=%.1fs after first speech): %r", elapsed, str(text)[:120])
                 asyncio.create_task(_hangup("voicemail detected via STT"))
         except Exception:
             clog.debug("call hygiene: voicemail STT check failed", exc_info=True)

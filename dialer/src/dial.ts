@@ -475,8 +475,29 @@ export async function dialTarget(job: DialJob): Promise<void> {
       return;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      dlog("error", ctx, `LiveKit originate failed, falling back to Twilio: ${msg}`);
-      // fall through to the Twilio path below
+      // NO Twilio fallback. The fallback re-dialed the SAME patient via
+      // createCall the moment Path A errored — and "no answer within
+      // ringingTimeout" IS an error on Path A, so every unanswered call
+      // immediately rang the patient a second time through the Phone+SIP
+      // double-billed path. Wati spotted the Phone rows reappearing in the
+      // Twilio log within minutes of the June 10 go-live.
+      // Instead: schedule a normal retry (same policy as the Twilio path's
+      // failure handler) and stop. SIP-only, single attempt per slot.
+      dlog("error", ctx, `LiveKit originate failed (no Twilio fallback): ${msg}`);
+      const attemptsNow = (target.attempts ?? 0) + 1;
+      const next =
+        attemptsNow < (campaign.max_attempts ?? 3)
+          ? new Date(Date.now() + (campaign.retry_delay_min ?? 60) * 60_000).toISOString()
+          : null;
+      await sb
+        .from("campaign_targets")
+        .update({
+          status: next ? "pending" : "failed",
+          next_attempt_at: next,
+          payload: { last_error: msg, via: "livekit" },
+        })
+        .eq("id", target.id);
+      return;
     }
   }
 
