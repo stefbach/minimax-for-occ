@@ -158,6 +158,18 @@ export async function syncTwilioCalls(
     if (!sid) { skippedInvalid += 1; continue; }
     const startMs = c.start_time ? Date.parse(c.start_time) : NaN;
     if (!Number.isFinite(startMs)) { skippedInvalid += 1; continue; }
+    // Drop Twilio's INTERNAL trunk legs. When LK→Twilio SIP outbound
+    // fires, Twilio logs BOTH the PSTN leg (to=+447xxxx, the one we
+    // want) AND the trunk-side leg (to=sip:+447xxxx@public-vip.de1.
+    // twilio.com — Twilio's German/Irish data centers). The trunk
+    // leg has no patient-facing meaning and was inflating Wati's
+    // dashboard from 312 → 1322 calls. They're identifiable by the
+    // sip: scheme on the `to` field.
+    const toRaw = (c.to ?? "").toLowerCase();
+    if (toRaw.startsWith("sip:") || toRaw.includes("twilio.com")) {
+      skippedInvalid += 1;
+      continue;
+    }
 
     const state = mapState(c.status);
     const duration = Number(c.duration) || 0;
@@ -191,14 +203,57 @@ export async function syncTwilioCalls(
       continue;
     }
 
-    // New call the webhook never recorded → insert a full row.
+    // Before inserting: look for an existing agent-side row matching
+    // by to_e164 + start time (the agent inserts its row 1-2 s before
+    // Twilio's INVITE timestamp, and the twilio_call_sid is stamped
+    // later by the deferred SID-poll task). Without this fallback the
+    // sync created a second row for every SID-less agent row, exploding
+    // Wati's June 10 list from 312 → 1322 calls.
+    const toE164 = str(c.to);
+    let backfilled = false;
+    if (toE164) {
+      const startWindowMs = 90_000; // ±90 s window around Twilio's start
+      const since = new Date(startMs - startWindowMs).toISOString();
+      const until = new Date(startMs + startWindowMs).toISOString();
+      const { data: nearby } = await sb
+        .from("calls")
+        .select("id, metadata")
+        .eq("org_id", orgId)
+        .eq("to_e164", toE164)
+        .gte("started_at", since)
+        .lte("started_at", until)
+        .limit(2);
+      const match = (nearby ?? []).find(
+        (r: { metadata: { twilio_call_sid?: string } | null }) =>
+          !(r.metadata?.twilio_call_sid),
+      );
+      if (match) {
+        await sb.from("calls").update({
+          metadata: { ...(match.metadata ?? {}), twilio_call_sid: sid, twilio_last_status: c.status ?? null },
+        }).eq("id", match.id).eq("org_id", orgId);
+        costItems.push({
+          callId: match.id,
+          sid,
+          status: c.status ?? "",
+          durationSecs: duration,
+          priceCents: twilioPriceToCents(c.price, c.price_unit),
+          priceRaw: c.price ?? null,
+          priceUnit: c.price_unit ?? null,
+        });
+        reconciled += 1;
+        backfilled = true;
+      }
+    }
+    if (backfilled) continue;
+
+    // No nearby agent row either — this is a genuinely new call (rare).
     toInsertTw.push(c);
     toInsert.push({
       org_id: orgId,
       direction,
       state,
       from_e164: str(c.from),
-      to_e164: str(c.to),
+      to_e164: toE164,
       started_at: new Date(startMs).toISOString(),
       answered_at: answered ? new Date(startMs).toISOString() : null,
       ended_at: c.end_time ? new Date(c.end_time).toISOString() : null,
