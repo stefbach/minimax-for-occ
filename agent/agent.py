@@ -699,8 +699,9 @@ class AxonVoiceAgent(Agent):
         self._sip_participant = sip_participant
 
     async def on_enter(self) -> None:
-        # MARKER v10-agent-first-poll-2026-06-10 — direct participant polling.
-        logger.info("on_enter: marker v10-agent-first-poll-2026-06-10 active")
+        # MARKER v11-speech-trigger-2026-06-10 — greeting waits for the
+        # patient's first words instead of trusting sip.callStatus.
+        logger.info("on_enter: marker v11-speech-trigger-2026-06-10 active")
         if not self._greeting:
             return
         import time as _t
@@ -773,9 +774,63 @@ class AxonVoiceAgent(Agent):
                     last_logged_status,
                 )
 
-        # Tiny pre-roll for the PSTN RTP path to fully settle after the
-        # 200 OK transition. 0.3s is enough on UK Twilio trunks to flush
-        # any residual ringback before we speak.
+        # ────────────────────────────────────────────────────────────────
+        # Speech-triggered greeting (SIP sessions only).
+        #
+        # The June 10 tests proved sip.callStatus='active' is a LIE on
+        # UK mobile routes: Three UK answers the call at the network level
+        # in <1s and then plays the ringback IN-BAND as audio for ~8s
+        # before the handset even rings. Twilio's 200 OK (and therefore
+        # LK's callStatus=active) fires at that early network answer, so
+        # any greeting keyed on it speaks into the ringback long before
+        # the patient picks up — and the idle watchdog then kills the
+        # call before the human ever hears a word.
+        #
+        # The only reliable "the patient is actually there" signal is the
+        # patient SPEAKING. Real humans say "Hello?" when they answer;
+        # voicemail greetings speak too (and the voicemail STT regex in
+        # the hygiene layer catches those and hangs up with REPONDEUR
+        # before we'd mis-greet). In-band ringback is tones, which STT
+        # does not transcribe, so it can't false-trigger.
+        #
+        # So: wait for the first STT transcript (partial counts — faster)
+        # with a generous timeout, then greet. On timeout we greet anyway
+        # — covers the silent-pickup minority without leaving dead air
+        # forever.
+        if sp is not None:
+            speech_wait = float(os.getenv("GREETING_WAIT_FOR_SPEECH_SECONDS", "25.0"))
+            spoke = asyncio.Event()
+
+            def _on_first_speech(ev) -> None:
+                try:
+                    txt = (
+                        getattr(ev, "transcript", None)
+                        or getattr(ev, "text", None)
+                        or ""
+                    )
+                    if str(txt).strip():
+                        spoke.set()
+                except Exception:
+                    pass
+
+            try:
+                self.session.on("user_input_transcribed", _on_first_speech)
+            except Exception:
+                logger.warning("greeting: could not hook user_input_transcribed")
+            speech_start = _t.monotonic()
+            try:
+                await asyncio.wait_for(spoke.wait(), timeout=speech_wait)
+                logger.info(
+                    "greeting: patient spoke after %.2fs — greeting now",
+                    _t.monotonic() - speech_start,
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "greeting: no speech within %.0fs — greeting anyway (silent pickup or dead air)",
+                    speech_wait,
+                )
+
+        # Tiny pre-roll so the first syllable isn't clipped.
         preroll = float(os.getenv("GREETING_PREROLL_SECONDS", "0.3"))
         if preroll > 0:
             await asyncio.sleep(preroll)
