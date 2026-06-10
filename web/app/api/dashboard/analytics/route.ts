@@ -7,6 +7,7 @@ import { callInLeadsScope, leadsTableFor, leadsScopeFor, type LeadsSource } from
 import { fetchAllPaged, type Rangeable } from "@/lib/supabase-page";
 import { callMatchesSystem, parseCallSystem } from "@/lib/call-system";
 import { slotForDate, SLOT_WINDOWS } from "@/lib/call-slots";
+import { isPhantomCall } from "@/lib/call-quality";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -196,6 +197,7 @@ export async function GET(request: Request) {
   rows = rows.filter(
     (r) =>
       !ACTIVE_STATES.has(r.state ?? "")
+      && !isPhantomCall(r)
       && (r.duration_secs ?? 0) >= minDuration
       && inScope(r),
   );
@@ -575,7 +577,7 @@ export async function GET(request: Request) {
       return q as unknown as Rangeable<CallRow>;
     }, { maxRows: ROW_CAP + 1000 });
     const prevRows = (prevData ?? []).filter(
-      (r) => !ACTIVE_STATES.has(r.state ?? "") && (r.duration_secs ?? 0) >= minDuration && inScope(r),
+      (r) => !ACTIVE_STATES.has(r.state ?? "") && !isPhantomCall(r) && (r.duration_secs ?? 0) >= minDuration && inScope(r),
     );
     const prevIds = new Set(prevRows.map((r) => r.id));
     previous.total = prevRows.length;

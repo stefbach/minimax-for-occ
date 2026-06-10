@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { requestOrgId } from "@/lib/request-org";
+import { isPhantomCall } from "@/lib/call-quality";
 import { requireModule } from "@/lib/permissions-server";
 
 export const runtime = "nodejs";
@@ -60,12 +61,13 @@ async function kpisForWindow(
   // Calls in window
   const { data: calls } = await sb
     .from("calls")
-    .select("id, started_at, ended_at, duration_secs, disposition, agent_handle_id")
+    .select("id, started_at, ended_at, answered_at, duration_secs, disposition, agent_handle_id, metadata")
     .eq("org_id", orgId)
     .gte("started_at", from.toISOString())
     .lt("started_at", to.toISOString());
 
-  const rows = calls ?? [];
+  // Drop phantom LiveKit dispatch artifacts so the count reflects real calls.
+  const rows = (calls ?? []).filter((r) => !isPhantomCall(r as { answered_at?: string | null; duration_secs?: number | null; metadata?: Record<string, unknown> | null }));
   const callsCount = rows.length;
 
   const endedRows = rows.filter((r) => r.ended_at && typeof r.duration_secs === "number");
