@@ -840,7 +840,12 @@ class AxonVoiceAgent(Agent):
             # speaking, so the greeting can't be cut off by their continuing
             # speech, and suppressing the reply means no double-greeting.
             self._pending_first_greeting = True
-            speech_wait = float(os.getenv("GREETING_WAIT_FOR_SPEECH_SECONDS", "25.0"))
+            # Stretched to 45 s on Wati's June 10 carrier-ringback findings.
+            # UK Three/O2 acquit the SIP leg in <2 s then play ringback
+            # IN-BAND for up to 30 s before the handset actually rings the
+            # patient. Marina Gorton answered for real at t=18 s, Dorota
+            # Walid at t=50 s — both well past the previous 25 s window.
+            speech_wait = float(os.getenv("GREETING_WAIT_FOR_SPEECH_SECONDS", "45.0"))
             speech_start = _t.monotonic()
             while self._pending_first_greeting and _t.monotonic() - speech_start < speech_wait:
                 await asyncio.sleep(0.25)
@@ -850,13 +855,24 @@ class AxonVoiceAgent(Agent):
                     _t.monotonic() - speech_start,
                 )
                 return
-            # Timeout: silent pickup or dead air — disarm the interceptor
-            # and fall through to the direct say() below.
-            self._pending_first_greeting = False
+            # Timeout WITHOUT speech: do NOT fall through to a direct say().
+            # On UK mobile routes the audio path is still in-band ringback
+            # at this point — the carrier swallows the greeting and the
+            # patient hears nothing, but `_pending_first_greeting` was being
+            # disarmed, so when the patient finally picked up (Marina at
+            # 18 s, Dorota at 50 s) on_user_turn_completed had no canned
+            # greeting left to fire and the agent stayed mute.
+            # Keep the interceptor armed for the rest of the call: the next
+            # real user turn will trigger the greeting. True silent pickups
+            # are caught by the first_agent_turn watchdog ceiling
+            # (no_speech_heuristic → PAS DE REPONSE) — no agent talking
+            # into a dead line.
             logger.warning(
-                "greeting: no speech within %.0fs — speaking static greeting (silent pickup or dead air)",
+                "greeting: no speech within %.0fs — leaving interceptor armed "
+                "for late pickup (in-band ringback suspected)",
                 speech_wait,
             )
+            return
 
         # Static greeting path: non-SIP sessions (desk/browser) and the
         # silent-pickup timeout. Tiny pre-roll so the first syllable isn't
