@@ -699,9 +699,9 @@ class AxonVoiceAgent(Agent):
         self._sip_participant = sip_participant
 
     async def on_enter(self) -> None:
-        # MARKER v11-speech-trigger-2026-06-10 — greeting waits for the
-        # patient's first words instead of trusting sip.callStatus.
-        logger.info("on_enter: marker v11-speech-trigger-2026-06-10 active")
+        # MARKER v12-llm-first-turn-2026-06-10 — patient speech hands the
+        # first turn straight to the LLM; static greeting only on timeout.
+        logger.info("on_enter: marker v12-llm-first-turn-2026-06-10 active")
         if not self._greeting:
             return
         import time as _t
@@ -820,17 +820,32 @@ class AxonVoiceAgent(Agent):
             speech_start = _t.monotonic()
             try:
                 await asyncio.wait_for(spoke.wait(), timeout=speech_wait)
+                # The patient spoke. Do NOT fire the static say() here —
+                # the June 10 latency trace showed the static greeting
+                # racing the normal turn pipeline: say() started while the
+                # patient was still mid-"Hello?", got interrupted by their
+                # speech, and the session then re-endpointed and ran the
+                # LLM turn anyway — net ~8s before the patient heard
+                # anything. Letting the LLM answer the first utterance
+                # directly costs one LLM round-trip (~2.5s) but avoids the
+                # interrupted-say + re-endpoint dance entirely, and the
+                # model's contextual opener ("Hi Megane, it's Charlotte
+                # from the Obesity Care Clinic…") is as good as the
+                # canned one.
                 logger.info(
-                    "greeting: patient spoke after %.2fs — greeting now",
+                    "greeting: patient spoke after %.2fs — handing first turn to the LLM",
                     _t.monotonic() - speech_start,
                 )
+                return
             except asyncio.TimeoutError:
                 logger.warning(
-                    "greeting: no speech within %.0fs — greeting anyway (silent pickup or dead air)",
+                    "greeting: no speech within %.0fs — speaking static greeting (silent pickup or dead air)",
                     speech_wait,
                 )
 
-        # Tiny pre-roll so the first syllable isn't clipped.
+        # Static greeting path: non-SIP sessions (desk/browser) and the
+        # silent-pickup timeout. Tiny pre-roll so the first syllable isn't
+        # clipped.
         preroll = float(os.getenv("GREETING_PREROLL_SECONDS", "0.3"))
         if preroll > 0:
             await asyncio.sleep(preroll)
