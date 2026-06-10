@@ -1285,6 +1285,14 @@ def _install_call_hygiene(
         r"|can(?:'?t|\s+not)\s+(take|come\s+to|answer)\s+(the|your|my)?\s*(call|phone)"
         r"|you('?ve|\s+have)\s+reached\s+the\s+(voicemail|message)"
         r"|sorry\s+i\s+(missed|can(?:'?t|\s+not)\s+(take|answer))"
+        # Voicemail SYSTEM navigation prompts — Jeff Hollis's mailbox spent
+        # 80s feeding these to Charlotte ("press hash when you're done",
+        # "recording now", "to leave a message for someone else, press 2")
+        # without ever matching the greeting-style patterns above.
+        r"|press\s+(hash|pound|star|the\s+\w+\s+key|\d)\b"
+        r"|recording\s+now|message\s+hasn'?t\s+been\s+saved"
+        r"|to\s+(leave|re.?record|listen\s+to)\s+(a|your|the)\s+message"
+        r"|when\s+you('?re|\s+are)\s+done"
         # UK / Vodafone / EE / O2 / Three carrier announcements when the
         # destination is busy, off, ringing-out, or out of service. These
         # don't say "leave a message" but they're 100% deterministic — there
@@ -1312,9 +1320,13 @@ def _install_call_hygiene(
         _re.IGNORECASE,
     )
 
-    # Window during which we accept STT-based voicemail detection. After this,
-    # we trust the agent is in a real conversation and don't second-guess it.
-    voicemail_detect_window = float(os.getenv("VOICEMAIL_DETECT_WINDOW_SECS", "8.0"))
+    # Window during which we accept STT-based voicemail detection, anchored
+    # on the FIRST SPEECH heard. 20s (was 8s): UK mailboxes often read the
+    # full phone number digit by digit ("7, 4, 7, 7, 8, 9…") before the
+    # signature phrase, which burned the entire 8s window on Jeff Hollis's
+    # mailbox. A real patient saying "leave a message" / "press hash" within
+    # their first 20 seconds is implausible, so the wider window stays safe.
+    voicemail_detect_window = float(os.getenv("VOICEMAIL_DETECT_WINDOW_SECS", "20.0"))
 
     # Distress / safety phrases that MUST trigger immediate handoff in a
     # healthcare context. We listen across the WHOLE call (not just the first
