@@ -72,20 +72,29 @@ export function secondsToBillableMinutes(seconds: number): number {
 /** Per-unit rate card, in cents. Override via env (CALL/LLM/TTS/STT_*_CENTS)
  *  so each deployment can match its real provider invoices. The QUANTITIES are
  *  measured (real Twilio minutes, real LLM tokens, real TTS chars, real STT
- *  minutes) — only these rates are configurable estimates. */
+ *  minutes) — only these rates are configurable estimates.
+ *
+ *  Calibrated on OCC's ACTUAL provider plans (June 2026):
+ *    LiveKit    — free tier → no per-minute platform charge; the
+ *                 call_minutes event therefore models TWILIO's bill only.
+ *    Twilio     — ~$0.03/min UK mobile (Elastic SIP Trunking, single
+ *                 Trunking-Terminating leg).
+ *    Cartesia   — Pro $5/mo incl. 100K credits (1 credit/TTS char);
+ *                 overage $65/M credits = 6.5¢/1k chars. Priced at the
+ *                 overage rate since production volume blows past the
+ *                 included credits within days; the $5 base is a fixed
+ *                 overhead, not per-call.
+ *    DeepSeek   — v4-flash measured blended (95-97% prompt-cache hits)
+ *                 = $0.04-0.05 per MILLION tokens ≈ 0.005¢/1k.
+ *    AssemblyAI — free plan today → 0. When the free credit runs out,
+ *                 list is $0.15/hour = 0.25¢/min: set
+ *                 RATE_STT_MIN_CENTS=0.25 at that point.
+ *    Fly.io     — ~$5/mo fixed machines, not per-call (excluded). */
 export const COST_RATES = {
-  call_minute_cents: Number(process.env.RATE_CALL_MIN_CENTS ?? 2),    // Twilio voice / min (default UK Local)
-  // DeepSeek v4-flash, calibrated against OCC's REAL June invoices (CSV
-  // export from platform.deepseek.com): output $0.28/M, cache-hit input
-  // $0.0028/M, cache-miss input $0.14/M. Our agent runs 95-97% prompt-cache
-  // hits, so the measured blended rate over June 9-10 was $0.04-0.05 per
-  // MILLION tokens ≈ 0.005¢/1k. The old default (0.3¢/1k = $3/M) modelled a
-  // cache-less premium model and over-reported LLM cost by ~40x.
+  call_minute_cents: Number(process.env.RATE_CALL_MIN_CENTS ?? 2),
   llm_1k_tokens_cents: Number(process.env.RATE_LLM_1K_CENTS ?? 0.005),
-  tts_1k_chars_cents: Number(process.env.RATE_TTS_1K_CENTS ?? 3),     // Cartesia Sonic
-  // AssemblyAI Universal-Streaming: $0.15/hour = 0.25¢/min (old default 1¢
-  // was 4x the list price).
-  stt_minute_cents: Number(process.env.RATE_STT_MIN_CENTS ?? 0.25),
+  tts_1k_chars_cents: Number(process.env.RATE_TTS_1K_CENTS ?? 6.5),
+  stt_minute_cents: Number(process.env.RATE_STT_MIN_CENTS ?? 0),
 } as const;
 
 /** Destination-aware Twilio call rate (cents per BILLED minute, i.e. minutes
