@@ -77,6 +77,17 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
   const fetchData = useCallback(async () => {
     try {
       setRefreshing(true);
+      // Re-anchor the active period to NOW before refetching. For 'today'
+      // / '7d' / '30d' presets, `to` was frozen at page-load time and any
+      // calls placed after that were excluded from /api/dashboard/director —
+      // Wati June 10: 'le bouton actualiser ne fonctionne toujours pas, je
+      // dois rafraichir la page'. We don't touch absolute date ranges
+      // (date:.. / range:..) since those have a deliberate end date.
+      setPeriod((p) =>
+        p.preset.startsWith("date:") || p.preset.startsWith("range:")
+          ? p
+          : { ...presetToRange(p.preset), preset: p.preset },
+      );
       const qs = orgId ? `?org_id=${encodeURIComponent(orgId)}` : "";
       const res = await fetch(`/api/dashboard/overview${qs}`, { cache: "no-store" });
       if (!res.ok) {
