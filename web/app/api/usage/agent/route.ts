@@ -64,41 +64,18 @@ export async function POST(req: Request) {
     recorded.push("stt_minutes");
   }
 
-  // call_seconds backup path — only writes if Twilio's StatusCallback hasn't
-  // already produced a call_minutes event for this call_id. Dedupe avoids
-  // double-billing when both paths fire (e.g. LK Cloud handled the call but
-  // Twilio's webhook still arrives later).
-  const callSecs = Number(body.call_seconds ?? 0);
-  if (callSecs > 0 && body.call_id) {
-    const sb = supabaseServer();
-    const { data: existing } = await sb
-      .from("usage_events")
-      .select("id")
-      .eq("event_type", "call_minutes")
-      .eq("metadata->>call_id", body.call_id)
-      .limit(1);
-    if ((existing ?? []).length === 0) {
-      // Look up the destination so the rate matches what the carrier
-      // actually charges.
-      const { data: callRow } = await sb
-        .from("calls")
-        .select("to_e164")
-        .eq("id", body.call_id)
-        .maybeSingle();
-      const destination = (callRow as { to_e164?: string | null } | null)?.to_e164 ?? null;
-      const minutes = secondsToBillableMinutes(callSecs);
-      if (minutes > 0) {
-        await recordUsage(
-          body.org_id,
-          "call_minutes",
-          minutes,
-          estimateCostCents("call_minutes", minutes, { destination }),
-          { ...meta, source: "voice_agent_fallback", destination, call_seconds: callSecs },
-        );
-        recorded.push("call_minutes");
-      }
-    }
-  }
+  // No call_minutes written from here anymore.
+  //
+  // Reason: this fallback used to estimate the call cost from the AGENT
+  // session time (ring + dead-air included) and the rate-card; the result
+  // overstated cost by 5-10x vs Twilio's actual invoices (Wati's June 10
+  // dashboard read $15.49 for 312 calls when the real Twilio bill was
+  // <$2). The hourly /api/dashboard/sync-twilio cron reconciles the
+  // calls row's twilio_call_sid with Twilio's /Calls.json `price` field
+  // and writes the REAL billed cost into usage_events — no estimate
+  // needed. Failed and unanswered dials cost 0 (Twilio doesn't bill them).
+  const _ignoredCallSecs = Number(body.call_seconds ?? 0);
+  void _ignoredCallSecs;
 
   return NextResponse.json({ ok: true, recorded });
 }

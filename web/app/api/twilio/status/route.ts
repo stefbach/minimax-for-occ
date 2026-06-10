@@ -249,19 +249,25 @@ export async function POST(req: Request) {
     if (orgIdForBilling) {
       const minutes = secondsToBillableMinutes(Number(Duration));
       if (minutes > 0) {
-        // Use the destination-aware rate so UK→Maurice calls (10× more
-        // expensive than UK→UK) bill at their real price.
-        const costCents = estimateCostCents("call_minutes", minutes, { destination: To });
+        // Record the quantity but NOT a cost estimate. The hourly
+        // /api/dashboard/sync-twilio cron reads Twilio's `price` field
+        // (the real invoice line) and patches cost_cents in place, so
+        // the dashboard converges on what Twilio actually charges — not
+        // a destination-aware guess that on June 10 showed $15.49 for
+        // 312 calls when the real bill was <$2. The placeholder row
+        // makes the call_minutes count visible immediately; the price
+        // arrives within the hour.
         await recordUsage(
           orgIdForBilling,
           "call_minutes",
           minutes,
-          costCents,
+          0,
           {
             call_id: callId,
             twilio_call_sid: CallSid,
             direction: Direction,
             destination: To,
+            pending_twilio_price: true,
           },
         );
       }

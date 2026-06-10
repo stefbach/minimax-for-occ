@@ -93,7 +93,12 @@ export function secondsToBillableMinutes(seconds: number): number {
 export const COST_RATES = {
   call_minute_cents: Number(process.env.RATE_CALL_MIN_CENTS ?? 2),
   llm_1k_tokens_cents: Number(process.env.RATE_LLM_1K_CENTS ?? 0.005),
-  tts_1k_chars_cents: Number(process.env.RATE_TTS_1K_CENTS ?? 6.5),
+  // Cartesia Pro $5/mo includes 100K credits/month (1 credit = 1 char).
+  // OCC's June 10 daily volume is ~30K chars → we stay well inside the
+  // included pool, so per-event cost is 0 cents. Once a tenant goes
+  // past 100K/month we'd switch this to 6.5 (the overage rate
+  // $65/M credits) — keep it env-overridable for that day.
+  tts_1k_chars_cents: Number(process.env.RATE_TTS_1K_CENTS ?? 0),
   stt_minute_cents: Number(process.env.RATE_STT_MIN_CENTS ?? 0),
 } as const;
 
