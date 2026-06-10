@@ -334,7 +334,7 @@ export function DeskWorkstation() {
         {/* TOP-LEFT — softphone (single source of truth for dial/hangup) */}
         <section
           className="desk-pane desk-poste"
-          style={{ display: "grid", gap: 12 }}
+          style={{ display: "grid", gap: 12, gridColumn: focusedItem ? undefined : "1 / -1" }}
         >
           <h3 style={{ margin: 0, fontSize: 14, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.4 }}>
             {t("Mon poste")}
@@ -351,16 +351,22 @@ export function DeskWorkstation() {
           )}
         </section>
 
-        {/* TOP-RIGHT — patient details (résumé / transcript / notes) */}
-        <section className="desk-pane desk-patient" style={{ display: "grid", gap: 12 }}>
-          <PatientCard item={focusedItem} />
-        </section>
+        {/* TOP-RIGHT — patient details (résumé / transcript / notes).
+            Hidden when no patient is focused so the softphone above can
+            span both columns (Wati June 10 v6: 'composer un numero et
+            notes pendant appel doivent prendre l'espace correctement'). */}
+        {focusedItem && (
+          <section className="desk-pane desk-patient" style={{ display: "grid", gap: 12 }}>
+            <PatientCard item={focusedItem} />
+          </section>
+        )}
 
-        {/* BOTTOM-LEFT — personal queue */}
+        {/* BOTTOM-LEFT — personal queue. Spans full row now that
+            BOTTOM-RIGHT was removed (Wati June 10 v6). */}
         <aside
           className="card desk-pane"
           data-pane="personal"
-          style={{ display: "flex", flexDirection: "column", gap: 8, padding: 12 }}
+          style={{ display: "flex", flexDirection: "column", gap: 8, padding: 12, gridColumn: "1 / -1" }}
         >
           <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
             <h3 style={{ margin: 0 }}>
@@ -442,23 +448,9 @@ export function DeskWorkstation() {
           )}
         </aside>
 
-        {/* BOTTOM-RIGHT — 'Prêt à prendre un appel' empty-state, moved
-            here June 10 v4 (Wati). The big ContactPanel on the top right
-            used to render this and ate half the screen; now ContactPanel
-            returns null when there's no active call so the right column
-            shrinks to fit, and this small message tells the agent where
-            patient context will appear. */}
-        <aside
-          className="card desk-pane"
-          data-pane="shared"
-          style={{ display: "flex", flexDirection: "column", gap: 6, padding: 16, alignItems: "center", justifyContent: "center", textAlign: "center" }}
-        >
-          <div style={{ fontSize: 32, opacity: 0.5 }}>☎</div>
-          <div style={{ fontSize: 14, fontWeight: 500 }}>{t("Prêt à prendre un appel")}</div>
-          <div className="muted" style={{ fontSize: 12, maxWidth: 280, lineHeight: 1.5 }}>
-            {t("Choisis un patient à gauche dans Ma file ou compose un numéro. Son contexte (historique, qualification, notes) s'affichera ici.")}
-          </div>
-        </aside>
+        {/* BOTTOM-RIGHT slot removed June 10 v6 (Wati): when there's no
+            patient focused, the bottom-left 'Appels du jour' spans the
+            full row instead of leaving an empty card on the right. */}
       </div>
 
       <style jsx>{`
