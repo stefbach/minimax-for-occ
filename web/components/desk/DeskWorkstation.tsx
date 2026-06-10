@@ -306,12 +306,6 @@ export function DeskWorkstation() {
         >
           {t("Mes appels")} ({personalCount})
         </button>
-        <button
-          className={mobileView === "shared" ? "" : "ghost"}
-          onClick={() => setMobileView("shared")}
-        >
-          {t("File équipe")} ({sharedCount})
-        </button>
       </div>
 
       {actionErr && (
@@ -456,59 +450,23 @@ export function DeskWorkstation() {
           )}
         </aside>
 
-        {/* BOTTOM-RIGHT — shared pool */}
+        {/* BOTTOM-RIGHT — empty placeholder. The shared pool was removed
+            June 10 (Wati's pivot: all unassigned leads now live in
+            /desk/supervise where the manager assigns them). This pane is
+            kept as an empty card so the 2x2 grid layout stays balanced
+            and as a hint to the agent on where unassigned work lives. */}
         <aside
           className="card desk-pane"
           data-pane="shared"
-          style={{ display: "flex", flexDirection: "column", gap: 8, padding: 12 }}
+          style={{ display: "flex", flexDirection: "column", gap: 8, padding: 12, alignItems: "center", justifyContent: "center", textAlign: "center" }}
         >
-          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
-            <h3 style={{ margin: 0 }}>
-              {t("Pool partagé")} ({sharedCount})
-            </h3>
-            <span className="muted" style={{ fontSize: 12 }}>{t("File équipe")}</span>
+          <div style={{ fontSize: 28, opacity: 0.4 }}>👥</div>
+          <div className="muted" style={{ fontSize: 13, maxWidth: 220, lineHeight: 1.5 }}>
+            {t("Les leads non assignés sont gérés par le superviseur dans")}{" "}
+            <a href="/desk/supervise" style={{ color: "var(--accent)", textDecoration: "underline" }}>
+              {t("Supervision")}
+            </a>.
           </div>
-          {loading && shared.length === 0 ? (
-            <div className="muted" style={{ fontSize: 13 }}>{t("Chargement…")}</div>
-          ) : shared.length === 0 ? (
-            <div style={{ padding: "14px 8px", textAlign: "center", color: "var(--muted)", fontSize: 12, lineHeight: 1.6 }}>
-              <div style={{ fontSize: 24, opacity: 0.5, marginBottom: 6 }}>✓</div>
-              <div>{t("Pool partagé vide")}</div>
-              <div style={{ marginTop: 4 }}>{t("Tous les patients sont traités.")}</div>
-            </div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {sharedVisible.map((c) => (
-                <QueueRow
-                  key={`${c.kind}:${c.id}`}
-                  item={c}
-                  active={focused?.kind === c.kind && focused?.id === c.id}
-                  onClick={() => setFocused({ kind: c.kind, id: c.id })}
-                  trailing={
-                    <button
-                      style={{ padding: "4px 10px", fontSize: 11 }}
-                      disabled={claimBusy === c.id}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        void claim(c);
-                      }}
-                    >
-                      {claimBusy === c.id ? "…" : t("Prendre")}
-                    </button>
-                  }
-                />
-              ))}
-              {sharedHasMore && (
-                <button
-                  className="ghost"
-                  style={{ padding: "6px 10px", fontSize: 12, marginTop: 4 }}
-                  onClick={() => setSharedLimit((n) => n + 10)}
-                >
-                  {t("Voir 10 de plus")} ({sharedCount - sharedLimit} {t("restants")})
-                </button>
-              )}
-            </div>
-          )}
         </aside>
       </div>
 

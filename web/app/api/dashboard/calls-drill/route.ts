@@ -7,7 +7,7 @@ import { isInbound, normalizeDirectionForDb } from "@/lib/call-direction";
 import { callInLeadsScope, leadsScopeFor, leadNameMapFor, leadNameForPhone, type LeadsSource } from "@/lib/leads-source";
 import { fetchAllPaged, type Rangeable } from "@/lib/supabase-page";
 import { callMatchesSystem, parseCallSystem } from "@/lib/call-system";
-import { isPhantomCall } from "@/lib/call-quality";
+import { isPhantomCall, isSoftphoneTestLeg } from "@/lib/call-quality";
 import { slotForDate } from "@/lib/call-slots";
 
 export const runtime = "nodejs";
@@ -123,6 +123,7 @@ export async function GET(request: Request) {
   const rows = ((data ?? []) as unknown as Row[])
     .filter((r) => !ACTIVE.has(r.state ?? ""))
     .filter((r) => !isPhantomCall(r))
+    .filter((r) => !isSoftphoneTestLeg(r))
     .filter((r) => callInLeadsScope(r.to_e164, scope))
     .filter((r) => callMatchesSystem((r.metadata as { source?: string } | null)?.source, system));
 

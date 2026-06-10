@@ -3,7 +3,7 @@ import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { requestOrgId } from "@/lib/request-org";
 import { callInLeadsScope, leadsScopeFor, leadsTableFor, type LeadsSource } from "@/lib/leads-source";
 import { callMatchesSystem, parseCallSystem } from "@/lib/call-system";
-import { isPhantomCall } from "@/lib/call-quality";
+import { isPhantomCall, isSoftphoneTestLeg } from "@/lib/call-quality";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -101,8 +101,9 @@ export async function GET(request: Request) {
   // lifecycle and just add noise. twilio_only=1 keeps the authoritative leg.
   const twilioOnly = searchParams.get("twilio_only") === "1";
 
-  const calls = ((data ?? []) as Array<{ id: string; started_at: string | null; answered_at?: string | null; duration_secs?: number | null; to_e164: string | null; from_e164?: string | null; metadata: { source?: string; twilio_call_sid?: string } | null }>)
+  const calls = ((data ?? []) as Array<{ id: string; started_at: string | null; answered_at?: string | null; duration_secs?: number | null; direction?: string | null; to_e164: string | null; from_e164?: string | null; metadata: { source?: string; twilio_call_sid?: string } | null }>)
     .filter((c) => !isPhantomCall(c))
+    .filter((c) => !isSoftphoneTestLeg(c))
     .filter((c) => callInLeadsScope(c.to_e164 ?? null, scope))
     .filter((c) => callMatchesSystem(c.metadata?.source, system))
     .filter((c) => !twilioOnly || Boolean(c.metadata?.twilio_call_sid));

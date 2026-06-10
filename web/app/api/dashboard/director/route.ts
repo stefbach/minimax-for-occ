@@ -7,7 +7,7 @@ import { isInbound, normalizeDirectionForDb } from "@/lib/call-direction";
 import { callInLeadsScope, leadsTableFor, leadsScopeFor, type LeadsSource } from "@/lib/leads-source";
 import { fetchAllPaged, type Rangeable } from "@/lib/supabase-page";
 import { callMatchesSystem, parseCallSystem } from "@/lib/call-system";
-import { isPhantomCall } from "@/lib/call-quality";
+import { isPhantomCall, isSoftphoneTestLeg } from "@/lib/call-quality";
 import { slotForDate } from "@/lib/call-slots";
 
 export const runtime = "nodejs";
@@ -179,6 +179,12 @@ export async function GET(request: Request) {
       && !isPhantomCall(r)
       && callInLeadsScope(r.to_e164 ?? null, scope)
       && callMatchesSystem((r.metadata as { source?: string } | null)?.source, system)
+      // Skip the Twilio-side inbound legs of /desk softphone outbound calls
+      // — Wati's June 10 manual tests created phantom 'AUTRE' rows like
+      // from_e164='client:user-ac25040f-...' that aren't real conversations.
+      // The OUTBOUND companion row (direction=out, to=+44...) is the real
+      // one and stays in the totals.
+      && !isSoftphoneTestLeg(r)
       && (!slotFilter || (r.started_at && slotForDate(new Date(r.started_at)) === slotFilter)),
   );
 

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { requestOrgId } from "@/lib/request-org";
-import { isPhantomCall } from "@/lib/call-quality";
+import { isPhantomCall, isSoftphoneTestLeg } from "@/lib/call-quality";
 import { requireModule } from "@/lib/permissions-server";
 
 export const runtime = "nodejs";
@@ -67,7 +67,13 @@ async function kpisForWindow(
     .lt("started_at", to.toISOString());
 
   // Drop phantom LiveKit dispatch artifacts so the count reflects real calls.
-  const rows = (calls ?? []).filter((r) => !isPhantomCall(r as { answered_at?: string | null; duration_secs?: number | null; metadata?: Record<string, unknown> | null }));
+  // Also drop the Twilio-side inbound legs of /desk softphone tests (Wati's
+  // manual dials from /desk create a second 'client:user-' inbound row that
+  // shouldn't double-count).
+  const rows = (calls ?? []).filter((r) => {
+    const row = r as { answered_at?: string | null; duration_secs?: number | null; direction?: string | null; from_e164?: string | null; metadata?: Record<string, unknown> | null };
+    return !isPhantomCall(row) && !isSoftphoneTestLeg(row);
+  });
   const callsCount = rows.length;
 
   const endedRows = rows.filter((r) => r.ended_at && typeof r.duration_secs === "number");

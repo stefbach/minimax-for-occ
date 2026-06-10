@@ -19,3 +19,26 @@ export function isPhantomCall(row: {
   // Otherwise it's only a phantom if it never became a real call.
   return !row.answered_at && (row.duration_secs ?? 0) === 0;
 }
+
+/**
+ * /desk softphone test calls create TWO rows per call:
+ *  - the OUTBOUND row (direction=out, to_e164=+44..., agent_handle_id set)
+ *  - the INBOUND row written by twilio_sync with from_e164='client:user-<uuid>'
+ *    (Twilio sees the softphone browser session as a SIP client). That second
+ *    row has no real conversation — it's the same call's Twilio-side leg.
+ *
+ * We keep the outbound row (it's the human-agent-driven call) and skip the
+ * inbound leg so it doesn't inflate the dashboard 'AUTRE' bucket. Wati's
+ * June 10 review caught these as bogus "PAS DE REPONSE" entries.
+ */
+export function isSoftphoneTestLeg(row: {
+  direction?: string | null;
+  from_e164?: string | null;
+  metadata?: { source?: string } | Record<string, unknown> | null;
+}): boolean {
+  if (row.direction !== "in") return false;
+  const from = row.from_e164 ?? "";
+  if (!from.toLowerCase().startsWith("client:user-")) return false;
+  const m = (row.metadata ?? {}) as { source?: string };
+  return m.source === "twilio_sync";
+}

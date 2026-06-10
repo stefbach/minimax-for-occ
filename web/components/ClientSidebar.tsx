@@ -55,6 +55,9 @@ const NON_AGENT_PAGES_FOR_AGENT_ROLE = new Set([
   "/voices", "/workflows", "/flows", "/queues", "/numbers", "/numbers/health",
   "/copilot",
 ]);
+// Pages retired June 10 (Wati): /calls is hidden from EVERY role's nav —
+// the same data is in the Live tab of /dashboard and the Call Logs tab.
+const RETIRED_PAGES = new Set(["/calls"]);
 
 const NAV: NavItem[] = [
   // ─── OVERVIEW ───
@@ -63,6 +66,8 @@ const NAV: NavItem[] = [
   { href: "/copilot",   label: "Co-pilot manager", icon: "✸", group: "Overview", module: "copilot" },
   { href: "/desk",            label: "Mon poste",       icon: "⌂", group: "Overview", module: "desk" },
   { href: "/mon-calendrier",  label: "Mon calendrier",  icon: "▦", group: "Overview", module: "desk" },
+  { href: "/desk/supervise",  label: "Supervision",     icon: "◷", group: "Overview", module: "desk", requiredRoles: SUPERVISOR_ROLES },
+  { href: "/supervise/live",  label: "Supervision live", icon: "◉", group: "Overview", module: "desk", requiredRoles: SUPERVISOR_ROLES },
   { href: "/mes-patients",    label: "Mes patients",    icon: "☰", group: "Overview", module: "desk" },
   { href: "/alerts",    label: "Alertes",          icon: "!", group: "Overview", module: "alerts" },
 
@@ -75,16 +80,13 @@ const NAV: NavItem[] = [
 
   // ─── OPÉRATIONS ───
   { href: "/campaigns", label: "Campagnes",      icon: "⇈", group: "Opérations", module: "campaigns" },
-  { href: "/calls",     label: "Appels",         icon: "☎", group: "Opérations", module: "calls" },
+  // /calls retired June 10 — the same info lives in the Live tab of the
+  // dashboard and the Call Logs tab. Keeping the route reachable (for
+  // legacy bookmarks) but hidden from nav. NON_AGENT_PAGES_FOR_AGENT_ROLE
+  // also gates it.
   { href: "/workflows", label: "Automatisation", icon: "⇄", group: "Opérations", module: "workflows" },
   { href: "/flows",     label: "Flows / IVR",    icon: "❖", group: "Opérations", module: "flows" },
   { href: "/queues",    label: "Files d'attente", icon: "≡", group: "Opérations", module: "queues" },
-  // Supervision of the "Appels du jour" task list — sits as a sibling to
-  // /desk so it's intuitive for managers. Uses the desk module for
-  // visibility AND the requiredRoles fine-grained gate (since /desk
-  // itself is open to agents).
-  { href: "/desk/supervise", label: "Supervision Appels du jour", icon: "◷", group: "Opérations", module: "desk", requiredRoles: SUPERVISOR_ROLES },
-  { href: "/supervise/live", label: "Supervision live",            icon: "◉", group: "Opérations", module: "desk", requiredRoles: SUPERVISOR_ROLES },
 
   // ─── DONNÉES ───
   { href: "/contacts",       label: "CRM / Contacts",      icon: "◐", group: "Données", module: "contacts" },
@@ -205,6 +207,7 @@ export function ClientSidebar() {
     // numbers, etc.) — agents should see their own queue + calendar +
     // patients only. Wati June 10: '/calls n'a aucun sens chez agent'.
     if (role === "agent" && NON_AGENT_PAGES_FOR_AGENT_ROLE.has(n.href)) return false;
+    if (RETIRED_PAGES.has(n.href)) return false;
     return true;
   };
 

@@ -33,9 +33,9 @@ export default async function DeskSupervisePage() {
     <div>
       <div className="page-header">
         <div>
-          <h1>Supervision — Appels du jour</h1>
+          <h1>Supervision</h1>
           <div className="subtitle">
-            File d&apos;équipe pour aujourd&apos;hui, réassignation manuelle et création de tâches.
+            Tous les leads en attente — assignation, suivi et création manuelle.
           </div>
         </div>
       </div>
