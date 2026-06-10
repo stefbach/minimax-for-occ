@@ -675,7 +675,7 @@ def _build_save_contact_tool(
 
 # ─── Agent wrapper that greets via TTS only ───────────────────────────────
 class AxonVoiceAgent(Agent):
-    def __init__(self, *, instructions: str, tools, greeting: str, llm=None, tts=None, stt=None, vad=None):
+    def __init__(self, *, instructions: str, tools, greeting: str, llm=None, tts=None, stt=None, vad=None, sip_participant=None):
         # Per-agent llm/tts/stt/vad override the session defaults. This is what
         # makes a handoff actually CHANGE THE VOICE: update_agent() rebuilds the
         # activity from the new Agent's components, whereas reassigning
@@ -692,115 +692,86 @@ class AxonVoiceAgent(Agent):
             kwargs["vad"] = vad
         super().__init__(**kwargs)
         self._greeting = greeting
+        # Optional reference to the SIP participant already resolved by the
+        # entrypoint via ctx.wait_for_participant(). on_enter uses this to
+        # poll sip.callStatus directly instead of relying on room events
+        # whose names/semantics differ across LK SDK versions.
+        self._sip_participant = sip_participant
 
     async def on_enter(self) -> None:
-        # MARKER v9-agent-first-event-2026-06-10 — if you see this line in
-        # fly logs the latest event-driven Agent First code is deployed.
-        logger.info("on_enter: marker v9-agent-first-event-2026-06-10 active")
+        # MARKER v10-agent-first-poll-2026-06-10 — direct participant polling.
+        logger.info("on_enter: marker v10-agent-first-poll-2026-06-10 active")
         if not self._greeting:
             return
         import time as _t
         # ────────────────────────────────────────────────────────────────
-        # "Agent First" sequencing: the dialer dispatches the agent BEFORE
-        # the SIP outbound, so on_enter often runs in a room where the
-        # SIP participant doesn't exist yet. Wait for sip.callStatus to
-        # reach "active" using event listeners (the previous polling-based
-        # gate found an empty room.remote_participants and timed out at
-        # 30s while the SIP participant was right there — apparently the
-        # AgentSession's room view lags the actual LK room state).
+        # Wait for the SIP participant's sip.callStatus to reach "active"
+        # (= patient answered, audio bidirectional). We poll the
+        # participant reference passed in at construction time — that's
+        # the same one the entrypoint resolved via ctx.wait_for_participant(),
+        # so it's guaranteed present even when room.remote_participants
+        # lags.
         #
-        # We register two listeners up front (idempotent — they no-op if
-        # they fire after we've already released) and an asyncio.Event
-        # that resolves whichever way the call reaches "ready":
-        #   1. A SIP participant is already in self.session.room when
-        #      on_enter starts → fast path
-        #   2. participant_connected fires for a SIP participant → wait
-        #      for sip.callStatus=active via participant_attribute_changed
-        #   3. The room never gets a SIP participant (browser/desk session)
-        #      → timeout falls through and we greet
+        # Sessions WITHOUT a SIP participant (browser / desk) get
+        # sip_participant=None and skip the gate entirely.
         max_gate = float(os.getenv("GREETING_SIP_GATE_TIMEOUT_SECONDS", "45.0"))
         gate_start = _t.monotonic()
-        ready = asyncio.Event()
+        sp = self._sip_participant
 
-        def _is_sip_participant(p) -> bool:
+        if sp is None:
+            logger.info("greeting: no SIP participant injected — non-SIP session, skipping gate")
+        else:
+            # Diagnostic: log the participant's initial state once so we can
+            # tell at a glance whether sip.callStatus updates ever arrive.
             try:
-                attrs = dict(getattr(p, "attributes", None) or {})
-            except Exception:
-                return False
-            return "sip.callStatus" in attrs or any(
-                k.startswith("sip.") for k in attrs
-            )
-
-        def _check_active(p) -> bool:
-            try:
-                attrs = dict(getattr(p, "attributes", None) or {})
-            except Exception:
-                return False
-            return (attrs.get("sip.callStatus") or "").lower() == "active"
-
-        room = getattr(self.session, "room", None)
-
-        def _on_attrs_changed(_changed, p):
-            try:
-                if _is_sip_participant(p) and _check_active(p):
-                    elapsed = _t.monotonic() - gate_start
-                    logger.info(
-                        "greeting: SIP gate released via attribute_changed (callStatus=active) after %.2fs",
-                        elapsed,
-                    )
-                    ready.set()
+                initial_attrs = dict(getattr(sp, "attributes", None) or {})
+                logger.info(
+                    "greeting: SIP gate engaged, participant identity=%s initial callStatus=%r initial keys=%s",
+                    getattr(sp, "identity", "?"),
+                    initial_attrs.get("sip.callStatus"),
+                    sorted(initial_attrs.keys()),
+                )
             except Exception:
                 pass
 
-        def _on_participant_connected(p):
-            try:
-                if _is_sip_participant(p):
-                    # If we get a SIP participant that's already active on
-                    # join, release immediately; otherwise wait for the
-                    # next attribute_changed event.
-                    if _check_active(p):
-                        elapsed = _t.monotonic() - gate_start
+            last_logged_status: str | None = None
+            while _t.monotonic() - gate_start < max_gate:
+                try:
+                    attrs = dict(getattr(sp, "attributes", None) or {})
+                    status = (attrs.get("sip.callStatus") or "").lower()
+                    if status != last_logged_status:
                         logger.info(
-                            "greeting: SIP gate released on participant_connected (already active) after %.2fs",
-                            elapsed,
+                            "greeting: SIP gate poll callStatus=%r at %.2fs",
+                            status,
+                            _t.monotonic() - gate_start,
                         )
-                        ready.set()
-                    else:
+                        last_logged_status = status
+                    if status == "active":
                         logger.info(
-                            "greeting: SIP participant joined, waiting for callStatus=active"
+                            "greeting: SIP gate released (callStatus=active) after %.2fs",
+                            _t.monotonic() - gate_start,
                         )
-            except Exception:
-                pass
-
-        if room is not None:
-            try:
-                room.on("participant_attributes_changed", _on_attrs_changed)
-                room.on("participant_connected", _on_participant_connected)
-            except Exception:
-                logger.warning("greeting: could not register room event listeners")
-
-            # Fast path: scan participants already present.
-            try:
-                for p in (room.remote_participants or {}).values():
-                    if _is_sip_participant(p) and _check_active(p):
-                        elapsed = _t.monotonic() - gate_start
-                        logger.info(
-                            "greeting: SIP gate released on initial scan (callStatus=active) after %.2fs",
-                            elapsed,
-                        )
-                        ready.set()
                         break
-            except Exception:
-                pass
-
-        # Block (with timeout) until any listener releases.
-        try:
-            await asyncio.wait_for(ready.wait(), timeout=max_gate)
-        except asyncio.TimeoutError:
-            logger.warning(
-                "greeting: SIP gate timed out at %.1fs — greeting anyway (browser/desk session or stuck SIP)",
-                max_gate,
-            )
+                    # Some LK SIP outbound flows omit the explicit "active"
+                    # transition and just clear the dialing/ringing flag.
+                    # If status leaves dialing/ringing/automation but isn't
+                    # "active", treat it as ready too.
+                    if status and status not in {"dialing", "ringing", "automation"}:
+                        logger.info(
+                            "greeting: SIP gate released (callStatus=%r) after %.2fs",
+                            status,
+                            _t.monotonic() - gate_start,
+                        )
+                        break
+                except Exception:
+                    logger.debug("greeting: poll failed", exc_info=True)
+                await asyncio.sleep(0.2)
+            else:
+                logger.warning(
+                    "greeting: SIP gate timed out at %.1fs with last status=%r — greeting anyway",
+                    max_gate,
+                    last_logged_status,
+                )
 
         # Tiny pre-roll for the PSTN RTP path to fully settle after the
         # 200 OK transition. 0.3s is enough on UK Twilio trunks to flush
@@ -2495,6 +2466,16 @@ async def entrypoint(ctx: JobContext) -> None:
             instructions=instructions,
             tools=tools,
             greeting=greeting,
+            # Pass the SIP participant already resolved by
+            # ctx.wait_for_participant() so on_enter can poll its
+            # sip.callStatus directly. None for browser/desk sessions.
+            sip_participant=participant if (
+                participant is not None
+                and any(
+                    str(k).startswith("sip.")
+                    for k in (getattr(participant, "attributes", None) or {}).keys()
+                )
+            ) else None,
         ),
     )
     clog.info("timing: session.start() returned in %.2fs", _time2.monotonic() - _t_start)
