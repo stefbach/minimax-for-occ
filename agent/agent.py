@@ -1908,6 +1908,24 @@ def _install_call_hygiene(
                 # (the moment the greeting is emitted). Cap with a 60s
                 # ceiling so a stuck on_enter can't pin the call forever.
                 if not state.get("first_agent_turn"):
+                    # Hard ceiling: 10 s from INVITE to FIRST CUSTOMER WORD.
+                    # Wati's spec — if no STT transcript arrived in 10 s,
+                    # treat as PAS DE REPONSE and hang up. This catches the
+                    # Amy Luke-Telford case where the UK carrier acquitted
+                    # the SIP leg fast (no ringingTimeout) but STT never
+                    # heard a single word, leaving the agent to chat with
+                    # the voicemail audio for 2 minutes.
+                    no_speech_ceiling = float(os.getenv("NO_SPEECH_HANGUP_SECS", "10.0"))
+                    if (
+                        state.get("first_speech_ts") is None
+                        and _t.monotonic() - state["call_started_at"] >= no_speech_ceiling
+                    ):
+                        clog.info(
+                            "watchdog: no STT transcript within %.0fs — PAS DE REPONSE",
+                            no_speech_ceiling,
+                        )
+                        await _hangup("no speech within hard ceiling")
+                        return
                     if _t.monotonic() - state["call_started_at"] < 60.0:
                         state["last_agent_ts"] = _t.monotonic()
                         continue

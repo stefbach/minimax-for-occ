@@ -179,9 +179,42 @@ async function main() {
     scheduleTick().catch((e) => console.error("[scheduler] tick error:", e));
   }, POLL_INTERVAL_MS);
 
+  // Twilio price reconciliation, every 30 s — Wati's spec ("toutes les
+  // 30 secondes, pas 5 minutes"). Vercel cron's minimum granularity is
+  // 1 minute, so we drive it from the long-running dialer worker.
+  // CRON_SECRET-gated endpoint reads /Calls.json and PATCHes
+  // usage_events with Twilio's real `price` field.
+  const twilioSyncIntervalMs = Number(process.env.TWILIO_SYNC_INTERVAL_MS ?? 30_000);
+  let twilioSyncTimer: NodeJS.Timeout | undefined;
+  if (process.env.APP_URL && process.env.CRON_SECRET) {
+    const syncUrl =
+      process.env.APP_URL.replace(/\/+$/, "") + "/api/dashboard/sync-twilio?days=2";
+    const runTwilioSync = async () => {
+      try {
+        const res = await fetch(syncUrl, {
+          headers: { authorization: `Bearer ${process.env.CRON_SECRET}` },
+          signal: AbortSignal.timeout(20000),
+        });
+        if (!res.ok) {
+          console.warn(`[twilio-sync] HTTP ${res.status}`);
+        }
+      } catch (e) {
+        console.warn(`[twilio-sync] call failed: ${e instanceof Error ? e.message : e}`);
+      }
+    };
+    runTwilioSync(); // fire immediately on boot
+    twilioSyncTimer = setInterval(runTwilioSync, twilioSyncIntervalMs);
+    console.log(`[twilio-sync] polling every ${twilioSyncIntervalMs}ms`);
+  } else {
+    console.warn(
+      "[twilio-sync] APP_URL or CRON_SECRET missing — skipping in-worker sync (falling back to Vercel cron only)",
+    );
+  }
+
   const shutdown = (sig: string) => {
     console.log(`[dialer] received ${sig}, shutting down…`);
     clearInterval(timer);
+    if (twilioSyncTimer) clearInterval(twilioSyncTimer);
     process.exit(0);
   };
   process.on("SIGTERM", () => shutdown("SIGTERM"));
