@@ -136,6 +136,21 @@ export async function GET(request: Request) {
     }
   }
 
+  // Path A (LiveKit SIP) calls record via the Twilio TRUNK, which posts no
+  // recording webhook — recording_url stays NULL even though the audio
+  // exists on Twilio. The player's src already streams through
+  // /api/dashboard/call-recording, whose lazy backfill #2 resolves trunk
+  // recordings from metadata.twilio_call_sid; the only thing missing was
+  // this response gating the player on a non-null recording_url. Surface
+  // the proxy path whenever we have a Twilio SID so the player renders;
+  // the proxy 404s gracefully if Twilio truly has no recording.
+  if (!recordingUrl) {
+    const twilioSid = typeof meta.twilio_call_sid === "string" ? meta.twilio_call_sid : "";
+    if (/^CA[0-9a-f]{32}$/i.test(twilioSid) && meta.recording_unavailable !== true) {
+      recordingUrl = `/api/dashboard/call-recording?id=${encodeURIComponent(id)}`;
+    }
+  }
+
   const body: CallDetailResponse = {
     recording_url: recordingUrl,
     summary: call.summary,

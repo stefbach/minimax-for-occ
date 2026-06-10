@@ -45,5 +45,17 @@ export async function GET(
     return NextResponse.json({ error: evErr.message }, { status: 500 });
   }
 
+  // Path A trunk recordings have no status callback, so recording_url is
+  // often NULL even though Twilio has the audio. When the call carries a
+  // Twilio SID, point consumers at the dashboard recording proxy — its
+  // lazy backfill resolves trunk recordings from the SID and streams the
+  // audio (404s gracefully when none exists).
+  const meta = (call.metadata ?? {}) as Record<string, unknown>;
+  const twilioSid = String(meta.twilio_call_sid ?? "");
+  if (!call.recording_url && /^CA[0-9a-f]{32}$/i.test(twilioSid)) {
+    (call as { recording_url: string | null }).recording_url =
+      `/api/dashboard/call-recording?id=${encodeURIComponent(id)}`;
+  }
+
   return NextResponse.json({ call, events: events ?? [] });
 }
