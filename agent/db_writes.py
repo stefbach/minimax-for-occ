@@ -1018,6 +1018,24 @@ def auto_qualify_call(call_id: Optional[str]) -> None:
                 call_id, qual, duration, answered, handoff_count, attempts, n_giveup, qualification_source,
             )
 
+            # If the heuristic ends up at a qualification that requires a
+            # human to follow up, spawn a /desk task — Wati's June 10
+            # finding: Sabina Moussa was qualified A PASSER A L'HUMAIN
+            # by the heuristic (handoff_count > 0) but no
+            # human_callback_tasks row was created, so the lead never
+            # appeared in any human's queue. save_contact_data already
+            # does this on the explicit-tool path; we mirror it here so
+            # the heuristic-only path is also covered.
+            if _qualification_needs_callback(qual):
+                contact_id = current_meta.get("contact_id") if isinstance(current_meta, dict) else None
+                create_human_callback_task(
+                    org_id,
+                    contact_id if isinstance(contact_id, str) else None,
+                    original_call_id=call_id,
+                    qualification=qual,
+                    reason=f"auto_qualify_call/{qualification_source}",
+                )
+
             # Audio-drop retry: bring the lead back into the pending queue
             # 1 hour from now instead of waiting for the next cadence slot
             # (08/13/18 UK). The dialer's 30s poll loop picks pending rows

@@ -121,6 +121,31 @@ export function ClientSidebar() {
     return () => mq.removeEventListener?.("change", onChange);
   }, []);
 
+  // /desk badge — poll the lightweight task counter so the agent sees a red
+  // bubble on "Mon poste" the moment a new A PASSER A L'HUMAIN comes in
+  // (mine + pool). 30 s is short enough to feel live without hammering the
+  // DB. Silently ignores failures (no badge when offline / unauthenticated).
+  const [deskBadge, setDeskBadge] = useState<number>(0);
+  useEffect(() => {
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const r = await fetch("/api/desk/tasks/count", { cache: "no-store" });
+        if (!r.ok) return;
+        const j = (await r.json()) as { total?: number };
+        if (!cancelled) setDeskBadge(Number(j?.total ?? 0));
+      } catch {
+        /* swallow */
+      }
+    };
+    tick();
+    const t = setInterval(tick, 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, []);
+
   // Lock body scroll while the drawer overlay is open — otherwise the page
   // behind continues to scroll under the user's finger.
   useEffect(() => {
@@ -193,7 +218,26 @@ export function ClientSidebar() {
         onClick={() => setDrawerOpen(false)}
       >
         <span aria-hidden="true" style={{ width: 16, opacity: 0.7 }}>{n.icon}</span>
-        <span>{t(n.label)}</span>
+        <span style={{ flex: 1 }}>{t(n.label)}</span>
+        {n.href === "/desk" && deskBadge > 0 ? (
+          <span
+            aria-label={`${deskBadge} tâche${deskBadge > 1 ? "s" : ""} en attente`}
+            style={{
+              minWidth: 20,
+              padding: "0 6px",
+              borderRadius: 10,
+              background: "#dc2626",
+              color: "white",
+              fontSize: 11,
+              fontWeight: 600,
+              textAlign: "center",
+              lineHeight: "18px",
+              marginLeft: 6,
+            }}
+          >
+            {deskBadge > 99 ? "99+" : deskBadge}
+          </span>
+        ) : null}
       </Link>
     );
   };

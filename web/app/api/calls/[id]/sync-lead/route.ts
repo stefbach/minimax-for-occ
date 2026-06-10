@@ -46,6 +46,7 @@ const NEGATIVE_CLOSED = new Set([
 
 type CallRow = {
   id: string;
+  org_id: string | null;
   ended_at: string | null;
   duration_secs: number | null;
   to_e164: string | null;
@@ -83,7 +84,7 @@ export async function POST(
   // 1) Load the call (must be ended so ended_at / duration are real).
   const { data: callRow, error: callErr } = await sb
     .from("calls")
-    .select("id, ended_at, duration_secs, to_e164, metadata")
+    .select("id, org_id, ended_at, duration_secs, to_e164, metadata")
     .eq("id", callId)
     .maybeSingle();
   if (callErr) return NextResponse.json({ error: callErr.message }, { status: 500 });
@@ -272,6 +273,40 @@ export async function POST(
     .eq("id", rowId);
   if (upErr) {
     return NextResponse.json({ error: upErr.message, table, rowId }, { status: 500 });
+  }
+
+  // Safety net: when a call ends up qualified A PASSER A L'HUMAIN but no
+  // human_callback_task was created (e.g. the agent worker was OOM-killed
+  // before the in-process create_human_callback_task ran — June 10 case:
+  // Sabina Moussa was qualified A PASSER A L'HUMAIN but had 0 tasks), spin
+  // one up here. Dedupe on contact_id so a webhook retry doesn't pile up
+  // duplicate tasks for the same lead.
+  if (callQual === "A PASSER A L'HUMAIN" && target.contact_id) {
+    const { data: existingTasks } = await sb
+      .from("human_callback_tasks")
+      .select("id")
+      .eq("org_id", call.org_id)
+      .eq("contact_id", target.contact_id)
+      .in("status", ["pending", "in_progress"])
+      .limit(1);
+    if (!existingTasks || existingTasks.length === 0) {
+      // Schedule the callback for the next UK weekday at 09:00 UTC.
+      const next = new Date();
+      next.setUTCDate(next.getUTCDate() + 1);
+      while (next.getUTCDay() === 0 || next.getUTCDay() === 6) {
+        next.setUTCDate(next.getUTCDate() + 1);
+      }
+      next.setUTCHours(9, 0, 0, 0);
+      await sb.from("human_callback_tasks").insert({
+        org_id: call.org_id,
+        contact_id: target.contact_id,
+        original_call_id: callId,
+        qualification: "A PASSER A L'HUMAIN",
+        transfer_reason: "auto from sync-lead (safety net)",
+        scheduled_for: next.toISOString(),
+        status: "pending",
+      });
+    }
   }
 
   return NextResponse.json({
