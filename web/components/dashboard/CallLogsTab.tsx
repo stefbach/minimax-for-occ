@@ -4,6 +4,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useT } from "@/lib/i18n";
 import { bucketForCall, QUAL_BUCKETS, type QualBucket } from "@/lib/qualification";
+import { fixAudioDuration } from "@/lib/fix-audio-duration";
 
 // Call Logs tab — Twilio-style call history with our specifics on top:
 // the AI agent's name, the normalised qualification (9 fixed buckets),
@@ -450,6 +451,7 @@ export function CallLogsTab({ from, to, direction, leadsSource = "prod", system 
                               autoPlay
                               src={`/api/dashboard/call-recording?id=${encodeURIComponent(c.id)}`}
                               style={{ flex: 1 }}
+                              onLoadedMetadata={fixAudioDuration}
                             />
                             <a
                               href={`/api/dashboard/call-recording?id=${encodeURIComponent(c.id)}`}

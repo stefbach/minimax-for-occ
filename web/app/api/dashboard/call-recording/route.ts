@@ -2,10 +2,11 @@ import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { requestOrgId } from "@/lib/request-org";
 import { requireModule } from "@/lib/permissions-server";
 import { fetchRetellCallExtras } from "@/lib/retell-sync";
-import { fetchTwilioRecordingUrl } from "@/lib/twilio-recording";
+import { fetchTwilioRecordingUrl, findTwilioRecordingForCall } from "@/lib/twilio-recording";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 30;
 
 // Streams a call recording through our own origin instead of linking the
 // browser straight at the upstream (Retell CloudFront) URL. Direct playback of
@@ -38,14 +39,15 @@ export async function GET(request: Request) {
   const sb = supabaseServer();
   const { data } = await sb
     .from("calls")
-    .select("recording_url, metadata")
+    .select("recording_url, metadata, to_e164, from_e164, started_at, answered_at")
     .eq("id", id)
     .eq("org_id", orgId)
     .maybeSingle();
   if (!data) return new Response("not_found", { status: 404 });
 
-  let url = (data as { recording_url: string | null }).recording_url;
-  const meta = ((data as { metadata: Record<string, unknown> | null }).metadata ?? {}) as Record<string, unknown>;
+  const row = data as { recording_url: string | null; metadata: Record<string, unknown> | null; to_e164: string | null; from_e164: string | null; started_at: string | null; answered_at: string | null };
+  let url = row.recording_url;
+  const meta = (row.metadata ?? {}) as Record<string, unknown>;
 
   // Lazy backfill #1: pull the recording from Retell if we never stored one.
   if (!url && meta.source === "retell_sync" && typeof meta.retell_call_id === "string") {
@@ -66,14 +68,32 @@ export async function GET(request: Request) {
       await sb.from("calls").update({ recording_url: url }).eq("id", id).eq("org_id", orgId);
     }
   }
+  // Lazy backfill #3: Axon/LiveKit call whose row never got a twilio_call_sid
+  // (LiveKit + Twilio legs landed on separate rows). Find the Twilio call by
+  // number + start time, resolve its recording, and stamp the sid so we don't
+  // search again. Only for answered, non-Retell rows with a number + time.
+  if (!url && meta.source !== "retell_sync" && !meta.twilio_call_sid && meta.twilio_recording_unavailable !== true
+      && row.answered_at && row.started_at) {
+    const found = await findTwilioRecordingForCall({
+      to: row.to_e164, from: row.from_e164, startedAtMs: Date.parse(row.started_at),
+    });
+    if (found) {
+      url = found.url;
+      await sb.from("calls").update({ recording_url: url, metadata: { ...meta, twilio_call_sid: found.sid } }).eq("id", id).eq("org_id", orgId);
+    } else {
+      await sb.from("calls").update({ metadata: { ...meta, twilio_recording_unavailable: true } }).eq("id", id).eq("org_id", orgId);
+    }
+  }
   if (!url) return new Response("no_recording", { status: 404 });
 
-  // Forward the browser's Range header so seeking / partial loads work.
-  const range = request.headers.get("range");
-  // Twilio's recording .mp3 endpoint requires Basic Auth — the URL alone
-  // isn't enough. Other origins (Retell, etc.) are public.
+  // Twilio's recording .mp3 endpoint requires Basic Auth (and Retell/CloudFront
+  // is public). We DON'T forward the browser's Range to the upstream: Twilio
+  // transcodes the MP3 on the fly and returns it chunked with no Content-Length
+  // and no Range support, so the browser ends up with duration=Infinity and the
+  // playhead pinned to the end. Instead we buffer the (small) recording and
+  // serve Range requests ourselves with an exact Content-Length, so the player
+  // always knows the real duration and can seek.
   const upstreamHeaders: Record<string, string> = {};
-  if (range) upstreamHeaders["Range"] = range;
   if (url.startsWith("https://api.twilio.com/") && process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
     const tok = Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString("base64");
     upstreamHeaders["Authorization"] = `Basic ${tok}`;
@@ -88,15 +108,38 @@ export async function GET(request: Request) {
     return new Response("upstream_error", { status: 502 });
   }
 
-  const headers = new Headers();
-  headers.set("content-type", audioContentType(upstream.headers.get("content-type"), url));
-  headers.set("accept-ranges", "bytes");
-  const cl = upstream.headers.get("content-length");
-  if (cl) headers.set("content-length", cl);
-  const cr = upstream.headers.get("content-range");
-  if (cr) headers.set("content-range", cr);
-  // Private cache: the recording is immutable, but it's PHI-adjacent.
-  headers.set("cache-control", "private, max-age=3600");
+  const buf = Buffer.from(await upstream.arrayBuffer());
+  const total = buf.length;
+  const contentType = audioContentType(upstream.headers.get("content-type"), url);
+  const baseHeaders: Record<string, string> = {
+    "content-type": contentType,
+    "accept-ranges": "bytes",
+    // Immutable but PHI-adjacent — private cache only.
+    "cache-control": "private, max-age=3600",
+  };
 
-  return new Response(upstream.body, { status: upstream.status, headers });
+  // Partial content for seeking.
+  const range = request.headers.get("range");
+  const m = range ? /bytes=(\d*)-(\d*)/.exec(range) : null;
+  if (m && total > 0) {
+    let start = m[1] ? parseInt(m[1], 10) : 0;
+    let end = m[2] ? parseInt(m[2], 10) : total - 1;
+    if (!Number.isFinite(start) || start < 0) start = 0;
+    if (!Number.isFinite(end) || end >= total) end = total - 1;
+    if (start > end) start = 0;
+    const chunk = buf.subarray(start, end + 1);
+    return new Response(chunk, {
+      status: 206,
+      headers: {
+        ...baseHeaders,
+        "content-range": `bytes ${start}-${end}/${total}`,
+        "content-length": String(chunk.length),
+      },
+    });
+  }
+
+  return new Response(buf, {
+    status: 200,
+    headers: { ...baseHeaders, "content-length": String(total) },
+  });
 }

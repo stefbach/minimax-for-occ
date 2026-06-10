@@ -18,7 +18,7 @@ export const dynamic = "force-dynamic";
 //     rows synced before transcript storage existed are backfilled lazily by
 //     calling Retell get-call once, then cached back into metadata.
 
-export type CallDetailTurn = { speaker: "agent" | "customer"; text: string };
+export type CallDetailTurn = { speaker: "agent" | "customer"; text: string; t?: number };
 export type CallDetailResponse = {
   recording_url: string | null;
   summary: string | null;
@@ -31,11 +31,19 @@ type CallRow = {
   org_id: string;
   recording_url: string | null;
   summary: string | null;
+  started_at: string | null;
+  answered_at: string | null;
+  to_e164: string | null;
+  from_e164: string | null;
   metadata: Record<string, unknown> | null;
 };
 
 function turnsToDetail(turns: TranscriptTurn[]): CallDetailTurn[] {
-  return turns.map((t) => ({ speaker: t.role === "user" ? "customer" : "agent", text: t.content }));
+  return turns.map((t) => ({
+    speaker: t.role === "user" ? "customer" : "agent",
+    text: t.content,
+    ...(typeof t.start === "number" ? { t: Math.max(0, Math.round(t.start)) } : {}),
+  }));
 }
 
 export async function GET(request: Request) {
@@ -51,7 +59,7 @@ export async function GET(request: Request) {
   const sb = supabaseServer();
   const { data, error } = await sb
     .from("calls")
-    .select("id, org_id, recording_url, summary, metadata")
+    .select("id, org_id, recording_url, summary, started_at, answered_at, to_e164, from_e164, metadata")
     .eq("id", id)
     .eq("org_id", orgId)
     .maybeSingle();
@@ -60,25 +68,40 @@ export async function GET(request: Request) {
   const call = data as CallRow;
   const meta = (call.metadata ?? {}) as Record<string, unknown>;
 
-  // 1. Native Axon transcript turns.
+  // 1. Native Axon transcript turns (LiveKit STT). started_at per turn gives us
+  // the timestamp; anchor on answered_at (talk start) else the call start.
   const { data: trData } = await sb
     .from("call_transcripts")
-    .select("speaker, text, seq")
+    .select("speaker, text, seq, started_at")
     .eq("call_id", id)
     .order("seq", { ascending: true });
-  const axonTurns = (trData ?? []) as Array<{ speaker: string | null; text: string | null }>;
+  const axonTurns = (trData ?? []) as Array<{ speaker: string | null; text: string | null; started_at: string | null }>;
 
   let transcript: CallDetailTurn[] = [];
   let transcriptSource: "axon" | "retell" | null = null;
   let recordingUrl = call.recording_url;
 
   if (axonTurns.length) {
+    // Anchor on the FIRST transcript turn, not answered_at: Twilio's
+    // answered/in-progress timestamp can land well after the conversation
+    // actually started (observed ~76s late), which would push every early turn
+    // negative → all 0:00. The first turn's time is the true t=0.
+    const firstTurnIso = axonTurns.find((t) => t.started_at)?.started_at ?? null;
+    const anchorMs = firstTurnIso ? Date.parse(firstTurnIso)
+      : call.answered_at ? Date.parse(call.answered_at)
+      : call.started_at ? Date.parse(call.started_at) : NaN;
     transcript = axonTurns
       .filter((t) => t.text)
-      .map((t) => ({
-        speaker: t.speaker === "customer" || t.speaker === "user" ? "customer" : "agent",
-        text: t.text as string,
-      }));
+      .map((t) => {
+        const turnMs = t.started_at ? Date.parse(t.started_at) : NaN;
+        const rel = Number.isFinite(anchorMs) && Number.isFinite(turnMs)
+          ? Math.max(0, Math.round((turnMs - anchorMs) / 1000)) : undefined;
+        return {
+          speaker: (t.speaker === "customer" || t.speaker === "user" ? "customer" : "agent") as "agent" | "customer",
+          text: t.text as string,
+          ...(rel != null ? { t: rel } : {}),
+        };
+      });
     transcriptSource = "axon";
   } else if (meta.source === "retell_sync") {
     transcriptSource = "retell";
@@ -88,12 +111,15 @@ export async function GET(request: Request) {
     }
 
     // Lazy backfill from Retell — ONE get-call fills whatever's still missing
-    // (recording and/or transcript) so older rows become listenable/readable.
-    // Skip the remote call once we've already tried for each, so re-opening a
-    // row doesn't keep hammering Retell.
+    // (recording and/or transcript, including per-turn timestamps) so older
+    // rows become listenable/readable. Skip once tried, to avoid re-hammering.
     const retellId = typeof meta.retell_call_id === "string" ? meta.retell_call_id : null;
-    const needTranscript = transcript.length === 0 && meta.transcript_unavailable !== true
-      && !(typeof meta.transcript_text === "string" && meta.transcript_text.trim());
+    const storedHasTime = Boolean(stored && stored.some((t) => typeof t.start === "number"));
+    // Re-fetch when there's no transcript, or when we have one without per-turn
+    // timestamps and haven't already learned Retell doesn't provide them.
+    const needTranscript = (transcript.length === 0
+      || (transcript.length > 0 && !storedHasTime && meta.transcript_no_timestamps !== true))
+      && meta.transcript_unavailable !== true;
     const needRecording = !recordingUrl && meta.recording_unavailable !== true;
     if (retellId && (needTranscript || needRecording)) {
       const fetched = await fetchRetellCallExtras(retellId);
@@ -112,6 +138,8 @@ export async function GET(request: Request) {
           transcript = turnsToDetail(fetched.turns);
           metaUpdate.transcript_turns = fetched.turns;
           if (fetched.text) metaUpdate.transcript_text = fetched.text;
+          // Remember if Retell gave no word timings, so we stop retrying.
+          if (!fetched.turns.some((t) => typeof t.start === "number")) metaUpdate.transcript_no_timestamps = true;
           metaChanged = true;
         } else if (fetched.text) {
           transcript = [{ speaker: "agent", text: fetched.text }];
@@ -136,17 +164,18 @@ export async function GET(request: Request) {
     }
   }
 
-  // Path A (LiveKit SIP) calls record via the Twilio TRUNK, which posts no
-  // recording webhook — recording_url stays NULL even though the audio
-  // exists on Twilio. The player's src already streams through
-  // /api/dashboard/call-recording, whose lazy backfill #2 resolves trunk
-  // recordings from metadata.twilio_call_sid; the only thing missing was
-  // this response gating the player on a non-null recording_url. Surface
-  // the proxy path whenever we have a Twilio SID so the player renders;
-  // the proxy 404s gracefully if Twilio truly has no recording.
-  if (!recordingUrl) {
+  // Trunk recordings (Path A LiveKit-SIP via Twilio) have no per-call webhook,
+  // so recording_url stays NULL even though the audio exists on Twilio. Surface
+  // the proxy path — /api/dashboard/call-recording lazily resolves the recording
+  // (by CallSid, or by number+time for split LiveKit/Twilio legs) and 404s
+  // gracefully if Twilio truly has none — so the player renders whenever a
+  // recording plausibly exists.
+  if (!recordingUrl && meta.source !== "retell_sync" && call.answered_at) {
     const twilioSid = typeof meta.twilio_call_sid === "string" ? meta.twilio_call_sid : "";
-    if (/^CA[0-9a-f]{32}$/i.test(twilioSid) && meta.recording_unavailable !== true) {
+    const hasSid = /^CA[0-9a-f]{32}$/i.test(twilioSid);
+    const canMatchByNumber = Boolean(call.started_at && (call.to_e164 || call.from_e164));
+    if ((hasSid && meta.recording_unavailable !== true)
+        || (!hasSid && canMatchByNumber && meta.twilio_recording_unavailable !== true)) {
       recordingUrl = `/api/dashboard/call-recording?id=${encodeURIComponent(id)}`;
     }
   }

@@ -25,12 +25,13 @@ const RETELL_LIST_URL = "https://api.retellai.com/v2/list-calls";
 const RETELL_GET_URL = "https://api.retellai.com/v2/get-call";
 const PAGE_LIMIT = 1000;
 
-export type TranscriptTurn = { role: "agent" | "user"; content: string };
+export type TranscriptTurn = { role: "agent" | "user"; content: string; start?: number };
 
 // Retell returns the dialogue as `transcript` (flat string) and, richer,
-// `transcript_object` (array of { role, content, words }). We keep a compact
-// turn list (role + content) so the dashboard can render a chat-style view
-// without re-hitting Retell, plus the flat text as a fallback.
+// `transcript_object` (array of { role, content, words:[{word,start,end}] }).
+// We keep a compact turn list (role + content + start-second of the turn) so
+// the dashboard can render a timestamped chat view without re-hitting Retell,
+// plus the flat text as a fallback.
 export function extractTranscript(
   call: Record<string, unknown>,
 ): { text: string | null; turns: TranscriptTurn[] | null } {
@@ -40,10 +41,16 @@ export function extractTranscript(
   if (Array.isArray(raw)) {
     const mapped = raw
       .map((t) => {
-        const o = (t ?? {}) as { role?: unknown; content?: unknown };
+        const o = (t ?? {}) as { role?: unknown; content?: unknown; words?: unknown };
         const role = o.role === "agent" ? "agent" : o.role === "user" ? "user" : null;
         const content = typeof o.content === "string" ? o.content.trim() : "";
-        return role && content ? { role, content } : null;
+        // Turn start = first word's start time (seconds from call start).
+        let start: number | undefined;
+        if (Array.isArray(o.words) && o.words.length) {
+          const w0 = (o.words[0] ?? {}) as { start?: unknown };
+          if (typeof w0.start === "number" && Number.isFinite(w0.start)) start = w0.start;
+        }
+        return role && content ? { role, content, ...(start != null ? { start } : {}) } : null;
       })
       .filter((x): x is TranscriptTurn => x !== null);
     if (mapped.length) turns = mapped;
