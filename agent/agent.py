@@ -694,74 +694,117 @@ class AxonVoiceAgent(Agent):
         self._greeting = greeting
 
     async def on_enter(self) -> None:
-        # MARKER v8-agent-first-2026-06-10 — if you see this line in fly logs
-        # the latest "Agent First" code is deployed; if not, fly/lk-cloud is
-        # still on old code.
-        logger.info("on_enter: marker v8-agent-first-2026-06-10 active")
+        # MARKER v9-agent-first-event-2026-06-10 — if you see this line in
+        # fly logs the latest event-driven Agent First code is deployed.
+        logger.info("on_enter: marker v9-agent-first-event-2026-06-10 active")
         if not self._greeting:
             return
         import time as _t
         # ────────────────────────────────────────────────────────────────
-        # "Agent First" sequencing: the dialer now dispatches the agent
-        # BEFORE the SIP outbound, so on_enter often runs in a room that
-        # still has only the agent (no patient). Greeting now would speak
-        # to an empty room — we have to wait for the SIP participant to
-        # arrive AND be on an active call (sip.callStatus = "active")
-        # before saying anything.
+        # "Agent First" sequencing: the dialer dispatches the agent BEFORE
+        # the SIP outbound, so on_enter often runs in a room where the
+        # SIP participant doesn't exist yet. Wait for sip.callStatus to
+        # reach "active" using event listeners (the previous polling-based
+        # gate found an empty room.remote_participants and timed out at
+        # 30s while the SIP participant was right there — apparently the
+        # AgentSession's room view lags the actual LK room state).
         #
-        # Path B (Twilio createCall + TwiML <Dial><Sip>) and browser /
-        # desk sessions don't have a SIP participant — those paths skip
-        # the gate and greet immediately after the preroll.
-        max_gate = float(os.getenv("GREETING_SIP_GATE_TIMEOUT_SECONDS", "30.0"))
+        # We register two listeners up front (idempotent — they no-op if
+        # they fire after we've already released) and an asyncio.Event
+        # that resolves whichever way the call reaches "ready":
+        #   1. A SIP participant is already in self.session.room when
+        #      on_enter starts → fast path
+        #   2. participant_connected fires for a SIP participant → wait
+        #      for sip.callStatus=active via participant_attribute_changed
+        #   3. The room never gets a SIP participant (browser/desk session)
+        #      → timeout falls through and we greet
+        max_gate = float(os.getenv("GREETING_SIP_GATE_TIMEOUT_SECONDS", "45.0"))
         gate_start = _t.monotonic()
-        sip_participant = None
-        # First wait until ANY SIP participant joins. With the warm-room
-        # flow the agent often arrives 100-500ms before SIP — so we have
-        # to poll, not just inspect the room once.
-        while _t.monotonic() - gate_start < max_gate:
+        ready = asyncio.Event()
+
+        def _is_sip_participant(p) -> bool:
             try:
-                for p in self.session.room.remote_participants.values():
-                    attrs = dict(getattr(p, "attributes", None) or {})
-                    if "sip.callStatus" in attrs or any(
-                        k.startswith("sip.") for k in attrs
-                    ):
-                        sip_participant = p
+                attrs = dict(getattr(p, "attributes", None) or {})
+            except Exception:
+                return False
+            return "sip.callStatus" in attrs or any(
+                k.startswith("sip.") for k in attrs
+            )
+
+        def _check_active(p) -> bool:
+            try:
+                attrs = dict(getattr(p, "attributes", None) or {})
+            except Exception:
+                return False
+            return (attrs.get("sip.callStatus") or "").lower() == "active"
+
+        room = getattr(self.session, "room", None)
+
+        def _on_attrs_changed(_changed, p):
+            try:
+                if _is_sip_participant(p) and _check_active(p):
+                    elapsed = _t.monotonic() - gate_start
+                    logger.info(
+                        "greeting: SIP gate released via attribute_changed (callStatus=active) after %.2fs",
+                        elapsed,
+                    )
+                    ready.set()
+            except Exception:
+                pass
+
+        def _on_participant_connected(p):
+            try:
+                if _is_sip_participant(p):
+                    # If we get a SIP participant that's already active on
+                    # join, release immediately; otherwise wait for the
+                    # next attribute_changed event.
+                    if _check_active(p):
+                        elapsed = _t.monotonic() - gate_start
+                        logger.info(
+                            "greeting: SIP gate released on participant_connected (already active) after %.2fs",
+                            elapsed,
+                        )
+                        ready.set()
+                    else:
+                        logger.info(
+                            "greeting: SIP participant joined, waiting for callStatus=active"
+                        )
+            except Exception:
+                pass
+
+        if room is not None:
+            try:
+                room.on("participant_attributes_changed", _on_attrs_changed)
+                room.on("participant_connected", _on_participant_connected)
+            except Exception:
+                logger.warning("greeting: could not register room event listeners")
+
+            # Fast path: scan participants already present.
+            try:
+                for p in (room.remote_participants or {}).values():
+                    if _is_sip_participant(p) and _check_active(p):
+                        elapsed = _t.monotonic() - gate_start
+                        logger.info(
+                            "greeting: SIP gate released on initial scan (callStatus=active) after %.2fs",
+                            elapsed,
+                        )
+                        ready.set()
                         break
             except Exception:
-                sip_participant = None
-            if sip_participant is not None:
-                break
-            await asyncio.sleep(0.15)
-        # Then wait for sip.callStatus to transition to "active" (patient
-        # answered, audio is bidirectional). On the warm-room flow this
-        # is the actual pickup moment.
-        if sip_participant is not None:
-            while _t.monotonic() - gate_start < max_gate:
-                try:
-                    attrs = dict(getattr(sip_participant, "attributes", None) or {})
-                    status = (attrs.get("sip.callStatus") or "").lower()
-                    if status == "active":
-                        logger.info(
-                            "greeting: SIP gate released (callStatus=active) after %.2fs",
-                            _t.monotonic() - gate_start,
-                        )
-                        break
-                except Exception:
-                    pass
-                await asyncio.sleep(0.15)
-            else:
-                logger.warning(
-                    "greeting: SIP gate timed out at %.1fs — greeting anyway",
-                    max_gate,
-                )
-        else:
-            logger.info(
-                "greeting: no SIP participant after %.1fs — assuming non-SIP session (desk/browser)",
-                _t.monotonic() - gate_start,
+                pass
+
+        # Block (with timeout) until any listener releases.
+        try:
+            await asyncio.wait_for(ready.wait(), timeout=max_gate)
+        except asyncio.TimeoutError:
+            logger.warning(
+                "greeting: SIP gate timed out at %.1fs — greeting anyway (browser/desk session or stuck SIP)",
+                max_gate,
             )
+
         # Tiny pre-roll for the PSTN RTP path to fully settle after the
-        # 200 OK transition. 0.3s default is enough on UK Twilio trunks
-        # to flush any residual ringback before we speak.
+        # 200 OK transition. 0.3s is enough on UK Twilio trunks to flush
+        # any residual ringback before we speak.
         preroll = float(os.getenv("GREETING_PREROLL_SECONDS", "0.3"))
         if preroll > 0:
             await asyncio.sleep(preroll)
@@ -1278,6 +1321,14 @@ def _install_call_hygiene(
         # Victoria) routinely spans 5-12s after a user turn, and the
         # earlier 5s gate kept cutting the agent mid-thought.
         "user_has_spoken": False,
+        # Agent First flow: the agent enters the room BEFORE the SIP
+        # participant. on_enter blocks waiting for sip.callStatus=active.
+        # During that wait the watchdog mustn't fire its 4s idle hangup
+        # — it would tear the call down before the patient even
+        # connects. Flip to True the moment the agent emits its first
+        # assistant message (the greeting), which only happens after
+        # on_enter releases its gate.
+        "first_agent_turn": False,
         # Race-safety: save_contact_data writes to leads_rdv via HTTP. If the
         # idle timer fires WHILE that write is in flight, the asyncio.to_thread
         # call can be cancelled and the leads_rdv update silently lost. The
@@ -1534,6 +1585,10 @@ def _install_call_hygiene(
             text_attr = getattr(item, "text_content", None) if item else None
             text = text_attr() if callable(text_attr) else (text_attr or "")
             state["last_agent_ts"] = _t.monotonic()
+            # The first assistant item flips the watchdog from "warming"
+            # mode (waiting for the SIP participant to arrive in the Agent
+            # First flow) into normal idle-detection mode.
+            state["first_agent_turn"] = True
             # Estimate TTS playback duration from the text length and pin a
             # 'speaking until' deadline so the watchdog can't fire mid-TTS
             # even when agent_state_changed events aren't delivered (observed
@@ -1642,6 +1697,17 @@ def _install_call_hygiene(
                 if state.get("agent_active") or _t.monotonic() < state.get("agent_speaking_until", 0):
                     state["last_agent_ts"] = _t.monotonic()
                     continue
+                # Agent First gate: the watchdog must NOT fire while the
+                # agent is still in on_enter waiting for the SIP participant
+                # to arrive + become active. Otherwise the 4s idle hangup
+                # tears the call down before the patient can connect. The
+                # gate releases when _on_item sets first_agent_turn=True
+                # (the moment the greeting is emitted). Cap with a 60s
+                # ceiling so a stuck on_enter can't pin the call forever.
+                if not state.get("first_agent_turn"):
+                    if _t.monotonic() - state["call_started_at"] < 60.0:
+                        state["last_agent_ts"] = _t.monotonic()
+                        continue
                 now = _t.monotonic()
                 # Goodbye-armed path wins because it's the most deterministic.
                 ga = state["goodbye_armed_at"]
