@@ -29,23 +29,12 @@ export function SupervisePageClient() {
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [date, setDate] = useState(() => isoToday());
-  // Default to "À venir 7 jours" so a manager who opens the page sees
-  // tomorrow's and next-week's tasks too — without this default, Wati's
-  // June 10 review showed an empty page because Sarah Cafearo and Sabina
-  // Moussa were both scheduled for the days AFTER today.
-  const [viewMode, setViewMode] = useState<"upcoming" | "single_day">("upcoming");
-  const lookahead = viewMode === "upcoming" ? 7 : 0;
 
   const refresh = useCallback(async () => {
     setErr(null);
     try {
-      const qs =
-        viewMode === "upcoming"
-          ? `scope=all&lookahead_days=${lookahead}`
-          : `scope=all&date=${date}`;
       const [t1, t2] = await Promise.all([
-        fetch(`/api/desk/tasks?${qs}`, { cache: "no-store" }),
+        fetch(`/api/desk/tasks?scope=all`, { cache: "no-store" }),
         fetch("/api/desk/agents", { cache: "no-store" }),
       ]);
       if (t1.ok) {
@@ -64,7 +53,7 @@ export function SupervisePageClient() {
     } finally {
       setLoading(false);
     }
-  }, [date, viewMode, lookahead]);
+  }, []);
 
   useEffect(() => {
     void refresh();
@@ -89,53 +78,27 @@ export function SupervisePageClient() {
     }
   }
 
+  const unassignedTasks = useMemo(() => tasks.filter((t) => !t.assigned_to), [tasks]);
+  const assignedTasks = useMemo(() => tasks.filter((t) => !!t.assigned_to), [tasks]);
   const counts = useMemo(() => {
     const total = tasks.length;
-    const unassigned = tasks.filter((t) => !t.assigned_to).length;
     const inProgress = tasks.filter((t) => t.status === "in_progress").length;
-    const done = tasks.filter((t) => t.status === "done").length;
-    return { total, unassigned, inProgress, done };
-  }, [tasks]);
+    return { total, unassigned: unassignedTasks.length, assigned: assignedTasks.length, inProgress };
+  }, [tasks, unassignedTasks, assignedTasks]);
 
   const activeAgents = useMemo(() => agents.filter((a) => a.is_active), [agents]);
 
   return (
     <div style={{ display: "grid", gap: 14 }}>
-      <div className="card" style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
-        <div role="group" aria-label={t("Vue")} style={{ display: "inline-flex", border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
-          <button
-            onClick={() => setViewMode("upcoming")}
-            className={viewMode === "upcoming" ? "" : "ghost"}
-            style={{ borderRadius: 0, borderRight: "1px solid var(--border)" }}
-          >
-            {t("À venir (7 jours)")}
-          </button>
-          <button
-            onClick={() => setViewMode("single_day")}
-            className={viewMode === "single_day" ? "" : "ghost"}
-            style={{ borderRadius: 0 }}
-          >
-            {t("Jour précis")}
-          </button>
-        </div>
-        {viewMode === "single_day" && (
-          <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13 }}>
-            <span className="muted">{t("Date")}</span>
-            <input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value || isoToday())}
-            />
-          </label>
-        )}
+      <div className="card" style={{ display: "flex", gap: 18, alignItems: "center", flexWrap: "wrap" }}>
         <div className="grid-kpi" style={{ display: "flex", gap: 18, flexWrap: "wrap" }}>
-          <Kpi label={t("Total")} value={counts.total} />
-          <Kpi label={t("Non assignés")} value={counts.unassigned} />
+          <Kpi label={t("À assigner")} value={counts.unassigned} />
+          <Kpi label={t("Assignés")} value={counts.assigned} />
           <Kpi label={t("En cours")} value={counts.inProgress} />
-          <Kpi label={t("Terminés")} value={counts.done} />
+          <Kpi label={t("Total ouverts")} value={counts.total} />
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-          <CreateTaskButton onCreated={refresh} defaultDate={date} />
+          <CreateTaskButton onCreated={refresh} defaultDate={isoToday()} />
           <button className="ghost" onClick={refresh}>{t("Rafraîchir")}</button>
         </div>
       </div>
@@ -146,85 +109,124 @@ export function SupervisePageClient() {
         </div>
       )}
 
-      <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-            <thead>
-              <tr style={{ background: "var(--bg-2)", textAlign: "left" }}>
-                <Th>{t("Contact")}</Th>
-                <Th>{t("Téléphone")}</Th>
-                <Th>{t("Qualification")}</Th>
-                <Th>{t("Raison")}</Th>
-                <Th>{viewMode === "upcoming" ? t("Quand") : t("Heure")}</Th>
-                <Th>{t("Statut")}</Th>
-                <Th>{t("Assigné à")}</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading && tasks.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="muted" style={{ padding: 16, textAlign: "center" }}>
-                    {t("Chargement…")}
-                  </td>
-                </tr>
-              ) : tasks.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="muted" style={{ padding: 16, textAlign: "center" }}>
-                    {viewMode === "upcoming"
-                      ? t("Aucune tâche à venir dans les 7 prochains jours.")
-                      : t("Aucune tâche pour cette date.")}
-                  </td>
-                </tr>
-              ) : (
-                tasks.map((task) => (
-                  <tr key={task.id} style={{ borderTop: "1px solid var(--border)" }}>
-                    <Td>{task.contact.display_name ?? "—"}</Td>
-                    <Td>{task.contact.e164 ?? "—"}</Td>
-                    <Td>
-                      {task.qualification ? (
-                        <span className="tag" style={{ fontSize: 11 }}>{task.qualification}</span>
-                      ) : (
-                        "—"
-                      )}
-                    </Td>
-                    <Td style={{ maxWidth: 240 }}>
-                      <span className="muted" style={{ fontSize: 12 }}>
-                        {truncate(task.transfer_reason, 60) ?? "—"}
-                      </span>
-                    </Td>
-                    <Td>{viewMode === "upcoming" ? formatRelative(task.scheduled_for) : formatTime(task.scheduled_for)}</Td>
-                    <Td>
-                      <span className="tag" style={{ fontSize: 11 }}>{task.status}</span>
-                    </Td>
-                    <Td>
-                      <select
-                        value={task.assigned_to ?? ""}
-                        disabled={busyId === task.id || task.status === "done"}
-                        onChange={(e) => reassign(task.id, e.target.value || null)}
-                      >
-                        <option value="">— {t("Pool")} —</option>
-                        {activeAgents.map((a) => (
-                          <option key={a.user_id} value={a.user_id}>
-                            {a.display_name}
-                          </option>
-                        ))}
-                        {/* Surface the currently-assigned user even if they're
-                            no longer an active agent — otherwise the dropdown
-                            would silently lose them. */}
-                        {task.assigned_to &&
-                          !activeAgents.some((a) => a.user_id === task.assigned_to) && (
-                            <option value={task.assigned_to}>
-                              {agents.find((a) => a.user_id === task.assigned_to)?.display_name ?? task.assigned_to.slice(0, 8)} (inactif)
-                            </option>
-                          )}
-                      </select>
-                    </Td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+      <TaskSection
+        title={t("À assigner")}
+        subtitle={t("Leads non encore pris en charge — assigne à un agent")}
+        tasks={unassignedTasks}
+        loading={loading}
+        busyId={busyId}
+        activeAgents={activeAgents}
+        allAgents={agents}
+        onReassign={reassign}
+        emptyText={t("Aucun lead en attente d'assignation. 🎉")}
+        accent="var(--accent)"
+      />
+
+      <TaskSection
+        title={t("Déjà assignés")}
+        subtitle={t("Leads pris en charge par un agent")}
+        tasks={assignedTasks}
+        loading={loading}
+        busyId={busyId}
+        activeAgents={activeAgents}
+        allAgents={agents}
+        onReassign={reassign}
+        emptyText={t("Aucun lead assigné actuellement.")}
+        accent="var(--muted)"
+      />
+    </div>
+  );
+}
+
+function TaskSection({
+  title, subtitle, tasks, loading, busyId, activeAgents, allAgents, onReassign, emptyText, accent,
+}: {
+  title: string;
+  subtitle: string;
+  tasks: SuperviseTask[];
+  loading: boolean;
+  busyId: string | null;
+  activeAgents: AgentRow[];
+  allAgents: AgentRow[];
+  onReassign: (id: string, userId: string | null) => Promise<void>;
+  emptyText: string;
+  accent: string;
+}) {
+  const t = useT();
+  return (
+    <div className="card" style={{ padding: 0, overflow: "hidden", borderLeft: `4px solid ${accent}` }}>
+      <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--border)" }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+          <h3 style={{ margin: 0, fontSize: 15 }}>{title}</h3>
+          <span className="muted" style={{ fontSize: 12 }}>{subtitle}</span>
+          <span style={{ marginLeft: "auto", fontSize: 12, color: "var(--muted)" }}>
+            {tasks.length} {tasks.length > 1 ? t("éléments") : t("élément")}
+          </span>
         </div>
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+          <thead>
+            <tr style={{ background: "var(--bg-2)", textAlign: "left" }}>
+              <Th>{t("Contact")}</Th>
+              <Th>{t("Téléphone")}</Th>
+              <Th>{t("Qualification")}</Th>
+              <Th>{t("Raison")}</Th>
+              <Th>{t("Reçu")}</Th>
+              <Th>{t("Statut")}</Th>
+              <Th>{t("Assigné à")}</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading && tasks.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="muted" style={{ padding: 16, textAlign: "center" }}>
+                  {t("Chargement…")}
+                </td>
+              </tr>
+            ) : tasks.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="muted" style={{ padding: 16, textAlign: "center" }}>{emptyText}</td>
+              </tr>
+            ) : (
+              tasks.map((task) => (
+                <tr key={task.id} style={{ borderTop: "1px solid var(--border)" }}>
+                  <Td>{task.contact.display_name ?? "—"}</Td>
+                  <Td>{task.contact.e164 ?? "—"}</Td>
+                  <Td>
+                    {task.qualification ? (
+                      <span className="tag" style={{ fontSize: 11 }}>{task.qualification}</span>
+                    ) : "—"}
+                  </Td>
+                  <Td style={{ maxWidth: 280 }}>
+                    <span className="muted" style={{ fontSize: 12 }}>{truncate(task.transfer_reason, 80) ?? "—"}</span>
+                  </Td>
+                  <Td><span className="muted" style={{ fontSize: 12 }}>{formatRelative(task.scheduled_for)}</span></Td>
+                  <Td>
+                    <span className="tag" style={{ fontSize: 11 }}>{task.status}</span>
+                  </Td>
+                  <Td>
+                    <select
+                      value={task.assigned_to ?? ""}
+                      disabled={busyId === task.id || task.status === "done"}
+                      onChange={(e) => onReassign(task.id, e.target.value || null)}
+                    >
+                      <option value="">— {t("Pool")} —</option>
+                      {activeAgents.map((a) => (
+                        <option key={a.user_id} value={a.user_id}>{a.display_name}</option>
+                      ))}
+                      {task.assigned_to && !activeAgents.some((a) => a.user_id === task.assigned_to) && (
+                        <option value={task.assigned_to}>
+                          {allAgents.find((a) => a.user_id === task.assigned_to)?.display_name ?? task.assigned_to.slice(0, 8)} (inactif)
+                        </option>
+                      )}
+                    </select>
+                  </Td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );

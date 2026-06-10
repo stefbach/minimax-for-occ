@@ -290,20 +290,16 @@ export async function POST(
       .in("status", ["pending", "in_progress"])
       .limit(1);
     if (!existingTasks || existingTasks.length === 0) {
-      // Schedule the callback for the next UK weekday at 09:00 UTC.
-      const next = new Date();
-      next.setUTCDate(next.getUTCDate() + 1);
-      while (next.getUTCDay() === 0 || next.getUTCDay() === 6) {
-        next.setUTCDate(next.getUTCDate() + 1);
-      }
-      next.setUTCHours(9, 0, 0, 0);
+      // Wati's June 10 pivot: do NOT pre-schedule the callback. The lead
+      // lands 'à traiter maintenant' so the manager can assign it; the
+      // agent who handles it sets the next follow-up date themselves.
       await sb.from("human_callback_tasks").insert({
         org_id: call.org_id,
         contact_id: target.contact_id,
         original_call_id: callId,
         qualification: "A PASSER A L'HUMAIN",
         transfer_reason: "auto from sync-lead (safety net)",
-        scheduled_for: next.toISOString(),
+        scheduled_for: new Date().toISOString(),
         status: "pending",
       });
     }

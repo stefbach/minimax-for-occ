@@ -655,11 +655,12 @@ def create_human_callback_task(
     original_call_id: Optional[str] = None,
     qualification: Optional[str] = None,
     reason: Optional[str] = None,
-    days_ahead: int = 1,
+    days_ahead: int = 0,  # kept for compat; ignored when 0 (= immediate)
 ) -> None:
-    """Insert a human_callback_tasks row scheduled J+`days_ahead` (rounded
-    to the next weekday, 09:00 UTC) so the contact appears in `/desk` for
-    a human follow-up.
+    """Insert a human_callback_tasks row scheduled for NOW so the contact
+    appears in the manager's 'à traiter' queue immediately. The human
+    agent who picks it up sets the actual follow-up date themselves via
+    /api/desk/tasks/[id]/complete with a next_callback_at.
 
     Dedupes: if the same contact already has a pending/in_progress task,
     no new row is created.
@@ -668,11 +669,12 @@ def create_human_callback_task(
         return
     try:
         from datetime import datetime, timedelta, timezone
-        scheduled = datetime.now(timezone.utc) + timedelta(days=days_ahead)
-        # Snap to the next weekday — no Saturday/Sunday callbacks.
-        while scheduled.weekday() >= 5:
-            scheduled += timedelta(days=1)
-        scheduled = scheduled.replace(hour=9, minute=0, second=0, microsecond=0)
+        # June 10 pivot: the system NO LONGER picks the callback date —
+        # leads land 'à traiter maintenant' so the manager can assign and
+        # the agent schedules the actual follow-up themselves. days_ahead
+        # is preserved as a legacy escape hatch for the rare case a caller
+        # wants to defer (e.g. a "rappel à 18h" RAPPEL).
+        scheduled = datetime.now(timezone.utc) + timedelta(days=max(0, days_ahead))
         with httpx.Client(timeout=httpx.Timeout(5.0), headers=_supabase_headers()) as c:
             if contact_id:
                 check = c.get(_supabase_url(

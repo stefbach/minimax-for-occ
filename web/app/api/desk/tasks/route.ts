@@ -75,33 +75,54 @@ export async function GET(req: Request) {
 
   const admin = supabaseServer();
 
+  // ── agent's own calendar view ─────────────────────────────────────────
+  if (scope === "mine") {
+    // Agent's assigned tasks across a [today, today + N days] horizon.
+    // Drives /mon-calendrier so an agent can see what's coming without
+    // scrolling everyone else's load.
+    const horizon = Math.min(180, Math.max(1, Number(url.searchParams.get("lookahead_days") ?? "30")));
+    const rangeEnd = endOfDayUtc(addDays(utcTodayDate(), horizon));
+    // Include "overdue" tasks (scheduled in the past but still open) so
+    // the agent sees what's late.
+    const { data: mineRaw, error: mErr } = await admin
+      .from("human_callback_tasks")
+      .select(TASK_SELECT)
+      .eq("org_id", orgId)
+      .eq("assigned_to", user.id)
+      .in("status", ["pending", "in_progress"])
+      .lte("scheduled_for", rangeEnd.toISOString())
+      .order("scheduled_for", { ascending: true })
+      .limit(500);
+    if (mErr) return NextResponse.json({ error: mErr.message }, { status: 500 });
+    return NextResponse.json({ mine: (mineRaw ?? []).map(rowToTask) });
+  }
+
   // ── supervisor "all" view ─────────────────────────────────────────────
   if (scope === "all") {
     const role = await currentRoleInOrg(orgId);
     if (!role || !SUPERVISOR_ROLES.has(role)) {
       return NextResponse.json({ error: "forbidden" }, { status: 403 });
     }
-    // Optional `lookahead_days` widens the window from a single day to
-    // [today, today + N days]. Lets a manager land on "everything coming
-    // up this week" instead of having to scrub the date picker forward
-    // when today is empty (Wati June 10: Sarah was scheduled for
-    // tomorrow, Sabina for the day after, and Summer the manager saw
-    // 'Aucune tâche' on the default today view).
-    const lookahead = Number(url.searchParams.get("lookahead_days") ?? "0");
-    const rangeEnd = lookahead > 0
-      ? endOfDayUtc(addDays(utcTodayDate(), Math.min(60, Math.max(1, lookahead))))
-      : dayEnd;
-    const rangeStart = lookahead > 0 ? startOfDayUtc(utcTodayDate()) : dayStart;
-    const { data: allRaw, error: aErr } = await admin
+    // Pivot June 10 (Wati): the manager doesn't filter by date — they
+    // want ALL pending/in_progress tasks split into two buckets:
+    //   - unassigned: nobody owns it yet (the manager assigns)
+    //   - assigned:   an agent owns it
+    // The date the lead is "scheduled for" is informational only; agents
+    // set their own next-callback dates when they complete a task.
+    const { data: allOpenRaw, error: aErr } = await admin
       .from("human_callback_tasks")
       .select(TASK_SELECT)
       .eq("org_id", orgId)
-      .gte("scheduled_for", rangeStart.toISOString())
-      .lte("scheduled_for", rangeEnd.toISOString())
+      .in("status", ["pending", "in_progress"])
       .order("scheduled_for", { ascending: true })
-      .limit(500);
+      .limit(1000);
     if (aErr) return NextResponse.json({ error: aErr.message }, { status: 500 });
-    return NextResponse.json({ all: (allRaw ?? []).map(rowToTask) });
+    const rows = (allOpenRaw ?? []).map(rowToTask);
+    return NextResponse.json({
+      all: rows,
+      unassigned: rows.filter((r) => !r.assigned_to),
+      assigned: rows.filter((r) => !!r.assigned_to),
+    });
   }
 
   // ── personal ──────────────────────────────────────────────────────────

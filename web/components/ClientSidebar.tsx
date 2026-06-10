@@ -47,14 +47,23 @@ interface NavItem {
 // Roles allowed to see the supervisor-only entries. Mirrors the
 // server-side gate in /api/desk/tasks/:id/reassign.
 const SUPERVISOR_ROLES: Role[] = ["super_admin", "owner", "admin", "manager", "supervisor"];
+// Roles that should NOT see the raw call log / campaign config — they
+// only need their personal task queue + calendar. Human agents fall
+// here; supervisors fall through with everything visible.
+const NON_AGENT_PAGES_FOR_AGENT_ROLE = new Set([
+  "/calls", "/campaigns", "/agents", "/teams", "/scripts", "/agents/library",
+  "/voices", "/workflows", "/flows", "/queues", "/numbers", "/numbers/health",
+  "/copilot",
+]);
 
 const NAV: NavItem[] = [
   // ─── OVERVIEW ───
   { href: "/start",     label: "Démarrage guidé",  icon: "✦", group: "Overview" },
   { href: "/dashboard", label: "Tableau d'analyse", icon: "▣", group: "Overview", module: "dashboard" },
   { href: "/copilot",   label: "Co-pilot manager", icon: "✸", group: "Overview", module: "copilot" },
-  { href: "/desk",          label: "Mon poste",    icon: "⌂", group: "Overview", module: "desk" },
-  { href: "/mes-patients",  label: "Mes patients", icon: "☰", group: "Overview", module: "desk" },
+  { href: "/desk",            label: "Mon poste",       icon: "⌂", group: "Overview", module: "desk" },
+  { href: "/mon-calendrier",  label: "Mon calendrier",  icon: "▦", group: "Overview", module: "desk" },
+  { href: "/mes-patients",    label: "Mes patients",    icon: "☰", group: "Overview", module: "desk" },
   { href: "/alerts",    label: "Alertes",          icon: "!", group: "Overview", module: "alerts" },
 
   // ─── CONFIGURATION ───
@@ -191,6 +200,11 @@ export function ClientSidebar() {
       // here too in case future entries forget to include it).
       if (role !== "super_admin") return false;
     }
+    // Pure 'agent' role: hide the operational/config pages that only
+    // matter to managers/supervisors (campaigns, calls log, scripts,
+    // numbers, etc.) — agents should see their own queue + calendar +
+    // patients only. Wati June 10: '/calls n'a aucun sens chez agent'.
+    if (role === "agent" && NON_AGENT_PAGES_FOR_AGENT_ROLE.has(n.href)) return false;
     return true;
   };
 
