@@ -1037,6 +1037,25 @@ def auto_qualify_call(call_id: Optional[str]) -> None:
                 contact_id = row.get("contact_id")
                 if not contact_id and isinstance(current_meta, dict):
                     contact_id = current_meta.get("contact_id")
+                # Wati June 10 v3: 82/94 RAPPEL calls had calls.contact_id
+                # NULL so create_human_callback_task was called with None.
+                # Resolve from the contacts table by phone as a last
+                # resort so EVERY callback-needing qualification produces
+                # a /desk task.
+                if not contact_id and to_e164:
+                    try:
+                        rc = c.get(
+                            _supabase_url(
+                                f"/rest/v1/contacts?org_id=eq.{org_id}"
+                                f"&e164=eq.{to_e164}&select=id&limit=1"
+                            )
+                        )
+                        if rc.is_success:
+                            rows_ct = rc.json() or []
+                            if rows_ct:
+                                contact_id = rows_ct[0].get("id")
+                    except Exception:
+                        logger.debug("contact lookup by e164 failed", exc_info=True)
                 create_human_callback_task(
                     org_id,
                     contact_id if isinstance(contact_id, str) else None,

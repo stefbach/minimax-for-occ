@@ -314,18 +314,10 @@ export function DeskWorkstation() {
         </div>
       )}
 
-      {/* Daily briefing — tells the agent at a glance how their day looks
-          and surfaces the "first lead to call" CTA so they don't have to
-          scan the column to find where to start. */}
-      <DailyBriefing
-        personalCount={personalCount}
-        sharedCount={sharedCount}
-        doneCount={doneCount}
-        firstPersonal={personal[0] ?? null}
-        firstShared={shared[0] ?? null}
-        focused={focused}
-        onStart={(item) => setFocused({ kind: item.kind, id: item.id })}
-      />
+      {/* Daily briefing removed June 10 v3 (Wati): now that the shared
+          pool is handled by Supervision, the briefing 'X leads dans le
+          pool partagé' is misleading. The Mes appels column already
+          shows the agent's queue. */}
 
       {/* 2x2 layout (Wati's spec):
             ┌───────────────────────┬───────────────────────┐
