@@ -13,6 +13,8 @@ import { TransferModal } from "./TransferModal";
 import { ContactPanel } from "./ContactPanel";
 import { ScriptPanel } from "./ScriptPanel";
 import { useToast } from "@/lib/use-toast";
+import { COUNTRIES, countryFor, countryFromE164 } from "@/lib/country-prefixes";
+import { CallNotePanel } from "./CallNotePanel";
 
 type PresenceStatus = "offline" | "available" | "busy" | "away";
 
@@ -98,7 +100,7 @@ export function Softphone() {
   // ↔ PSTN), not LiveKit. Sidesteps the Elastic SIP Trunking 403s and
   // gives the human softphone a real bidirectional audio path with the
   // destination. Same pattern as CloudTalk / Aircall.
-  const [dialNumber, setDialNumber] = useState("+33");
+  const [dialNumber, setDialNumber] = useState("+44");
   const [dialing, setDialing] = useState(false);
   const [dialError, setDialError] = useState<string | null>(null);
   // "idle" | "ringing" | "in-progress" — Twilio call state shown to the user.
@@ -107,6 +109,10 @@ export function Softphone() {
   >("idle");
   const [twilioMuted, setTwilioMuted] = useState(false);
   const twilioDeviceRef = useRef<unknown>(null);
+  // Tracked for the CallNotePanel — bumped to Date.now() when the
+  // softphone call ends so the qualification dialog can fire once.
+  const [lastCallEndedAt, setLastCallEndedAt] = useState<number | null>(null);
+  const [lastCallId, setLastCallId] = useState<string | null>(null);
   const twilioCallRef = useRef<unknown>(null);
   // Cached SDK module — dynamic-imported on first dial so the bundle stays
   // light for non-softphone users.
@@ -225,6 +231,12 @@ export function Softphone() {
         setTwilioMuted(false);
         twilioCallRef.current = null;
         patchCall("ended", "answered");
+        // Surface the qualification dialog (CallNotePanel) — only when the
+        // call actually connected, otherwise it's noise on a cancelled dial.
+        if (callId) {
+          setLastCallId(callId);
+          setLastCallEndedAt(Date.now());
+        }
       });
       call.on("cancel", () => {
         setTwilioCallState("idle");
@@ -261,7 +273,7 @@ export function Softphone() {
   }
 
   const padKey = useCallback((k: string) => {
-    setDialNumber((n) => (n === "+33" && k === "+" ? "+" : n + k));
+    setDialNumber((n) => (n === "+44" && k === "+" ? "+" : n + k));
   }, []);
 
   // Bootstrap: figure out if user has a human agent_handle.
@@ -585,11 +597,15 @@ export function Softphone() {
         <div className="card softphone-center">
           <h3>Composer un numéro</h3>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <CountryPrefix
+              value={dialNumber}
+              onChange={setDialNumber}
+            />
             <input
               type="tel"
               value={dialNumber}
               onChange={(e) => setDialNumber(e.target.value)}
-              placeholder="+33756123456"
+              placeholder="+44 7700 123456"
               style={{ flex: 1, fontSize: 16, padding: "10px 12px" }}
             />
             <button
@@ -599,6 +615,9 @@ export function Softphone() {
             >
               {dialing ? "Appel…" : "☎ Appeler"}
             </button>
+          </div>
+          <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
+            {countryFromE164(dialNumber)}
           </div>
           <div style={{
             display: "grid",
@@ -628,7 +647,7 @@ export function Softphone() {
             </button>
             <button
               className="ghost"
-              onClick={() => setDialNumber("+33")}
+              onClick={() => setDialNumber("+44")}
               style={{ padding: "6px 10px", fontSize: 13, marginLeft: 6 }}
             >
               Reset
@@ -726,6 +745,15 @@ export function Softphone() {
           {/* Phase 4: "Script en cours" — only renders if the active
               call has a script attached (campaign with script_id). */}
           <ScriptPanel callId={activeCall?.id ?? null} />
+
+          {/* Notes pendant l'appel + qualification dialog at hangup
+              (Wati June 10). Shown beside the softphone center column. */}
+          <CallNotePanel
+            e164={dialNumber}
+            callActive={twilioCallState !== "idle"}
+            lastCallEndedAt={lastCallEndedAt}
+            lastCallId={lastCallId}
+          />
         </div>
 
         <ContactPanel call={activeCall} />
@@ -744,6 +772,34 @@ export function Softphone() {
         />
       )}
     </div>
+  );
+}
+
+/**
+ * Country prefix dropdown shown to the LEFT of the dial input. Wati June 10:
+ * a manual softphone user picks a country (🇬🇧 +44 / 🇲🇺 +230 / …) which
+ * resets the dial field to that prefix; the auto country chip below the
+ * input keeps showing the flag as they keep typing.
+ */
+function CountryPrefix({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const current = countryFor(value);
+  return (
+    <select
+      value={current?.code ?? ""}
+      onChange={(e) => {
+        const c = COUNTRIES.find((x) => x.code === e.target.value);
+        if (c) onChange(c.prefix);
+      }}
+      style={{ fontSize: 14, padding: "10px 6px" }}
+      title="Indicatif pays"
+    >
+      {current === null && <option value="">🏳 Pays ?</option>}
+      {COUNTRIES.map((c) => (
+        <option key={c.code} value={c.code}>
+          {c.flag} {c.prefix}
+        </option>
+      ))}
+    </select>
   );
 }
 
