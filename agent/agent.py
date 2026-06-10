@@ -79,6 +79,14 @@ def _lookup_twilio_call_sid(call_id: Optional[str]) -> Optional[str]:
     watchdog so it can REST-end the Twilio leg the moment the agent decides
     to hang up — without this, SIP BYE propagation from LK Cloud to Twilio
     adds 8-12 seconds of dead silence on the patient's side.
+
+    Reads BOTH the top-level twilio_call_sid column (legacy) and the
+    metadata.twilio_call_sid path (where the deferred-stamp poll task
+    actually writes it on the Agent-First flow). Without this fallback,
+    Wati's +447359842582 case showed an 11s hangup billed by Twilio as
+    172s — the SID was sitting in metadata, the lookup queried the empty
+    top-level column, got NULL, and skipped the REST end-call.
+
     Returns None on any failure (the caller treats that as 'skip')."""
     if not call_id:
         return None
@@ -88,10 +96,17 @@ def _lookup_twilio_call_sid(call_id: Optional[str]) -> Optional[str]:
             return None
         import httpx as _httpx
         with _httpx.Client(timeout=_httpx.Timeout(3.0), headers=_hdrs()) as c:
-            r = c.get(_url(f"/rest/v1/calls?id=eq.{call_id}&select=twilio_call_sid"))
+            r = c.get(_url(f"/rest/v1/calls?id=eq.{call_id}&select=twilio_call_sid,metadata"))
             r.raise_for_status()
             rows = r.json() or []
-            sid = rows[0].get("twilio_call_sid") if rows else None
+            if not rows:
+                return None
+            row = rows[0]
+            sid = row.get("twilio_call_sid")
+            if not (isinstance(sid, str) and sid):
+                meta = row.get("metadata") or {}
+                if isinstance(meta, dict):
+                    sid = meta.get("twilio_call_sid")
             return sid if isinstance(sid, str) and sid else None
     except Exception:
         return None
@@ -2768,9 +2783,27 @@ async def entrypoint(ctx: JobContext) -> None:
                         attrs = dict(getattr(participant, "attributes", None) or {})
                         sid = attrs.get("sip.twilio.callSid") or attrs.get("sip.twilio.callsid")
                         if sid:
+                            # Stamp BOTH the top-level column and metadata
+                            # so the hangup REST end-call lookup works
+                            # whether it reads the column or the JSON path
+                            # (Wati's +447359842582 case: agent hung up at
+                            # 11s but Twilio billed 2:52 because the lookup
+                            # read the empty top-level column and never
+                            # fired the REST end-call).
                             await asyncio.to_thread(
                                 _ucm, call_id, {"twilio_call_sid": str(sid)},
                             )
+                            try:
+                                from db_writes import _supabase_headers as _h, _supabase_url as _u
+                                import httpx as _hx
+                                with _hx.Client(timeout=_hx.Timeout(3.0), headers=_h()) as _c:
+                                    _c.patch(
+                                        _u(f"/rest/v1/calls?id=eq.{call_id}"),
+                                        headers={**_h(), "Content-Type": "application/json", "Prefer": "return=minimal"},
+                                        json={"twilio_call_sid": str(sid)},
+                                    )
+                            except Exception:
+                                clog.debug("twilio_call_sid top-level stamp failed", exc_info=True)
                             clog.info("twilio_call_sid stamped late (deferred poll): %s", sid)
                             return
                         await asyncio.sleep(1.0)
