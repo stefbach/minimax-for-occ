@@ -12,6 +12,28 @@ let activeDials = 0;
 
 async function scheduleTick() {
   const sb = supabase();
+
+  // Reap stale 'dialing' targets. dialTarget flips a target to 'dialing'
+  // in-process; if the machine restarts mid-call (deploy, crash), the flip
+  // back never happens and the orphan rows permanently occupy concurrency
+  // slots — after the June 10 deploy, 4 stale rows == max_concurrency and
+  // the whole campaign silently stopped dialing. A live dial never stays
+  // in 'dialing' longer than ring(25s)+call; 10 minutes is a safe bound.
+  try {
+    const cutoff = new Date(Date.now() - 10 * 60_000).toISOString();
+    const { data: reaped } = await sb
+      .from("campaign_targets")
+      .update({ status: "pending", next_attempt_at: new Date().toISOString() })
+      .eq("status", "dialing")
+      .lt("last_attempt_at", cutoff)
+      .select("id");
+    if (reaped && reaped.length > 0) {
+      console.warn(`[scheduler] reaped ${reaped.length} stale dialing target(s) back to pending`);
+    }
+  } catch (e) {
+    console.error("[scheduler] stale-dialing reap failed:", (e as Error)?.message);
+  }
+
   const { data: campaigns, error } = await sb
     .from("campaigns")
     .select("id,state,max_concurrency,schedule,mode,metadata,data_table_id,org_id")

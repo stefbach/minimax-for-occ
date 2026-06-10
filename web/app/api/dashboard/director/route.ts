@@ -170,16 +170,8 @@ export async function GET(request: Request) {
       && callMatchesSystem((r.metadata as { source?: string } | null)?.source, system),
   );
 
-  // KPIs
-  const total = rows.length;
-  const answered = rows.filter((r) => r.answered_at).length;
-  const notAnswered = total - answered;
-  const answeredDur = rows
-    .filter((r) => r.answered_at)
-    .reduce((a, r) => a + (r.duration_secs ?? 0), 0);
-  const over = rows.filter((r) => (r.duration_secs ?? 0) > threshold).length;
-
-  // Qualification bucketing — one pass.
+  // Qualification bucketing — one pass (computed before the KPIs because
+  // the décrochés KPI depends on the bucket, see below).
   const qcount: Record<QualBucket, number> = {
     rdv_confirme: 0, passer_humain: 0, rappel: 0, pas_interesse: 0,
     pas_de_reponse: 0, repondeur: 0, faux_numero: 0, non_eligible: 0,
@@ -191,6 +183,25 @@ export async function GET(request: Request) {
     qcount[b] += 1;
     buckets.push({ row: r, bucket: b });
   }
+
+  // KPIs.
+  //
+  // "Décroché" can NOT be derived from answered_at alone on UK mobile
+  // routes: carriers like Three answer the SIP leg at the network level in
+  // <1s and play the ringback in-band, so Path A stamps answered_at on
+  // virtually every dial — the dashboard showed "37 · 100% décrochés"
+  // while a third of those calls were voicemails and unanswered rings.
+  // A call only counts as décroché when a HUMAN outcome backs it up:
+  // answered_at set AND the qualification isn't PAS DE REPONSE / REPONDEUR.
+  const humanAnswered = (b: { row: CallRow; bucket: QualBucket }) =>
+    !!b.row.answered_at && b.bucket !== "pas_de_reponse" && b.bucket !== "repondeur";
+  const total = rows.length;
+  const answered = buckets.filter(humanAnswered).length;
+  const notAnswered = total - answered;
+  const answeredDur = buckets
+    .filter(humanAnswered)
+    .reduce((a, b) => a + (b.row.duration_secs ?? 0), 0);
+  const over = rows.filter((r) => (r.duration_secs ?? 0) > threshold).length;
 
   // Inbound block — independent of the direction filter for this card.
   const inboundRows = rows.filter((r) => isInbound(r.direction));
