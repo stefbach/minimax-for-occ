@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useT } from "@/lib/i18n";
+import { PatientDrawer } from "./PatientDrawer";
 
 interface PatientRow {
   contact_id: string | null;
@@ -29,6 +30,9 @@ export function MyPatientsClient() {
   const [qualification, setQualification] = useState("");
   const [offset, setOffset] = useState(0);
   const [sortBy, setSortBy] = useState<"updated" | "name" | "count">("updated");
+  // CRM-style drawer (Wati June 10 — 'rendre lead cliquable pour
+  // voir/editer fiche comme crm').
+  const [openContact, setOpenContact] = useState<{ id: string; name: string | null; e164: string | null } | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -165,7 +169,19 @@ export function MyPatientsClient() {
               ) : (
                 sortedRows.map((p) => (
                   <tr key={p.last_task_id} style={{ borderTop: "1px solid var(--border)" }}>
-                    <Td>{p.display_name || "—"}</Td>
+                    <Td>
+                      {p.contact_id ? (
+                        <button
+                          onClick={() => setOpenContact({ id: p.contact_id!, name: p.display_name, e164: p.e164 })}
+                          className="ghost"
+                          style={{ padding: 0, border: "none", background: "transparent", color: "var(--accent)", textDecoration: "underline", cursor: "pointer", textAlign: "left" }}
+                        >
+                          {p.display_name || "—"}
+                        </button>
+                      ) : (
+                        p.display_name || "—"
+                      )}
+                    </Td>
                     <Td>{p.e164 || "—"}</Td>
                     <Td>
                       {p.last_qualification ? (
@@ -218,6 +234,15 @@ export function MyPatientsClient() {
           </button>
         </div>
       </div>
+
+      {openContact && (
+        <PatientDrawer
+          contactId={openContact.id}
+          displayName={openContact.name}
+          e164={openContact.e164}
+          onClose={() => setOpenContact(null)}
+        />
+      )}
     </div>
   );
 }

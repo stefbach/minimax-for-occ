@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useT } from "@/lib/i18n";
+import { PatientDrawer } from "./PatientDrawer";
 
 interface SuperviseTask {
   id: string;
@@ -29,6 +30,10 @@ export function SupervisePageClient() {
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  // Patient drawer opens when the manager clicks a contact name in either
+  // section (À assigner / Déjà assignés). Wati June 10 — same CRM-style
+  // detail used on /mes-patients.
+  const [openContact, setOpenContact] = useState<{ id: string; name: string | null; e164: string | null; headline?: string } | null>(null);
 
   const refresh = useCallback(async () => {
     setErr(null);
@@ -118,6 +123,16 @@ export function SupervisePageClient() {
         activeAgents={activeAgents}
         allAgents={agents}
         onReassign={reassign}
+        onOpenContact={(t) => {
+          if (t.contact.id) {
+            setOpenContact({
+              id: t.contact.id,
+              name: t.contact.display_name,
+              e164: t.contact.e164,
+              headline: t.qualification ?? undefined,
+            });
+          }
+        }}
         emptyText={t("Aucun lead en attente d'assignation. 🎉")}
         accent="var(--accent)"
       />
@@ -131,15 +146,35 @@ export function SupervisePageClient() {
         activeAgents={activeAgents}
         allAgents={agents}
         onReassign={reassign}
+        onOpenContact={(t) => {
+          if (t.contact.id) {
+            setOpenContact({
+              id: t.contact.id,
+              name: t.contact.display_name,
+              e164: t.contact.e164,
+              headline: t.qualification ?? undefined,
+            });
+          }
+        }}
         emptyText={t("Aucun lead assigné actuellement.")}
         accent="var(--muted)"
       />
+
+      {openContact && (
+        <PatientDrawer
+          contactId={openContact.id}
+          displayName={openContact.name}
+          e164={openContact.e164}
+          headline={openContact.headline}
+          onClose={() => setOpenContact(null)}
+        />
+      )}
     </div>
   );
 }
 
 function TaskSection({
-  title, subtitle, tasks, loading, busyId, activeAgents, allAgents, onReassign, emptyText, accent,
+  title, subtitle, tasks, loading, busyId, activeAgents, allAgents, onReassign, onOpenContact, emptyText, accent,
 }: {
   title: string;
   subtitle: string;
@@ -149,6 +184,7 @@ function TaskSection({
   activeAgents: AgentRow[];
   allAgents: AgentRow[];
   onReassign: (id: string, userId: string | null) => Promise<void>;
+  onOpenContact: (task: SuperviseTask) => void;
   emptyText: string;
   accent: string;
 }) {
@@ -191,7 +227,19 @@ function TaskSection({
             ) : (
               tasks.map((task) => (
                 <tr key={task.id} style={{ borderTop: "1px solid var(--border)" }}>
-                  <Td>{task.contact.display_name ?? "—"}</Td>
+                  <Td>
+                    {task.contact.id ? (
+                      <button
+                        onClick={() => onOpenContact(task)}
+                        className="ghost"
+                        style={{ padding: 0, border: "none", background: "transparent", color: "var(--accent)", textDecoration: "underline", cursor: "pointer", textAlign: "left", fontSize: 13 }}
+                      >
+                        {task.contact.display_name ?? "—"}
+                      </button>
+                    ) : (
+                      task.contact.display_name ?? "—"
+                    )}
+                  </Td>
                   <Td>{task.contact.e164 ?? "—"}</Td>
                   <Td>
                     {task.qualification ? (
