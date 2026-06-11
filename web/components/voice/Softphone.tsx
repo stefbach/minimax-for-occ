@@ -83,7 +83,28 @@ export function Softphone() {
   // outbound call card.
   const [dialContactName, setDialContactName] = useState<string | null>(null);
 
-  const [status, setStatus] = useState<PresenceStatus>("offline");
+  // Status persists across navigation via localStorage — Wati 2026-06-11:
+  // Summer kept hitting "Activer mon poste" after every navigation to
+  // /mes-patients then back, because state defaulted to "offline" on mount.
+  // We seed from localStorage and write through on every change so the
+  // active session survives client-side route changes AND full reloads.
+  const [status, setStatus] = useState<PresenceStatus>(() => {
+    if (typeof window === "undefined") return "offline";
+    const saved = window.localStorage.getItem("axon.softphone.status");
+    if (saved === "available" || saved === "busy" || saved === "away") return saved;
+    return "offline";
+  });
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem("axon.softphone.status", status);
+  }, [status]);
+
+  // Active-call guards (Wati 2026-06-11): navigating away from /desk while a
+  // call is connected unmounts the Softphone and tears down the WebRTC
+  // session — the patient gets dropped mid-conversation. Two safety nets:
+  //   1. beforeunload — covers tab close / refresh / hard nav.
+  //   2. Document-level click capture on <a> tags + a sidebar nav guard
+  //      (added below) — covers Next.js client-side navigations.
   const [calls, setCalls] = useState<CallRow[]>([]);
   const [activeCall, setActiveCall] = useState<CallRow | null>(null);
   const [conn, setConn] = useState<Conn | null>(null);
@@ -114,6 +135,66 @@ export function Softphone() {
   const [lastCallEndedAt, setLastCallEndedAt] = useState<number | null>(null);
   const [lastCallId, setLastCallId] = useState<string | null>(null);
   const twilioCallRef = useRef<unknown>(null);
+
+  // Derived: is there a live call right now? Either an inbound/transferred
+  // call we're audio-bridged into (conn), or an outbound Twilio dial in a
+  // non-idle state. Used by the navigation guards above + the warning
+  // banner rendered in the toolbar.
+  const hasActiveCall = Boolean(conn) || twilioCallState !== "idle";
+
+  // beforeunload: warns on tab close / refresh while a call is live.
+  // Browsers ignore the custom message but still show their generic
+  // "Leave site?" prompt — enough to catch accidental closes.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!hasActiveCall) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [hasActiveCall]);
+
+  // Client-side navigation guard: any same-origin <a> click (sidebar
+  // links, contact rows, "Ouvrir" buttons on /mes-patients) gets a
+  // confirm() prompt while a call is live. We capture on the document
+  // so it fires BEFORE Next.js's router takes over. External links and
+  // new-tab clicks (Ctrl/⌘) are left alone.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!hasActiveCall) return;
+    const onClick = (e: MouseEvent) => {
+      if (e.defaultPrevented) return;
+      if (e.button !== 0) return;
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      const anchor = target?.closest?.("a") as HTMLAnchorElement | null;
+      if (!anchor) return;
+      // Stay-on-page links (anchors, javascript:, mailto:, tel:) don't
+      // tear down the React tree — skip the prompt.
+      const href = anchor.getAttribute("href") ?? "";
+      if (!href || href.startsWith("#") || href.startsWith("javascript:") || href.startsWith("mailto:") || href.startsWith("tel:")) return;
+      if (anchor.target && anchor.target !== "_self") return;
+      try {
+        const url = new URL(anchor.href, window.location.href);
+        if (url.origin !== window.location.origin) return;
+        if (url.pathname === window.location.pathname && url.search === window.location.search) return;
+      } catch {
+        return;
+      }
+      const ok = window.confirm(
+        "Un appel est en cours. Si tu changes de page, l'appel sera coupé. Continuer quand même ?",
+      );
+      if (!ok) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    document.addEventListener("click", onClick, true);
+    return () => document.removeEventListener("click", onClick, true);
+  }, [hasActiveCall]);
+
   // Cached SDK module — dynamic-imported on first dial so the bundle stays
   // light for non-softphone users.
   const twilioSdkRef = useRef<typeof import("@twilio/voice-sdk") | null>(null);
