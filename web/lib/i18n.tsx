@@ -152,6 +152,16 @@ const EN: Record<string, string> = {
   "Tous": "All",
   "↘ Entrants": "↘ Inbound",
   "↗ Sortants": "↗ Outbound",
+  // ── NHS S2: documents cliniques (parité legacy) ──
+  "Documents à produire par la clinique": "Documents to be produced by the clinic",
+  "Rapport médical": "Medical report",
+  "Lettre « Undue Delay »": "Undue Delay letter",
+  "Déclaration S2 fournisseur": "S2 provider declaration",
+  "Devis médical": "Medical estimate",
+  "Généré": "Generated",
+  "Générée": "Generated",
+  "Signée par la clinique": "Signed by clinic",
+  "Devis de la clinique": "Clinic estimate",
   // ── NHS S2: files coordinateurs (parité legacy) ──
   "Files coordinateurs": "Coordinator queues",
   "Aucun patient assigné": "No patients assigned",

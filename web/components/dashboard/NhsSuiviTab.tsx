@@ -316,6 +316,43 @@ export function NhsSuiviTab() {
         </div>
       </div>
 
+      {/* Documents à produire par la clinique — parité legacy. */}
+      <div>
+        <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 8 }}>
+          🩺 {t("Documents à produire par la clinique")}
+        </div>
+        <div className="grid-kpi">
+          <CommCard
+            label={t("Rapport médical")}
+            value={data.clinic_docs.medical_report}
+            hint={t("Généré")}
+            tone="var(--info)"
+            icon="📄"
+          />
+          <CommCard
+            label={t("Lettre « Undue Delay »")}
+            value={data.clinic_docs.undue_delay_letter}
+            hint={t("Générée")}
+            tone="var(--info)"
+            icon="📄"
+          />
+          <CommCard
+            label={t("Déclaration S2 fournisseur")}
+            value={data.clinic_docs.s2_provider_declaration}
+            hint={t("Signée par la clinique")}
+            tone="var(--warn)"
+            icon="✈"
+          />
+          <CommCard
+            label={t("Devis médical")}
+            value={data.clinic_docs.medical_estimate}
+            hint={t("Devis de la clinique")}
+            tone="var(--warn)"
+            icon="📄"
+          />
+        </div>
+      </div>
+
       {/* Suivi NHS S2 (après soumission) */}
       <div>
         <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 8 }}>

@@ -41,6 +41,14 @@ export type NhsSuiviResponse = {
   // Files coordinateurs — assignations humaines (table dashboard_assignments,
   // partagée avec le dashboard legacy : mêmes files Summer / Rain / Stormi).
   coordinators: NhsCoordinatorQueue[];
+  // Documents à produire par la clinique (table nhs_dossiers, partagée avec
+  // le dashboard legacy — colonnes doc_*).
+  clinic_docs: {
+    medical_report: number;
+    undue_delay_letter: number;
+    s2_provider_declaration: number;
+    medical_estimate: number;
+  };
   comms: {
     email_j0_sent: number;
     email_j2_sent: number;
@@ -383,6 +391,27 @@ export async function GET(request: Request) {
   }
   const coordinators = COORDINATORS.map((n) => queues.get(n.toLowerCase())!);
 
+  // ── Documents à produire par la clinique ──────────────────────────────
+  // Counts from the legacy nhs_dossiers table. Column types vary (boolean /
+  // text / URL), so rows are fetched and truthiness evaluated in memory.
+  const clinicDocs = { medical_report: 0, undue_delay_letter: 0, s2_provider_declaration: 0, medical_estimate: 0 };
+  try {
+    const { data: dossiers } = await sb
+      .from("nhs_dossiers")
+      .select("doc_medical_report, doc_undue_delay_letter, doc_s2_provider_declaration, doc_detailed_medical_estimate")
+      .limit(20000);
+    const truthy = (v: unknown) =>
+      v === true || (typeof v === "string" && v.trim() !== "" && !/^(false|no|non|0)$/i.test(v.trim())) || typeof v === "number" && v > 0;
+    for (const d of (dossiers ?? []) as Array<Record<string, unknown>>) {
+      if (truthy(d["doc_medical_report"])) clinicDocs.medical_report += 1;
+      if (truthy(d["doc_undue_delay_letter"])) clinicDocs.undue_delay_letter += 1;
+      if (truthy(d["doc_s2_provider_declaration"])) clinicDocs.s2_provider_declaration += 1;
+      if (truthy(d["doc_detailed_medical_estimate"])) clinicDocs.medical_estimate += 1;
+    }
+  } catch {
+    /* nhs_dossiers absent — zeros */
+  }
+
   const body: NhsSuiviResponse = {
     has_data: true,
     monthly_objective: MONTHLY_OBJECTIVE,
@@ -391,6 +420,7 @@ export async function GET(request: Request) {
     ready_to_submit: readyToSubmit,
     stalled: { count: stalledCount, patients: stalledPatients.slice(0, 100) },
     coordinators,
+    clinic_docs: clinicDocs,
     comms: {
       email_j0_sent: emailJ0,
       email_j2_sent: emailJ2,
@@ -429,6 +459,7 @@ function zeros(): NhsSuiviResponse {
     ready_to_submit: 0,
     stalled: { count: 0, patients: [] },
     coordinators: ["Summer", "Rain", "Stormi"].map((name) => ({ name, patients: [] })),
+    clinic_docs: { medical_report: 0, undue_delay_letter: 0, s2_provider_declaration: 0, medical_estimate: 0 },
     comms: { email_j0_sent: 0, email_j2_sent: 0, whatsapp_sent: 0, responses_received: 0 },
     file_status: { no_document: 0, partial: 0, complete: 0, no_response_3d: 0 },
     nhs_tracking: { submitted: 0, in_review: 0, accepted: 0, rejected: 0 },
