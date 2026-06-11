@@ -72,7 +72,16 @@ function formatRelative(ts: string): string {
   return `${Math.floor(h / 24)}j`;
 }
 
-export function Softphone() {
+// Compact mode hides the dial pad / calls list / transfer panel and shows
+// only a slim presence bar with the active call's controls. Used by the
+// layout-level persistent shell so the softphone stays mounted across
+// route changes without dominating the viewport on pages that aren't /desk.
+export interface SoftphoneProps {
+  compact?: boolean;
+  onExpand?: () => void;
+}
+
+export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
   const toast = useToast();
   const searchParams = useSearchParams();
   const [bootstrapping, setBootstrapping] = useState(true);
@@ -606,10 +615,24 @@ export function Softphone() {
 
   // ── Render guards ──────────────────────────────────────────────────────
   if (bootstrapping) {
+    // In compact mode the layout-level sticky bar shows just a thin loader
+    // so it doesn't dominate every page during the initial bootstrap.
+    if (compact) {
+      return (
+        <div style={{ padding: "8px 14px", fontSize: 12, color: "var(--muted)", borderBottom: "1px solid var(--border)", background: "var(--panel)" }}>
+          Chargement du poste…
+        </div>
+      );
+    }
     return <div className="card"><p className="muted">Chargement du poste…</p></div>;
   }
 
   if (!handle) {
+    // Compact + no handle = a non-agent (manager / admin / supervisor) who
+    // doesn't have a softphone configured. Don't pollute every page with a
+    // "Poste non activé" bar they can't act on. The full /desk page still
+    // shows the proper setup card via the expanded mode.
+    if (compact) return null;
     return (
       <div className="card" style={{ maxWidth: 560 }}>
         <h3>Votre poste n&apos;est pas encore configuré</h3>
@@ -631,6 +654,119 @@ export function Softphone() {
             {registering ? "Activation…" : "Activer mon poste"}
           </button>
         </div>
+      </div>
+    );
+  }
+
+  // ── Compact bar (layout-level persistent shell) ──────────────────────
+  // Renders a single slim row with status + active-call summary + the
+  // controls an agent needs without opening the full panel: mute, hangup,
+  // and an "Étendre" button that toggles the full UI.
+  if (compact) {
+    const inTwilioCall = twilioCallState !== "idle";
+    return (
+      <div
+        className="softphone-compact"
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          padding: "8px 14px",
+          background: "var(--panel)",
+          borderBottom: "1px solid var(--border)",
+          flexWrap: "wrap",
+          minHeight: 48,
+        }}
+        role="region"
+        aria-label="Softphone — barre persistante"
+      >
+        <span
+          aria-hidden
+          style={{
+            width: 10,
+            height: 10,
+            borderRadius: 999,
+            background: statusColor(status),
+            boxShadow: `0 0 0 3px color-mix(in srgb, ${statusColor(status)} 25%, transparent)`,
+            flex: "0 0 auto",
+          }}
+        />
+        <strong style={{ fontSize: 13 }}>{handle.display_name}</strong>
+        <select
+          value={status}
+          onChange={(e) => setStatus(e.target.value as PresenceStatus)}
+          style={{ fontSize: 12, padding: "3px 6px" }}
+          aria-label="Statut de présence"
+        >
+          {STATUSES.map((s) => (
+            <option key={s} value={s}>{s}</option>
+          ))}
+        </select>
+
+        {/* Active call inline indicator */}
+        {(inTwilioCall || activeCall) && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: 8 }}>
+            <span
+              aria-hidden
+              style={{
+                width: 8, height: 8, borderRadius: 999,
+                background: "var(--good)",
+                animation: "pulse 1.5s ease-in-out infinite",
+              }}
+            />
+            <span style={{ fontSize: 13, fontWeight: 600 }}>
+              {inTwilioCall
+                ? twilioCallState === "ringing" ? "Sonne…" : "En appel"
+                : "Appel actif"}
+            </span>
+            <span className="muted" style={{ fontSize: 12 }}>
+              {inTwilioCall
+                ? dialContactName || dialNumber
+                : activeCall?.from_e164 || activeCall?.to_e164 || ""}
+            </span>
+            {inTwilioCall && (
+              <>
+                <button
+                  className="ghost"
+                  onClick={toggleTwilioMute}
+                  style={{ padding: "4px 9px", fontSize: 12 }}
+                  aria-label={twilioMuted ? "Démute" : "Mute"}
+                >
+                  {twilioMuted ? "🔈" : "🔇"}
+                </button>
+                <button
+                  onClick={hangupTwilio}
+                  style={{
+                    padding: "4px 10px",
+                    fontSize: 12,
+                    background: "var(--bad)",
+                    color: "white",
+                    border: "none",
+                    borderRadius: 5,
+                  }}
+                >
+                  ☎ Raccrocher
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Expand toggle — opens the full softphone overlay. */}
+        <button
+          className="ghost"
+          onClick={onExpand}
+          style={{ marginLeft: "auto", padding: "5px 11px", fontSize: 12 }}
+          aria-label="Ouvrir le softphone complet"
+        >
+          ⤢ Étendre
+        </button>
+        <style>{`
+          @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+          }
+        `}</style>
       </div>
     );
   }
