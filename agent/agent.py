@@ -370,6 +370,14 @@ def _stt_for(agent: Optional[AxonAgent]) -> assemblyai.STT:
 
     candidate: dict = {
         "model": model,
+        # Wati June 10 v7 — force English-only on OCC prod. Wilma Taylor
+        # said 'very good' in English; AssemblyAI multilingual mis-detected
+        # 'muy bien' (Spanish) and 'A ver' (German) on the short utterances
+        # because it has no English bias, so the agent replied 'I only
+        # speak English on this line' and lost the patient. UK prospection
+        # is English-only — pinning the language eliminates the entire
+        # class of language-detection misfires.
+        "language_code": os.getenv("ASSEMBLYAI_LANGUAGE", "en"),
         # The LiveKit Cloud agent runs in eu-central. AssemblyAI's default
         # endpoint is US — route to their EU streaming endpoint to cut
         # ~100-200ms of cross-Atlantic RTT off every transcription.
@@ -1963,6 +1971,42 @@ def _install_call_hygiene(
                     await _hangup(
                         f"idle {effective_idle:.0f}s — likely voicemail or dropped audio"
                     )
+                    return
+                # Post-greeting / pre-user-speech voicemail catcher
+                # (Wati June 10 v7 — Joanne Houston 42 s, Winifred Jonathan
+                # 41 s). On UK carriers like EE/Three the network rings
+                # 50+ s with in-band ringback before voicemail picks up.
+                # The agent's canned greeting fires (first_agent_turn=True)
+                # but no STT word arrives because tones aren't speech,
+                # and the standard idle path was somehow not catching
+                # them. Hard cap: if the agent has spoken at least once
+                # but the customer never produced a single transcript
+                # within VOICEMAIL_AFTER_GREETING_SECS (default 8 s),
+                # kill the call and qualify as REPONDEUR.
+                vm_after_greet = float(os.getenv("VOICEMAIL_AFTER_GREETING_SECS", "8.0"))
+                if (
+                    state.get("first_agent_turn")
+                    and not state.get("user_has_spoken")
+                    and state.get("first_speech_ts") is None
+                    and now - state.get("last_agent_ts", state["call_started_at"]) >= vm_after_greet
+                ):
+                    clog.info(
+                        "watchdog: %.0f s after canned greeting with no user STT — REPONDEUR",
+                        vm_after_greet,
+                    )
+                    # Mark for REPONDEUR before _hangup so auto_qualify_call
+                    # picks it up cleanly.
+                    try:
+                        cid_vm = getattr(ctx, "_call_id", None)
+                        if cid_vm:
+                            await asyncio.to_thread(
+                                _ucm, cid_vm,
+                                {"qualification": "REPONDEUR",
+                                 "qualification_source": "post_greeting_no_stt"},
+                            )
+                    except Exception:
+                        clog.debug("post-greeting REPONDEUR stamp failed", exc_info=True)
+                    await _hangup("post-greeting no-STT ceiling — voicemail suspected")
                     return
         except asyncio.CancelledError:
             pass
