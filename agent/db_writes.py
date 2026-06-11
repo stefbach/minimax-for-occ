@@ -961,8 +961,15 @@ def auto_qualify_call(call_id: Optional[str]) -> None:
                 qual = "REPONDEUR"
                 qualification_source = "auto_inferred"
             elif duration <= 15:
-                qual = "PAS DE REPONSE"
-                qualification_source = "auto_inferred"
+                # We reach this branch only when any_user_speech=True (the
+                # `not any_user_speech` branch above caught the silent
+                # ones). The patient DID say something — even just "Hello?"
+                # — before hanging up. Calling that PAS DE REPONSE is wrong:
+                # Wati flagged Kerrianne Griffiths (0:13, "Hello.") on
+                # June 11 — she clearly picked up. Treat as RAPPEL so the
+                # campaign retries instead of permanently writing her off.
+                qual = "RAPPEL"
+                qualification_source = "short_pickup_with_speech"
             elif duration < 30:
                 # Short engagement: don't lock the patient out unless
                 # they've already been bothered N_GIVEUP times.
