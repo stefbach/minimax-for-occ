@@ -8,11 +8,10 @@
  * and dropped any live call mid-sentence.
  *
  * Key invariant: ONE <Softphone /> element, always mounted at the layout
- * level. We toggle its `compact` prop to switch between:
- *   - Compact mode (sticky bar at the top of every page).
- *   - Full mode (slide-in drawer from the right) — same component
- *     instance, so the Twilio Device + calls list survive the visual
- *     swap intact.
+ * level. We toggle the parent wrapper's visual mode via CSS (sticky bar
+ * vs. fixed drawer); the Softphone itself is always rendered in the same
+ * JSX slot under a stable key, so React's reconciler keeps the same
+ * fiber across every toggle. Twilio Device + calls list survive intact.
  *
  * DeskWorkstation no longer renders its own <Softphone />. It dispatches a
  * `axon:softphone:expand` event on mount, which we listen for here so
@@ -52,80 +51,100 @@ export function PersistentSoftphoneShell() {
     return () => window.removeEventListener("keydown", onKey);
   }, [expanded]);
 
-  // ONE Softphone instance only — its parent wrapper toggles between
-  // "in sticky bar" and "in drawer" styling. The Softphone component's
-  // internal state (Twilio Device ref, presence, calls) lives on its
-  // useRef/useState slots which React preserves across prop changes —
-  // calls don't drop when the user clicks Étendre / Réduire.
   return (
     <>
-      {/* Overlay backdrop — only visible when expanded. Clicking it closes
-          the drawer (unless the click is inside the drawer itself). */}
-      {expanded && (
-        <div
-          aria-hidden
-          onClick={() => setExpanded(false)}
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,0.4)",
-            zIndex: 59,
-          }}
-        />
-      )}
-
-      {/* The Softphone host. CSS swaps between sticky-bar and drawer
-          positioning; the component element stays the same so React never
-          unmounts it. */}
+      {/* Backdrop overlay — always in the DOM but only visible when expanded.
+          Pointer events disabled when hidden so it doesn't intercept clicks. */}
       <div
-        className={expanded ? "softphone-shell expanded" : "softphone-shell compact"}
+        aria-hidden
+        onClick={() => setExpanded(false)}
+        style={{
+          position: "fixed",
+          inset: 0,
+          background: "rgba(0,0,0,0.4)",
+          zIndex: 59,
+          opacity: expanded ? 1 : 0,
+          pointerEvents: expanded ? "auto" : "none",
+          transition: "opacity 0.15s",
+        }}
+      />
+
+      {/* Drawer — ALWAYS in the DOM at the same JSX position. Visibility +
+          positioning toggled via CSS only, so React never tears the
+          Softphone subtree down. */}
+      <div
+        className="softphone-shell"
         role={expanded ? "dialog" : "region"}
         aria-modal={expanded ? "true" : undefined}
         aria-label="Softphone"
-        style={
-          expanded
-            ? {
-                position: "fixed",
-                top: 0,
-                right: 0,
-                bottom: 0,
-                width: "min(720px, 95vw)",
-                background: "var(--bg)",
-                boxShadow: "-8px 0 32px rgba(0,0,0,0.3)",
-                overflow: "auto",
-                zIndex: 60,
-                padding: 16,
-              }
-            : {
-                position: "sticky",
-                top: 0,
-                zIndex: 30,
-                marginBottom: 14,
-              }
-        }
+        aria-hidden={!expanded}
+        style={{
+          position: "fixed",
+          top: 0,
+          right: 0,
+          bottom: 0,
+          width: "min(720px, 95vw)",
+          background: "var(--bg)",
+          boxShadow: "-8px 0 32px rgba(0,0,0,0.3)",
+          overflow: "auto",
+          zIndex: 60,
+          padding: 16,
+          transform: expanded ? "translateX(0)" : "translateX(100%)",
+          transition: "transform 0.18s ease-out",
+        }}
       >
-        {expanded && (
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              marginBottom: 14,
-            }}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: 14,
+          }}
+        >
+          <h2 style={{ margin: 0, fontSize: 16 }}>Mon poste</h2>
+          <button
+            className="ghost"
+            onClick={() => setExpanded(false)}
+            aria-label="Fermer (Échap)"
+            style={{ padding: "5px 10px", fontSize: 13 }}
           >
-            <h2 style={{ margin: 0, fontSize: 16 }}>Mon poste</h2>
-            <button
-              className="ghost"
-              onClick={() => setExpanded(false)}
-              aria-label="Fermer (Échap)"
-              style={{ padding: "5px 10px", fontSize: 13 }}
-            >
-              ✕ Fermer
-            </button>
-          </div>
-        )}
-        <Softphone compact={!expanded} onExpand={() => setExpanded(true)} />
+            ✕ Fermer
+          </button>
+        </div>
+        <Softphone />
       </div>
+
+      {/* Compact pill — fixed in the top-right corner, always visible,
+          shows current presence + active call status and acts as the
+          "Étendre" button when the drawer is closed. */}
+      {!expanded && (
+        <button
+          type="button"
+          onClick={() => setExpanded(true)}
+          aria-label="Ouvrir le softphone"
+          style={{
+            position: "fixed",
+            top: 12,
+            right: 12,
+            zIndex: 40,
+            padding: "8px 14px",
+            background: "var(--panel)",
+            border: "1px solid var(--border)",
+            borderRadius: 999,
+            fontSize: 13,
+            fontWeight: 600,
+            color: "var(--text)",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+          }}
+        >
+          <span aria-hidden style={{ fontSize: 14 }}>☎</span>
+          <span>Mon poste</span>
+        </button>
+      )}
     </>
   );
 }
