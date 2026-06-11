@@ -152,6 +152,18 @@ const EN: Record<string, string> = {
   "Tous": "All",
   "↘ Entrants": "↘ Inbound",
   "↗ Sortants": "↗ Outbound",
+  // ── Report button + API status pill (legacy OCC dashboard parity) ──
+  "Générer un rapport": "Generate a report",
+  "Génération…": "Generating…",
+  "Quotidien — PDF": "Daily — PDF",
+  "Quotidien — CSV": "Daily — CSV",
+  "Hebdomadaire — PDF": "Weekly — PDF",
+  "Hebdomadaire — CSV": "Weekly — CSV",
+  "API opérationnelle": "API operational",
+  "API : incident": "API: incident",
+  "API…": "API…",
+  "Services en échec": "Failing services",
+  "État des services (Supabase, Twilio, LiveKit…)": "Service health (Supabase, Twilio, LiveKit…)",
   // ── Global filter bar (legacy OCC dashboard parity) ──
   "Personnalisé": "Custom",
   "Période active": "Active period",

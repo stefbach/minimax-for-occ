@@ -19,6 +19,8 @@ import { ErrorsAlertsTab } from "./ErrorsAlertsTab";
 import { PeriodBar, presetToRange, DEFAULT_FILTERS, type Period, type Filters } from "./PeriodBar";
 import { SyncRetellButton } from "./SyncRetellButton";
 import { SyncTwilioButton } from "./SyncTwilioButton";
+import { ReportButton } from "./ReportButton";
+import { ApiStatusPill } from "./ApiStatusPill";
 import { useT } from "@/lib/i18n";
 
 type TabId = "overview" | "stats" | "logs" | "live" | "errors" | "ai" | "nhs";
@@ -135,6 +137,16 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
           {/* page-header is already flex-wrap; the inner button cluster also
               wraps so Actualiser + Help stack cleanly on phones. */}
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <ApiStatusPill />
+            <ReportButton
+              from={period.from}
+              to={period.to}
+              periodLabel={periodLabelFor(period)}
+              direction={filters.direction}
+              leadsSource={filters.leadsSource}
+              system={filters.system}
+              global={filters}
+            />
             <button className="ghost" onClick={fetchData} disabled={refreshing}>
               {refreshing ? t("Actualisation…") : t("Actualiser")}
             </button>
