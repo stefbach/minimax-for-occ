@@ -172,7 +172,10 @@ export function landingPathFor(role: AppRole | string | undefined): string {
     case "viewer":
       return "/dashboard";
     case "supervisor":
-      return "/dashboard"; // /supervision will replace this when shipped
+      // Was /dashboard pending a dedicated landing. Shipped 2026-06-11:
+      // supervisors land directly on the live agent supervision view,
+      // which is the thing they actually open the app for.
+      return "/desk/supervise";
     case "builder":
       return "/agents";
     case "agent":

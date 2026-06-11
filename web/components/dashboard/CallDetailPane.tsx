@@ -25,8 +25,11 @@ const QUAL_TONE: Record<QualBucket, string> = {
   autre: "var(--muted)",
 };
 
-function fmtDur(secs: number | null): string {
+function fmtDur(secs: number | null, answered?: boolean): string {
   if (!secs || secs <= 0) return "—";
+  // Non-answered calls: duration_secs is just the ringback time. Display
+  // it as "ring Ns" so it's clear there was no conversation.
+  if (answered === false) return `ring ${secs}s`;
   const m = Math.floor(secs / 60);
   const s = secs % 60;
   return `${m}:${s.toString().padStart(2, "0")}`;
@@ -131,7 +134,7 @@ export function CallDetailPane({
         <span>·</span>
         <span>{fmtDateTime(call.started_at)}</span>
         <span>·</span>
-        <span>{fmtDur(call.duration_secs)}</span>
+        <span>{fmtDur(call.duration_secs, !!call.answered)}</span>
         <span>·</span>
         <span style={{ color: call.answered ? "var(--good)" : "var(--muted)", fontWeight: 600 }}>
           {call.answered ? t("Décroché") : t("Non décroché")}

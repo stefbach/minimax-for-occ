@@ -30,6 +30,9 @@ interface CallRow {
   metadata: { qualification?: string | null } | null;
   agent_handles: { display_name: string | null } | null;
   contacts: { display_name: string | null; e164: string | null } | null;
+  // Server-side enrichment from leads_rdv by phone (calls.contact_id is
+  // empty for outbound Axon calls so contacts.display_name is null).
+  lead?: { name: string | null } | null;
 }
 
 const STATE_FILTERS: { id: string; label: string }[] = [
@@ -69,16 +72,25 @@ const QUAL_TONE: Record<QualBucket, string> = {
   autre: "var(--muted)",
 };
 
-function fmtDuration(secs: number | null): string {
+function fmtDuration(secs: number | null, answered?: boolean): string {
+  // When the call was never answered, `duration_secs` is just the ringback
+  // time (INVITE → BYE on a non-answered leg) — displaying it next to
+  // "Non décroché" is misleading ("0:58 Non décroché" makes it look like
+  // there was 58s of conversation). Show ring-time as "ring Ns" instead.
   if (!secs || secs < 0) return "—";
+  if (answered === false) {
+    return `ring ${secs}s`;
+  }
   const m = Math.floor(secs / 60);
   const s = secs % 60;
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
-function fmtCeilMinutes(secs: number | null): string {
+function fmtCeilMinutes(secs: number | null, answered?: boolean): string {
   // Twilio bills per started minute. Display "billed: N min" so the
-  // operator sees what's actually charged.
+  // operator sees what's actually charged. Non-answered calls aren't
+  // billed for talk-time so we show "—".
   if (!secs || secs <= 0) return "—";
+  if (answered === false) return "—";
   const m = Math.ceil(secs / 60);
   return `${m} ${m > 1 ? "min" : "min"}`;
 }
@@ -97,7 +109,10 @@ function fmtCost(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 function counterpartyName(c: CallRow): string {
-  return c.contacts?.display_name || "Inconnu";
+  // Outbound Axon calls don't populate calls.contact_id, so contacts.display_name
+  // is null on every row. The /api/calls endpoint with enrich=lead joins
+  // leads_rdv by phone — use that name first, then fall back to contacts.
+  return c.lead?.name || c.contacts?.display_name || "Inconnu";
 }
 function counterpartyNumber(c: CallRow): string | null {
   return (c.direction === "inbound" || c.direction === "in") ? c.from_e164 : c.to_e164;
@@ -122,7 +137,11 @@ export function CallLogsTab({ from, to, direction, leadsSource = "prod", system 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const qs = new URLSearchParams({ state: stateFilter, limit: "250", from, to, leads_source: leadsSource });
+      // limit=2000 covers a full prospection day (~1500 calls). enrich=lead
+      // resolves patient names from leads_rdv by phone — without it every
+      // row displays "Inconnu" since calls.contact_id is empty for the
+      // outbound Axon pipeline (Wati June 11).
+      const qs = new URLSearchParams({ state: stateFilter, limit: "2000", from, to, leads_source: leadsSource, enrich: "lead" });
       if (direction !== "all") qs.set("direction", direction);
       if (system !== "all") qs.set("system", system);
       const r = await fetch(`/api/calls?${qs.toString()}`, { cache: "no-store" });
@@ -195,7 +214,10 @@ export function CallLogsTab({ from, to, direction, leadsSource = "prod", system 
     let totalCents = 0;
     let answered = 0;
     for (const c of filtered) {
-      totalSecs += c.duration_secs ?? 0;
+      // Only sum talk-time on calls that were actually answered — for
+      // non-answered calls duration_secs is just ringback and rolling it
+      // into totalMinutes inflates the "how much did this cost me" view.
+      if (c.answered_at) totalSecs += c.duration_secs ?? 0;
       totalCents += c.cost_cents ?? 0;
       if (c.answered_at) answered += 1;
     }
@@ -392,8 +414,8 @@ export function CallLogsTab({ from, to, direction, leadsSource = "prod", system 
                         {counterpartyNumber(c) ?? "—"}
                       </td>
                       <td className="muted">{c.agent_handles?.display_name ?? "—"}</td>
-                      <td>{fmtDuration(c.duration_secs)}</td>
-                      <td className="muted" style={{ fontSize: 12 }}>{fmtCeilMinutes(c.duration_secs)}</td>
+                      <td>{fmtDuration(c.duration_secs, !!c.answered_at)}</td>
+                      <td className="muted" style={{ fontSize: 12 }}>{fmtCeilMinutes(c.duration_secs, !!c.answered_at)}</td>
                       <td>
                         {bucket !== "autre" ? (
                           <span

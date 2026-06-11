@@ -25,7 +25,10 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const orgId = await requestOrgId(request);
   const stateParam = searchParams.get("state");
-  const limit = Math.min(Number(searchParams.get("limit") ?? 100), 250);
+  // Raised 2026-06-11 from 250 → 2000 — Wati flagged that her morning
+  // slot had 511 calls but the Call Logs tab capped at 250 so half were
+  // invisible. 2000 keeps the cost-aggregation query bounded.
+  const limit = Math.min(Number(searchParams.get("limit") ?? 100), 2000);
 
   const states = stateParam
     ? stateParam
@@ -152,7 +155,11 @@ export async function GET(request: Request) {
   // active list) so Call Logs stays light. Best-effort.
   type LeadCtx = { name: string | null; bmi: number | null; source: string | null; call_count: number | null; qualification: string | null };
   const leadByPhone = new Map<string, LeadCtx>();
-  if (searchParams.get("enrich") === "lead" && calls.length > 0 && calls.length <= 80) {
+  // Cap raised 2026-06-11 from 80 → 2000 so a full-day Call Logs view
+  // still gets patient names enriched. The query is a single
+  // `numero_telephone IN (...)` against an indexed column — bounded by
+  // the unique phone count which is <= calls.length.
+  if (searchParams.get("enrich") === "lead" && calls.length > 0 && calls.length <= 2000) {
     try {
       const norm = (p: string | null | undefined) => (p ? String(p).replace(/\s+/g, "") : "");
       const phones = Array.from(new Set((calls as Array<{ to_e164: string | null; from_e164?: string | null }>)
