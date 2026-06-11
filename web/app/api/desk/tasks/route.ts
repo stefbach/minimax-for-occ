@@ -196,15 +196,42 @@ export async function GET(req: Request) {
   }
 
   const callSummaries: Record<string, string | null> = {};
+  // Phone fallback: for tasks without contact_id (~26% on June 11 — Wati
+  // saw "—" on every backfilled auto_qualify_call task on /desk/supervise),
+  // we resolve a name + phone via the original_call → leads_rdv chain.
+  // Keyed by original_call_id so the lookup is O(1) in toTask().
+  const phoneByCallId: Record<string, { name: string | null; e164: string | null }> = {};
   if (callIds.length > 0) {
     const { data: cs } = await admin
       .from("calls")
-      .select("id, summary")
+      .select("id, summary, to_e164, from_e164, direction")
       .eq("org_id", orgId)
       .in("id", callIds);
+    const phonesToResolve = new Set<string>();
     for (const row of cs ?? []) {
-      const r = row as { id: string; summary: string | null };
+      const r = row as { id: string; summary: string | null; to_e164: string | null; from_e164: string | null; direction: string | null };
       callSummaries[r.id] = r.summary;
+      const phone =
+        r.direction === "in" || r.direction === "inbound" ? r.from_e164 : r.to_e164;
+      if (phone) {
+        phoneByCallId[r.id] = { name: null, e164: phone };
+        phonesToResolve.add(phone);
+      }
+    }
+    if (phonesToResolve.size > 0) {
+      const { data: leads } = await admin
+        .from("leads_rdv")
+        .select("nom, numero_telephone")
+        .in("numero_telephone", Array.from(phonesToResolve))
+        .limit(1000);
+      const nameByPhone = new Map<string, string>();
+      for (const l of (leads ?? []) as Array<{ nom: string | null; numero_telephone: string | null }>) {
+        if (l.numero_telephone && l.nom) nameByPhone.set(l.numero_telephone, l.nom);
+      }
+      for (const id of Object.keys(phoneByCallId)) {
+        const entry = phoneByCallId[id];
+        if (entry?.e164) entry.name = nameByPhone.get(entry.e164) ?? null;
+      }
     }
   }
 
@@ -212,13 +239,18 @@ export async function GET(req: Request) {
     const contact = Array.isArray(r.contacts)
       ? r.contacts[0] ?? null
       : r.contacts;
+    // Fallback chain: contacts join → call→leads_rdv lookup. The fallback
+    // matters when call_tasks.contact_id is null (which happens on every
+    // task created by the auto_qualify_call backfill — they only carry
+    // original_call_id, no contact pointer).
+    const callPhone = r.original_call_id ? phoneByCallId[r.original_call_id] : null;
     return {
       id: r.id,
       org_id: r.org_id,
       contact: {
         id: contact?.id ?? r.contact_id,
-        display_name: contact?.display_name ?? null,
-        e164: contact?.e164 ?? null,
+        display_name: contact?.display_name ?? callPhone?.name ?? null,
+        e164: contact?.e164 ?? callPhone?.e164 ?? null,
       },
       qualification: r.qualification,
       transfer_reason: r.transfer_reason,
