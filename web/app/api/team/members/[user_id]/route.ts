@@ -19,7 +19,7 @@ export const dynamic = "force-dynamic";
 //     leaks; we 404 if the membership doesn't exist).
 
 const MANAGER_ROLES = new Set(["super_admin", "owner", "admin"]);
-const ALLOWED_ROLES = new Set(["owner", "admin", "manager", "supervisor", "agent", "viewer"]);
+const ALLOWED_ROLES = new Set(["owner", "admin", "manager", "supervisor", "builder", "agent", "analyst", "viewer"]);
 
 type Body = {
   role?: string;

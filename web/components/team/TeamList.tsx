@@ -23,11 +23,12 @@ const ROLE_LABEL: Record<string, { label: string; tone: string }> = {
   analyst:     { label: "Analyst",     tone: "var(--muted)" },
 };
 
-// "supervisor" added 2026-06-11 — Wati was creating heads-of-floor as
-// Manager faute de mieux because the dropdown skipped Supervisor. Builder
-// and analyst stay out of the invite UI (defined in code for future
-// tenants, but OCC doesn't use them — keep the menu short).
-const INVITE_ROLES = ["owner", "admin", "manager", "supervisor", "agent", "viewer"] as const;
+// "supervisor" + "builder" + "analyst" added 2026-06-11 — Wati was
+// creating heads-of-floor as Manager faute de mieux because the dropdown
+// skipped Supervisor; she also asked for builder + analyst so she can
+// test their per-role visibility on real OCC users. super_admin stays
+// out (platform-only, granted manually in the DB).
+const INVITE_ROLES = ["owner", "admin", "manager", "supervisor", "builder", "agent", "analyst", "viewer"] as const;
 
 function fmtDate(iso: string | null): string {
   if (!iso) return "—";

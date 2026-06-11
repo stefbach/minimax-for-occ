@@ -20,7 +20,7 @@ export const dynamic = "force-dynamic";
 //   2. Upserts the public.profiles row (email + full_name).
 //   3. Inserts the public.memberships row (org_id, user_id, role).
 
-const ALLOWED_ROLES = new Set(["owner", "admin", "manager", "supervisor", "agent", "viewer"]);
+const ALLOWED_ROLES = new Set(["owner", "admin", "manager", "supervisor", "builder", "agent", "analyst", "viewer"]);
 const MANAGER_ROLES = new Set(["super_admin", "owner", "admin"]);
 
 export async function POST(req: Request) {
