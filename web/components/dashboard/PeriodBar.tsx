@@ -181,6 +181,82 @@ function MultiDrop({
   );
 }
 
+// Single-choice sibling of MultiDrop — same button + popover look, but picks
+// one value and closes on selection. "all" counts as inactive (no highlight).
+function SingleDrop({
+  label,
+  options,
+  value,
+  onChange,
+  title,
+}: {
+  label: string;
+  options: { value: string; label: string }[];
+  value: string;
+  onChange: (next: string) => void;
+  title?: string;
+}) {
+  const ref = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    const close = (e: MouseEvent) => {
+      const el = ref.current;
+      if (el?.open && e.target instanceof Node && !el.contains(e.target)) el.open = false;
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, []);
+  const active = value !== "all";
+  const current = options.find((o) => o.value === value);
+  return (
+    <details ref={ref} style={{ position: "relative" }}>
+      <summary
+        className={active ? "" : "ghost"}
+        title={title}
+        style={{
+          listStyle: "none", cursor: "pointer", padding: "5px 11px", fontSize: 13,
+          border: `1px solid ${active ? "var(--accent)" : "var(--border)"}`,
+          borderRadius: 6, userSelect: "none", whiteSpace: "nowrap",
+          background: active ? "var(--accent)" : "transparent",
+          color: active ? "white" : "var(--text)",
+        }}
+      >
+        {label}
+        {active && current ? ` · ${current.label}` : ""} <span style={{ fontSize: 10 }}>▾</span>
+      </summary>
+      <div
+        className="card"
+        style={{
+          position: "absolute", zIndex: 40, top: "calc(100% + 4px)", left: 0,
+          minWidth: 180, maxHeight: 260, overflowY: "auto", padding: 8,
+          display: "flex", flexDirection: "column", gap: 2,
+          boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+        }}
+      >
+        {options.map((o) => {
+          const sel = o.value === value;
+          return (
+            <button
+              key={o.value}
+              type="button"
+              className="ghost"
+              onClick={() => { onChange(o.value); if (ref.current) ref.current.open = false; }}
+              style={{
+                display: "flex", alignItems: "center", gap: 8, fontSize: 13,
+                padding: "4px 6px", borderRadius: 4, cursor: "pointer", whiteSpace: "nowrap",
+                border: "none", background: sel ? "color-mix(in srgb, var(--accent) 16%, transparent)" : "transparent",
+                color: "var(--text)", textAlign: "left", width: "100%",
+              }}
+            >
+              <span style={{ width: 14, textAlign: "center" }}>{sel ? "✓" : ""}</span>
+              {o.label}
+            </button>
+          );
+        })}
+      </div>
+    </details>
+  );
+}
+
 export function PeriodBar({
   period,
   filters,
@@ -459,46 +535,40 @@ export function PeriodBar({
           selected={filters.agents}
           onChange={(agents) => onFilters({ ...filters, agents })}
         />
-        <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-          <span className="muted" style={{ fontSize: 12 }}>{t("Tentative")}</span>
-          <select
-            value={filters.attempt}
-            onChange={(e) => onFilters({ ...filters, attempt: e.target.value as Filters["attempt"] })}
-            style={{ width: "auto", padding: "5px 8px", fontSize: 13 }}
-            title={t("Numéro de tentative pour ce lead dans la période")}
-          >
-            <option value="all">{t("Toutes")}</option>
-            <option value="1">{t("1ère")}</option>
-            <option value="2">{t("2ème")}</option>
-            <option value="3plus">{t("3ème et +")}</option>
-          </select>
-        </div>
-        <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-          <span className="muted" style={{ fontSize: 12 }}>{t("Éligibilité")}</span>
-          <select
-            value={filters.eligibility}
-            onChange={(e) => onFilters({ ...filters, eligibility: e.target.value as Filters["eligibility"] })}
-            style={{ width: "auto", padding: "5px 8px", fontSize: 13 }}
-            title={t("Éligibilité S2 du lead (BMI ≥ 40)")}
-          >
-            <option value="all">{t("Toutes")}</option>
-            <option value="eligible">{t("Éligible")}</option>
-            <option value="ineligible">{t("Non éligible")}</option>
-            <option value="unknown">{t("Inconnue")}</option>
-          </select>
-        </div>
-        <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-          <span className="muted" style={{ fontSize: 12 }}>{t("Décroché")}</span>
-          <select
-            value={filters.answered}
-            onChange={(e) => onFilters({ ...filters, answered: e.target.value as Filters["answered"] })}
-            style={{ width: "auto", padding: "5px 8px", fontSize: 13 }}
-          >
-            <option value="all">{t("Tous")}</option>
-            <option value="yes">{t("Décrochés")}</option>
-            <option value="no">{t("Sans réponse")}</option>
-          </select>
-        </div>
+        <SingleDrop
+          label={t("Tentative")}
+          value={filters.attempt}
+          options={[
+            { value: "all", label: t("Toutes") },
+            { value: "1", label: t("1ère") },
+            { value: "2", label: t("2ème") },
+            { value: "3plus", label: t("3ème et +") },
+          ]}
+          onChange={(attempt) => onFilters({ ...filters, attempt: attempt as Filters["attempt"] })}
+          title={t("Numéro de tentative pour ce lead dans la période")}
+        />
+        <SingleDrop
+          label={t("Éligibilité")}
+          value={filters.eligibility}
+          options={[
+            { value: "all", label: t("Toutes") },
+            { value: "eligible", label: t("Éligible") },
+            { value: "ineligible", label: t("Non éligible") },
+            { value: "unknown", label: t("Inconnue") },
+          ]}
+          onChange={(eligibility) => onFilters({ ...filters, eligibility: eligibility as Filters["eligibility"] })}
+          title={t("Éligibilité S2 du lead (BMI ≥ 40)")}
+        />
+        <SingleDrop
+          label={t("Décroché")}
+          value={filters.answered}
+          options={[
+            { value: "all", label: t("Tous") },
+            { value: "yes", label: t("Décrochés") },
+            { value: "no", label: t("Sans réponse") },
+          ]}
+          onChange={(answered) => onFilters({ ...filters, answered: answered as Filters["answered"] })}
+        />
         <input
           type="search"
           value={searchDraft}
