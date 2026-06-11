@@ -192,6 +192,11 @@ export function SupervisePageClient() {
   );
 }
 
+// Page size options for the supervise table. "all" disables pagination
+// for managers who prefer scrolling once over clicking through pages.
+const PAGE_SIZE_OPTIONS = [20, 50, 100, -1] as const;
+type PageSize = typeof PAGE_SIZE_OPTIONS[number];
+
 function TaskSection({
   title, subtitle, tasks, loading, busyId, activeAgents, allAgents, onReassign, onOpenContact, emptyText, accent,
 }: {
@@ -208,13 +213,41 @@ function TaskSection({
   accent: string;
 }) {
   const t = useT();
+  const [pageSize, setPageSize] = useState<PageSize>(20);
+  const [page, setPage] = useState(1);
+
+  // Reset to page 1 when the filtered task list changes OR the page size
+  // changes — otherwise a user on page 3 of 20-per-page filters and lands
+  // on an empty page 3.
+  useEffect(() => { setPage(1); }, [tasks.length, pageSize]);
+
+  const totalPages = pageSize === -1 ? 1 : Math.max(1, Math.ceil(tasks.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const sliced = pageSize === -1
+    ? tasks
+    : tasks.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
   return (
     <div className="card" style={{ padding: 0, overflow: "hidden", borderLeft: `4px solid ${accent}` }}>
       <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--border)" }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
           <h3 style={{ margin: 0, fontSize: 15 }}>{title}</h3>
           <span className="muted" style={{ fontSize: 12 }}>{subtitle}</span>
-          <span style={{ marginLeft: "auto", fontSize: 12, color: "var(--muted)" }}>
+          <label style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--muted)" }}>
+            <span>{t("Par page")}</span>
+            <select
+              value={pageSize}
+              onChange={(e) => setPageSize(Number(e.target.value) as PageSize)}
+              style={{ fontSize: 12, padding: "2px 6px" }}
+              aria-label={t("Nombre d'éléments par page")}
+            >
+              <option value={20}>20</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+              <option value={-1}>{t("Tout")}</option>
+            </select>
+          </label>
+          <span style={{ fontSize: 12, color: "var(--muted)" }}>
             {tasks.length} {tasks.length > 1 ? t("éléments") : t("élément")}
           </span>
         </div>
@@ -244,7 +277,7 @@ function TaskSection({
                 <td colSpan={7} className="muted" style={{ padding: 16, textAlign: "center" }}>{emptyText}</td>
               </tr>
             ) : (
-              tasks.map((task) => (
+              sliced.map((task) => (
                 <tr key={task.id} style={{ borderTop: "1px solid var(--border)" }}>
                   <Td>
                     {task.contact.id ? (
@@ -295,7 +328,118 @@ function TaskSection({
           </tbody>
         </table>
       </div>
+      {pageSize !== -1 && totalPages > 1 && (
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          pageSize={pageSize}
+          totalRows={tasks.length}
+          onChange={setPage}
+        />
+      )}
     </div>
+  );
+}
+
+function Pagination({
+  currentPage, totalPages, pageSize, totalRows, onChange,
+}: {
+  currentPage: number;
+  totalPages: number;
+  pageSize: number;
+  totalRows: number;
+  onChange: (page: number) => void;
+}) {
+  const t = useT();
+  const start = (currentPage - 1) * pageSize + 1;
+  const end = Math.min(currentPage * pageSize, totalRows);
+
+  // Build a compact page list: 1 … (current-1) current (current+1) … last.
+  // Always show first + last + a small window around the current page so
+  // the row never explodes on a 50+ page list.
+  const pages: Array<number | "…"> = [];
+  const window = 1;
+  const lo = Math.max(2, currentPage - window);
+  const hi = Math.min(totalPages - 1, currentPage + window);
+  pages.push(1);
+  if (lo > 2) pages.push("…");
+  for (let p = lo; p <= hi; p++) pages.push(p);
+  if (hi < totalPages - 1) pages.push("…");
+  if (totalPages > 1) pages.push(totalPages);
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "10px 14px",
+        borderTop: "1px solid var(--border)",
+        flexWrap: "wrap",
+        fontSize: 12,
+      }}
+    >
+      <span className="muted">
+        {start}–{end} / {totalRows}
+      </span>
+      <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
+        <PageBtn disabled={currentPage === 1} onClick={() => onChange(currentPage - 1)} ariaLabel={t("Page précédente")}>
+          ‹
+        </PageBtn>
+        {pages.map((p, i) =>
+          p === "…" ? (
+            <span key={`gap-${i}`} style={{ padding: "4px 6px", color: "var(--muted)" }}>…</span>
+          ) : (
+            <PageBtn
+              key={p}
+              active={p === currentPage}
+              onClick={() => onChange(p)}
+              ariaLabel={`${t("Page")} ${p}`}
+            >
+              {p}
+            </PageBtn>
+          ),
+        )}
+        <PageBtn disabled={currentPage === totalPages} onClick={() => onChange(currentPage + 1)} ariaLabel={t("Page suivante")}>
+          ›
+        </PageBtn>
+      </div>
+    </div>
+  );
+}
+
+function PageBtn({
+  children, onClick, active, disabled, ariaLabel,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+  active?: boolean;
+  disabled?: boolean;
+  ariaLabel?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={ariaLabel}
+      aria-current={active ? "page" : undefined}
+      style={{
+        minWidth: 28,
+        height: 28,
+        padding: "0 8px",
+        border: active ? "1px solid var(--accent)" : "1px solid var(--border)",
+        background: active ? "var(--accent)" : "transparent",
+        color: active ? "white" : disabled ? "var(--muted-2)" : "var(--fg)",
+        borderRadius: 4,
+        fontSize: 12,
+        fontWeight: active ? 600 : 500,
+        cursor: disabled ? "not-allowed" : "pointer",
+        opacity: disabled ? 0.5 : 1,
+      }}
+    >
+      {children}
+    </button>
   );
 }
 

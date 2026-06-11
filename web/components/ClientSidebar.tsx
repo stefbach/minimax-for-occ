@@ -47,6 +47,10 @@ interface NavItem {
 // Roles allowed to see the supervisor-only entries. Mirrors the
 // server-side gate in /api/desk/tasks/:id/reassign.
 const SUPERVISOR_ROLES: Role[] = ["super_admin", "owner", "admin", "manager", "supervisor"];
+// Roles allowed to generate pilotage reports (calls funnel, qualif breakdown,
+// vigilance, plan d'action) — managers and above. Supervisors stay out: their
+// scope is live floor supervision, not strategic reporting.
+const MANAGER_REPORT_ROLES: Role[] = ["super_admin", "owner", "admin", "manager"];
 // Roles that should NOT see the raw call log / campaign config — they
 // only need their personal task queue + calendar. Human agents fall
 // here; supervisors fall through with everything visible.
@@ -64,6 +68,7 @@ const NAV: NavItem[] = [
   { href: "/start",     label: "Démarrage guidé",  icon: "✦", group: "Overview" },
   { href: "/dashboard", label: "Tableau d'analyse", icon: "▣", group: "Overview", module: "dashboard" },
   { href: "/copilot",   label: "Co-pilot manager", icon: "✸", group: "Overview", module: "copilot" },
+  { href: "/rapports",  label: "Rapports pilotage", icon: "▤", group: "Overview", requiredRoles: MANAGER_REPORT_ROLES },
   { href: "/desk",            label: "Mon poste",       icon: "⌂", group: "Overview", module: "desk" },
   { href: "/mon-calendrier",  label: "Mon calendrier",  icon: "▦", group: "Overview", module: "desk" },
   { href: "/desk/supervise",  label: "Supervision",     icon: "◷", group: "Overview", module: "desk", requiredRoles: SUPERVISOR_ROLES },

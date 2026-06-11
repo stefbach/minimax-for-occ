@@ -7,8 +7,12 @@
   --border: #1d2230;
   --border-2: #283045;
   --text: #e7ecf3;
-  --muted: #8a93a3;
-  --muted-2: #5c6376;
+  /* Accessibility pass 2026-06-11 (Wati): Summer has vision issues and the
+   * old --muted (#8a93a3) / --muted-2 (#5c6376) failed WCAG AA contrast on
+   * the dark surface. Raised both one rung lighter so secondary text stays
+   * visibly distinct from the primary --text without disappearing. */
+  --muted: #aab3c4;
+  --muted-2: #8a93a3;
   --accent: #ff6b35;
   --accent-2: #ffa46f;
   --accent-soft: rgba(255, 107, 53, 0.14);
@@ -31,8 +35,12 @@ html[data-theme="light"] {
   --border: #e3e6ee;
   --border-2: #cdd2de;
   --text: #1a2030;
-  --muted: #5a6378;
-  --muted-2: #8a92a3;
+  /* Light-theme contrast bump — same accessibility pass as the dark side.
+   * The previous --muted-2 (#8a92a3) was barely above the bg gray and Summer
+   * couldn't read phone numbers/timestamps. Darkened so secondary text now
+   * sits at WCAG AA contrast against #f7f8fb. */
+  --muted: #3d4456;
+  --muted-2: #5a6378;
   --accent: #e65a25;
   --accent-2: #ff7c47;
   --accent-soft: rgba(230, 90, 37, 0.10);
@@ -184,7 +192,16 @@ label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px
   margin-bottom: 22px;
 }
 .page-header h1 { margin: 0; font-size: 26px; letter-spacing: -0.3px; }
-.page-header .subtitle { color: var(--muted); margin-top: 4px; font-size: 14px; }
+/* Subtitle bumped from 14 → 15 (Wati 2026-06-11, accessibility pass). */
+.page-header .subtitle { color: var(--muted); margin-top: 4px; font-size: 15px; }
+
+/* Base .muted utility — Wati 2026-06-11 accessibility pass.
+ * Standalone .muted spans (used everywhere outside cards: phone numbers,
+ * timestamps, "Aucun appel" placeholders, table cell secondary text) had
+ * no explicit size and inherited the parent's, which was often 12-13px in
+ * tight contexts. Pin to 14px so secondary text stays readable for users
+ * with low vision. .card .muted below overrides inside cards. */
+.muted { color: var(--muted); font-size: 14px; }
 
 /* ─── Cards ──────────────────────────────────────────────── */
 .card {
@@ -194,7 +211,8 @@ label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px
   padding: 18px;
 }
 .card h3 { margin: 0 0 6px; font-size: 16px; }
-.card .muted { color: var(--muted); font-size: 13px; }
+/* Card muted text bumped from 13 → 14 (Wati 2026-06-11, accessibility pass). */
+.card .muted { color: var(--muted); font-size: 14px; }
 .card .row { display: flex; gap: 8px; align-items: center; }
 .grid { display: grid; gap: 14px; }
 .grid.cols-2 { grid-template-columns: repeat(2, minmax(0,1fr)); }
@@ -219,7 +237,8 @@ label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px
 
 .tag {
   display: inline-flex; align-items: center; gap: 6px;
-  font-size: 12px;
+  /* Tag font bumped from 12 → 13 (Wati 2026-06-11, accessibility pass). */
+  font-size: 13px;
   padding: 3px 8px;
   background: var(--panel-2);
   border: 1px solid var(--border);
@@ -257,7 +276,8 @@ label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px
   min-height: 460px;
 }
 .panel header h2 { margin: 0; font-size: 16px; }
-.panel header .meta { color: var(--muted); font-size: 12px; margin-top: 2px; }
+/* Panel meta bumped from 12 → 13 (Wati 2026-06-11, accessibility pass). */
+.panel header .meta { color: var(--muted); font-size: 13px; margin-top: 2px; }
 
 .chat-log {
   flex: 1; overflow-y: auto;
@@ -335,7 +355,8 @@ table.list th, table.list td {
   text-align: left;
   border-bottom: 1px solid var(--border);
 }
-table.list th { color: var(--muted); font-weight: 500; text-transform: uppercase; font-size: 11px; letter-spacing: 0.5px; }
+/* Table headers bumped from 11 → 12 (Wati 2026-06-11, accessibility pass). */
+table.list th { color: var(--muted); font-weight: 600; text-transform: uppercase; font-size: 12px; letter-spacing: 0.5px; }
 table.list tr:hover td { background: var(--panel-2); }
 
 /* Wrap any table that might overflow on phones — opt-in by adding the

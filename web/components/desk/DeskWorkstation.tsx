@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Softphone } from "@/components/voice/Softphone";
+import { dispatchSoftphoneExpand } from "@/components/voice/PersistentSoftphoneShell";
 import { useT } from "@/lib/i18n";
 
 /**
@@ -224,6 +224,14 @@ export function DeskWorkstation() {
     fetch("/api/desk/tasks/auto-distribute", { method: "POST" }).catch(() => {});
   }, []);
 
+  // /desk is the agent's primary workspace, so we auto-open the full
+  // softphone drawer when they land here. The layout-level shell handles
+  // the actual state. Wati 2026-06-11 — Softphone moved from a desk grid
+  // cell to a persistent shell so calls survive navigation.
+  useEffect(() => {
+    dispatchSoftphoneExpand();
+  }, []);
+
   useEffect(() => {
     void refresh();
     const t = setInterval(refresh, 10_000);
@@ -331,16 +339,20 @@ export function DeskWorkstation() {
           Click on a name in the bottom row → patient details
           load in the TOP-RIGHT cell.  */}
       <div className="desk-2x2">
-        {/* TOP-LEFT — softphone (single source of truth for dial/hangup) */}
-        <section
-          className="desk-pane desk-poste"
-          style={{ display: "grid", gap: 12, gridColumn: focusedItem ? undefined : "1 / -1" }}
-        >
-          <h3 style={{ margin: 0, fontSize: 14, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.4 }}>
-            {t("Mon poste")}
-          </h3>
-          <Softphone />
-          {focusedItem && (
+        {/* TOP-LEFT — disposition form when a patient is focused. The
+            softphone itself moved up into a persistent layout-level shell
+            on 2026-06-11 so live calls survive navigation between /desk
+            and /mes-patients / /rapports / etc. The drawer auto-opens on
+            this page (see dispatchSoftphoneExpand() above) so the agent
+            sees the full softphone UI exactly like before. */}
+        {focusedItem && (
+          <section
+            className="desk-pane desk-poste"
+            style={{ display: "grid", gap: 12 }}
+          >
+            <h3 style={{ margin: 0, fontSize: 14, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.4 }}>
+              {t("Qualification de l'appel")}
+            </h3>
             <DispositionForm
               item={focusedItem}
               onSaved={() => {
@@ -348,13 +360,11 @@ export function DeskWorkstation() {
                 void refresh();
               }}
             />
-          )}
-        </section>
+          </section>
+        )}
 
         {/* TOP-RIGHT — patient details (résumé / transcript / notes).
-            Hidden when no patient is focused so the softphone above can
-            span both columns (Wati June 10 v6: 'composer un numero et
-            notes pendant appel doivent prendre l'espace correctement'). */}
+            Spans both columns when no patient is focused. */}
         {focusedItem && (
           <section className="desk-pane desk-patient" style={{ display: "grid", gap: 12 }}>
             <PatientCard item={focusedItem} />
