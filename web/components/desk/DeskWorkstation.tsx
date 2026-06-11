@@ -2,7 +2,19 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { dispatchSoftphoneExpand } from "@/components/voice/PersistentSoftphoneShell";
+import { supabaseBrowser } from "@/lib/supabase-browser";
 import { useT } from "@/lib/i18n";
+
+// Roles allowed to release a task back to the pool. Mirrors the server-side
+// gate in /api/desk/tasks/:id/release — agents cannot self-unassign (Wati
+// 2026-06-11: forces the floor supervisor to acknowledge the handoff).
+const SUPERVISOR_ROLES = new Set([
+  "super_admin",
+  "owner",
+  "admin",
+  "manager",
+  "supervisor",
+]);
 
 /**
  * Two underlying data sources feed this UI:
@@ -120,6 +132,32 @@ export function DeskWorkstation() {
   const [loading, setLoading] = useState(true);
   const [focused, setFocused] = useState<{ kind: DeskItem["kind"]; id: string } | null>(null);
   const [mobileView, setMobileView] = useState<"personal" | "shared">("personal");
+
+  // Current user's role in the active org — gates the "Relâcher" button on
+  // every queue row. Agents see no button (no self-unassign); supervisors+
+  // see it on every task.
+  const [canRelease, setCanRelease] = useState(false);
+  useEffect(() => {
+    const sb = supabaseBrowser();
+    let cancelled = false;
+    sb.auth.getUser().then((res: { data: { user: { id?: string } | null } }) => {
+      if (cancelled || !res.data.user) return;
+      sb
+        .from("memberships")
+        .select("role")
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle()
+        .then((mr: { data: { role?: string } | null }) => {
+          if (cancelled) return;
+          const role = mr.data?.role ?? null;
+          setCanRelease(role ? SUPERVISOR_ROLES.has(role) : false);
+        });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   // Pagination — "Voir plus" loads 10 more rows. Keeps the queues short
   // by default so the agent never scrolls a wall of names.
   const [personalLimit, setPersonalLimit] = useState(10);
@@ -403,17 +441,19 @@ export function DeskWorkstation() {
                   active={focused?.kind === c.kind && focused?.id === c.id}
                   onClick={() => setFocused({ kind: c.kind, id: c.id })}
                   trailing={
-                    <button
-                      className="ghost"
-                      style={{ padding: "4px 8px", fontSize: 11 }}
-                      disabled={releaseBusy === c.id}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        void release(c);
-                      }}
-                    >
-                      {releaseBusy === c.id ? "…" : t("Relâcher")}
-                    </button>
+                    canRelease ? (
+                      <button
+                        className="ghost"
+                        style={{ padding: "4px 8px", fontSize: 11 }}
+                        disabled={releaseBusy === c.id}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void release(c);
+                        }}
+                      >
+                        {releaseBusy === c.id ? "…" : t("Relâcher")}
+                      </button>
+                    ) : null
                   }
                 />
               ))}

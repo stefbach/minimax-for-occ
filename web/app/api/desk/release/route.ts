@@ -1,17 +1,26 @@
 import { NextResponse } from "next/server";
-import { supabaseSession } from "@/lib/supabase-auth";
+import { supabaseSession, currentRoleInOrg } from "@/lib/supabase-auth";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { requestOrgId } from "@/lib/request-org";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const SUPERVISOR_ROLES = new Set([
+  "super_admin",
+  "owner",
+  "admin",
+  "manager",
+  "supervisor",
+]);
+
 /**
  * POST /api/desk/release   { call_id: string }
  *
  * Drops calls.metadata.assigned_to so the row drifts back to the
- * shared pool. Refuses if the caller isn't the current owner — only
- * the owning agent (or a future supervisor endpoint) may release.
+ * shared pool. Only supervisors / managers / admins / owners /
+ * super_admins may release a call. Agents cannot self-unassign — Wati
+ * 2026-06-11: forces the supervisor to acknowledge the handoff.
  */
 export async function POST(req: Request) {
   if (!hasSupabase()) {
@@ -40,16 +49,18 @@ export async function POST(req: Request) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!row) return NextResponse.json({ error: "not found" }, { status: 404 });
 
-  const md = (row.metadata ?? {}) as Record<string, unknown>;
-  const assigned = typeof md.assigned_to === "string" ? (md.assigned_to as string) : null;
-
-  if (!assigned) return NextResponse.json({ ok: true, call_id: callId });
-  if (assigned !== user.id) {
+  const role = await currentRoleInOrg(orgId);
+  const isSupervisor = role ? SUPERVISOR_ROLES.has(role) : false;
+  if (!isSupervisor) {
     return NextResponse.json(
-      { error: "not the current owner" },
+      { error: "forbidden — only a supervisor (or above) may release a call" },
       { status: 403 },
     );
   }
+
+  const md = (row.metadata ?? {}) as Record<string, unknown>;
+  const assigned = typeof md.assigned_to === "string" ? (md.assigned_to as string) : null;
+  if (!assigned) return NextResponse.json({ ok: true, call_id: callId });
 
   // Strip both assigned_to and claimed_at so the audit reflects the release.
   const { assigned_to: _a, claimed_at: _c, ...rest } = md as Record<string, unknown> & {

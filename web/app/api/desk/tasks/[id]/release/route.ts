@@ -18,9 +18,11 @@ const SUPERVISOR_ROLES = new Set([
  * POST /api/desk/tasks/:id/release
  *
  * Unassigns a human_callback_task (back to the shared pool).
- *  - The current owner can always release their own task.
- *  - Supervisors / managers / admins / owners / super_admins may also
- *    release a task owned by someone else (e.g. agent on lunch).
+ *  - Only supervisors / managers / admins / owners / super_admins may
+ *    release a task. Agents cannot self-unassign — Wati 2026-06-11:
+ *    "l'agent ne doit pas pour se desassigner". Forces the floor
+ *    supervisor to acknowledge the handoff and prevents agents from
+ *    silently shedding their callbacks back into the pool.
  *  - Anyone else is rejected with 403.
  */
 export async function POST(
@@ -51,11 +53,10 @@ export async function POST(
   if (!row) return NextResponse.json({ error: "not found" }, { status: 404 });
 
   const role = await currentRoleInOrg(orgId);
-  const isOwner = row.assigned_to === user.id;
   const isSupervisor = role ? SUPERVISOR_ROLES.has(role) : false;
-  if (!isOwner && !isSupervisor) {
+  if (!isSupervisor) {
     return NextResponse.json(
-      { error: "forbidden — only the current owner or a supervisor may release" },
+      { error: "forbidden — only a supervisor (or above) may release a task" },
       { status: 403 },
     );
   }
