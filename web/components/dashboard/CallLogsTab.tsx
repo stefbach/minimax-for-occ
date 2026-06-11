@@ -29,6 +29,9 @@ interface CallRow {
   metadata: { qualification?: string | null } | null;
   agent_handles: { display_name: string | null } | null;
   contacts: { display_name: string | null; e164: string | null } | null;
+  // Server-side enrichment from leads_rdv by phone (calls.contact_id is
+  // empty for outbound Axon calls so contacts.display_name is null).
+  lead?: { name: string | null } | null;
 }
 
 const STATE_FILTERS: { id: string; label: string }[] = [
@@ -105,7 +108,10 @@ function fmtCost(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 function counterpartyName(c: CallRow): string {
-  return c.contacts?.display_name || "Inconnu";
+  // Outbound Axon calls don't populate calls.contact_id, so contacts.display_name
+  // is null on every row. The /api/calls endpoint with enrich=lead joins
+  // leads_rdv by phone — use that name first, then fall back to contacts.
+  return c.lead?.name || c.contacts?.display_name || "Inconnu";
 }
 function counterpartyNumber(c: CallRow): string | null {
   return (c.direction === "inbound" || c.direction === "in") ? c.from_e164 : c.to_e164;
@@ -130,7 +136,11 @@ export function CallLogsTab({ from, to, direction, leadsSource = "prod", system 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const qs = new URLSearchParams({ state: stateFilter, limit: "250", from, to, leads_source: leadsSource });
+      // limit=2000 covers a full prospection day (~1500 calls). enrich=lead
+      // resolves patient names from leads_rdv by phone — without it every
+      // row displays "Inconnu" since calls.contact_id is empty for the
+      // outbound Axon pipeline (Wati June 11).
+      const qs = new URLSearchParams({ state: stateFilter, limit: "2000", from, to, leads_source: leadsSource, enrich: "lead" });
       if (direction !== "all") qs.set("direction", direction);
       if (system !== "all") qs.set("system", system);
       const r = await fetch(`/api/calls?${qs.toString()}`, { cache: "no-store" });
