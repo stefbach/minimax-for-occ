@@ -196,8 +196,17 @@ export function MyPatientsClient() {
                     <Td>{formatDateTime(p.last_updated_at)}</Td>
                     <Td style={{ textAlign: "right" }}>{p.task_count}</Td>
                     <Td>
+                      {/* Ouvrir = land on /desk with the patient's number already
+                          loaded in the dial pad. Wati 2026-06-11 — Summer was
+                          landing on a blank softphone and had to re-type the
+                          number. Carry the task id (for context) plus prefill +
+                          name (used by the Softphone's outbound dial card). */}
                       <Link
-                        href={`/desk?task=${encodeURIComponent(p.last_task_id)}`}
+                        href={
+                          `/desk?task=${encodeURIComponent(p.last_task_id)}` +
+                          (p.e164 ? `&prefill=${encodeURIComponent(p.e164)}` : "") +
+                          (p.display_name ? `&name=${encodeURIComponent(p.display_name)}` : "")
+                        }
                         className="ghost"
                         style={{ padding: "4px 10px", fontSize: 11, textDecoration: "none" }}
                       >

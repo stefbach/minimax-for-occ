@@ -69,6 +69,7 @@ export default async function DataTablePage({ params }: { params: Promise<{ id: 
         physicalTable={reg.physical_table}
         columns={columns}
         phoneColumn={reg.phone_column}
+        nameColumn={reg.name_column ?? null}
         initialRows={rows}
       />
     </>

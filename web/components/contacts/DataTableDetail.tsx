@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import * as XLSX from "xlsx";
 
@@ -15,6 +16,10 @@ interface Props {
   physicalTable: string;
   columns: ColumnSpec[];
   phoneColumn: string;
+  /** Column that holds the display name — used by the "Appeler" action to
+   *  pass the patient name through to the softphone as context. Optional;
+   *  when null the call still goes through, just without the friendly label. */
+  nameColumn?: string | null;
   initialRows: Record<string, unknown>[];
 }
 
@@ -36,7 +41,7 @@ const SUMMARY_COL_KEYS = new Set([
   "do_not_call", "voicemail_detected", "cycle_status",
 ]);
 
-export function DataTableDetail({ registryId, columns, phoneColumn, initialRows }: Props) {
+export function DataTableDetail({ registryId, columns, phoneColumn, nameColumn, initialRows }: Props) {
   const router = useRouter();
   const [rows, setRows] = useState(initialRows);
   const [search, setSearch] = useState("");
@@ -508,6 +513,40 @@ export function DataTableDetail({ registryId, columns, phoneColumn, initialRows 
                         zIndex: 1,
                       }}
                     >
+                      {(() => {
+                        // "Appeler" button — Wati 2026-06-11: an agent on
+                        // /contacts who wants to dial a patient should not have
+                        // to copy-paste the number into the softphone. The
+                        // link lands on /desk with prefill + name params; the
+                        // Softphone reads those and the dial pad is ready in
+                        // one click.
+                        const phoneRaw = String(r[phoneColumn] ?? "").trim();
+                        const phoneOk = /^\+\d{6,15}$/.test(phoneRaw);
+                        const nameRaw = nameColumn ? String(r[nameColumn] ?? "").trim() : "";
+                        const href = phoneOk
+                          ? `/desk?prefill=${encodeURIComponent(phoneRaw)}` +
+                            (nameRaw ? `&name=${encodeURIComponent(nameRaw)}` : "")
+                          : null;
+                        return href ? (
+                          <Link
+                            href={href}
+                            className="ghost"
+                            style={{
+                              padding: "3px 8px",
+                              marginRight: 4,
+                              fontSize: 12,
+                              textDecoration: "none",
+                              color: "var(--accent)",
+                              border: "1px solid var(--accent)",
+                              borderRadius: 5,
+                              display: "inline-block",
+                            }}
+                            title="Composer ce numéro depuis Mon poste"
+                          >
+                            ☎ Appeler
+                          </Link>
+                        ) : null;
+                      })()}
                       <button
                         className="ghost"
                         onClick={() => openEdit(r)}
