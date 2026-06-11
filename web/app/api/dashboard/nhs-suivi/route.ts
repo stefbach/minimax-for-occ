@@ -24,6 +24,11 @@ export type NhsStalledPatient = {
   days_stalled: number | null;  // null when last_activity is null
 };
 
+export type NhsCoordinatorQueue = {
+  name: string; // Summer | Rain | Stormi
+  patients: { name: string | null; phone: string | null; assigned_at: string | null; reason: string | null }[];
+};
+
 export type NhsSuiviResponse = {
   has_data: boolean;
   monthly_objective: number;
@@ -33,6 +38,9 @@ export type NhsSuiviResponse = {
   // Dossiers partiels sans aucune activité depuis 5 jours+ (ni appel, ni
   // réponse, ni mise à jour). Liste plafonnée, les plus anciens d'abord.
   stalled: { count: number; patients: NhsStalledPatient[] };
+  // Files coordinateurs — assignations humaines (table dashboard_assignments,
+  // partagée avec le dashboard legacy : mêmes files Summer / Rain / Stormi).
+  coordinators: NhsCoordinatorQueue[];
   comms: {
     email_j0_sent: number;
     email_j2_sent: number;
@@ -321,6 +329,60 @@ export async function GET(request: Request) {
   const stepFileComplete = completeDocs;
   const stepNhsSubmitted = nhsSubmitted;
 
+  // ── Files coordinateurs (Summer / Rain / Stormi) ───────────────────────
+  // Reads the legacy dashboard's dashboard_assignments table (same Supabase
+  // project), latest assignment per lead, open ones only. Tolerant: orgs
+  // without the table just get the three empty queues.
+  const COORDINATORS = ["Summer", "Rain", "Stormi"];
+  const queues = new Map<string, NhsCoordinatorQueue>(
+    COORDINATORS.map((n) => [n.toLowerCase(), { name: n, patients: [] }]),
+  );
+  try {
+    const { data: assigns } = await sb
+      .from("dashboard_assignments")
+      .select("lead_id, assigned_to, reason, assigned_at, status")
+      .order("assigned_at", { ascending: false })
+      .limit(2000);
+    type Assign = { lead_id: string; assigned_to: string | null; reason: string | null; assigned_at: string | null; status: string | null };
+    const latestPerLead = new Map<string, Assign>();
+    for (const a of (assigns ?? []) as Assign[]) {
+      if (!a.lead_id || latestPerLead.has(a.lead_id)) continue; // first = latest (sorted desc)
+      latestPerLead.set(a.lead_id, a);
+    }
+    const open = [...latestPerLead.values()].filter(
+      (a) => a.assigned_to && (!a.status || a.status === "open"),
+    );
+    // Resolve patient names/phones from the leads table in one query.
+    const ids = open.map((a) => a.lead_id);
+    const leadById = new Map<string, { nom: string | null; numero_telephone: string | null }>();
+    if (ids.length > 0 && (colSet.has("nom") || colSet.has("numero_telephone"))) {
+      for (let i = 0; i < ids.length; i += 200) {
+        const { data: leadRows } = await sb
+          .from(table)
+          .select("id, nom, numero_telephone")
+          .in("id", ids.slice(i, i + 200));
+        for (const l of (leadRows ?? []) as Array<{ id: string; nom: string | null; numero_telephone: string | null }>) {
+          leadById.set(String(l.id), { nom: l.nom, numero_telephone: l.numero_telephone });
+        }
+      }
+    }
+    for (const a of open) {
+      const key = (a.assigned_to ?? "").trim().toLowerCase();
+      const queue = queues.get(key);
+      if (!queue) continue; // unknown coordinator name — out of the 3 fixed queues
+      const lead = leadById.get(String(a.lead_id));
+      queue.patients.push({
+        name: lead?.nom ?? null,
+        phone: lead?.numero_telephone ?? null,
+        assigned_at: a.assigned_at,
+        reason: a.reason,
+      });
+    }
+  } catch {
+    /* dashboard_assignments absent — empty queues */
+  }
+  const coordinators = COORDINATORS.map((n) => queues.get(n.toLowerCase())!);
+
   const body: NhsSuiviResponse = {
     has_data: true,
     monthly_objective: MONTHLY_OBJECTIVE,
@@ -328,6 +390,7 @@ export async function GET(request: Request) {
     pending_response_3d_plus: pending3d,
     ready_to_submit: readyToSubmit,
     stalled: { count: stalledCount, patients: stalledPatients.slice(0, 100) },
+    coordinators,
     comms: {
       email_j0_sent: emailJ0,
       email_j2_sent: emailJ2,
@@ -365,6 +428,7 @@ function zeros(): NhsSuiviResponse {
     pending_response_3d_plus: 0,
     ready_to_submit: 0,
     stalled: { count: 0, patients: [] },
+    coordinators: ["Summer", "Rain", "Stormi"].map((name) => ({ name, patients: [] })),
     comms: { email_j0_sent: 0, email_j2_sent: 0, whatsapp_sent: 0, responses_received: 0 },
     file_status: { no_document: 0, partial: 0, complete: 0, no_response_3d: 0 },
     nhs_tracking: { submitted: 0, in_review: 0, accepted: 0, rejected: 0 },

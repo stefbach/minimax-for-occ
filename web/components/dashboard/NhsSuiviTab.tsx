@@ -7,6 +7,13 @@ import { useT } from "@/lib/i18n";
 // Clones the OCC demo's "Suivi patient NHS S2" panel in Axon's theme.
 // Visible only for orgs where the feature flag is on (see DashboardClient).
 
+// Queue dot colors — same trio as the legacy dashboard's coordinator cards.
+const COORDINATOR_TONES: Record<string, string> = {
+  Summer: "#f59e0b",
+  Rain: "#3b82f6",
+  Stormi: "#8b5cf6",
+};
+
 export function NhsSuiviTab() {
   const t = useT();
   const [data, setData] = useState<NhsSuiviResponse | null>(null);
@@ -180,6 +187,55 @@ export function NhsSuiviTab() {
             )}
           </div>
         )}
+      </div>
+
+      {/* Files coordinateurs — mêmes 3 files que le dashboard legacy. */}
+      <div>
+        <h3 style={{ margin: "0 0 10px", fontSize: 13, textTransform: "uppercase", letterSpacing: 0.5 }} className="muted">
+          👥 {t("Files coordinateurs")}
+        </h3>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
+          {data.coordinators.map((q) => {
+            const dot = COORDINATOR_TONES[q.name] ?? "var(--accent)";
+            return (
+              <div key={q.name} className="card" style={{ padding: 14 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 600 }}>
+                    <span aria-hidden style={{ width: 9, height: 9, borderRadius: 99, background: dot }} />
+                    {q.name}
+                  </span>
+                  <span className="muted" style={{ fontSize: 13 }}>{q.patients.length}</span>
+                </div>
+                {q.patients.length === 0 ? (
+                  <p className="muted" style={{ margin: 0, fontSize: 13 }}>{t("Aucun patient assigné")}</p>
+                ) : (
+                  <div style={{ display: "grid", gap: 2 }}>
+                    {q.patients.slice(0, 8).map((p, i) => (
+                      <div
+                        key={`${p.phone ?? i}`}
+                        title={[p.phone, p.reason, p.assigned_at ? new Date(p.assigned_at).toLocaleDateString("fr-FR") : null].filter(Boolean).join(" · ")}
+                        style={{
+                          display: "flex", alignItems: "center", justifyContent: "space-between",
+                          padding: "6px 4px", borderTop: i > 0 ? "1px solid var(--border)" : "none", fontSize: 13,
+                        }}
+                      >
+                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {p.name ?? p.phone ?? "—"}
+                        </span>
+                        <span className="muted" aria-hidden>›</span>
+                      </div>
+                    ))}
+                    {q.patients.length > 8 && (
+                      <p className="muted" style={{ margin: 0, fontSize: 12, paddingTop: 4 }}>
+                        +{q.patients.length - 8} {t("autres")}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {/* Communication patient */}

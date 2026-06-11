@@ -152,6 +152,10 @@ const EN: Record<string, string> = {
   "Tous": "All",
   "↘ Entrants": "↘ Inbound",
   "↗ Sortants": "↗ Outbound",
+  // ── NHS S2: files coordinateurs (parité legacy) ──
+  "Files coordinateurs": "Coordinator queues",
+  "Aucun patient assigné": "No patients assigned",
+  "autres": "more",
   // ── NHS S2: carte "Bloqué 5j+" (parité legacy) ──
   "Bloqué — aucun changement depuis 5j+": "Stalled — no change in 5+ days",
   "Aucun dossier partiel bloqué": "No partial dossier stalled",
