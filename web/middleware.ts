@@ -34,7 +34,10 @@ function landingFor(role: Role | null): string {
     case "viewer":
       return "/dashboard";
     case "supervisor":
-      return "/calls";
+      // Was /calls — that page was retired June 10 and removed from
+      // nav, so a supervisor hitting a denied route was being bounced
+      // to a 404. Match landingPathFor() in lib/supabase-auth.ts.
+      return "/desk/supervise";
     case "builder":
       return "/agents";
     case "agent":

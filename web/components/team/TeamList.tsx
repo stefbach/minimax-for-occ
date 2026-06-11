@@ -23,7 +23,11 @@ const ROLE_LABEL: Record<string, { label: string; tone: string }> = {
   analyst:     { label: "Analyst",     tone: "var(--muted)" },
 };
 
-const INVITE_ROLES = ["owner", "admin", "manager", "agent", "viewer"] as const;
+// "supervisor" added 2026-06-11 — Wati was creating heads-of-floor as
+// Manager faute de mieux because the dropdown skipped Supervisor. Builder
+// and analyst stay out of the invite UI (defined in code for future
+// tenants, but OCC doesn't use them — keep the menu short).
+const INVITE_ROLES = ["owner", "admin", "manager", "supervisor", "agent", "viewer"] as const;
 
 function fmtDate(iso: string | null): string {
   if (!iso) return "—";

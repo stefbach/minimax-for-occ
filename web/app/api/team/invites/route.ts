@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 // and offers a "copy" button.
 
 const MANAGER_ROLES = new Set(["super_admin", "owner", "admin"]);
-const ALLOWED_ROLES = new Set(["owner", "admin", "manager", "agent", "viewer"]);
+const ALLOWED_ROLES = new Set(["owner", "admin", "manager", "supervisor", "agent", "viewer"]);
 
 export type PendingInvitation = {
   id: string;
