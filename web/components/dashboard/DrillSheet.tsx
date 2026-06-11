@@ -266,6 +266,12 @@ export function DrillSheet({ spec, onClose }: { spec: DrillSpec | null; onClose:
             <div style={{ fontWeight: 600, fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {spec.title}
             </div>
+            {/* "N appel(s) concerné(s)" — same wording as the legacy drill. */}
+            {data && (
+              <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
+                {data.total.toLocaleString("fr-FR")} {t("appel(s) concerné(s)")}
+              </div>
+            )}
             {spec.subtitle && (
               <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>{spec.subtitle}</div>
             )}
