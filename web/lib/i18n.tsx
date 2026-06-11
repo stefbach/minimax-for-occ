@@ -153,7 +153,6 @@ const EN: Record<string, string> = {
   "↘ Entrants": "↘ Inbound",
   "↗ Sortants": "↗ Outbound",
   // ── Report button + API status pill (legacy OCC dashboard parity) ──
-  "appels sur la période": "calls in period",
   "appel(s) concerné(s)": "call(s) concerned",
   "Générer un rapport": "Generate a report",
   "Génération…": "Generating…",
