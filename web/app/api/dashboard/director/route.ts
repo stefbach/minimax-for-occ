@@ -9,6 +9,10 @@ import { fetchAllPaged, type Rangeable } from "@/lib/supabase-page";
 import { callMatchesSystem, parseCallSystem } from "@/lib/call-system";
 import { isPhantomCall, isSoftphoneTestLeg } from "@/lib/call-quality";
 import { slotForDate } from "@/lib/call-slots";
+import {
+  parseGlobalFilters, hasActiveGlobalFilters, hasLeadScopedFilters, matchesGlobalFilters,
+  buildLeadFilterIndex, buildAttemptIndex, eligibilityForPhone, EMPTY_LEAD_INDEX,
+} from "@/lib/global-filters";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -145,6 +149,9 @@ export async function GET(request: Request) {
     if (s === "evening") return "soir";
     return null;
   })();
+  // Global filter-bar constraints (durée / qualification / source / agent /
+  // tentative / éligibilité / décroché / recherche). All-pass when absent.
+  const gf = parseGlobalFilters((k) => searchParams.get(k));
 
   const sb = supabaseServer();
 
@@ -173,7 +180,7 @@ export async function GET(request: Request) {
   // operator was actually seeing in the original toggle UX.
   const scope = await leadsScopeFor(leadsSource);
 
-  const rows = ((data ?? []) as unknown as CallRow[]).filter(
+  let rows = ((data ?? []) as unknown as CallRow[]).filter(
     (r) =>
       !ACTIVE.has(r.state ?? "")
       && !isPhantomCall(r)
@@ -187,6 +194,45 @@ export async function GET(request: Request) {
       && !isSoftphoneTestLeg(r)
       && (!slotFilter || (r.started_at && slotForDate(new Date(r.started_at)) === slotFilter)),
   );
+
+  // Global filter bar — applied before every aggregation so all the cards on
+  // Vue d'ensemble reflect exactly the operator's selection. The leads index
+  // (BMI / source / nom by phone) is only fetched when a filter needs it.
+  if (hasActiveGlobalFilters(gf)) {
+    let leadIdx = EMPTY_LEAD_INDEX;
+    if (hasLeadScopedFilters(gf) || gf.q) {
+      try {
+        type GfLead = { nom: string | null; numero_telephone: string | null; source_lead: string | null; bmi: number | null };
+        const { rows: gfLeads, error: gfErr } = await fetchAllPaged<GfLead>(() =>
+          sb
+            .from(leadsTable as never)
+            .select("nom, numero_telephone, source_lead, bmi")
+            .not("numero_telephone", "is", null) as unknown as Rangeable<GfLead>,
+        );
+        if (!gfErr) leadIdx = buildLeadFilterIndex(gfLeads);
+      } catch {
+        /* tenant without a leads table — lead-scoped filters resolve to "unknown" */
+      }
+    }
+    const attemptIdx = buildAttemptIndex(rows);
+    rows = rows.filter((r) =>
+      matchesGlobalFilters(gf, {
+        durationSecs: r.duration_secs ?? 0,
+        bucket: bucketForCall(r),
+        agent: r.agent_handles?.display_name ?? null,
+        answered: !!r.answered_at,
+        attempt: r.to_e164 ? attemptIdx.get(r.id) ?? null : null,
+        eligibility: eligibilityForPhone(r.to_e164, leadIdx),
+        source: (r.to_e164 && leadIdx.sourceByPhone.get(r.to_e164)) || null,
+        haystack: [
+          r.contacts?.display_name ?? "",
+          (r.to_e164 && leadIdx.nameByPhone.get(r.to_e164)) ?? "",
+          r.to_e164 ?? "",
+          r.summary ?? "",
+        ].join(" ").toLowerCase(),
+      }),
+    );
+  }
 
   // Qualification bucketing — one pass (computed before the KPIs because
   // the décrochés KPI depends on the bucket, see below).

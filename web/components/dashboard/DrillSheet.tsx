@@ -27,6 +27,9 @@ export type DrillFilters = {
   system?: "retell" | "axon";
   // Agent-chain stage: 1 = first agent only, 2 = reached a 2nd agent, 3 = reached a 3rd.
   agent_stage?: 1 | 2 | 3;
+  // Global filter-bar params (gf_*), passed through verbatim so the drill
+  // list matches the filtered KPI count that was clicked.
+  gf?: Record<string, string>;
 };
 
 export type DrillSpec = {
@@ -109,6 +112,7 @@ function buildQS(filters: DrillFilters): string {
   if (filters.leads_source) qs.set("leads_source", filters.leads_source);
   if (filters.system) qs.set("system", filters.system);
   if (filters.agent_stage) qs.set("agent_stage", String(filters.agent_stage));
+  for (const [k, v] of Object.entries(filters.gf ?? {})) qs.set(k, v);
   return qs.toString();
 }
 

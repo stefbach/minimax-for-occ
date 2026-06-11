@@ -16,7 +16,7 @@ import { DirectorTab } from "./DirectorTab";
 import { AiInsightsTab } from "./AiInsightsTab";
 import { NhsSuiviTab } from "./NhsSuiviTab";
 import { ErrorsAlertsTab } from "./ErrorsAlertsTab";
-import { PeriodBar, presetToRange, type Period, type Filters } from "./PeriodBar";
+import { PeriodBar, presetToRange, DEFAULT_FILTERS, type Period, type Filters } from "./PeriodBar";
 import { SyncRetellButton } from "./SyncRetellButton";
 import { SyncTwilioButton } from "./SyncTwilioButton";
 import { useT } from "@/lib/i18n";
@@ -65,7 +65,7 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
   // rather than 7 days of history (Wati's June 10 preference — they want
   // the live picture first, drill back if needed).
   const [period, setPeriod] = useState<Period>({ ...presetToRange("today"), preset: "today" });
-  const [filters, setFilters] = useState<Filters>({ direction: "all", leadsSource: "prod", system: "all", slot: "all" });
+  const [filters, setFilters] = useState<Filters>({ ...DEFAULT_FILTERS });
   // Bumped by 'Actualiser' so every active tab re-fetches, not just the
   // overview tile. Each tab includes refreshKey in its dependency array;
   // a change forces useEffect to fire even when from/to/filters didn't
@@ -187,7 +187,7 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
               <SyncTwilioButton />
             </div>
             <PeriodBar period={period} filters={filters} onPeriod={setPeriod} onFilters={setFilters} />
-            <DirectorTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} system={filters.system} slot={filters.slot} refreshKey={refreshKey} />
+            <DirectorTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} system={filters.system} slot={filters.slot} global={filters} refreshKey={refreshKey} />
             {data && <CampaignsTable rows={data.campaigns} />}
           </>
         )}
@@ -195,14 +195,14 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
         {tab === "stats" && (
           <>
             <PeriodBar period={period} filters={filters} onPeriod={setPeriod} onFilters={setFilters} />
-            <StatsTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} system={filters.system} />
+            <StatsTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} system={filters.system} global={filters} />
           </>
         )}
 
         {tab === "logs" && (
           <>
             <PeriodBar period={period} filters={filters} onPeriod={setPeriod} onFilters={setFilters} />
-            <CallLogsTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} system={filters.system} />
+            <CallLogsTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} system={filters.system} global={filters} />
           </>
         )}
 

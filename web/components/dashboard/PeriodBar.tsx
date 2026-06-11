@@ -1,9 +1,19 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import { useT } from "@/lib/i18n";
+import { QUAL_BUCKETS } from "@/lib/qualification";
+import {
+  DEFAULT_GLOBAL_FILTERS,
+  GLOBAL_DURATION_BUCKETS,
+  type GlobalFilters,
+} from "@/lib/global-filters";
+import type { FilterOptionsResponse } from "@/app/api/dashboard/filter-options/route";
 
 export type Period = { from: string; to: string; preset: string };
-export type Filters = {
+// The bar's state = the legacy global filters (durée / qualification / source
+// / agent / tentative / éligibilité / décroché / recherche) + the Axon axes.
+export type Filters = GlobalFilters & {
   direction: "all" | "inbound" | "outbound";
   // Picks which leads table the dashboard summarises for the J1/J3/J5
   // phase counts and the source-attribution breakdown. Production is the
@@ -20,6 +30,14 @@ export type Filters = {
   //   après-midi  = 13:00-14:00 UK = 12:00-13:00 UTC
   //   soir        = 18:00-20:00 UK = 17:00-19:00 UTC
   slot: "all" | "morning" | "afternoon" | "evening";
+};
+
+export const DEFAULT_FILTERS: Filters = {
+  ...DEFAULT_GLOBAL_FILTERS,
+  direction: "all",
+  leadsSource: "prod",
+  system: "all",
+  slot: "all",
 };
 
 function startOfDay(d: Date): Date {
@@ -78,6 +96,91 @@ const PRESETS: { id: string; label: string }[] = [
   { id: "all", label: "Tout" },
 ];
 
+// Compact multi-select dropdown (checkbox list inside a <details> popover).
+// Native <details> keeps it dependency-free; an outside-click listener closes
+// any open popover so the bar behaves like the legacy dashboard's menus.
+function MultiDrop({
+  label,
+  options,
+  selected,
+  onChange,
+}: {
+  label: string;
+  options: { value: string; label: string }[];
+  selected: string[];
+  onChange: (next: string[]) => void;
+}) {
+  const ref = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    const close = (e: MouseEvent) => {
+      const el = ref.current;
+      if (el?.open && e.target instanceof Node && !el.contains(e.target)) el.open = false;
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, []);
+  const toggle = (value: string) =>
+    onChange(selected.includes(value) ? selected.filter((v) => v !== value) : [...selected, value]);
+  const active = selected.length > 0;
+  return (
+    <details ref={ref} style={{ position: "relative" }}>
+      <summary
+        className={active ? "" : "ghost"}
+        style={{
+          listStyle: "none", cursor: "pointer", padding: "5px 11px", fontSize: 13,
+          border: `1px solid ${active ? "var(--accent)" : "var(--border)"}`,
+          borderRadius: 6, userSelect: "none", whiteSpace: "nowrap",
+          background: active ? "var(--accent)" : "transparent",
+          color: active ? "white" : "var(--text)",
+        }}
+      >
+        {label}
+        {active ? ` · ${selected.length}` : ""} <span style={{ fontSize: 10 }}>▾</span>
+      </summary>
+      <div
+        className="card"
+        style={{
+          position: "absolute", zIndex: 40, top: "calc(100% + 4px)", left: 0,
+          minWidth: 200, maxHeight: 260, overflowY: "auto", padding: 8,
+          display: "flex", flexDirection: "column", gap: 2,
+          boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+        }}
+      >
+        {options.length === 0 && (
+          <span className="muted" style={{ fontSize: 12, padding: "4px 6px" }}>—</span>
+        )}
+        {options.map((o) => (
+          <label
+            key={o.value}
+            style={{
+              display: "flex", alignItems: "center", gap: 8, fontSize: 13,
+              padding: "4px 6px", borderRadius: 4, cursor: "pointer", whiteSpace: "nowrap",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={selected.includes(o.value)}
+              onChange={() => toggle(o.value)}
+              style={{ width: "auto" }}
+            />
+            {o.label}
+          </label>
+        ))}
+        {active && (
+          <button
+            type="button"
+            className="ghost"
+            onClick={() => onChange([])}
+            style={{ marginTop: 4, padding: "3px 8px", fontSize: 12 }}
+          >
+            ✕
+          </button>
+        )}
+      </div>
+    </details>
+  );
+}
+
 export function PeriodBar({
   period,
   filters,
@@ -90,6 +193,28 @@ export function PeriodBar({
   onFilters: (f: Filters) => void;
 }) {
   const t = useT();
+  // Agent / Source dropdown options. Loaded once per leads-source; failures
+  // degrade to empty lists (dropdowns render with no choices but the bar
+  // keeps working).
+  const [options, setOptions] = useState<FilterOptionsResponse>({ agents: [], sources: [] });
+  useEffect(() => {
+    let alive = true;
+    fetch(`/api/dashboard/filter-options?leads_source=${filters.leadsSource}`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : { agents: [], sources: [] }))
+      .then((j) => alive && setOptions({ agents: j.agents ?? [], sources: j.sources ?? [] }))
+      .catch(() => alive && setOptions({ agents: [], sources: [] }));
+    return () => { alive = false; };
+  }, [filters.leadsSource]);
+  // Debounced search: type freely, propagate to the API-driven tabs 350ms
+  // after the last keystroke.
+  const [searchDraft, setSearchDraft] = useState(filters.q);
+  useEffect(() => setSearchDraft(filters.q), [filters.q]);
+  useEffect(() => {
+    if (searchDraft === filters.q) return;
+    const id = setTimeout(() => onFilters({ ...filters, q: searchDraft }), 350);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchDraft]);
   // Today (local) as YYYY-MM-DD, so the calendar can't pick a future day and we
   // can pre-fill the input when a specific day is the active period.
   const todayStr = (() => {
@@ -120,7 +245,7 @@ export function PeriodBar({
   };
   const resetAll = () => {
     onPeriod({ ...presetToRange("today"), preset: "today" });
-    onFilters({ direction: "all", leadsSource: "prod", system: "all", slot: "all" });
+    onFilters({ ...DEFAULT_FILTERS });
   };
   return (
     <div
@@ -259,6 +384,92 @@ export function PeriodBar({
         >
           ↺ {t("Réinitialiser")}
         </button>
+      </div>
+
+      {/* Second row — the legacy dashboard's global filters. Defaults are
+          all-pass, so the dashboard behaves exactly as before until the
+          operator picks something. */}
+      <div
+        style={{
+          display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
+          width: "100%", paddingTop: 8, borderTop: "1px solid var(--border)",
+        }}
+      >
+        <MultiDrop
+          label={t("Durée")}
+          options={GLOBAL_DURATION_BUCKETS.map((b) => ({ value: b.id, label: b.label }))}
+          selected={filters.durations}
+          onChange={(durations) => onFilters({ ...filters, durations })}
+        />
+        <MultiDrop
+          label={t("Qualification")}
+          options={QUAL_BUCKETS.map((b) => ({ value: b.key, label: b.label }))}
+          selected={filters.quals}
+          onChange={(quals) => onFilters({ ...filters, quals: quals as Filters["quals"] })}
+        />
+        {options.sources.length > 0 && (
+          <MultiDrop
+            label={t("Source")}
+            options={options.sources.map((s) => ({ value: s, label: s }))}
+            selected={filters.sources}
+            onChange={(sources) => onFilters({ ...filters, sources })}
+          />
+        )}
+        {options.agents.length > 0 && (
+          <MultiDrop
+            label={t("Agent")}
+            options={options.agents.map((a) => ({ value: a, label: a }))}
+            selected={filters.agents}
+            onChange={(agents) => onFilters({ ...filters, agents })}
+          />
+        )}
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <span className="muted" style={{ fontSize: 12 }}>{t("Tentative")}</span>
+          <select
+            value={filters.attempt}
+            onChange={(e) => onFilters({ ...filters, attempt: e.target.value as Filters["attempt"] })}
+            style={{ width: "auto", padding: "5px 8px", fontSize: 13 }}
+            title={t("Numéro de tentative pour ce lead dans la période")}
+          >
+            <option value="all">{t("Toutes")}</option>
+            <option value="1">{t("1ère")}</option>
+            <option value="2">{t("2ème")}</option>
+            <option value="3plus">{t("3ème et +")}</option>
+          </select>
+        </div>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <span className="muted" style={{ fontSize: 12 }}>{t("Éligibilité")}</span>
+          <select
+            value={filters.eligibility}
+            onChange={(e) => onFilters({ ...filters, eligibility: e.target.value as Filters["eligibility"] })}
+            style={{ width: "auto", padding: "5px 8px", fontSize: 13 }}
+            title={t("Éligibilité S2 du lead (BMI ≥ 40)")}
+          >
+            <option value="all">{t("Toutes")}</option>
+            <option value="eligible">{t("Éligible")}</option>
+            <option value="ineligible">{t("Non éligible")}</option>
+            <option value="unknown">{t("Inconnue")}</option>
+          </select>
+        </div>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <span className="muted" style={{ fontSize: 12 }}>{t("Décroché")}</span>
+          <select
+            value={filters.answered}
+            onChange={(e) => onFilters({ ...filters, answered: e.target.value as Filters["answered"] })}
+            style={{ width: "auto", padding: "5px 8px", fontSize: 13 }}
+          >
+            <option value="all">{t("Tous")}</option>
+            <option value="yes">{t("Décrochés")}</option>
+            <option value="no">{t("Sans réponse")}</option>
+          </select>
+        </div>
+        <input
+          type="search"
+          value={searchDraft}
+          onChange={(e) => setSearchDraft(e.target.value)}
+          placeholder={t("Rechercher nom, téléphone, résumé…")}
+          style={{ flex: 1, minWidth: 200, padding: "5px 10px", fontSize: 13 }}
+        />
       </div>
     </div>
   );

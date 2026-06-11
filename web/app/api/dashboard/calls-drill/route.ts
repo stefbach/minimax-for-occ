@@ -4,11 +4,15 @@ import { requestOrgId } from "@/lib/request-org";
 import { requireModule } from "@/lib/permissions-server";
 import { bucketForCall, type QualBucket } from "@/lib/qualification";
 import { isInbound, normalizeDirectionForDb } from "@/lib/call-direction";
-import { callInLeadsScope, leadsScopeFor, leadNameMapFor, leadNameForPhone, type LeadsSource } from "@/lib/leads-source";
+import { callInLeadsScope, leadsScopeFor, leadNameMapFor, leadNameForPhone, leadsTableFor, type LeadsSource } from "@/lib/leads-source";
 import { fetchAllPaged, type Rangeable } from "@/lib/supabase-page";
 import { callMatchesSystem, parseCallSystem } from "@/lib/call-system";
 import { isPhantomCall, isSoftphoneTestLeg } from "@/lib/call-quality";
 import { slotForDate } from "@/lib/call-slots";
+import {
+  parseGlobalFilters, hasActiveGlobalFilters, hasLeadScopedFilters, matchesGlobalFilters,
+  buildLeadFilterIndex, buildAttemptIndex, eligibilityForPhone, EMPTY_LEAD_INDEX,
+} from "@/lib/global-filters";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -94,6 +98,9 @@ export async function GET(request: Request) {
   // "Prod totals" doesn't list Test calls (and vice-versa).
   const leadsSource: LeadsSource = searchParams.get("leads_source") === "test" ? "test" : "prod";
   const system = parseCallSystem(searchParams.get("system"));
+  // Global filter-bar constraints, forwarded by the card that was clicked so
+  // this list matches the (already filtered) KPI count.
+  const gf = parseGlobalFilters((k) => searchParams.get(k));
 
   const sb = supabaseServer();
   const dbDir = normalizeDirectionForDb(direction);
@@ -120,12 +127,50 @@ export async function GET(request: Request) {
     leadsScopeFor(leadsSource),
     leadNameMapFor(leadsSource),
   ]);
-  const rows = ((data ?? []) as unknown as Row[])
+  let rows = ((data ?? []) as unknown as Row[])
     .filter((r) => !ACTIVE.has(r.state ?? ""))
     .filter((r) => !isPhantomCall(r))
     .filter((r) => !isSoftphoneTestLeg(r))
     .filter((r) => callInLeadsScope(r.to_e164, scope))
     .filter((r) => callMatchesSystem((r.metadata as { source?: string } | null)?.source, system));
+
+  // Global filter bar — same matcher as /api/dashboard/director and
+  // /api/dashboard/analytics so the list always agrees with the cards.
+  if (hasActiveGlobalFilters(gf)) {
+    let leadIdx = EMPTY_LEAD_INDEX;
+    if (hasLeadScopedFilters(gf) || gf.q) {
+      try {
+        type GfLead = { nom: string | null; numero_telephone: string | null; source_lead: string | null; bmi: number | null };
+        const { rows: gfLeads, error: gfErr } = await fetchAllPaged<GfLead>(() =>
+          sb
+            .from(leadsTableFor(leadsSource) as never)
+            .select("nom, numero_telephone, source_lead, bmi")
+            .not("numero_telephone", "is", null) as unknown as Rangeable<GfLead>,
+        );
+        if (!gfErr) leadIdx = buildLeadFilterIndex(gfLeads);
+      } catch {
+        /* tenant without a leads table */
+      }
+    }
+    const attemptIdx = buildAttemptIndex(rows);
+    rows = rows.filter((r) =>
+      matchesGlobalFilters(gf, {
+        durationSecs: r.duration_secs ?? 0,
+        bucket: bucketForCall(r),
+        agent: r.agent_handles?.display_name ?? null,
+        answered: !!r.answered_at,
+        attempt: r.to_e164 ? attemptIdx.get(r.id) ?? null : null,
+        eligibility: eligibilityForPhone(r.to_e164, leadIdx),
+        source: (r.to_e164 && leadIdx.sourceByPhone.get(r.to_e164)) || null,
+        haystack: [
+          r.contacts?.display_name ?? "",
+          (r.to_e164 && leadIdx.nameByPhone.get(r.to_e164)) ?? "",
+          r.to_e164 ?? "",
+          r.from_e164 ?? "",
+        ].join(" ").toLowerCase(),
+      }),
+    );
+  }
 
   // Apply the per-card filters in memory — keeps the SQL universal and the
   // bucketing logic (which is non-trivial) consistent with the rest of the

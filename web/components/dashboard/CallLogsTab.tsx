@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useT } from "@/lib/i18n";
 import { bucketForCall, QUAL_BUCKETS, type QualBucket } from "@/lib/qualification";
 import { fixAudioDuration } from "@/lib/fix-audio-duration";
+import { matchesGlobalFilters, hasLeadScopedFilters, DEFAULT_GLOBAL_FILTERS, type GlobalFilters } from "@/lib/global-filters";
 
 // Call Logs tab — Twilio-style call history with our specifics on top:
 // the AI agent's name, the normalised qualification (9 fixed buckets),
@@ -102,7 +103,7 @@ function counterpartyNumber(c: CallRow): string | null {
   return (c.direction === "inbound" || c.direction === "in") ? c.from_e164 : c.to_e164;
 }
 
-export function CallLogsTab({ from, to, direction, leadsSource = "prod", system = "all" }: { from: string; to: string; direction: string; leadsSource?: "prod" | "test"; system?: "all" | "retell" | "axon" }) {
+export function CallLogsTab({ from, to, direction, leadsSource = "prod", system = "all", global = DEFAULT_GLOBAL_FILTERS }: { from: string; to: string; direction: string; leadsSource?: "prod" | "test"; system?: "all" | "retell" | "axon"; global?: GlobalFilters }) {
   const t = useT();
   const [rows, setRows] = useState<CallRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -165,11 +166,26 @@ export function CallLogsTab({ from, to, direction, leadsSource = "prod", system 
         const b = bucketForCall(c);
         if (b !== qualFilter) return false;
       }
+      // Global filter bar — combined with the local strip above (logical
+      // AND). Source / tentative / éligibilité need the leads table and are
+      // only honoured by the server-computed tabs (a note below flags this),
+      // so they're stripped before matching here.
+      const evaluable = { ...global, attempt: "all" as const, eligibility: "all" as const, sources: [] };
+      if (!matchesGlobalFilters(evaluable, {
+        durationSecs: c.duration_secs ?? 0,
+        bucket: bucketForCall(c),
+        agent: c.agent_handles?.display_name ?? null,
+        answered: !!c.answered_at,
+        attempt: null,
+        eligibility: "unknown",
+        source: null,
+        haystack: `${counterpartyName(c)} ${c.from_e164 ?? ""} ${c.to_e164 ?? ""} ${c.agent_handles?.display_name ?? ""} ${c.disposition ?? ""}`.toLowerCase(),
+      })) return false;
       if (!q) return true;
       const haystack = `${counterpartyName(c)} ${c.from_e164 ?? ""} ${c.to_e164 ?? ""} ${c.agent_handles?.display_name ?? ""} ${c.disposition ?? ""}`.toLowerCase();
       return haystack.includes(q);
     });
-  }, [rows, search, answeredFilter, durationFilter, customMin, customMax, qualFilter]);
+  }, [rows, search, answeredFilter, durationFilter, customMin, customMax, qualFilter, global]);
 
   // Live summary above the table, recomputed from whatever's currently
   // filtered. Lets the operator answer "how much did the < 1 min bucket
@@ -194,6 +210,11 @@ export function CallLogsTab({ from, to, direction, leadsSource = "prod", system 
 
   return (
     <>
+      {hasLeadScopedFilters(global) && (
+        <p className="muted" style={{ margin: 0, fontSize: 12 }}>
+          ⓘ {t("Les filtres Source / Tentative / Éligibilité s'appliquent aux onglets Vue d'ensemble et Statistiques, pas à cette liste.")}
+        </p>
+      )}
       {/* ─── Filters: state, answered, search ─── */}
       <div className="card" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 2fr", gap: 12 }}>
         <div>

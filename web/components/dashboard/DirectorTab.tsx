@@ -6,6 +6,7 @@ import type { QualBucket } from "@/lib/qualification";
 import { useT } from "@/lib/i18n";
 import { DrillSheet, type DrillFilters, type DrillSpec } from "./DrillSheet";
 import { SLOT_WINDOWS } from "@/lib/call-slots";
+import { appendGlobalFilters, globalFiltersKey, globalFilterParams, DEFAULT_GLOBAL_FILTERS, type GlobalFilters } from "@/lib/global-filters";
 
 function fmtDur(secs: number): string {
   const m = Math.floor(secs / 60);
@@ -82,7 +83,7 @@ function ClickCard({
   );
 }
 
-export function DirectorTab({ from, to, direction, leadsSource = "prod", system = "all", slot = "all", refreshKey = 0 }: { from: string; to: string; direction: string; leadsSource?: "prod" | "test"; system?: "all" | "retell" | "axon"; slot?: "all" | "morning" | "afternoon" | "evening"; refreshKey?: number }) {
+export function DirectorTab({ from, to, direction, leadsSource = "prod", system = "all", slot = "all", global = DEFAULT_GLOBAL_FILTERS, refreshKey = 0 }: { from: string; to: string; direction: string; leadsSource?: "prod" | "test"; system?: "all" | "retell" | "axon"; slot?: "all" | "morning" | "afternoon" | "evening"; global?: GlobalFilters; refreshKey?: number }) {
   const t = useT();
   const [data, setData] = useState<DirectorResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -111,11 +112,15 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
       direction: direction === "all" ? undefined : direction,
       leads_source: leadsSource,
       system: system === "all" ? undefined : system,
+      // Global bar filters ride along so the drill list matches the card's
+      // (already filtered) count.
+      gf: globalFilterParams(global),
       ...extra,
     };
     setDrill({ title, subtitle, icon, tone, filters });
   };
 
+  const gfKey = globalFiltersKey(global);
   useEffect(() => {
     let alive = true;
     setLoading(true);
@@ -123,6 +128,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
     if (direction !== "all") qs.set("direction", direction);
     if (system !== "all") qs.set("system", system);
     if (slot !== "all") qs.set("slot", slot);
+    appendGlobalFilters(qs, global);
     fetch(`/api/dashboard/director?${qs}`, { cache: "no-store" })
       .then(async (r) => {
         const j = await r.json();
@@ -132,7 +138,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
       .catch((e) => alive && setError(e instanceof Error ? e.message : "error"))
       .finally(() => alive && setLoading(false));
     return () => { alive = false; };
-  }, [from, to, direction, threshold, leadsSource, system, slot, reloadKey, refreshKey]);
+  }, [from, to, direction, threshold, leadsSource, system, slot, gfKey, reloadKey, refreshKey]);
 
   // AI qualification is automatic: any answered call left in the "autre" bucket
   // is classified by the AI from its transcript. New calls are handled at

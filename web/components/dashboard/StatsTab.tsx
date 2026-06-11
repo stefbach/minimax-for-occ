@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { AnalyticsResponse } from "@/app/api/dashboard/analytics/route";
 import { useT } from "@/lib/i18n";
+import { appendGlobalFilters, globalFiltersKey, DEFAULT_GLOBAL_FILTERS, type GlobalFilters } from "@/lib/global-filters";
 
 function fmtDuration(secs: number): string {
   const m = Math.floor(secs / 60);
@@ -34,19 +35,21 @@ function heatCellStyle(rate: number, total: number): { background: string; color
   return { background: `rgb(${lerp(40, 6)}, ${lerp(60, 145)}, ${lerp(55, 90)})`, color: tt > 0.45 ? "#fff" : "var(--muted)" };
 }
 
-export function StatsTab({ from, to, direction, leadsSource = "prod", system = "all" }: { from: string; to: string; direction: string; leadsSource?: "prod" | "test"; system?: "all" | "retell" | "axon" }) {
+export function StatsTab({ from, to, direction, leadsSource = "prod", system = "all", global = DEFAULT_GLOBAL_FILTERS }: { from: string; to: string; direction: string; leadsSource?: "prod" | "test"; system?: "all" | "retell" | "axon"; global?: GlobalFilters }) {
   const t = useT();
   const [data, setData] = useState<AnalyticsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [heatMode, setHeatMode] = useState<"answer" | "rdv">("answer");
 
+  const gfKey = globalFiltersKey(global);
   useEffect(() => {
     let alive = true;
     setLoading(true);
     const qs = new URLSearchParams({ from, to, leads_source: leadsSource });
     if (direction !== "all") qs.set("direction", direction);
     if (system !== "all") qs.set("system", system);
+    appendGlobalFilters(qs, global);
     fetch(`/api/dashboard/analytics?${qs.toString()}`, { cache: "no-store" })
       .then(async (r) => {
         const j = await r.json();
@@ -56,7 +59,7 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
       .catch((e) => alive && setError(e instanceof Error ? e.message : "error"))
       .finally(() => alive && setLoading(false));
     return () => { alive = false; };
-  }, [from, to, direction, leadsSource, system]);
+  }, [from, to, direction, leadsSource, system, gfKey]);
 
   if (loading && !data) return <div className="card"><p className="muted" style={{ margin: 0 }}>{t("Chargement…")}</p></div>;
   if (error) return <div className="card" style={{ borderColor: "var(--bad)", color: "var(--bad)" }}>{error}</div>;

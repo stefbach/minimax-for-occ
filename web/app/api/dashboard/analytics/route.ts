@@ -8,6 +8,10 @@ import { fetchAllPaged, type Rangeable } from "@/lib/supabase-page";
 import { callMatchesSystem, parseCallSystem } from "@/lib/call-system";
 import { slotForDate, SLOT_WINDOWS } from "@/lib/call-slots";
 import { isPhantomCall, isSoftphoneTestLeg } from "@/lib/call-quality";
+import {
+  parseGlobalFilters, hasActiveGlobalFilters, matchesGlobalFilters,
+  buildLeadFilterIndex, buildAttemptIndex, eligibilityForPhone, EMPTY_LEAD_INDEX,
+} from "@/lib/global-filters";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -152,6 +156,9 @@ export async function GET(request: Request) {
   const leadsSource: LeadsSource = searchParams.get("leads_source") === "test" ? "test" : "prod";
   const leadsTable = leadsTableFor(leadsSource);
   const system = parseCallSystem(searchParams.get("system"));
+  // Global filter-bar constraints (durée / qualification / source / agent /
+  // tentative / éligibilité / décroché / recherche). All-pass when absent.
+  const gf = parseGlobalFilters((k) => searchParams.get(k));
 
   const rangeMs = to.getTime() - from.getTime();
   const granularity: "hour" | "day" = rangeMs <= 2 * 86400_000 ? "hour" : "day";
@@ -202,6 +209,47 @@ export async function GET(request: Request) {
       && (r.duration_secs ?? 0) >= minDuration
       && inScope(r),
   );
+
+  // Leads table (when the tenant has one) — fetched up-front because both the
+  // global filters (éligibilité / source / recherche par nom) and the
+  // source-attribution + eligibility sections below need it.
+  type LeadRow = { nom: string | null; numero_telephone: string | null; source_lead: string | null; bmi: number | null; qualification: string | null; call_count: number | null };
+  let leadRows: LeadRow[] = [];
+  let leadsOk = false;
+  try {
+    // Page past the 1000-row cap so source attribution sees every lead.
+    const { rows: leads, error: leadsErr } = await fetchAllPaged<LeadRow>(() =>
+      sb
+        .from(leadsTable as never)
+        .select("nom, numero_telephone, source_lead, bmi, qualification, call_count")
+        .not("numero_telephone", "is", null) as unknown as Rangeable<LeadRow>,
+    );
+    if (!leadsErr) {
+      leadRows = leads;
+      leadsOk = true;
+    }
+  } catch {
+    /* tenant doesn't have a leads table — lead-scoped filters become no-match "unknown" */
+  }
+  const leadIdx = leadsOk ? buildLeadFilterIndex(leadRows) : EMPTY_LEAD_INDEX;
+
+  // Global filter bar — applied before every aggregation so each KPI, chart
+  // and panel reflects exactly the operator's selection.
+  if (hasActiveGlobalFilters(gf)) {
+    const attemptIdx = buildAttemptIndex(rows);
+    rows = rows.filter((r) =>
+      matchesGlobalFilters(gf, {
+        durationSecs: r.duration_secs ?? 0,
+        bucket: bucketForCall(r),
+        agent: r.agent_handles?.display_name ?? null,
+        answered: isAnswered(r),
+        attempt: r.to_e164 ? attemptIdx.get(r.id) ?? null : null,
+        eligibility: eligibilityForPhone(r.to_e164, leadIdx),
+        source: (r.to_e164 && leadIdx.sourceByPhone.get(r.to_e164)) || null,
+        haystack: `${(r.to_e164 && leadIdx.nameByPhone.get(r.to_e164)) ?? ""} ${r.to_e164 ?? ""}`.toLowerCase(),
+      }),
+    );
+  }
 
   // RDV = the booked outcome (matches the funnel / Vue d'ensemble definition).
   const isRdv = (r: CallRow) => {
@@ -427,16 +475,10 @@ export async function GET(request: Request) {
     total_leads: 0, eligible_total: 0, pipeline_count: 0,
     in_pipeline: [], lost_count: 0, lost_sample: [],
   };
-  try {
-    type LeadRow = { nom: string | null; numero_telephone: string | null; source_lead: string | null; bmi: number | null; qualification: string | null; call_count: number | null };
-    // Page past the 1000-row cap so source attribution sees every lead.
-    const { rows: leads, error: leadsErr } = await fetchAllPaged<LeadRow>(() =>
-      sb
-        .from(leadsTable as never)
-        .select("nom, numero_telephone, source_lead, bmi, qualification, call_count")
-        .not("numero_telephone", "is", null) as unknown as Rangeable<LeadRow>,
-    );
-    if (!leadsErr) {
+  {
+    // Reuses the leads fetched up-front (before the global filters).
+    const leads = leadRows;
+    if (leadsOk) {
       // Lead-pipeline metrics (forward-looking; not bounded by the period).
       let bookedLeads = 0;
       let bookedCalls = 0;
@@ -504,8 +546,6 @@ export async function GET(request: Request) {
           .slice(0, 12);
       }
     }
-  } catch {
-    /* tenant doesn't have a leads table — empty sources is fine */
   }
 
   // ── Cost per RDV — a business metric, not just a vanity dashboard number.
@@ -570,16 +610,38 @@ export async function GET(request: Request) {
     const { rows: prevData } = await fetchAllPaged<CallRow>(() => {
       let q = sb
         .from("calls")
-        .select("id, direction, state, started_at, answered_at, duration_secs, disposition, to_e164, metadata")
+        .select("id, direction, state, started_at, answered_at, duration_secs, disposition, to_e164, metadata, agent_handles(display_name)")
         .eq("org_id", orgId)
         .gte("started_at", prevFrom.toISOString())
         .lt("started_at", prevTo.toISOString());
       if (dbDirection) q = q.eq("direction", dbDirection);
       return q as unknown as Rangeable<CallRow>;
     }, { maxRows: ROW_CAP + 1000 });
-    const prevRows = (prevData ?? []).filter(
-      (r) => !ACTIVE_STATES.has(r.state ?? "") && !isPhantomCall(r) && !isSoftphoneTestLeg(r) && (r.duration_secs ?? 0) >= minDuration && inScope(r),
-    );
+    let prevRows = (prevData ?? [])
+      .map((r: any) => ({
+        ...r,
+        agent_handles: Array.isArray(r.agent_handles) ? r.agent_handles[0] ?? null : r.agent_handles ?? null,
+      }))
+      .filter(
+        (r: CallRow) => !ACTIVE_STATES.has(r.state ?? "") && !isPhantomCall(r) && !isSoftphoneTestLeg(r) && (r.duration_secs ?? 0) >= minDuration && inScope(r),
+      );
+    // Same global filters as the current period, so the "vs précédent"
+    // deltas compare like with like.
+    if (hasActiveGlobalFilters(gf)) {
+      const prevAttemptIdx = buildAttemptIndex(prevRows);
+      prevRows = prevRows.filter((r: CallRow) =>
+        matchesGlobalFilters(gf, {
+          durationSecs: r.duration_secs ?? 0,
+          bucket: bucketForCall(r),
+          agent: r.agent_handles?.display_name ?? null,
+          answered: isAnswered(r),
+          attempt: r.to_e164 ? prevAttemptIdx.get(r.id) ?? null : null,
+          eligibility: eligibilityForPhone(r.to_e164, leadIdx),
+          source: (r.to_e164 && leadIdx.sourceByPhone.get(r.to_e164)) || null,
+          haystack: `${(r.to_e164 && leadIdx.nameByPhone.get(r.to_e164)) ?? ""} ${r.to_e164 ?? ""}`.toLowerCase(),
+        }),
+      );
+    }
     const prevIds = new Set(prevRows.map((r) => r.id));
     previous.total = prevRows.length;
     previous.answered = prevRows.filter(isAnswered).length;
