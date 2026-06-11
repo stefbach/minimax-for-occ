@@ -12,6 +12,8 @@ export function NhsSuiviTab() {
   const [data, setData] = useState<NhsSuiviResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // "Bloqué 5j+" card expands inline into the stalled-patient list.
+  const [showStalled, setShowStalled] = useState(false);
 
   const fetchData = async () => {
     setLoading(true);
@@ -117,6 +119,68 @@ export function NhsSuiviTab() {
         subtitle={t("Dossiers complets — soumission NHS possible")}
         value={data.ready_to_submit}
       />
+
+      {/* Bloqués — dossiers partiels sans activité 5j+ (parité legacy) */}
+      <div style={{ display: "grid", gap: 8 }}>
+        <AlertRow
+          tone="warn"
+          icon="⏳"
+          title={t("Bloqué — aucun changement depuis 5j+")}
+          subtitle={
+            data.stalled.count === 0
+              ? t("Aucun dossier partiel bloqué")
+              : t("Dossiers partiels sans activité depuis 5 jours ou plus")
+          }
+          value={data.stalled.count}
+          ctaLabel={data.stalled.count > 0 ? (showStalled ? t("Masquer la liste") : t("Voir les patients")) : undefined}
+          onCta={data.stalled.count > 0 ? () => setShowStalled((v) => !v) : undefined}
+        />
+        {showStalled && data.stalled.patients.length > 0 && (
+          <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                <thead>
+                  <tr className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4 }}>
+                    <th style={{ textAlign: "left", padding: "10px 12px" }}>{t("Patient")}</th>
+                    <th style={{ textAlign: "left", padding: "10px 12px" }}>{t("Téléphone")}</th>
+                    <th style={{ textAlign: "left", padding: "10px 12px" }}>Email</th>
+                    <th style={{ textAlign: "left", padding: "10px 12px" }}>{t("Qualification")}</th>
+                    <th style={{ textAlign: "center", padding: "10px 12px" }}>{t("Docs cliniques")}</th>
+                    <th style={{ textAlign: "left", padding: "10px 12px" }}>{t("Dernière activité")}</th>
+                    <th style={{ textAlign: "right", padding: "10px 12px" }}>{t("Bloqué depuis")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.stalled.patients.map((p, i) => (
+                    <tr key={`${p.phone ?? p.email ?? i}`} style={{ borderTop: "1px solid var(--border)" }}>
+                      <td style={{ padding: "8px 12px", fontWeight: 600 }}>{p.name ?? "—"}</td>
+                      <td style={{ padding: "8px 12px" }}>{p.phone ?? "—"}</td>
+                      <td style={{ padding: "8px 12px" }}>{p.email ?? "—"}</td>
+                      <td style={{ padding: "8px 12px" }}>{p.qualification ?? "—"}</td>
+                      <td style={{ padding: "8px 12px", textAlign: "center" }}>
+                        <span style={{ color: "var(--warn)", fontWeight: 600 }}>{p.docs_filled}/{p.docs_total}</span>
+                      </td>
+                      <td style={{ padding: "8px 12px" }}>
+                        {p.last_activity
+                          ? new Date(p.last_activity).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" })
+                          : t("Jamais")}
+                      </td>
+                      <td style={{ padding: "8px 12px", textAlign: "right", color: "var(--warn)", fontWeight: 600 }}>
+                        {p.days_stalled != null ? `${p.days_stalled} ${t("jours")}` : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {data.stalled.count > data.stalled.patients.length && (
+              <p className="muted" style={{ fontSize: 12, margin: 0, padding: "8px 12px" }}>
+                {t("Liste limitée aux")} {data.stalled.patients.length} {t("plus anciens")} · {data.stalled.count} {t("au total")}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Communication patient */}
       <div>
@@ -338,18 +402,19 @@ function PipelinePanel({ data }: { data: NhsSuiviResponse }) {
 }
 
 function AlertRow({
-  tone, icon, title, subtitle, value, ctaLabel, ctaHref,
+  tone, icon, title, subtitle, value, ctaLabel, ctaHref, onCta,
 }: {
-  tone: "bad" | "good";
+  tone: "bad" | "good" | "warn";
   icon: string;
   title: string;
   subtitle: string;
   value: number;
   ctaLabel?: string;
   ctaHref?: string;
+  onCta?: () => void;
 }) {
-  const color = tone === "bad" ? "var(--bad)" : "var(--good)";
-  const softBg = tone === "bad" ? "color-mix(in srgb, var(--bad) 10%, var(--panel))" : "color-mix(in srgb, var(--good) 10%, var(--panel))";
+  const color = tone === "bad" ? "var(--bad)" : tone === "warn" ? "var(--warn)" : "var(--good)";
+  const softBg = `color-mix(in srgb, ${color} 10%, var(--panel))`;
   return (
     <div className="card" style={{ display: "flex", alignItems: "center", gap: 14, padding: 16, background: softBg, borderColor: color }}>
       <div
@@ -367,6 +432,18 @@ function AlertRow({
           <a href={ctaHref} style={{ color, fontSize: 12, fontWeight: 600, textDecoration: "none" }}>
             {ctaLabel} ›
           </a>
+        )}
+        {ctaLabel && !ctaHref && onCta && (
+          <button
+            type="button"
+            onClick={onCta}
+            style={{
+              color, fontSize: 12, fontWeight: 600, background: "none",
+              border: "none", padding: 0, cursor: "pointer",
+            }}
+          >
+            {ctaLabel} ›
+          </button>
         )}
       </div>
       <div style={{ fontSize: 36, fontWeight: 700, color }}>{value}</div>

@@ -13,12 +13,26 @@ export const dynamic = "force-dynamic";
 // and computes the dashboard counts from it. Returns zeros when the table
 // isn't registered yet (multi-tenant safe — no hardcoded names).
 
+export type NhsStalledPatient = {
+  name: string | null;
+  phone: string | null;
+  email: string | null;
+  docs_filled: number;
+  docs_total: number;
+  qualification: string | null;
+  last_activity: string | null; // ISO; null = no activity recorded at all
+  days_stalled: number | null;  // null when last_activity is null
+};
+
 export type NhsSuiviResponse = {
   has_data: boolean;
   monthly_objective: number;
   submitted_this_month: number;
   pending_response_3d_plus: number;
   ready_to_submit: number;
+  // Dossiers partiels sans aucune activité depuis 5 jours+ (ni appel, ni
+  // réponse, ni mise à jour). Liste plafonnée, les plus anciens d'abord.
+  stalled: { count: number; patients: NhsStalledPatient[] };
   comms: {
     email_j0_sent: number;
     email_j2_sent: number;
@@ -173,6 +187,9 @@ export async function GET(request: Request) {
   // current_medications, allergies) rows and bucket them in memory.
   let partialDocs = 0;
   let completeDocs = 0;
+  const stalledPatients: NhsStalledPatient[] = [];
+  let stalledCount = 0;
+  const fiveDaysAgoMs = now.getTime() - 5 * 86400_000;
   if (colSet.has("past_surgeries") || colSet.has("current_medications") || colSet.has("allergies")) {
     try {
       const cols = [
@@ -181,6 +198,16 @@ export async function GET(request: Request) {
         colSet.has("allergies") ? "allergies" : null,
         colSet.has("bmi") ? "bmi" : null,
         colSet.has("patient_dob") ? "patient_dob" : null,
+        // Identity + activity columns for the "Bloqué 5j+" list.
+        colSet.has("nom") ? "nom" : null,
+        colSet.has("numero_telephone") ? "numero_telephone" : null,
+        colSet.has("email") ? "email" : null,
+        colSet.has("qualification") ? "qualification" : null,
+        colSet.has("nhs_wmp_status") ? "nhs_wmp_status" : null,
+        colSet.has("last_call_datetime") ? "last_call_datetime" : null,
+        colSet.has("last_qualification_update") ? "last_qualification_update" : null,
+        colSet.has("last_response_date") ? "last_response_date" : null,
+        colSet.has("updated_at") ? "updated_at" : null,
       ].filter(Boolean) as string[];
       const { data } = await sb.from(table).select(cols.join(",")).limit(20000);
       const rows = (data ?? []) as unknown as Array<Record<string, unknown>>;
@@ -196,7 +223,38 @@ export async function GET(request: Request) {
           colSet.has("current_medications"),
           colSet.has("allergies"),
         ].filter(Boolean).length;
-        if (filled > 0 && filled < totalClinical) partialDocs += 1;
+        const isPartial = filled > 0 && filled < totalClinical;
+        if (isPartial) partialDocs += 1;
+        // "Bloqué 5j+" — dossier partiel, non soumis, dont la dernière
+        // activité connue (appel / réponse / mise à jour) date de 5 jours+.
+        if (isPartial) {
+          const status = String(r["nhs_wmp_status"] ?? "");
+          const submitted = /submi|envoye/i.test(status);
+          if (!submitted) {
+            const stamps = [
+              r["last_call_datetime"],
+              r["last_qualification_update"],
+              r["last_response_date"],
+              r["updated_at"],
+            ]
+              .map((v) => (v ? new Date(String(v)).getTime() : NaN))
+              .filter((ms) => Number.isFinite(ms)) as number[];
+            const lastMs = stamps.length ? Math.max(...stamps) : null;
+            if (lastMs === null || lastMs < fiveDaysAgoMs) {
+              stalledCount += 1;
+              stalledPatients.push({
+                name: (r["nom"] as string | null) ?? null,
+                phone: (r["numero_telephone"] as string | null) ?? null,
+                email: (r["email"] as string | null) ?? null,
+                docs_filled: filled,
+                docs_total: totalClinical,
+                qualification: (r["qualification"] as string | null) ?? null,
+                last_activity: lastMs === null ? null : new Date(lastMs).toISOString(),
+                days_stalled: lastMs === null ? null : Math.floor((now.getTime() - lastMs) / 86400_000),
+              });
+            }
+          }
+        }
         // Complete = bmi, dob, allergies, current_medications, past_surgeries all filled
         const isComplete =
           (!colSet.has("bmi") || (bmi !== null && bmi !== undefined && bmi !== "")) &&
@@ -211,8 +269,16 @@ export async function GET(request: Request) {
     } catch {
       partialDocs = 0;
       completeDocs = 0;
+      stalledCount = 0;
+      stalledPatients.length = 0;
     }
   }
+  // Oldest first (null last_activity = never any activity = most stalled).
+  stalledPatients.sort((a, b) => {
+    const am = a.last_activity ? new Date(a.last_activity).getTime() : -Infinity;
+    const bm = b.last_activity ? new Date(b.last_activity).getTime() : -Infinity;
+    return am - bm;
+  });
 
   // "Sans réponse 3j+" — same as pending3d (escalation proxy).
   const noResponse3d = pending3d;
@@ -261,6 +327,7 @@ export async function GET(request: Request) {
     submitted_this_month: submittedThisMonth,
     pending_response_3d_plus: pending3d,
     ready_to_submit: readyToSubmit,
+    stalled: { count: stalledCount, patients: stalledPatients.slice(0, 100) },
     comms: {
       email_j0_sent: emailJ0,
       email_j2_sent: emailJ2,
@@ -297,6 +364,7 @@ function zeros(): NhsSuiviResponse {
     submitted_this_month: 0,
     pending_response_3d_plus: 0,
     ready_to_submit: 0,
+    stalled: { count: 0, patients: [] },
     comms: { email_j0_sent: 0, email_j2_sent: 0, whatsapp_sent: 0, responses_received: 0 },
     file_status: { no_document: 0, partial: 0, complete: 0, no_response_3d: 0 },
     nhs_tracking: { submitted: 0, in_review: 0, accepted: 0, rejected: 0 },
