@@ -205,6 +205,9 @@ export function PeriodBar({
       .catch(() => alive && setOptions({ agents: [], sources: [] }));
     return () => { alive = false; };
   }, [filters.leadsSource]);
+  // Custom date pickers stay hidden behind the 📅 Personnalisé button until
+  // wanted (or a range is already active), mirroring the legacy bar.
+  const [showCustom, setShowCustom] = useState(false);
   // Debounced search: type freely, propagate to the API-driven tabs 350ms
   // after the last keystroke.
   const [searchDraft, setSearchDraft] = useState(filters.q);
@@ -246,7 +249,19 @@ export function PeriodBar({
   const resetAll = () => {
     onPeriod({ ...presetToRange("today"), preset: "today" });
     onFilters({ ...DEFAULT_FILTERS });
+    setShowCustom(false);
   };
+  // "Période active" chip — same affordance as the legacy bar so the
+  // operator always sees what's currently scoping every tab.
+  const activeLabel = (() => {
+    const preset = PRESETS.find((p) => p.id === period.preset);
+    if (preset) return t(preset.label);
+    const fmt = (iso: string) =>
+      new Date(iso).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
+    const a = fmt(period.from);
+    const b = fmt(period.to);
+    return a === b ? a : `${a} – ${b}`;
+  })();
   return (
     <div
       className="card"
@@ -255,13 +270,24 @@ export function PeriodBar({
       <span className="muted" style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4 }}>
         {t("Période")}
       </span>
+      <span
+        style={{
+          display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 10px",
+          fontSize: 12, borderRadius: 999, whiteSpace: "nowrap",
+          border: "1px solid var(--accent)",
+          background: "color-mix(in srgb, var(--accent) 14%, transparent)",
+        }}
+        title={t("Période active")}
+      >
+        ✓ {activeLabel}
+      </span>
       <div style={{ display: "inline-flex", gap: 4, flexWrap: "wrap" }}>
         {PRESETS.map((p) => {
           const active = period.preset === p.id;
           return (
             <button
               key={p.id}
-              onClick={() => onPeriod({ ...presetToRange(p.id), preset: p.id })}
+              onClick={() => { onPeriod({ ...presetToRange(p.id), preset: p.id }); setShowCustom(false); }}
               className={active ? "" : "ghost"}
               style={{ padding: "5px 11px", fontSize: 13 }}
             >
@@ -269,11 +295,21 @@ export function PeriodBar({
             </button>
           );
         })}
+        <button
+          type="button"
+          onClick={() => setShowCustom((v) => !v)}
+          className={hasRange || showCustom ? "" : "ghost"}
+          style={{ padding: "5px 11px", fontSize: 13 }}
+          title={t("Choisir une date ou un intervalle précis")}
+        >
+          📅 {t("Personnalisé")}
+        </button>
       </div>
 
       {/* Pick a specific day or an interval, like the legacy dashboard. For a
           single day, set Du and Au to the same date. Selecting a range
           deactivates the presets (none match "range:..."). */}
+      {(showCustom || hasRange) && (
       <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
         <span className="muted" style={{ fontSize: 12 }}>{t("Du")}</span>
         <input
@@ -303,6 +339,7 @@ export function PeriodBar({
           title={t("Date de fin")}
         />
       </div>
+      )}
 
       <div style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
@@ -407,22 +444,21 @@ export function PeriodBar({
           selected={filters.quals}
           onChange={(quals) => onFilters({ ...filters, quals: quals as Filters["quals"] })}
         />
-        {options.sources.length > 0 && (
-          <MultiDrop
-            label={t("Source")}
-            options={options.sources.map((s) => ({ value: s, label: s }))}
-            selected={filters.sources}
-            onChange={(sources) => onFilters({ ...filters, sources })}
-          />
-        )}
-        {options.agents.length > 0 && (
-          <MultiDrop
-            label={t("Agent")}
-            options={options.agents.map((a) => ({ value: a, label: a }))}
-            selected={filters.agents}
-            onChange={(agents) => onFilters({ ...filters, agents })}
-          />
-        )}
+        {/* Always rendered (even while options load / when empty) so the bar
+            never loses controls — the popover shows "—" when there is
+            nothing to pick. */}
+        <MultiDrop
+          label={t("Source")}
+          options={options.sources.map((s) => ({ value: s, label: s }))}
+          selected={filters.sources}
+          onChange={(sources) => onFilters({ ...filters, sources })}
+        />
+        <MultiDrop
+          label={t("Agent")}
+          options={options.agents.map((a) => ({ value: a, label: a }))}
+          selected={filters.agents}
+          onChange={(agents) => onFilters({ ...filters, agents })}
+        />
         <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
           <span className="muted" style={{ fontSize: 12 }}>{t("Tentative")}</span>
           <select

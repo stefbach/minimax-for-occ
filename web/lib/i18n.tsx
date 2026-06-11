@@ -153,6 +153,9 @@ const EN: Record<string, string> = {
   "↘ Entrants": "↘ Inbound",
   "↗ Sortants": "↗ Outbound",
   // ── Global filter bar (legacy OCC dashboard parity) ──
+  "Personnalisé": "Custom",
+  "Période active": "Active period",
+  "Choisir une date ou un intervalle précis": "Pick a specific day or range",
   "Tentative": "Attempt",
   "Éligibilité": "Eligibility",
   "Décroché": "Answered",
