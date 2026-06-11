@@ -219,7 +219,9 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
     { label: t("Total appels"), value: k.totalCalls.toLocaleString(), icon: "📞", tone: "var(--info)", drill: {} },
     { label: t("Décrochés"), value: `${k.answered.toLocaleString()} · ${k.answeredPct.toFixed(0)}%`, icon: "✅", tone: "var(--good)", drill: { answered: "yes" } },
     // Cost is an aggregate over usage_events, not a call subset → no drill.
-    { label: t("Coût consommé"), value: `$${k.cost.toFixed(2)}`, icon: "$", tone: "var(--warn)", drill: null },
+    // Drill = every call in the period (each one contributed to the spend),
+    // mirroring the legacy "Cost consumed" panel.
+    { label: t("Coût consommé"), value: `$${k.cost.toFixed(2)}`, icon: "$", tone: "var(--warn)", drill: {} },
     { label: t("RDV confirmés"), value: k.rdvConfirmed.toLocaleString(), icon: "📅", tone: "var(--good)", highlight: true, drill: { qualification: "rdv_confirme" } },
     // Conversion = RDV / Total → drill to the RDV calls (the numerator).
     { label: t("Taux de conversion"), value: `${k.conversionRate.toFixed(1)}%`, icon: "📈", tone: "var(--accent-2)", drill: { qualification: "rdv_confirme" } },
