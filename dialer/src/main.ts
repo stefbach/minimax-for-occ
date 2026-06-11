@@ -9,9 +9,80 @@ const WORKER_CONCURRENCY = Number(process.env.WORKER_CONCURRENCY ?? 10);
 
 // Active dial count tracked in-memory to respect concurrency without Redis.
 let activeDials = 0;
+// End-of-day phase-stamper runs once per UTC day after the last slot closes.
+// `lastStampedDay` holds the YYYY-MM-DD it last ran for, so a restart mid-day
+// doesn't double-stamp and ticks before the cutoff hour don't fire.
+let lastStampedDay: string | null = null;
+
+/**
+ * Wati June 11 — end-of-day cadence stamper. Per OCC's prospection model:
+ * a lead gets ALL THREE J1 attempts on one day (08h / 13h / 18h slots);
+ * at the end of that day the phase is considered finished even if fewer
+ * than 3 attempts landed (the patient was unreachable / network issue /
+ * slot capacity exhausted). Stamping date_j1 = today moves them out of
+ * J1 carry-over and into the J3 queue 2 business days later — exactly
+ * matching Wati's spreadsheet cadence (Mon J1-A → Wed J3-A → Fri J5-A).
+ *
+ * Without this, leads with attempts > 0 + phase date NULL get retried
+ * AS J1 the next day, breaking the model (Wati's June 11 review caught
+ * 1193 such carryovers from the previous slot).
+ *
+ * Runs at most once per UTC day, after the configured cutoff hour (19 UTC
+ * by default = 20 UK BST = end of OCC's evening slot). Stamps:
+ *   - date_j1 for leads with j1_attempts > 0 AND date_j1 IS NULL
+ *   - date_j3 for leads with j3_attempts > 0 AND date_j3 IS NULL
+ *   - date_j5 for leads with j5_attempts > 0 AND date_j5 IS NULL
+ * Idempotent: writes nothing on subsequent ticks the same day.
+ */
+async function stampEndOfDayPhases() {
+  const now = new Date();
+  const cutoffHour = Number(process.env.PHASE_STAMP_CUTOFF_UTC_HOUR ?? 19);
+  if (now.getUTCHours() < cutoffHour) return;
+  const todayUtc = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-${String(now.getUTCDate()).padStart(2, "0")}`;
+  if (lastStampedDay === todayUtc) return;
+  const sb = supabase();
+  try {
+    const stamps: Array<[string, string]> = [
+      ["j1_attempts", "date_j1"],
+      ["j3_attempts", "date_j3"],
+      ["j5_attempts", "date_j5"],
+    ];
+    let totalStamped = 0;
+    for (const [attCol, dateCol] of stamps) {
+      // Each tenant's leads table name is registered in tenant_data_tables,
+      // but in OCC's case the canonical table is leads_rdv. Keeping the
+      // hard-coded reference here is acceptable for now; if a 2nd tenant
+      // joins we'll thread the table name through env.
+      const { data, error } = await sb
+        .from("leads_rdv")
+        .update({ [dateCol]: todayUtc, last_qualification_update: now.toISOString() })
+        .gt(attCol, 0)
+        .is(dateCol, null)
+        .select("id");
+      if (error) {
+        console.error(`[phase-stamp] ${dateCol} update failed:`, error.message);
+        continue;
+      }
+      const n = (data ?? []).length;
+      totalStamped += n;
+      if (n > 0) console.log(`[phase-stamp] stamped ${dateCol}=${todayUtc} on ${n} lead(s)`);
+    }
+    lastStampedDay = todayUtc;
+    if (totalStamped === 0) {
+      console.log(`[phase-stamp] no phases to stamp for ${todayUtc}`);
+    }
+  } catch (e) {
+    console.error("[phase-stamp] failed:", (e as Error)?.message);
+  }
+}
 
 async function scheduleTick() {
   const sb = supabase();
+
+  // End-of-day phase stamper (Wati June 11 cadence fix).
+  await stampEndOfDayPhases().catch((e) =>
+    console.error("[phase-stamp] tick error:", (e as Error)?.message),
+  );
 
   // Reap stale 'dialing' targets. dialTarget flips a target to 'dialing'
   // in-process; if the machine restarts mid-call (deploy, crash), the flip
