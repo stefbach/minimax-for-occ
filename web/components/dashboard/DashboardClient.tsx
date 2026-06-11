@@ -180,6 +180,27 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
           })}
         </div>
 
+        {/* Section header — tells the operator which tab they're in (legacy
+            parity), with the active period for the period-scoped tabs. */}
+        {(() => {
+          const active = TABS.find((x) => x.id === tab);
+          if (!active) return null;
+          const periodScoped = tab === "overview" || tab === "stats" || tab === "logs" || tab === "ai";
+          return (
+            <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+              <h2 style={{ margin: 0, fontSize: 19 }}>
+                <span style={{ marginRight: 8 }}>{active.icon}</span>
+                {t(active.label)}
+              </h2>
+              {periodScoped && (
+                <span className="muted" style={{ fontSize: 13 }}>
+                  {t("Période")} : {periodLabelFor(period)}
+                </span>
+              )}
+            </div>
+          );
+        })()}
+
         {tab === "overview" && (
           <>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
