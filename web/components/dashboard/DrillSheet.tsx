@@ -50,8 +50,10 @@ const QUAL_TONE: Record<QualBucket, string> = {
   autre: "var(--muted)",
 };
 
-function fmtDur(secs: number | null): string {
+function fmtDur(secs: number | null, answered?: boolean): string {
   if (!secs || secs <= 0) return "—";
+  // Non-answered calls: duration_secs is just the ringback time.
+  if (answered === false) return `ring ${secs}s`;
   const m = Math.floor(secs / 60);
   const s = secs % 60;
   return `${m}:${s.toString().padStart(2, "0")}`;
@@ -351,7 +353,7 @@ export function DrillSheet({ spec, onClose }: { spec: DrillSpec | null; onClose:
                     {hasName && c.phone && (<><span>{c.phone}</span><span>·</span></>)}
                     <span>{fmtDate(c.started_at)}</span>
                     <span>·</span>
-                    <span>{fmtDur(c.duration_secs)}</span>
+                    <span>{fmtDur(c.duration_secs, !!c.answered)}</span>
                     {c.agent_name && (<><span>·</span><span>{c.agent_name}</span></>)}
                   </div>
                 </div>
