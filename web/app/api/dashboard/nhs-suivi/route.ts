@@ -1,17 +1,41 @@
 import { NextResponse } from "next/server";
-import { supabaseServer, hasSupabase } from "@/lib/supabase";
+import { createClient } from "@supabase/supabase-js";
 import { requestOrgId } from "@/lib/request-org";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // Suivi patient NHS S2 — pipeline panel for the OCC weight management
-// programme (clones the OCC demo dashboard, fed by lime-window data).
+// programme.
 //
-// The endpoint locates the org's lead-tracking table via tenant_data_tables
-// (any physical_table whose label/key matches /leads_rdv|leads.*rdv|nhs/i)
-// and computes the dashboard counts from it. Returns zeros when the table
-// isn't registered yet (multi-tenant safe — no hardcoded names).
+// DATA SOURCE: the legacy dashboard's Supabase project (emerald-ocean), NOT
+// Axon's own database. The NHS workflow (n8n: emails J0/J+2, WhatsApp, doc
+// tracking, dossier analysis, coordinator assignments) writes to that project:
+//   - leads_rdv             → comms flags, document_status, response dates
+//   - axon_nhs_dossiers_ro  → read-only view over nhs_dossiers (doc_*,
+//                             submission_ready, nhs_submission_status…)
+//   - axon_assignments_ro   → read-only view over dashboard_assignments
+//                             (Summer / Rain / Stormi queues)
+// The views were created for this dashboard and expose only the columns we
+// aggregate. The publishable (anon) key suffices: leads_rdv has a public-read
+// policy and the views are granted to anon. Both URL and key can be overridden
+// via env (NHS_LEGACY_SUPABASE_URL / NHS_LEGACY_SUPABASE_KEY) — e.g. to use a
+// service key or point a different tenant elsewhere.
+//
+// Axon's previous implementation read its own (lime-window) copies of these
+// columns, which the NHS workflow never updates — every tile showed 0.
+
+const LEGACY_URL =
+  process.env.NHS_LEGACY_SUPABASE_URL ?? "https://kgohjmivilsfoewrcovn.supabase.co";
+// Publishable anon key (public by design — same key the legacy frontend ships).
+const LEGACY_KEY =
+  process.env.NHS_LEGACY_SUPABASE_KEY ??
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtnb2hqbWl2aWxzZm9ld3Jjb3ZuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDcxNTMxMDYsImV4cCI6MjA2MjcyOTEwNn0.E_eRu1s2vpGNDNIF1L_I6T9UQsTtKKQaU94oZISpmws";
+
+const MONTHLY_OBJECTIVE = Number(process.env.NHS_MONTHLY_OBJECTIVE ?? 30);
+// All 11 required documents of the S2 pack — used as the denominator for the
+// stalled list's "docs X/11" column.
+const DOCS_TOTAL = 11;
 
 export type NhsStalledPatient = {
   name: string | null;
@@ -35,14 +59,11 @@ export type NhsSuiviResponse = {
   submitted_this_month: number;
   pending_response_3d_plus: number;
   ready_to_submit: number;
-  // Dossiers partiels sans aucune activité depuis 5 jours+ (ni appel, ni
-  // réponse, ni mise à jour). Liste plafonnée, les plus anciens d'abord.
+  // Dossiers partiels (documents manquants) sans activité depuis 5 jours+.
   stalled: { count: number; patients: NhsStalledPatient[] };
-  // Files coordinateurs — assignations humaines (table dashboard_assignments,
-  // partagée avec le dashboard legacy : mêmes files Summer / Rain / Stormi).
+  // Files coordinateurs — mêmes files Summer / Rain / Stormi que le legacy.
   coordinators: NhsCoordinatorQueue[];
-  // Documents à produire par la clinique (table nhs_dossiers, partagée avec
-  // le dashboard legacy — colonnes doc_*).
+  // Documents à produire par la clinique (nhs_dossiers.doc_*).
   clinic_docs: {
     medical_report: number;
     undue_delay_letter: number;
@@ -76,308 +97,198 @@ export type NhsSuiviResponse = {
   };
 };
 
-const MONTHLY_OBJECTIVE = Number(process.env.NHS_MONTHLY_OBJECTIVE ?? 30);
+type DossierRow = {
+  lead_id: string | null;
+  submission_ready: boolean | null;
+  nhs_submission_status: string | null;
+  nhs_submission_date: string | null;
+  dossier_status: string | null;
+  updated_at: string | null;
+  doc_medical_report: string | null;
+  doc_undue_delay_letter: string | null;
+  doc_s2_provider_declaration: string | null;
+  doc_detailed_medical_estimate: string | null;
+};
+
+// Doc cells are text (URL / yes / status word); treat empty + negative words
+// as "not produced".
+function truthyDoc(v: unknown): boolean {
+  if (v === true) return true;
+  if (typeof v === "number") return v > 0;
+  if (typeof v !== "string") return false;
+  const s = v.trim();
+  return s !== "" && !/^(false|no|non|0|pending|missing)$/i.test(s);
+}
 
 export async function GET(request: Request) {
-  if (!hasSupabase()) {
-    return NextResponse.json({ error: "Supabase non configuré" }, { status: 500 });
-  }
-  const orgId = await requestOrgId(request);
-  const sb = supabaseServer();
-
-  // Locate the leads table for this org. We prefer a table whose label/key
-  // suggests NHS / RDV tracking; otherwise fall back to the first registered.
-  const { data: tables } = await sb
-    .from("tenant_data_tables")
-    .select("physical_table, label")
-    .eq("org_id", orgId);
-  const candidate =
-    (tables ?? []).find((t) =>
-      /leads_rdv|nhs|patient/i.test((t as { label: string }).label ?? "") ||
-      /leads_rdv|nhs|patient/i.test((t as { physical_table: string }).physical_table ?? ""),
-    ) ?? (tables ?? [])[0];
-  if (!candidate) {
-    return NextResponse.json(zeros());
-  }
-  const table = (candidate as { physical_table: string }).physical_table;
-
-  // Defensive: confirm the table has the columns we'd need.
-  const { data: cols } = await sb
-    .from("information_schema.columns" as any)
-    .select("column_name")
-    .eq("table_name", table);
-  const colSet = new Set((cols ?? []).map((c) => (c as { column_name: string }).column_name));
-  if (!colSet.has("nhs_wmp_status") && !colSet.has("qualification")) {
-    return NextResponse.json(zeros());
-  }
+  // Auth context (the dashboard is behind login); data itself comes from the
+  // legacy project below.
+  await requestOrgId(request);
+  const legacy = createClient(LEGACY_URL, LEGACY_KEY, { auth: { persistSession: false } });
 
   const now = new Date();
   const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
-  const threeDaysAgo = new Date(now.getTime() - 3 * 86400_000).toISOString();
+  const threeDaysAgoMs = now.getTime() - 3 * 86400_000;
+  const fiveDaysAgoMs = now.getTime() - 5 * 86400_000;
 
-  const countOf = async (build: (q: any) => any): Promise<number> => {
+  const countLeads = async (build: (q: any) => any): Promise<number> => {
     try {
-      const { count } = await build(sb.from(table).select("id", { count: "exact", head: true }));
+      const { count, error } = await build(
+        legacy.from("leads_rdv").select("id", { count: "exact", head: true }),
+      );
+      if (error) return 0;
       return count ?? 0;
     } catch {
       return 0;
     }
   };
 
-  // Submitted this month: nhs_wmp_status ~ 'submitted'/'soumis' and updated this month.
-  const submittedThisMonth = colSet.has("nhs_wmp_status")
-    ? await countOf((q) =>
-        q.gte("updated_at", monthStart).ilike("nhs_wmp_status", "%submi%"),
+  // ── Communication patient (leads_rdv flags, written by n8n) ───────────
+  const [emailJ0, emailJ2, whatsapp, responses, initialCall] = await Promise.all([
+    countLeads((q) => q.eq("email_sent", true)),
+    countLeads((q) => q.eq("relance_email_sent", true)),
+    countLeads((q) => q.eq("relance_whatsapp_sent", true)),
+    countLeads((q) => q.not("last_response_date", "is", null)),
+    countLeads((q) => q.not("last_call_datetime", "is", null)),
+  ]);
+  const hasData = emailJ0 > 0 || initialCall > 0;
+
+  // ── Statut des dossiers côté leads (document_status, scope = emailed) ──
+  // Values observed in production: NULL, NO_DOCUMENTS_RECEIVED,
+  // MISSING_DOCUMENTS (+ future COMPLETE/ALL_DOCUMENTS_RECEIVED).
+  const [noDocument, partialDocs, completeDocs] = await Promise.all([
+    countLeads((q) =>
+      q.eq("email_sent", true).or("document_status.is.null,document_status.ilike.%no_document%,document_status.ilike.%aucun%"),
+    ),
+    countLeads((q) =>
+      q.or("document_status.ilike.%missing%,document_status.ilike.%partial%,document_status.ilike.%partiel%"),
+    ),
+    countLeads((q) =>
+      q.in("document_status", ["COMPLETE", "COMPLET", "ALL_DOCUMENTS_RECEIVED", "ALL_RECEIVED"]),
+    ),
+  ]);
+
+  // ── Dossiers NHS (read-only view over nhs_dossiers) ────────────────────
+  let dossiers: DossierRow[] = [];
+  try {
+    const { data } = await legacy
+      .from("axon_nhs_dossiers_ro")
+      .select(
+        "lead_id, submission_ready, nhs_submission_status, nhs_submission_date, dossier_status, updated_at, doc_medical_report, doc_undue_delay_letter, doc_s2_provider_declaration, doc_detailed_medical_estimate",
       )
-    : 0;
+      .limit(10000);
+    dossiers = (data ?? []) as DossierRow[];
+  } catch {
+    /* view unreachable — dossier-based tiles stay at 0 */
+  }
 
-  // Pending 3d+: last contact > 3 days ago and not closed/submitted.
-  const pending3d = colSet.has("last_call_datetime")
-    ? await countOf((q) =>
-        q
-          .lt("last_call_datetime", threeDaysAgo)
-          .not("nhs_wmp_status", "ilike", "%submi%")
-          .not("qualification", "ilike", "%refus%")
-          .not("qualification", "ilike", "%rdv confirm%"),
-      )
-    : 0;
+  const clinicDocs = { medical_report: 0, undue_delay_letter: 0, s2_provider_declaration: 0, medical_estimate: 0 };
+  const tracking = { submitted: 0, in_review: 0, accepted: 0, rejected: 0 };
+  let readyToSubmit = 0;
+  let submittedThisMonth = 0;
+  let pending3d = 0;
+  for (const d of dossiers) {
+    if (truthyDoc(d.doc_medical_report)) clinicDocs.medical_report += 1;
+    if (truthyDoc(d.doc_undue_delay_letter)) clinicDocs.undue_delay_letter += 1;
+    if (truthyDoc(d.doc_s2_provider_declaration)) clinicDocs.s2_provider_declaration += 1;
+    if (truthyDoc(d.doc_detailed_medical_estimate)) clinicDocs.medical_estimate += 1;
 
-  // Ready to submit: confirmed appointment + clinical info filled, not submitted yet.
-  const readyToSubmit = colSet.has("qualification")
-    ? await countOf((q) => {
-        let qq = q.ilike("qualification", "%confirm%");
-        if (colSet.has("nhs_wmp_status")) qq = qq.not("nhs_wmp_status", "ilike", "%submi%");
-        if (colSet.has("bmi")) qq = qq.gte("bmi", 30);
-        if (colSet.has("allergies")) qq = qq.not("allergies", "is", null);
-        return qq;
-      })
-    : 0;
+    const submitted = Boolean(d.nhs_submission_date) || Boolean(d.nhs_submission_status?.trim());
+    const status = (d.nhs_submission_status ?? "").toLowerCase();
+    if (submitted) tracking.submitted += 1;
+    if (/review|pending|instruction|examen/.test(status)) tracking.in_review += 1;
+    if (/accept|approv/.test(status)) tracking.accepted += 1;
+    if (/refus|reject/.test(status)) tracking.rejected += 1;
 
-  // OCC production names the J0 and J+2 email columns `1st_mail` / `2nd_mail`
-  // (yes, identifiers starting with a digit — they're quoted in SQL). We also
-  // accept the demo names `first_mail` / `second_mail` so the dashboard still
-  // works on legacy tables that haven't been migrated.
-  const mailJ0Col = colSet.has("1st_mail") ? "1st_mail" : colSet.has("first_mail") ? "first_mail" : null;
-  const mailJ2Col = colSet.has("2nd_mail") ? "2nd_mail" : colSet.has("second_mail") ? "second_mail" : null;
+    if (d.submission_ready && !submitted) readyToSubmit += 1;
+    if (d.nhs_submission_date && d.nhs_submission_date >= monthStart) submittedThisMonth += 1;
 
-  const emailJ0 = mailJ0Col
-    ? await countOf((q) => q.not(mailJ0Col, "is", null))
-    : colSet.has("email_sent")
-      ? await countOf((q) => q.eq("email_sent", true))
-      : 0;
-  const emailJ2 = mailJ2Col
-    ? await countOf((q) => q.not(mailJ2Col, "is", null))
-    : colSet.has("relance_email_sent")
-      ? await countOf((q) => q.eq("relance_email_sent", true))
-      : 0;
-  const whatsapp = colSet.has("whatsapp_sent")
-    ? await countOf((q) => q.eq("whatsapp_sent", true))
-    : 0;
-  // "Responses received" proxy: leads with a qualification update following an
-  // outbound communication. Heuristic — refined once we add a dedicated col.
-  const responses = colSet.has("last_qualification_update")
-    ? await countOf((q) => q.not("last_qualification_update", "is", null))
-    : 0;
-
-  // ── File status (4 tuiles) ─────────────────────────────────────────────
-  // "Aucun document" — initial email sent (1st_mail / first_mail) but no
-  // doc-tracking columns filled. On OCC prod, `document_status` already tracks
-  // this explicitly; prefer that signal when present.
-  const noDocument = colSet.has("document_status")
-    ? await countOf((q) => q.or("document_status.is.null,document_status.ilike.%aucun%"))
-    : mailJ0Col
-      ? await countOf((q) => {
-          let qq = q.not(mailJ0Col, "is", null);
-          if (colSet.has("nhs_wmp_status")) qq = qq.is("nhs_wmp_status", null);
-          if (colSet.has("nhs_wmp_details")) qq = qq.is("nhs_wmp_details", null);
-          return qq;
-        })
-      : 0;
-
-  // "Documents partiels" — at least one of the 3 clinical cols filled but
-  // not all of them. Approximated with: past_surgeries NOT NULL XOR meds NOT
-  // NULL XOR allergies NOT NULL (i.e. not the trivially-empty leads and not
-  // the fully-complete ones). We query the 4 "exactly one filled" cases plus
-  // the 3 "exactly two filled" cases via a single fetch with a partial check.
-  // For tractability we fetch the small set of (id, past_surgeries,
-  // current_medications, allergies) rows and bucket them in memory.
-  let partialDocs = 0;
-  let completeDocs = 0;
-  const stalledPatients: NhsStalledPatient[] = [];
-  let stalledCount = 0;
-  const fiveDaysAgoMs = now.getTime() - 5 * 86400_000;
-  if (colSet.has("past_surgeries") || colSet.has("current_medications") || colSet.has("allergies")) {
-    try {
-      const cols = [
-        colSet.has("past_surgeries") ? "past_surgeries" : null,
-        colSet.has("current_medications") ? "current_medications" : null,
-        colSet.has("allergies") ? "allergies" : null,
-        colSet.has("bmi") ? "bmi" : null,
-        colSet.has("patient_dob") ? "patient_dob" : null,
-        // Identity + activity columns for the "Bloqué 5j+" list.
-        colSet.has("nom") ? "nom" : null,
-        colSet.has("numero_telephone") ? "numero_telephone" : null,
-        colSet.has("email") ? "email" : null,
-        colSet.has("qualification") ? "qualification" : null,
-        colSet.has("nhs_wmp_status") ? "nhs_wmp_status" : null,
-        colSet.has("last_call_datetime") ? "last_call_datetime" : null,
-        colSet.has("last_qualification_update") ? "last_qualification_update" : null,
-        colSet.has("last_response_date") ? "last_response_date" : null,
-        colSet.has("updated_at") ? "updated_at" : null,
-      ].filter(Boolean) as string[];
-      const { data } = await sb.from(table).select(cols.join(",")).limit(20000);
-      const rows = (data ?? []) as unknown as Array<Record<string, unknown>>;
-      for (const r of rows) {
-        const ps = colSet.has("past_surgeries") ? r["past_surgeries"] : undefined;
-        const cm = colSet.has("current_medications") ? r["current_medications"] : undefined;
-        const al = colSet.has("allergies") ? r["allergies"] : undefined;
-        const bmi = colSet.has("bmi") ? r["bmi"] : undefined;
-        const dob = colSet.has("patient_dob") ? r["patient_dob"] : undefined;
-        const filled = [ps, cm, al].filter((v) => v !== null && v !== undefined && v !== "").length;
-        const totalClinical = [
-          colSet.has("past_surgeries"),
-          colSet.has("current_medications"),
-          colSet.has("allergies"),
-        ].filter(Boolean).length;
-        const isPartial = filled > 0 && filled < totalClinical;
-        if (isPartial) partialDocs += 1;
-        // "Bloqué 5j+" — dossier partiel, non soumis, dont la dernière
-        // activité connue (appel / réponse / mise à jour) date de 5 jours+.
-        if (isPartial) {
-          const status = String(r["nhs_wmp_status"] ?? "");
-          const submitted = /submi|envoye/i.test(status);
-          if (!submitted) {
-            const stamps = [
-              r["last_call_datetime"],
-              r["last_qualification_update"],
-              r["last_response_date"],
-              r["updated_at"],
-            ]
-              .map((v) => (v ? new Date(String(v)).getTime() : NaN))
-              .filter((ms) => Number.isFinite(ms)) as number[];
-            const lastMs = stamps.length ? Math.max(...stamps) : null;
-            if (lastMs === null || lastMs < fiveDaysAgoMs) {
-              stalledCount += 1;
-              stalledPatients.push({
-                name: (r["nom"] as string | null) ?? null,
-                phone: (r["numero_telephone"] as string | null) ?? null,
-                email: (r["email"] as string | null) ?? null,
-                docs_filled: filled,
-                docs_total: totalClinical,
-                qualification: (r["qualification"] as string | null) ?? null,
-                last_activity: lastMs === null ? null : new Date(lastMs).toISOString(),
-                days_stalled: lastMs === null ? null : Math.floor((now.getTime() - lastMs) / 86400_000),
-              });
-            }
-          }
-        }
-        // Complete = bmi, dob, allergies, current_medications, past_surgeries all filled
-        const isComplete =
-          (!colSet.has("bmi") || (bmi !== null && bmi !== undefined && bmi !== "")) &&
-          (!colSet.has("patient_dob") || (dob !== null && dob !== undefined && dob !== "")) &&
-          (!colSet.has("allergies") || (al !== null && al !== undefined && al !== "")) &&
-          (!colSet.has("current_medications") || (cm !== null && cm !== undefined && cm !== "")) &&
-          (!colSet.has("past_surgeries") || (ps !== null && ps !== undefined && ps !== ""));
-        if (isComplete && colSet.has("bmi") && colSet.has("patient_dob") && colSet.has("allergies") && colSet.has("current_medications") && colSet.has("past_surgeries")) {
-          completeDocs += 1;
-        }
-      }
-    } catch {
-      partialDocs = 0;
-      completeDocs = 0;
-      stalledCount = 0;
-      stalledPatients.length = 0;
+    // "Sans réponse 3j+" — dossier ouvert (non soumis, non complet) sans
+    // aucune mise à jour depuis 3 jours.
+    const updatedMs = d.updated_at ? new Date(d.updated_at).getTime() : NaN;
+    const isComplete = /complet|complete|all_/i.test(d.dossier_status ?? "");
+    if (!submitted && !isComplete && Number.isFinite(updatedMs) && updatedMs < threeDaysAgoMs) {
+      pending3d += 1;
     }
   }
-  // Oldest first (null last_activity = never any activity = most stalled).
+
+  // ── Bloqués 5j+ — dossiers partiels (docs manquants) sans activité ─────
+  const stalledPatients: NhsStalledPatient[] = [];
+  try {
+    const { data } = await legacy
+      .from("leads_rdv")
+      .select(
+        "nom, numero_telephone, email, qualification, received_documents, last_doc_chase_at, last_response_date, relance_email_date, relance_whatsapp_date, last_call_datetime, last_updated, document_status",
+      )
+      .or("document_status.ilike.%missing%,document_status.ilike.%partial%,document_status.ilike.%partiel%")
+      .limit(2000);
+    for (const r of (data ?? []) as Array<Record<string, unknown>>) {
+      const stamps = [
+        r["last_doc_chase_at"], r["last_response_date"], r["relance_email_date"],
+        r["relance_whatsapp_date"], r["last_call_datetime"], r["last_updated"],
+      ]
+        .map((v) => (v ? new Date(String(v)).getTime() : NaN))
+        .filter((ms) => Number.isFinite(ms)) as number[];
+      const lastMs = stamps.length ? Math.max(...stamps) : null;
+      if (lastMs !== null && lastMs >= fiveDaysAgoMs) continue; // active recently
+      const received = String(r["received_documents"] ?? "")
+        .split(/[,;\n]/)
+        .map((s) => s.trim())
+        .filter(Boolean).length;
+      stalledPatients.push({
+        name: (r["nom"] as string | null) ?? null,
+        phone: (r["numero_telephone"] as string | null) ?? null,
+        email: (r["email"] as string | null) ?? null,
+        docs_filled: received,
+        docs_total: DOCS_TOTAL,
+        qualification: (r["qualification"] as string | null) ?? null,
+        last_activity: lastMs === null ? null : new Date(lastMs).toISOString(),
+        days_stalled: lastMs === null ? null : Math.floor((now.getTime() - lastMs) / 86400_000),
+      });
+    }
+  } catch {
+    /* leads unreachable — empty list */
+  }
   stalledPatients.sort((a, b) => {
     const am = a.last_activity ? new Date(a.last_activity).getTime() : -Infinity;
     const bm = b.last_activity ? new Date(b.last_activity).getTime() : -Infinity;
     return am - bm;
   });
 
-  // "Sans réponse 3j+" — same as pending3d (escalation proxy).
-  const noResponse3d = pending3d;
-
-  // ── NHS tracking (4 tuiles) ────────────────────────────────────────────
-  const nhsSubmitted = colSet.has("nhs_wmp_status")
-    ? await countOf((q) => q.or("nhs_wmp_status.ilike.%submi%,nhs_wmp_status.ilike.%envoye%"))
-    : 0;
-  const nhsInReview = colSet.has("nhs_wmp_status")
-    ? await countOf((q) => q.or("nhs_wmp_status.ilike.%review%,nhs_wmp_status.ilike.%pending%"))
-    : 0;
-  const nhsAccepted = colSet.has("nhs_wmp_status")
-    ? await countOf((q) => q.or("nhs_wmp_status.ilike.%accept%,nhs_wmp_status.ilike.%approv%"))
-    : 0;
-  const nhsRejected = colSet.has("nhs_wmp_status")
-    ? await countOf((q) => q.or("nhs_wmp_status.ilike.%refus%,nhs_wmp_status.ilike.%reject%"))
-    : 0;
-
-  // ── Pipeline (5 étapes) ────────────────────────────────────────────────
-  const stepInitialCall = colSet.has("last_call_datetime")
-    ? await countOf((q) => q.not("last_call_datetime", "is", null))
-    : 0;
-  const stepEmailReminder = mailJ2Col
-    ? await countOf((q) => q.not(mailJ2Col, "is", null))
-    : colSet.has("relance_email_sent")
-      ? await countOf((q) => q.eq("relance_email_sent", true))
-      : 0;
-  // "Réponse reçue" proxy: OCC prod tracks the actual response timestamp in
-  // `last_response_date`. When present, that's the strongest signal. Fall back
-  // to last_qualification_update + email-sent heuristic for legacy tables.
-  const stepResponseReceived = colSet.has("last_response_date")
-    ? await countOf((q) => q.not("last_response_date", "is", null))
-    : colSet.has("last_qualification_update") && mailJ0Col
-      ? await countOf((q) =>
-          q.not("last_qualification_update", "is", null).not(mailJ0Col, "is", null),
-        )
-      : colSet.has("last_qualification_update")
-        ? await countOf((q) => q.not("last_qualification_update", "is", null))
-        : 0;
-  const stepFileComplete = completeDocs;
-  const stepNhsSubmitted = nhsSubmitted;
-
   // ── Files coordinateurs (Summer / Rain / Stormi) ───────────────────────
-  // Reads the legacy dashboard's dashboard_assignments table (same Supabase
-  // project), latest assignment per lead, open ones only. Tolerant: orgs
-  // without the table just get the three empty queues.
   const COORDINATORS = ["Summer", "Rain", "Stormi"];
   const queues = new Map<string, NhsCoordinatorQueue>(
     COORDINATORS.map((n) => [n.toLowerCase(), { name: n, patients: [] }]),
   );
   try {
-    const { data: assigns } = await sb
-      .from("dashboard_assignments")
+    const { data: assigns } = await legacy
+      .from("axon_assignments_ro")
       .select("lead_id, assigned_to, reason, assigned_at, status")
       .order("assigned_at", { ascending: false })
       .limit(2000);
     type Assign = { lead_id: string; assigned_to: string | null; reason: string | null; assigned_at: string | null; status: string | null };
     const latestPerLead = new Map<string, Assign>();
     for (const a of (assigns ?? []) as Assign[]) {
-      if (!a.lead_id || latestPerLead.has(a.lead_id)) continue; // first = latest (sorted desc)
+      if (!a.lead_id || latestPerLead.has(a.lead_id)) continue; // first = latest
       latestPerLead.set(a.lead_id, a);
     }
     const open = [...latestPerLead.values()].filter(
       (a) => a.assigned_to && (!a.status || a.status === "open"),
     );
-    // Resolve patient names/phones from the leads table in one query.
     const ids = open.map((a) => a.lead_id);
     const leadById = new Map<string, { nom: string | null; numero_telephone: string | null }>();
-    if (ids.length > 0 && (colSet.has("nom") || colSet.has("numero_telephone"))) {
-      for (let i = 0; i < ids.length; i += 200) {
-        const { data: leadRows } = await sb
-          .from(table)
-          .select("id, nom, numero_telephone")
-          .in("id", ids.slice(i, i + 200));
-        for (const l of (leadRows ?? []) as Array<{ id: string; nom: string | null; numero_telephone: string | null }>) {
-          leadById.set(String(l.id), { nom: l.nom, numero_telephone: l.numero_telephone });
-        }
+    for (let i = 0; i < ids.length; i += 200) {
+      const { data: leadRows } = await legacy
+        .from("leads_rdv")
+        .select("id, nom, numero_telephone")
+        .in("id", ids.slice(i, i + 200));
+      for (const l of (leadRows ?? []) as Array<{ id: string; nom: string | null; numero_telephone: string | null }>) {
+        leadById.set(String(l.id), { nom: l.nom, numero_telephone: l.numero_telephone });
       }
     }
     for (const a of open) {
-      const key = (a.assigned_to ?? "").trim().toLowerCase();
-      const queue = queues.get(key);
-      if (!queue) continue; // unknown coordinator name — out of the 3 fixed queues
+      const queue = queues.get((a.assigned_to ?? "").trim().toLowerCase());
+      if (!queue) continue;
       const lead = leadById.get(String(a.lead_id));
       queue.patients.push({
         name: lead?.nom ?? null,
@@ -387,39 +298,17 @@ export async function GET(request: Request) {
       });
     }
   } catch {
-    /* dashboard_assignments absent — empty queues */
-  }
-  const coordinators = COORDINATORS.map((n) => queues.get(n.toLowerCase())!);
-
-  // ── Documents à produire par la clinique ──────────────────────────────
-  // Counts from the legacy nhs_dossiers table. Column types vary (boolean /
-  // text / URL), so rows are fetched and truthiness evaluated in memory.
-  const clinicDocs = { medical_report: 0, undue_delay_letter: 0, s2_provider_declaration: 0, medical_estimate: 0 };
-  try {
-    const { data: dossiers } = await sb
-      .from("nhs_dossiers")
-      .select("doc_medical_report, doc_undue_delay_letter, doc_s2_provider_declaration, doc_detailed_medical_estimate")
-      .limit(20000);
-    const truthy = (v: unknown) =>
-      v === true || (typeof v === "string" && v.trim() !== "" && !/^(false|no|non|0)$/i.test(v.trim())) || typeof v === "number" && v > 0;
-    for (const d of (dossiers ?? []) as Array<Record<string, unknown>>) {
-      if (truthy(d["doc_medical_report"])) clinicDocs.medical_report += 1;
-      if (truthy(d["doc_undue_delay_letter"])) clinicDocs.undue_delay_letter += 1;
-      if (truthy(d["doc_s2_provider_declaration"])) clinicDocs.s2_provider_declaration += 1;
-      if (truthy(d["doc_detailed_medical_estimate"])) clinicDocs.medical_estimate += 1;
-    }
-  } catch {
-    /* nhs_dossiers absent — zeros */
+    /* assignments unreachable — empty queues */
   }
 
   const body: NhsSuiviResponse = {
-    has_data: true,
+    has_data: hasData,
     monthly_objective: MONTHLY_OBJECTIVE,
     submitted_this_month: submittedThisMonth,
     pending_response_3d_plus: pending3d,
     ready_to_submit: readyToSubmit,
-    stalled: { count: stalledCount, patients: stalledPatients.slice(0, 100) },
-    coordinators,
+    stalled: { count: stalledPatients.length, patients: stalledPatients.slice(0, 100) },
+    coordinators: COORDINATORS.map((n) => queues.get(n.toLowerCase())!),
     clinic_docs: clinicDocs,
     comms: {
       email_j0_sent: emailJ0,
@@ -431,44 +320,16 @@ export async function GET(request: Request) {
       no_document: noDocument,
       partial: partialDocs,
       complete: completeDocs,
-      no_response_3d: noResponse3d,
+      no_response_3d: pending3d,
     },
-    nhs_tracking: {
-      submitted: nhsSubmitted,
-      in_review: nhsInReview,
-      accepted: nhsAccepted,
-      rejected: nhsRejected,
-    },
+    nhs_tracking: tracking,
     pipeline: {
-      initial_call: stepInitialCall,
-      email_reminder: stepEmailReminder,
-      response_received: stepResponseReceived,
-      file_complete: stepFileComplete,
-      nhs_submitted: stepNhsSubmitted,
+      initial_call: initialCall,
+      email_reminder: emailJ2,
+      response_received: responses,
+      file_complete: completeDocs,
+      nhs_submitted: tracking.submitted,
     },
   };
   return NextResponse.json(body);
-}
-
-function zeros(): NhsSuiviResponse {
-  return {
-    has_data: false,
-    monthly_objective: MONTHLY_OBJECTIVE,
-    submitted_this_month: 0,
-    pending_response_3d_plus: 0,
-    ready_to_submit: 0,
-    stalled: { count: 0, patients: [] },
-    coordinators: ["Summer", "Rain", "Stormi"].map((name) => ({ name, patients: [] })),
-    clinic_docs: { medical_report: 0, undue_delay_letter: 0, s2_provider_declaration: 0, medical_estimate: 0 },
-    comms: { email_j0_sent: 0, email_j2_sent: 0, whatsapp_sent: 0, responses_received: 0 },
-    file_status: { no_document: 0, partial: 0, complete: 0, no_response_3d: 0 },
-    nhs_tracking: { submitted: 0, in_review: 0, accepted: 0, rejected: 0 },
-    pipeline: {
-      initial_call: 0,
-      email_reminder: 0,
-      response_received: 0,
-      file_complete: 0,
-      nhs_submitted: 0,
-    },
-  };
 }
