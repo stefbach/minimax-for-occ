@@ -326,10 +326,19 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
 
       {/* QUALIFICATIONS GRID — 9 fixed cards */}
       <div className="card">
-        <h3 style={{ marginTop: 0, marginBottom: 4 }}>{t("Qualifications")}</h3>
-        <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>
-          {t("Source")} : <code>calls.metadata.qualification</code> + <code>calls.disposition</code>
-        </p>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+          <div>
+            <h3 style={{ marginTop: 0, marginBottom: 4 }}>{t("Qualifications")}</h3>
+            <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>
+              {t("Source")} : <code>calls.metadata.qualification</code> + <code>calls.disposition</code>
+            </p>
+          </div>
+          {/* Period total, top-right — legacy-dashboard parity. */}
+          <div style={{ textAlign: "right" }}>
+            <div style={{ fontSize: 24, fontWeight: 700 }}>{k.totalCalls.toLocaleString("fr-FR")}</div>
+            <div className="muted" style={{ fontSize: 11 }}>{t("appels sur la période")}</div>
+          </div>
+        </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10 }}>
           {data.qualifications.map((q) => (
             <ClickCard
