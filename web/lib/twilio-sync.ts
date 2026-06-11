@@ -228,7 +228,13 @@ export async function syncTwilioCalls(
           !(r.metadata?.twilio_call_sid),
       );
       if (match) {
+        // Write the SID to BOTH the top-level column AND metadata. The
+        // recording-status webhook looks up by `calls.twilio_call_sid`
+        // (column), so a sync row that only stamped metadata stayed
+        // invisible — leaving 33% of answered calls with no recording_url
+        // on June 11. Stamping the column closes that gap.
         await sb.from("calls").update({
+          twilio_call_sid: sid,
           metadata: { ...(match.metadata ?? {}), twilio_call_sid: sid, twilio_last_status: c.status ?? null },
         }).eq("id", match.id).eq("org_id", orgId);
         costItems.push({
