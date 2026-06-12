@@ -285,6 +285,23 @@ def _llm_for(agent: Optional[AxonAgent]):
             api_key=anth_key,
         )
 
+    if provider == "livekit":
+        # LiveKit Inference — le LLM est servi par la passerelle LiveKit
+        # Cloud, colocalisée avec les serveurs média (architecture Retell).
+        # Auth = les LIVEKIT_API_KEY/SECRET déjà présents sur le worker.
+        # Modèle au format catalogue LK "fournisseur/modele". Activé par
+        # campagne via campaigns.metadata.llm_provider="livekit" — la prod
+        # n'est jamais impactée (A/B Wati 12/06).
+        try:
+            from livekit.agents import inference as _lk_inf
+        except ImportError as e:
+            raise RuntimeError(
+                "livekit.agents.inference indisponible dans cette version du SDK"
+            ) from e
+        lk_model = model if "/" in (model or "") else "openai/gpt-4o-mini"
+        logger.info("LLM=livekit-inference model=%s max_tokens=%d", lk_model, max_tokens)
+        return _build_llm_with_max_tokens(_lk_inf.LLM, max_tokens, model=lk_model)
+
     if provider == "minimax":
         base_url = os.getenv("MINIMAX_BASE_URL", "https://api.minimax.io/v1")
         api_key = os.environ["MINIMAX_API_KEY"]
@@ -2625,7 +2642,7 @@ def _load_campaign_call_tuning(campaign_id: str) -> dict:
             rows = r.json() or []
             md = (rows[0] or {}).get("metadata") if rows else None
             if isinstance(md, dict):
-                keys = ("greeting_mode", "llm_provider", "llm_model", "tts_sample_rate", "min_endpointing_delay", "quick_ack", "no_speech_hangup_secs", "conversational_idle_secs", "min_interruption_duration", "confirm_reply", "greeting_wait_secs", "turn_detector")
+                keys = ("greeting_mode", "llm_provider", "llm_model", "tts_sample_rate", "min_endpointing_delay", "quick_ack", "no_speech_hangup_secs", "conversational_idle_secs", "min_interruption_duration", "confirm_reply", "greeting_wait_secs", "turn_detector", "stt_provider", "stt_model")
                 return {k: md[k] for k in keys if md.get(k) is not None}
     except Exception:
         logger.debug("call-tuning load failed (campaign=%s)", campaign_id, exc_info=True)
@@ -2841,6 +2858,9 @@ async def entrypoint(ctx: JobContext) -> None:
         "anthropic": "ANTHROPIC_API_KEY",
         "deepseek": "DEEPSEEK_API_KEY",
         "minimax": "MINIMAX_API_KEY",
+        # LiveKit Inference s'authentifie avec les clés LiveKit du worker,
+        # toujours présentes — aucune clé supplémentaire à vérifier.
+        "livekit": "LIVEKIT_API_KEY",
     }
     if _tun_provider and axon:
         _need = _provider_keys.get(_tun_provider)
@@ -2982,11 +3002,25 @@ async def entrypoint(ctx: JobContext) -> None:
     # Build each provider separately so a failure points to the exact
     # component (STT / LLM / TTS) in the call logs instead of an opaque
     # "unhandled exception". Each logs and re-raises with a clear marker.
-    try:
-        _stt = _stt_for(axon)
-    except Exception:
-        clog.exception("BUILD FAILED: STT (AssemblyAI). Check ASSEMBLYAI_API_KEY on Fly.")
-        raise
+    _tun_stt = str(campaign_tuning.get("stt_provider") or "").lower()
+    _stt = None
+    if _tun_stt == "livekit":
+        # Transcription via la passerelle LiveKit Inference (A/B campagne
+        # test). Échec → repli silencieux sur AssemblyAI direct.
+        try:
+            from livekit.agents import inference as _lk_inf
+            _stt_model = str(campaign_tuning.get("stt_model") or "assemblyai/universal-streaming")
+            _stt = _lk_inf.STT(model=_stt_model, language=(getattr(axon, "language", None) or "en"))
+            clog.info("STT=livekit-inference model=%s", _stt_model)
+        except Exception:
+            clog.exception("LiveKit Inference STT indisponible — repli AssemblyAI direct")
+            _stt = None
+    if _stt is None:
+        try:
+            _stt = _stt_for(axon)
+        except Exception:
+            clog.exception("BUILD FAILED: STT (AssemblyAI). Check ASSEMBLYAI_API_KEY on Fly.")
+            raise
     try:
         _llm = _llm_for(axon)
     except Exception:
