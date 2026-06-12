@@ -65,6 +65,7 @@ const RETIRED_PAGES = new Set(["/calls"]);
 
 const NAV: NavItem[] = [
   // ─── OVERVIEW ───
+  { href: "/home",      label: "Accueil",          icon: "⌾", group: "Overview" },
   { href: "/start",     label: "Démarrage guidé",  icon: "✦", group: "Overview" },
   { href: "/dashboard", label: "Tableau d'analyse", icon: "▣", group: "Overview", module: "dashboard" },
   { href: "/copilot",   label: "Co-pilot manager", icon: "✸", group: "Overview", module: "copilot" },
@@ -293,7 +294,7 @@ export function ClientSidebar() {
         className={`sidebar${drawerOpen ? " open" : ""}`}
         aria-label={t("Navigation principale")}
       >
-      <Link href="/" className="brand" onClick={() => setDrawerOpen(false)}>
+      <Link href="/home" className="brand" onClick={() => setDrawerOpen(false)}>
         <Brand size={18} />
       </Link>
 
