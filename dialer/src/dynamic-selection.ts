@@ -239,20 +239,32 @@ export async function runDynamicSelection(sb: SupabaseClient, campaign: Campaign
       "PAS INTERESSE",
       "A PASSER A L'HUMAIN",
     ];
-    let q = sb
-      .from(table)
-      .select("*")
-      .eq("do_not_call", false)
-      .eq("cycle_status", "ACTIF")
-      .not("qualification", "in", `(${NEGATIVE_QUALS.map((q) => `"${q}"`).join(",")})`)
-      .limit(20000);
-    if (engine.selection.include_statuses.length > 0) {
-      q = q.in(engine.selection.status_column, engine.selection.include_statuses);
+    // Paginate with .range() — PostgREST caps every response at its
+    // server-side max-rows (1000 by default) REGARDLESS of .limit().
+    // Until 2026-06-12 this silently truncated the scan to the first
+    // 1000 physical rows: the June 12 morning run found only 204 J3
+    // leads when 1364 were actually due (Wati's "pourquoi si peu
+    // d'appels" — second root cause after the re-arm bug).
+    const all: Record<string, unknown>[] = [];
+    const PAGE = 1000;
+    for (let from = 0; from < 20000; from += PAGE) {
+      let q = sb
+        .from(table)
+        .select("*")
+        .eq("do_not_call", false)
+        .eq("cycle_status", "ACTIF")
+        .not("qualification", "in", `(${NEGATIVE_QUALS.map((q) => `"${q}"`).join(",")})`)
+        .order("id", { ascending: true })
+        .range(from, from + PAGE - 1);
+      if (engine.selection.include_statuses.length > 0) {
+        q = q.in(engine.selection.status_column, engine.selection.include_statuses);
+      }
+      const { data: rows, error } = await q;
+      if (error) throw new Error(error.message);
+      const batch = (rows ?? []) as Record<string, unknown>[];
+      all.push(...batch);
+      if (batch.length < PAGE) break;
     }
-    const { data: rows, error } = await q;
-    if (error) throw new Error(error.message);
-
-    const all = (rows ?? []) as Record<string, unknown>[];
 
     // Compute phase + filter phone.
     const eligible = all
