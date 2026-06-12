@@ -795,15 +795,24 @@ class AxonVoiceAgent(Agent):
             from livekit.agents import StopResponse
             raise StopResponse()
 
-        # Quick-ack: instant canned filler while the LLM thinks. Only on
-        # turns that WILL get an LLM reply (we didn't suppress above), and
-        # only when the campaign opted in (test campaign for now).
+        # Quick-ack: canned filler while the LLM thinks — but CONDITIONAL
+        # (Wati 2026-06-12 second test): firing instantly on every user
+        # turn made Charlotte drop an orphan "Right." / "Okay." right
+        # after questions she'd just asked, reading like she was starting
+        # a new conversation. Now the ack waits QUICK_ACK_DELAY_SECONDS
+        # (1.5s); if the real reply is already speaking by then, no filler
+        # at all. Only genuinely slow turns get bridged.
         if self._quick_ack:
             import random as _rnd
             phrase = _rnd.choice(self._ack_phrases)
+            ack_delay = float(os.getenv("QUICK_ACK_DELAY_SECONDS", "1.5"))
 
             async def _say_ack() -> None:
                 try:
+                    await asyncio.sleep(ack_delay)
+                    st = str(getattr(self.session, "agent_state", "") or "").lower()
+                    if st == "speaking":
+                        return  # reply already flowing — no filler needed
                     # add_to_chat_ctx=False (when supported) keeps the
                     # filler out of the LLM's context so it doesn't start
                     # mimicking its own backchannel.
