@@ -53,6 +53,30 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     ) ?? null;
   } catch { /* fall through, unordered query */ }
 
+  // Server-side search (Wati 2026-06-12): the CRM page loads a bounded
+  // window of recent rows, so client-side filtering can't find older
+  // leads ("Quiche Lorraine", created Dec 2025, was invisible). With
+  // ?q=<term> we search the WHOLE physical table on the registered name
+  // + phone columns and return the matches — the client swaps its list
+  // for these results while a search is active.
+  const url = new URL(req.url);
+  const searchTerm = (url.searchParams.get("q") ?? "").trim();
+  if (searchTerm) {
+    // Strip the characters that have meaning in PostgREST or-filters so a
+    // user typing "%" or "," can't break out of the pattern.
+    const safe = searchTerm.replace(/[%_,()]/g, " ").trim();
+    const pattern = `%${safe}%`;
+    const orParts = [
+      reg.name_column ? `${reg.name_column}.ilike.${pattern}` : null,
+      reg.phone_column ? `${reg.phone_column}.ilike.${pattern}` : null,
+    ].filter(Boolean) as string[];
+    let sq = sb.from(reg.physical_table).select("*").limit(100);
+    if (orParts.length > 0) sq = sq.or(orParts.join(","));
+    const { data: found, error: sErr } = await sq;
+    if (sErr) return NextResponse.json({ error: sErr.message }, { status: 500 });
+    return NextResponse.json({ table: reg, rows: found ?? [], search: searchTerm });
+  }
+
   let q = sb.from(reg.physical_table).select("*").limit(1000);
   if (orderCol) q = q.order(orderCol, { ascending: false, nullsFirst: false });
   const { data, error } = await q;

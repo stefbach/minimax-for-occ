@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import * as XLSX from "xlsx";
@@ -45,6 +45,38 @@ export function DataTableDetail({ registryId, columns, phoneColumn, nameColumn, 
   const router = useRouter();
   const [rows, setRows] = useState(initialRows);
   const [search, setSearch] = useState("");
+  // Server-side search results — when the user types, we query the API
+  // (which scans the WHOLE table) instead of filtering the loaded window.
+  // null = no active server search (show the loaded rows). Wati 2026-06-12:
+  // "Quiche Lorraine" exists in leads_rdv but was outside the recency
+  // window the page loads, so client-side filtering showed 0 results.
+  const [serverRows, setServerRows] = useState<Record<string, unknown>[] | null>(null);
+  const [searching, setSearching] = useState(false);
+  useEffect(() => {
+    const q = search.trim();
+    if (!q) {
+      setServerRows(null);
+      setSearching(false);
+      return;
+    }
+    setSearching(true);
+    const handle = setTimeout(async () => {
+      try {
+        const r = await fetch(
+          `/api/data-tables/${registryId}/rows?q=${encodeURIComponent(q)}`,
+          { cache: "no-store" },
+        );
+        const j = await r.json();
+        if (r.ok && Array.isArray(j.rows)) setServerRows(j.rows);
+        else setServerRows([]);
+      } catch {
+        setServerRows([]);
+      } finally {
+        setSearching(false);
+      }
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [search, registryId]);
   const [qualFilter, setQualFilter] = useState<string>("");
   const [phaseFilter, setPhaseFilter] = useState<string>("");
   const [showAdd, setShowAdd] = useState(false);
@@ -161,9 +193,13 @@ export function DataTableDetail({ registryId, columns, phoneColumn, nameColumn, 
     return String(v);
   }
 
-  const filtered = rows.filter((r) => {
+  // Active search → use the server's whole-table results; quick filters
+  // still apply on top. No search → the loaded recency window as before.
+  const baseRows = serverRows ?? rows;
+  const filtered = baseRows.filter((r) => {
     if (qualFilter && String(r["qualification"] ?? "") !== qualFilter) return false;
     if (phaseFilter && String(r["current_phase"] ?? "") !== phaseFilter) return false;
+    if (serverRows) return true; // server already matched the search term
     const q = search.trim().toLowerCase();
     if (!q) return true;
     return JSON.stringify(r).toLowerCase().includes(q);
@@ -306,7 +342,11 @@ export function DataTableDetail({ registryId, columns, phoneColumn, nameColumn, 
           </button>
         )}
         <span className="muted" style={{ fontSize: 12, marginLeft: 4 }}>
-          {filtered.length} / {rows.length}
+          {searching
+            ? "Recherche dans toute la table…"
+            : serverRows
+              ? `${filtered.length} trouvé${filtered.length > 1 ? "s" : ""} (toute la table)`
+              : `${filtered.length} / ${rows.length}`}
         </span>
         <div style={{ flex: 1 }} />
         <button onClick={() => setShowAdd((v) => !v)}>{showAdd ? "Annuler" : "+ Ajouter un contact"}</button>

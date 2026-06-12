@@ -720,37 +720,57 @@ class AxonVoiceAgent(Agent):
         # poll sip.callStatus directly instead of relying on room events
         # whose names/semantics differ across LK SDK versions.
         self._sip_participant = sip_participant
-        # Agent-First flow: when True, the next completed user turn (the
-        # patient's "Hello?") is answered with the STATIC greeting instead
-        # of a free-form LLM reply. Set by on_enter for SIP sessions,
-        # cleared by on_user_turn_completed or the silence timeout.
+        # Agent-First flow: when True, the next user speech (the patient's
+        # "Hello?") is answered with the STATIC greeting instead of a
+        # free-form LLM reply. Set by on_enter for SIP sessions, cleared
+        # by the first-partial hook / on_user_turn_completed / the silence
+        # timeout.
         self._pending_first_greeting = False
+        # Set when the greeting was already fired from a PARTIAL transcript
+        # (see _fire_greeting_now) — on_user_turn_completed must still
+        # suppress the LLM's reply to that first turn, otherwise the LLM
+        # answers "Hello?" with a second, duplicate intro.
+        self._suppress_first_llm_reply = False
+
+    def _fire_greeting_now(self, trigger: str) -> None:
+        # Speak the canned greeting IMMEDIATELY. Called from the first
+        # PARTIAL STT transcript (Wati 2026-06-12: patients said "Hello"
+        # then sat through ~3s of silence — waiting for the END of their
+        # turn + endpointing delay + TTS round-trip stacked up). A partial
+        # arrives within a few hundred ms of speech onset, so greeting from
+        # it cuts the perceived dead air by 1.5-2.5s. Idempotent: the
+        # _pending flag flips first so a racing turn-completion can't
+        # double-fire.
+        if not self._pending_first_greeting:
+            return
+        self._pending_first_greeting = False
+        self._suppress_first_llm_reply = True
+        import time as _t
+        logger.info("greeting: firing from %s", trigger)
+
+        async def _say_greeting() -> None:
+            _b = _t.monotonic()
+            logger.info("greeting: say() begin (%s)", trigger)
+            try:
+                await self.session.say(text=self._greeting, allow_interruptions=True)
+                logger.info("greeting: say() returned in %.2fs", _t.monotonic() - _b)
+            except Exception:
+                logger.info(
+                    "greeting: say() interrupted after %.2fs (likely hangup)",
+                    _t.monotonic() - _b,
+                )
+
+        asyncio.create_task(_say_greeting())
 
     async def on_user_turn_completed(self, turn_ctx, new_message) -> None:
-        # First patient utterance on the Agent-First flow: speak the canned
-        # greeting ("Hi, is that Megane?") and SUPPRESS the LLM's free-form
-        # reply for this turn. Without the suppression the LLM answers
-        # "Hello?" with its own full intro, which races/duplicates the
-        # greeting (June 10 trace) — and Wati explicitly wants the short
-        # canned opener first.
+        # Fallback path: if no partial reached us (rare — some carriers
+        # only emit finals), fire the greeting here like the v13 flow did.
         if self._pending_first_greeting:
-            self._pending_first_greeting = False
-            import time as _t
-            logger.info("first user turn completed — speaking static greeting, suppressing LLM reply")
-
-            async def _say_greeting() -> None:
-                _b = _t.monotonic()
-                logger.info("greeting: say() begin (turn-triggered)")
-                try:
-                    await self.session.say(text=self._greeting, allow_interruptions=True)
-                    logger.info("greeting: say() returned in %.2fs", _t.monotonic() - _b)
-                except Exception:
-                    logger.info(
-                        "greeting: say() interrupted after %.2fs (likely hangup)",
-                        _t.monotonic() - _b,
-                    )
-
-            asyncio.create_task(_say_greeting())
+            self._fire_greeting_now("turn-completed fallback")
+        # Suppress the LLM's free-form reply to the first turn — the canned
+        # greeting (already speaking via _fire_greeting_now) IS the reply.
+        if self._suppress_first_llm_reply:
+            self._suppress_first_llm_reply = False
             from livekit.agents import StopResponse
             raise StopResponse()
 
@@ -855,14 +875,27 @@ class AxonVoiceAgent(Agent):
         # — covers the silent-pickup minority without leaving dead air
         # forever.
         if sp is not None:
-            # Arm the first-turn interceptor: the patient's "Hello?" turn is
-            # answered with the STATIC greeting ("Hi, is that Megane?") via
-            # on_user_turn_completed + StopResponse — the LLM's free-form
-            # reply is suppressed for that single turn. Triggering on turn
-            # COMPLETION (not partials) means the patient has finished
-            # speaking, so the greeting can't be cut off by their continuing
-            # speech, and suppressing the reply means no double-greeting.
+            # Arm the first-turn interceptor: the patient's "Hello?" fires
+            # the STATIC greeting ("Hi, is that Megane?"). Since 2026-06-12
+            # the trigger is the FIRST PARTIAL transcript (handler below),
+            # not turn completion — partials land within a few hundred ms
+            # of speech onset, so the patient hears the greeting almost
+            # immediately instead of after ~3s (endpointing delay + STT
+            # final + TTS round-trip stacked up — Wati's latency report).
+            # on_user_turn_completed keeps a fallback fire + suppresses the
+            # LLM's duplicate reply to that first turn via StopResponse.
             self._pending_first_greeting = True
+            try:
+                def _on_first_partial(ev) -> None:
+                    if not self._pending_first_greeting:
+                        return
+                    txt = str(getattr(ev, "transcript", "") or "").strip()
+                    if not txt:
+                        return
+                    self._fire_greeting_now("first partial transcript")
+                self.session.on("user_input_transcribed", _on_first_partial)
+            except Exception:
+                logger.debug("greeting: partial-transcript hook unavailable", exc_info=True)
             # Stretched to 45 s on Wati's June 10 carrier-ringback findings.
             # UK Three/O2 acquit the SIP leg in <2 s then play ringback
             # IN-BAND for up to 30 s before the handset actually rings the
