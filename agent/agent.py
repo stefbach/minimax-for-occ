@@ -758,10 +758,17 @@ class AxonVoiceAgent(Agent):
         # the ack plays first and the LLM reply follows seamlessly.
         self._quick_ack = bool(quick_ack)
         self._ack_phrases = ["Mm-hmm.", "Right.", "Okay."]
+        # On-answer mode: how many bare phone-openers ("Hello?") still get
+        # answered with the greeting. Armed to 3 by on_enter after the
+        # on-answer greeting plays; zeroed by the first substantive turn.
+        self._opener_replies_left = 0
 
-    async def _say_regreet(self) -> None:
+    async def _say_regreet(self, prefix: str = "") -> None:
         # Speak the greeting again — used when the first one almost surely
         # played into in-band ringback before the patient picked up.
+        # `prefix` varies repeated re-greets like Retell does ("Sorry — ",
+        # "Apologies, just checking — ") so the 2nd/3rd don't replay the
+        # exact same audio robotically.
         # allow_interruptions=False (Summer 07:45): a 3s canned opener must
         # finish even if the patient talks over it — barge-in was cutting
         # it to "Hi," and leaving dead air.
@@ -769,7 +776,8 @@ class AxonVoiceAgent(Agent):
         _b = _t.monotonic()
         logger.info("greeting: re-greet say() begin")
         try:
-            await self.session.say(text=self._greeting, allow_interruptions=False)
+            text = f"{prefix}{self._greeting}" if prefix else self._greeting
+            await self.session.say(text=text, allow_interruptions=False)
             logger.info("greeting: re-greet say() returned in %.2fs", _t.monotonic() - _b)
         except Exception:
             logger.info(
@@ -796,33 +804,37 @@ class AxonVoiceAgent(Agent):
         # Speech-first mode (production): this is THE greeting trigger —
         # patient's first turn completes, we speak the canned greeting and
         # suppress the LLM reply (v13 flow).
-        # On-answer mode (Wati's spec, 2026-06-12 4th iteration): the
-        # greeting already played at answer. On the FIRST user turn:
-        #   - bare opener ("Hello?") → they never heard it (early-answer
-        #     ringback ate it) → answer WITH the greeting, suppress LLM.
-        #   - anything substantive → they heard it → LLM continues the
-        #     script immediately. No fillers, no timers, no VAD games.
-        if self._pending_first_greeting:
-            self._pending_first_greeting = False
-            if not self._greet_on_answer:
-                logger.info("greeting: firing from turn-completed (speech-first mode)")
-                self._suppress_first_llm_reply = True
-                asyncio.create_task(self._say_regreet())
-            else:
+        # On-answer mode (Wati's spec + the Retell reference call): every
+        # bare opener ("Hello?") gets answered WITH the greeting — up to 3
+        # times, politely varied like Retell does ("Sorry to check
+        # again—…") instead of robotically replaying identical audio.
+        # The first substantive utterance permanently hands over to the
+        # LLM. No fillers, no timers, no VAD games.
+        if self._greet_on_answer:
+            if self._opener_replies_left > 0:
                 utterance = str(
                     getattr(new_message, "text_content", None)
                     or getattr(new_message, "content", "")
                     or ""
                 ).strip()
                 if self._BARE_OPENER_RE.search(utterance):
+                    n = self._opener_replies_left
+                    self._opener_replies_left -= 1
+                    prefix = {3: "", 2: "Sorry — ", 1: "Apologies, just checking — "}.get(n, "")
                     logger.info(
-                        "greeting: first turn is a bare opener (%r) — patient missed the on-answer greeting, re-greeting",
-                        utterance[:40],
+                        "greeting: bare opener (%r) — re-greeting (%d left)",
+                        utterance[:40], self._opener_replies_left,
                     )
                     self._suppress_first_llm_reply = True
-                    asyncio.create_task(self._say_regreet())
+                    asyncio.create_task(self._say_regreet(prefix=prefix))
                 else:
-                    logger.info("greeting: first turn substantive — LLM takes over directly")
+                    logger.info("greeting: substantive turn — LLM takes over for good")
+                    self._opener_replies_left = 0
+        elif self._pending_first_greeting:
+            self._pending_first_greeting = False
+            logger.info("greeting: firing from turn-completed (speech-first mode)")
+            self._suppress_first_llm_reply = True
+            asyncio.create_task(self._say_regreet())
         # Suppress the LLM's free-form reply when the re-greet IS the reply
         # — without this the LLM answers "Hello?" with a duplicate intro.
         if self._suppress_first_llm_reply:
@@ -990,13 +1002,13 @@ class AxonVoiceAgent(Agent):
                     "greeting: say() interrupted after %.2fs (likely hangup)",
                     _t.monotonic() - _b,
                 )
-            # Arm the first-turn check: if the patient's first words are a
-            # bare phone-opener ("Hello?"), they missed this greeting (it
-            # played into early-answer ringback) and on_user_turn_completed
-            # answers WITH the greeting. Substantive first words → straight
-            # to the LLM. No timers, no VAD disarm races — the 4 morning
-            # iterations all died on those.
-            self._pending_first_greeting = True
+            # Arm the opener-response budget: every bare phone-opener
+            # ("Hello?") gets answered WITH the greeting — up to 3 times,
+            # politely varied (the Retell reference pattern). The first
+            # substantive utterance hands over to the LLM for good. No
+            # timers, no VAD disarm races — the 4 morning iterations all
+            # died on those.
+            self._opener_replies_left = 3
             return
 
         if sp is not None:
