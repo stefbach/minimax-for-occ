@@ -706,7 +706,7 @@ def _build_save_contact_tool(
 
 # ─── Agent wrapper that greets via TTS only ───────────────────────────────
 class AxonVoiceAgent(Agent):
-    def __init__(self, *, instructions: str, tools, greeting: str, llm=None, tts=None, stt=None, vad=None, sip_participant=None, greet_on_answer: bool = False):
+    def __init__(self, *, instructions: str, tools, greeting: str, llm=None, tts=None, stt=None, vad=None, sip_participant=None, greet_on_answer: bool = False, quick_ack: bool = False):
         # Per-agent llm/tts/stt/vad override the session defaults. This is what
         # makes a handoff actually CHANGE THE VOICE: update_agent() rebuilds the
         # activity from the new Agent's components, whereas reassigning
@@ -747,6 +747,16 @@ class AxonVoiceAgent(Agent):
         # greet-the-moment-the-SIP-answers flow, currently being tuned on
         # the "teste summer" campaign only.
         self._greet_on_answer = bool(greet_on_answer)
+        # Quick-ack (Wati 2026-06-12, Randy Chipungu case): DeepSeek's TTFT
+        # occasionally spikes to 5-10s, leaving the patient in dead air
+        # after they speak ("Speaking." → 13s silence → watchdog hangup).
+        # When enabled, every completed user turn after the greeting gets
+        # an INSTANT canned acknowledgment ("Mm-hmm." / "Right.") spoken
+        # while the LLM generates the real reply behind it — the same
+        # trick Retell uses. The framework queues speech sequentially, so
+        # the ack plays first and the LLM reply follows seamlessly.
+        self._quick_ack = bool(quick_ack)
+        self._ack_phrases = ["Mm-hmm.", "Right.", "Okay."]
 
     async def _say_regreet(self) -> None:
         # Speak the greeting again — used when the first one almost surely
@@ -783,6 +793,29 @@ class AxonVoiceAgent(Agent):
             self._suppress_first_llm_reply = False
             from livekit.agents import StopResponse
             raise StopResponse()
+
+        # Quick-ack: instant canned filler while the LLM thinks. Only on
+        # turns that WILL get an LLM reply (we didn't suppress above), and
+        # only when the campaign opted in (test campaign for now).
+        if self._quick_ack:
+            import random as _rnd
+            phrase = _rnd.choice(self._ack_phrases)
+
+            async def _say_ack() -> None:
+                try:
+                    # add_to_chat_ctx=False (when supported) keeps the
+                    # filler out of the LLM's context so it doesn't start
+                    # mimicking its own backchannel.
+                    import inspect as _ins
+                    say_params = set(_ins.signature(self.session.say).parameters)
+                    kwargs = {"allow_interruptions": True}
+                    if "add_to_chat_ctx" in say_params:
+                        kwargs["add_to_chat_ctx"] = False
+                    await self.session.say(text=phrase, **kwargs)
+                except Exception:
+                    logger.debug("quick-ack say failed", exc_info=True)
+
+            asyncio.create_task(_say_ack())
 
     async def on_enter(self) -> None:
         # MARKER v13-canned-first-2026-06-10 — patient's first utterance is
@@ -2043,6 +2076,22 @@ def _install_call_hygiene(
                 if ga is not None and (now - ga) >= goodbye_grace and (now - state["last_user_ts"]) >= goodbye_grace:
                     await _hangup("goodbye + grace")
                     return
+                # LLM-in-flight guard (Wati 2026-06-12, Randy Chipungu):
+                # never idle-hangup while the session is actively thinking
+                # or speaking. The agent_state_changed event normally keeps
+                # state['agent_active'] in sync, but a missed/late event
+                # let a slow DeepSeek turn (5-10s TTFT spike) get cut at
+                # the conversational-idle threshold — the patient confirmed
+                # their identity and the call died mid-generation. Reading
+                # session.agent_state directly is version-tolerant and
+                # cheap.
+                try:
+                    _live_state = str(getattr(session, "agent_state", "") or "").lower()
+                    if _live_state in ("thinking", "speaking"):
+                        state["last_agent_ts"] = now
+                        continue
+                except Exception:
+                    pass
                 # Pure idle path. The effective threshold escalates once
                 # the patient has spoken at all — see state['user_has_spoken']
                 # init for the rationale.
@@ -2396,6 +2445,8 @@ def _load_campaign_call_tuning(campaign_id: str) -> dict:
       llm_model              e.g. "gpt-4o-mini"
       tts_sample_rate        e.g. 8000 (native telephony rendering)
       min_endpointing_delay  e.g. 0.4 (seconds)
+      quick_ack              true → instant canned filler ("Mm-hmm.")
+                             on each user turn while the LLM generates
     """
     try:
         from db_writes import _supabase_headers as _sb_h, _supabase_url as _sb_u, has_supabase as _sb_has
@@ -2409,7 +2460,7 @@ def _load_campaign_call_tuning(campaign_id: str) -> dict:
             rows = r.json() or []
             md = (rows[0] or {}).get("metadata") if rows else None
             if isinstance(md, dict):
-                keys = ("greeting_mode", "llm_provider", "llm_model", "tts_sample_rate", "min_endpointing_delay")
+                keys = ("greeting_mode", "llm_provider", "llm_model", "tts_sample_rate", "min_endpointing_delay", "quick_ack")
                 return {k: md[k] for k in keys if md.get(k) is not None}
     except Exception:
         logger.debug("call-tuning load failed (campaign=%s)", campaign_id, exc_info=True)
@@ -2932,6 +2983,7 @@ async def entrypoint(ctx: JobContext) -> None:
             tools=tools,
             greeting=greeting,
             greet_on_answer=greet_on_answer,
+            quick_ack=bool(campaign_tuning.get("quick_ack")),
             # Pass the SIP participant already resolved by
             # ctx.wait_for_participant() so on_enter can poll its
             # sip.callStatus directly. None for browser/desk sessions.
