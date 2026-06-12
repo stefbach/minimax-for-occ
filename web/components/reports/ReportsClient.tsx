@@ -191,7 +191,7 @@ export function ReportsClient() {
                 padding: 14,
                 borderRadius: 8,
                 border: selected ? "2px solid var(--accent)" : "1px solid var(--border)",
-                background: selected ? "var(--surface-2, rgba(255,107,53,0.06))" : "var(--surface, transparent)",
+                background: selected ? "var(--surface-2, rgba(168,85,247,0.08))" : "var(--surface, transparent)",
                 cursor: tpl.available ? "pointer" : "not-allowed",
                 opacity: tpl.available ? 1 : 0.5,
                 display: "flex",
@@ -268,7 +268,7 @@ export function ReportsClient() {
                 padding: 12,
                 borderRadius: 6,
                 border: selected ? "2px solid var(--accent)" : "1px solid var(--border)",
-                background: selected ? "var(--surface-2, rgba(255,107,53,0.06))" : "var(--surface, transparent)",
+                background: selected ? "var(--surface-2, rgba(168,85,247,0.08))" : "var(--surface, transparent)",
                 cursor: "pointer",
                 display: "flex",
                 flexDirection: "column",
@@ -315,7 +315,7 @@ export function ReportsClient() {
           disabled={loading}
           style={{
             padding: "11px 22px",
-            background: loading ? "var(--muted, #94a3b8)" : "var(--accent, #ff6b35)",
+            background: loading ? "var(--muted, #94a3b8)" : "var(--accent, #a855f7)",
             color: "white",
             border: "none",
             borderRadius: 6,

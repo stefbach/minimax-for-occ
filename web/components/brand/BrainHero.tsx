@@ -46,12 +46,12 @@ export function BrainHero() {
       <svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
         <defs>
           <radialGradient id="core-grad" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stopColor="#ff6b35" stopOpacity="0.95" />
-            <stop offset="60%" stopColor="#ff6b35" stopOpacity="0.18" />
-            <stop offset="100%" stopColor="#ff6b35" stopOpacity="0" />
+            <stop offset="0%" stopColor="#a855f7" stopOpacity="0.95" />
+            <stop offset="60%" stopColor="#a855f7" stopOpacity="0.18" />
+            <stop offset="100%" stopColor="#a855f7" stopOpacity="0" />
           </radialGradient>
           <linearGradient id="ring-grad" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stopColor="#ff6b35" />
+            <stop offset="0%" stopColor="#a855f7" />
             <stop offset="100%" stopColor="#60a5fa" />
           </linearGradient>
           <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
@@ -86,7 +86,7 @@ export function BrainHero() {
 
         {/* central core */}
         <circle className="core" cx="200" cy="200" r="36" fill="url(#core-grad)" />
-        <circle className="core" cx="200" cy="200" r="14" fill="#ff6b35" filter="url(#glow)" opacity="0.9" />
+        <circle className="core" cx="200" cy="200" r="14" fill="#a855f7" filter="url(#glow)" opacity="0.9" />
 
         {/* axons (lines between neurons) */}
         {lines.map((l, i) => (
@@ -111,7 +111,7 @@ export function BrainHero() {
             cx={n.cx}
             cy={n.cy}
             r={n.rad}
-            fill={i % 3 === 0 ? "#ff6b35" : "#e7ecf3"}
+            fill={i % 3 === 0 ? "#a855f7" : "#e7ecf3"}
             filter="url(#glow)"
             opacity={0.85}
           />

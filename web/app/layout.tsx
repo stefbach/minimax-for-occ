@@ -19,6 +19,16 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="fr">
+      <head>
+        {/* Apply the saved theme before first paint so the public homepage
+            (and every other page) doesn't flash dark→light on load. Mirrors
+            the localStorage contract of ThemeLangSwitcher (axon.theme). */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{var t=localStorage.getItem("axon.theme");document.documentElement.setAttribute("data-theme",t==="light"?"light":"dark");}catch(e){}`,
+          }}
+        />
+      </head>
       <body>{children}</body>
     </html>
   );
