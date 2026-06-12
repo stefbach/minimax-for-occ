@@ -1250,6 +1250,48 @@ def _install_team_handoff_watcher(
                 "handoff: FULL swap -> %s (%s) voice=%s model=%s, %d tools",
                 axon_next.id, axon_next.name, axon_next.tts_voice_id, axon_next.llm_model, len(tools),
             )
+            # Safety net (Wati 2026-06-12, Marina Gorton): update_agent()
+            # should trigger the new agent's on_enter → say(greeting), but
+            # on Marina's call Isabelle stayed silent for 23s after the
+            # swap until the idle watchdog killed the line — the patient
+            # was told "stay on the line" and got dead air. Whatever the
+            # root cause (lost on_enter, TTS hiccup), the recovery is the
+            # same: if the swapped agent hasn't produced any speech 3s
+            # after the swap, say its greeting directly on the session.
+            _greet_for_net = greet
+
+            async def _ensure_greeted() -> None:
+                try:
+                    await asyncio.sleep(3.0)
+                    st = ""
+                    try:
+                        st = str(getattr(session, "agent_state", "") or "").lower()
+                    except Exception:
+                        pass
+                    import time as _t_net
+                    _hyg2 = _HYGIENE_STATES.get(call_id) if call_id else None
+                    speaking_until = float(_hyg2.get("agent_speaking_until", 0) or 0) if _hyg2 else 0.0
+                    agent_busy = (
+                        st in ("speaking", "thinking")
+                        or _t_net.monotonic() < speaking_until
+                        or bool(_hyg2 and _hyg2.get("agent_active"))
+                    )
+                    if agent_busy:
+                        return  # on_enter did its job — greeting is out
+                    clog.warning(
+                        "handoff: %s produced no speech 3s after swap — forcing greeting directly",
+                        axon_next.name,
+                    )
+                    if _greet_for_net:
+                        await session.say(text=_greet_for_net, allow_interruptions=True)
+                except Exception:
+                    clog.exception("handoff: ensure-greeted safety net failed")
+
+            try:
+                asyncio.create_task(_ensure_greeted())
+            except RuntimeError:
+                pass
+
             # Reset hygiene state so the new agent inherits a clean slate.
             # Charlotte's transition phrase ("I'm transferring you now, talk
             # soon") can match the goodbye regex and arm a 5s hangup timer —
