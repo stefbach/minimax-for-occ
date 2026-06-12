@@ -300,6 +300,59 @@ export async function syncTwilioCalls(
     console.error(`[twilio-sync] cost reconciliation failed org=${orgId}:`, e instanceof Error ? e.message : e);
   }
 
+  // ── Recording backfill (Wati 2026-06-12, Marina Gorton) ────────────────
+  // The Twilio trunk records every call, but only the createCall path
+  // (Path B) configures a RecordingStatusCallback — LiveKit-originated
+  // calls (Path A, the default) never get the webhook, so recording_url
+  // stayed NULL even though the audio sits in Twilio. PULL instead of
+  // waiting for a push: for recent answered rows with a SID and no
+  // recording, ask /Calls/{sid}/Recordings.json and stamp the .mp3 URL
+  // (same format the webhook writes, so the dashboard player just works).
+  let recordingsFilled = 0;
+  try {
+    const accountSid = process.env.TWILIO_ACCOUNT_SID;
+    const auth = authHeader();
+    if (accountSid && auth) {
+      const sinceIso = new Date(sinceMs).toISOString();
+      const { data: noRec } = await sb
+        .from("calls")
+        .select("id, twilio_call_sid")
+        .eq("org_id", orgId)
+        .gte("started_at", sinceIso)
+        .is("recording_url", null)
+        .not("twilio_call_sid", "is", null)
+        .gt("duration_secs", 3)
+        .order("started_at", { ascending: false })
+        .limit(30); // bounded per run — the 30s cadence catches up fast
+      for (const row of (noRec ?? []) as Array<{ id: string; twilio_call_sid: string }>) {
+        try {
+          const rr = await fetch(
+            `${TWILIO_API}/2010-04-01/Accounts/${accountSid}/Calls/${row.twilio_call_sid}/Recordings.json`,
+            { headers: { Authorization: auth }, signal: AbortSignal.timeout(8000) },
+          );
+          if (!rr.ok) continue;
+          const rj = (await rr.json()) as { recordings?: Array<{ sid?: string; status?: string }> };
+          const rec = (rj.recordings ?? []).find((r) => r.status === "completed") ?? (rj.recordings ?? [])[0];
+          if (!rec?.sid) continue;
+          const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Recordings/${rec.sid}.mp3`;
+          const { error: upErr } = await sb
+            .from("calls")
+            .update({ recording_url: url })
+            .eq("id", row.id)
+            .eq("org_id", orgId);
+          if (!upErr) recordingsFilled += 1;
+        } catch {
+          /* one bad SID shouldn't kill the pass */
+        }
+      }
+      if (recordingsFilled > 0) {
+        console.log(`[twilio-sync] recordings backfilled: ${recordingsFilled}`);
+      }
+    }
+  } catch (e) {
+    console.error(`[twilio-sync] recording backfill failed:`, e instanceof Error ? e.message : e);
+  }
+
   const result: TwilioSyncResult = {
     fetched: raw.length,
     inserted,
