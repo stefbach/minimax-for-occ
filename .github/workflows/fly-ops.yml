@@ -89,6 +89,12 @@ jobs:
           echo "===== logs worker pendant la sonde ====="
           timeout 30 flyctl logs -a axon-agent --no-tail | tail -30 || true
 
+      - name: Bench DeepSeek TTFT (depuis la machine agent, réseau identique aux appels)
+        if: ${{ github.event.inputs.action == 'bench-deepseek' }}
+        run: |
+          B64="CmltcG9ydCBqc29uLCB0aW1lLCB1cmxsaWIucmVxdWVzdCwgb3MsIHN5cwoKa2V5ID0gb3MuZW52aXJvbi5nZXQoIkRTSyIsICIiKQp1cmwgPSAiaHR0cHM6Ly9hcGkuZGVlcHNlZWsuY29tL3YxL2NoYXQvY29tcGxldGlvbnMiCgpkZWYgdHRmdChuX2ZpbGxlcik6CiAgICBmaWxsZXIgPSAoIkNvbnRleHRlIGRlIGNhbXBhZ25lLCBsaWduZSBkZSBzY3JpcHQgbnVtZXJvICVkLiAiICUgMSkgKiBuX2ZpbGxlcgogICAgYm9keSA9IHsKICAgICAgICAibW9kZWwiOiAiZGVlcHNlZWstY2hhdCIsCiAgICAgICAgInN0cmVhbSI6IFRydWUsCiAgICAgICAgIm1heF90b2tlbnMiOiAzMCwKICAgICAgICAibWVzc2FnZXMiOiBbCiAgICAgICAgICAgIHsicm9sZSI6ICJzeXN0ZW0iLCAiY29udGVudCI6ICJUdSBlcyBDaGFybG90dGUsIGFnZW50ZSBkZSBsYSBjbGluaXF1ZS4gIiArIGZpbGxlcn0sCiAgICAgICAgICAgIHsicm9sZSI6ICJ1c2VyIiwgImNvbnRlbnQiOiAiWWVzLCBpdCdzIG1lLiJ9LAogICAgICAgIF0sCiAgICB9CiAgICByZXEgPSB1cmxsaWIucmVxdWVzdC5SZXF1ZXN0KHVybCwgZGF0YT1qc29uLmR1bXBzKGJvZHkpLmVuY29kZSgpLAogICAgICAgIGhlYWRlcnM9eyJBdXRob3JpemF0aW9uIjogIkJlYXJlciAiICsga2V5LCAiQ29udGVudC1UeXBlIjogImFwcGxpY2F0aW9uL2pzb24ifSkKICAgIHQwID0gdGltZS50aW1lKCkKICAgIHdpdGggdXJsbGliLnJlcXVlc3QudXJsb3BlbihyZXEsIHRpbWVvdXQ9MzApIGFzIHI6CiAgICAgICAgZm9yIGxpbmUgaW4gcjoKICAgICAgICAgICAgaWYgbGluZS5zdGFydHN3aXRoKGIiZGF0YTogIikgYW5kIGIiY29udGVudCIgaW4gbGluZToKICAgICAgICAgICAgICAgIHJldHVybiAodGltZS50aW1lKCkgLSB0MCkgKiAxMDAwCiAgICByZXR1cm4gLTEKCmZvciBsYWJlbCwgbiBpbiBbKCJwZXRpdCBwcm9tcHQgKH41MCB0b2tlbnMpIiwgMSksICgiZ3JvcyBwcm9tcHQgKH40NDAwIHRva2VucykiLCAzODApXToKICAgIHZhbHMgPSBbXQogICAgZm9yIGkgaW4gcmFuZ2UoMyk6CiAgICAgICAgdHJ5OgogICAgICAgICAgICB2YWxzLmFwcGVuZCh0dGZ0KG4pKQogICAgICAgIGV4Y2VwdCBFeGNlcHRpb24gYXMgZToKICAgICAgICAgICAgcHJpbnQobGFiZWwsICJlc3NhaSIsIGksICJlcnJldXI6IiwgZSkKICAgIGlmIHZhbHM6CiAgICAgICAgcHJpbnQoIlRURlQgJXMgOiBlc3NhaXM9JXMgbXMg4oCUIG3DqWRpYW5lPSUuMGYgbXMiICUgKGxhYmVsLCBbaW50KHYpIGZvciB2IGluIHZhbHNdLCBzb3J0ZWQodmFscylbbGVuKHZhbHMpLy8yXSkpCg=="
+          timeout 120 flyctl ssh console -a axon-agent -C "python -c \"import base64,os;os.environ['DSK']=os.environ.get('DEEPSEEK_API_KEY','');exec(base64.b64decode('$B64').decode())\"" || true
+
       - name: Restart agent machine
         if: ${{ github.event.inputs.action == 'restart-agent' }}
         run: |
