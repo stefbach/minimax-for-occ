@@ -28,8 +28,13 @@ primary_region = "cdg"
 # (Marina Gorton, Sue Thomas, Amy Luke-Telford, Inna Georgeta, Leann
 # Williams). 4 GB gives enough headroom to absorb the leak between OOMs
 # while we work on a 1.5.16 upgrade or explicit recorder cleanup.
+# 12/06/2026 : 2x → 4x. Les logs de l'appel 008b8568 montrent Silero
+# "inference is slower than realtime" pendant la conversation : le VAD +
+# turn detector saturent 2 vCPU partagés, ce qui gonfle la détection de
+# fin de parole (EOU mesuré 1021ms pour 300ms de réglage). 4 vCPU
+# absorbent l'inférence temps réel → moins de latence sur chaque tour.
 [[vm]]
-  size = "shared-cpu-2x"
+  size = "shared-cpu-4x"
   memory = "4096mb"
 
 # Pure outbound worker — connects to LiveKit Cloud and waits for room

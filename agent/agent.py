@@ -709,7 +709,7 @@ def _build_save_contact_tool(
 
 # ─── Agent wrapper that greets via TTS only ───────────────────────────────
 class AxonVoiceAgent(Agent):
-    def __init__(self, *, instructions: str, tools, greeting: str, llm=None, tts=None, stt=None, vad=None, sip_participant=None, greet_on_answer: bool = False, quick_ack: bool = False):
+    def __init__(self, *, instructions: str, tools, greeting: str, llm=None, tts=None, stt=None, vad=None, sip_participant=None, greet_on_answer: bool = False, quick_ack: bool = False, confirm_reply: str = ""):
         # Per-agent llm/tts/stt/vad override the session defaults. This is what
         # makes a handoff actually CHANGE THE VOICE: update_agent() rebuilds the
         # activity from the new Agent's components, whereas reassigning
@@ -764,6 +764,16 @@ class AxonVoiceAgent(Agent):
         # answered with the greeting. Armed to 3 by on_enter after the
         # on-answer greeting plays; zeroed by the first substantive turn.
         self._opener_replies_left = 0
+        # Canned identity-confirmation reply (Wati 2026-06-12, latence) :
+        # la réponse à « Yes, it's me » est toujours la même phrase du
+        # script, or DeepSeek met 1.8-2.1s à la générer (TTFT mesuré sur
+        # l'appel 008b8568). Quand campaigns.metadata.confirm_reply est
+        # défini, ce tour est dit en canned (~0.5s) et le LLM est court-
+        # circuité via StopResponse. La phrase entre dans le chat context
+        # (session.say par défaut) donc le LLM reste cohérent ensuite.
+        self._confirm_reply = (confirm_reply or "").strip()
+        self._confirm_used = False
+        self._user_turns_seen = 0
 
     async def _say_regreet(self, prefix: str = "") -> None:
         # Speak the greeting again — used when the first one almost surely
@@ -802,7 +812,26 @@ class AxonVoiceAgent(Agent):
         re.IGNORECASE,
     )
 
+    # Identity confirmations ONLY — short, unambiguous answers to "Hi, is
+    # that X?". Anything longer or with a question falls through to the LLM
+    # (e.g. "yes, who's calling?" must NOT get the canned pitch).
+    _CONFIRM_RE = re.compile(
+        r"^\W*(yes|yeah|yep|yup|aye|correct|sure)"
+        r"([\s,.!-]*(it'?s\s+me|it\s+is|speaking|that'?s\s+me|this\s+is\s+(she|her|he|him|me)))?\W*$"
+        r"|^\W*(it'?s\s+me|speaking|that'?s\s+me|this\s+is\s+(she|her|he|him|me))\W*$",
+        re.IGNORECASE,
+    )
+
+    async def _say_confirm(self) -> None:
+        # La phrase d'intro scriptée, interruptible (contrairement au
+        # greeting 3s) : si le patient coupe, la conversation reprend au LLM.
+        try:
+            await self.session.say(text=self._confirm_reply, allow_interruptions=True)
+        except Exception:
+            logger.debug("confirm-reply say failed", exc_info=True)
+
     async def on_user_turn_completed(self, turn_ctx, new_message) -> None:
+        self._user_turns_seen += 1
         # Speech-first mode (production): this is THE greeting trigger —
         # patient's first turn completes, we speak the canned greeting and
         # suppress the LLM reply (v13 flow).
@@ -843,6 +872,25 @@ class AxonVoiceAgent(Agent):
             self._suppress_first_llm_reply = False
             from livekit.agents import StopResponse
             raise StopResponse()
+
+        # Canned confirm reply — voir __init__. Limité aux 3 premiers tours :
+        # un "yes" en plein milieu de conversation est une réponse au LLM,
+        # pas une confirmation d'identité.
+        if self._confirm_reply and not self._confirm_used and self._user_turns_seen <= 3:
+            utterance = str(
+                getattr(new_message, "text_content", None)
+                or getattr(new_message, "content", "")
+                or ""
+            ).strip()
+            if len(utterance) <= 40 and self._CONFIRM_RE.match(utterance):
+                self._confirm_used = True
+                logger.info(
+                    "confirm-reply: canned intro (turn %d, %r) — LLM bypassed",
+                    self._user_turns_seen, utterance[:40],
+                )
+                asyncio.create_task(self._say_confirm())
+                from livekit.agents import StopResponse
+                raise StopResponse()
 
         # Quick-ack: canned filler while the LLM thinks — but CONDITIONAL
         # (Wati 2026-06-12 second test): firing instantly on every user
@@ -2552,7 +2600,7 @@ def _load_campaign_call_tuning(campaign_id: str) -> dict:
             rows = r.json() or []
             md = (rows[0] or {}).get("metadata") if rows else None
             if isinstance(md, dict):
-                keys = ("greeting_mode", "llm_provider", "llm_model", "tts_sample_rate", "min_endpointing_delay", "quick_ack", "no_speech_hangup_secs", "conversational_idle_secs", "min_interruption_duration")
+                keys = ("greeting_mode", "llm_provider", "llm_model", "tts_sample_rate", "min_endpointing_delay", "quick_ack", "no_speech_hangup_secs", "conversational_idle_secs", "min_interruption_duration", "confirm_reply")
                 return {k: md[k] for k in keys if md.get(k) is not None}
     except Exception:
         logger.debug("call-tuning load failed (campaign=%s)", campaign_id, exc_info=True)
@@ -3105,6 +3153,14 @@ async def entrypoint(ctx: JobContext) -> None:
     if greet_on_answer:
         clog.info("greeting mode: ON-ANSWER (experimental, campaign=%s)", campaign_id)
 
+    # Phrase d'intro scriptée (latence) — rendue avec les mêmes variables que
+    # le greeting ({first_name}, etc.). Vide si la campagne ne la définit pas.
+    confirm_reply = render_template(
+        str(campaign_tuning.get("confirm_reply") or ""), template_vars
+    )
+    if confirm_reply:
+        clog.info("confirm-reply: canned intro armed (%d chars)", len(confirm_reply))
+
     clog.info("timing: session.start() begin")
     await session.start(
         room=ctx.room,
@@ -3114,6 +3170,7 @@ async def entrypoint(ctx: JobContext) -> None:
             greeting=greeting,
             greet_on_answer=greet_on_answer,
             quick_ack=bool(campaign_tuning.get("quick_ack")),
+            confirm_reply=confirm_reply,
             # Pass the SIP participant already resolved by
             # ctx.wait_for_participant() so on_enter can poll its
             # sip.callStatus directly. None for browser/desk sessions.
