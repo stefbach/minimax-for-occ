@@ -460,7 +460,7 @@ def _stt_for(agent: Optional[AxonAgent]) -> assemblyai.STT:
     raise last_exc
 
 
-def _tts_for(agent: Optional[AxonAgent]) -> cartesia.TTS:
+def _tts_for(agent: Optional[AxonAgent], sample_rate: Optional[int] = None) -> cartesia.TTS:
     """Cartesia Sonic TTS — honors the per-agent voice/language/speed.
 
     Replaced MiniMax for lower TTFB: Cartesia Sonic targets ~90ms
@@ -518,6 +518,14 @@ def _tts_for(agent: Optional[AxonAgent]) -> cartesia.TTS:
         "emotion": emotion,
         "volume": volume,
     }
+    # Native telephony rendering (Wati 2026-06-12: Charlotte sounds "more
+    # AI" on calls than in the browser simulation). The phone leg is 8kHz
+    # G.711; asking Cartesia to synthesize AT 8kHz lets the model shape
+    # the narrowband output instead of us brutally downsampling 44.1kHz
+    # audio. Per-campaign via metadata.tts_sample_rate, signature-filtered
+    # like everything else.
+    if sample_rate:
+        candidate["sample_rate"] = int(sample_rate)
     if voice:
         candidate["voice"] = voice
     api_key = os.getenv("CARTESIA_API_KEY")
@@ -2375,30 +2383,37 @@ def _wire_transcript_hooks(session: AgentSession, call_id: Optional[str]) -> Non
             logger.debug("session.on(%s) unavailable on this LiveKit version", ev_name)
 
 
-def _load_campaign_greeting_mode(campaign_id: str) -> Optional[str]:
-    """Read campaigns.metadata.greeting_mode for the campaign driving this
-    call. Returns "on_answer" / "speech_first" / None (= default).
+def _load_campaign_call_tuning(campaign_id: str) -> dict:
+    """Read the per-campaign call-tuning block from campaigns.metadata.
 
     Wati 2026-06-12 A/B setup: production campaigns run the proven
-    speech-first greeting; only campaigns explicitly flagged (the test
-    table campaign) get the experimental greet-on-answer flow. Flag lives
-    in DB so it can be flipped via SQL without a redeploy."""
+    defaults; the test-table campaign carries experimental knobs that we
+    graduate to production once validated. All flags live in DB so they
+    can be flipped via SQL without a redeploy. Recognised keys:
+
+      greeting_mode          "on_answer" | "speech_first" (default)
+      llm_provider           "openai" | "anthropic" | "deepseek" | "minimax"
+      llm_model              e.g. "gpt-4o-mini"
+      tts_sample_rate        e.g. 8000 (native telephony rendering)
+      min_endpointing_delay  e.g. 0.4 (seconds)
+    """
     try:
         from db_writes import _supabase_headers as _sb_h, _supabase_url as _sb_u, has_supabase as _sb_has
         if not _sb_has() or not campaign_id:
-            return None
+            return {}
         import httpx as _httpx
         with _httpx.Client(timeout=_httpx.Timeout(4.0), headers=_sb_h()) as c:
             r = c.get(_sb_u(f"/rest/v1/campaigns?id=eq.{campaign_id}&select=metadata"))
             if not r.is_success:
-                return None
+                return {}
             rows = r.json() or []
             md = (rows[0] or {}).get("metadata") if rows else None
-            if isinstance(md, dict) and md.get("greeting_mode"):
-                return str(md["greeting_mode"])
+            if isinstance(md, dict):
+                keys = ("greeting_mode", "llm_provider", "llm_model", "tts_sample_rate", "min_endpointing_delay")
+                return {k: md[k] for k in keys if md.get(k) is not None}
     except Exception:
-        logger.debug("greeting-mode load failed (campaign=%s)", campaign_id, exc_info=True)
-    return None
+        logger.debug("call-tuning load failed (campaign=%s)", campaign_id, exc_info=True)
+    return {}
 
 
 async def entrypoint(ctx: JobContext) -> None:
@@ -2566,13 +2581,34 @@ async def entrypoint(ctx: JobContext) -> None:
     async def _load(fn, arg):
         return await asyncio.to_thread(fn, str(arg)) if arg else None
 
-    axon, script_text, target_vars, sim_script_text, campaign_greeting_mode = await asyncio.gather(
+    axon, script_text, target_vars, sim_script_text, campaign_tuning = await asyncio.gather(
         _load(load_agent, agent_id),
         _load(load_campaign_script, campaign_id),
         _load(load_target_context, target_id),
         _load(load_script_by_id, sim_script_id),
-        _load(_load_campaign_greeting_mode, campaign_id),
+        _load(_load_campaign_call_tuning, campaign_id),
     )
+    campaign_tuning = campaign_tuning or {}
+    if campaign_tuning:
+        clog.info("campaign call-tuning: %s", campaign_tuning)
+    # Per-campaign LLM override — only applied when the matching API key is
+    # present on the worker, so a typo'd provider can't kill a whole slot.
+    _tun_provider = str(campaign_tuning.get("llm_provider") or "").lower()
+    _provider_keys = {
+        "openai": "OPENAI_API_KEY",
+        "anthropic": "ANTHROPIC_API_KEY",
+        "deepseek": "DEEPSEEK_API_KEY",
+        "minimax": "MINIMAX_API_KEY",
+    }
+    if _tun_provider and axon:
+        _need = _provider_keys.get(_tun_provider)
+        if _need and not os.getenv(_need) and not (_tun_provider == "anthropic" and os.getenv("CLAUDE_API_KEY")):
+            clog.warning("call-tuning llm_provider=%s ignored — %s missing on worker", _tun_provider, _need)
+        else:
+            axon.llm_provider = _tun_provider
+            if campaign_tuning.get("llm_model"):
+                axon.llm_model = str(campaign_tuning["llm_model"])
+            clog.info("call-tuning LLM override: %s / %s", axon.llm_provider, axon.llm_model)
     target_vars = target_vars or {}
     # In simulation the script comes by id (no campaign); prefer it.
     if sim_script_text and not script_text:
@@ -2713,7 +2749,8 @@ async def entrypoint(ctx: JobContext) -> None:
         )
         raise
     try:
-        _tts = _tts_for(axon)
+        _tun_sr = campaign_tuning.get("tts_sample_rate")
+        _tts = _tts_for(axon, sample_rate=int(_tun_sr) if _tun_sr else None)
     except Exception:
         clog.exception("BUILD FAILED: TTS (Cartesia). Check CARTESIA_API_KEY on Fly.")
         raise
@@ -2739,7 +2776,10 @@ async def entrypoint(ctx: JobContext) -> None:
     # every turn (EOU climbed from ~1.4s to ~1.7s in production logs).
     # 0.55s preserves fragmented-speech grouping for short pauses while
     # cutting the average response time. Override via MIN_ENDPOINTING_DELAY.
-    min_endp = float(os.getenv("MIN_ENDPOINTING_DELAY", "0.55"))
+    # Per-campaign override first (test-campaign latency experiments),
+    # then env, then the measured 0.55s production compromise.
+    _tun_endp = campaign_tuning.get("min_endpointing_delay")
+    min_endp = float(_tun_endp) if _tun_endp else float(os.getenv("MIN_ENDPOINTING_DELAY", "0.55"))
 
     new_api_applied = False
     try:
@@ -2878,7 +2918,7 @@ async def entrypoint(ctx: JobContext) -> None:
         s.strip() for s in os.getenv("GREETING_ON_ANSWER_CAMPAIGN_IDS", "").split(",") if s.strip()
     }
     greet_on_answer = (
-        campaign_greeting_mode == "on_answer"
+        campaign_tuning.get("greeting_mode") == "on_answer"
         or (campaign_id is not None and str(campaign_id) in _env_on_answer_ids)
     )
     if greet_on_answer:
