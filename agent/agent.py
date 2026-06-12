@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 from typing import Optional
 
 from dotenv import load_dotenv
@@ -776,18 +777,52 @@ class AxonVoiceAgent(Agent):
                 _t.monotonic() - _b,
             )
 
+    # The patient's FIRST utterance after pickup, when it's a bare phone-
+    # opener, means they did NOT hear our greeting (it played into the
+    # carrier's early-answer ringback). A human caller answers "Hello?"
+    # with who-they-are — so does Charlotte. Substantive first replies
+    # ("yes, it's me", "speaking") mean the greeting WAS heard → LLM.
+    # NOTE: deliberately NO yes/yeah here — "Yes." is the normal answer to
+    # "Hi, is that Megane?" from someone who DID hear the greeting, and
+    # re-greeting them is exactly the duplicated-speech annoyance Wati
+    # rejected. Only words that ONLY make sense as a phone-opener qualify.
+    _BARE_OPENER_RE = re.compile(
+        r"^\W*(hello|hi|hiya|hey|allo)\W*$"
+        r"|who\s+is\s+this|who'?s\s+(this|that|calling)|who\s+am\s+i",
+        re.IGNORECASE,
+    )
+
     async def on_user_turn_completed(self, turn_ctx, new_message) -> None:
         # Speech-first mode (production): this is THE greeting trigger —
         # patient's first turn completes, we speak the canned greeting and
-        # suppress the LLM reply (v13 flow). On-answer mode: the greeting
-        # already played at answer; a completed user turn just disarms the
-        # one-shot silent re-greet and the LLM replies normally.
+        # suppress the LLM reply (v13 flow).
+        # On-answer mode (Wati's spec, 2026-06-12 4th iteration): the
+        # greeting already played at answer. On the FIRST user turn:
+        #   - bare opener ("Hello?") → they never heard it (early-answer
+        #     ringback ate it) → answer WITH the greeting, suppress LLM.
+        #   - anything substantive → they heard it → LLM continues the
+        #     script immediately. No fillers, no timers, no VAD games.
         if self._pending_first_greeting:
             self._pending_first_greeting = False
             if not self._greet_on_answer:
                 logger.info("greeting: firing from turn-completed (speech-first mode)")
                 self._suppress_first_llm_reply = True
                 asyncio.create_task(self._say_regreet())
+            else:
+                utterance = str(
+                    getattr(new_message, "text_content", None)
+                    or getattr(new_message, "content", "")
+                    or ""
+                ).strip()
+                if self._BARE_OPENER_RE.search(utterance):
+                    logger.info(
+                        "greeting: first turn is a bare opener (%r) — patient missed the on-answer greeting, re-greeting",
+                        utterance[:40],
+                    )
+                    self._suppress_first_llm_reply = True
+                    asyncio.create_task(self._say_regreet())
+                else:
+                    logger.info("greeting: first turn substantive — LLM takes over directly")
         # Suppress the LLM's free-form reply when the re-greet IS the reply
         # — without this the LLM answers "Hello?" with a duplicate intro.
         if self._suppress_first_llm_reply:
@@ -955,50 +990,13 @@ class AxonVoiceAgent(Agent):
                     "greeting: say() interrupted after %.2fs (likely hangup)",
                     _t.monotonic() - _b,
                 )
-            # _pending_first_greeting here only means "the one-shot silent
-            # re-greet is still allowed". Any patient speech disarms it.
+            # Arm the first-turn check: if the patient's first words are a
+            # bare phone-opener ("Hello?"), they missed this greeting (it
+            # played into early-answer ringback) and on_user_turn_completed
+            # answers WITH the greeting. Substantive first words → straight
+            # to the LLM. No timers, no VAD disarm races — the 4 morning
+            # iterations all died on those.
             self._pending_first_greeting = True
-
-            try:
-                def _disarm_on_speech(ev) -> None:
-                    if not self._pending_first_greeting:
-                        return
-                    txt = str(getattr(ev, "transcript", "") or "").strip()
-                    if txt:
-                        self._pending_first_greeting = False
-                self.session.on("user_input_transcribed", _disarm_on_speech)
-            except Exception:
-                logger.debug("greeting: disarm hook unavailable", exc_info=True)
-            try:
-                # VAD-based disarm too (Summer 07:45): her first "Hello"
-                # was VAD-detected but never transcribed, so the
-                # transcript-only disarm missed it and the 5s re-greet
-                # fired at someone who had already heard the greeting.
-                def _disarm_on_vad(ev) -> None:
-                    if not self._pending_first_greeting:
-                        return
-                    new_state = str(
-                        getattr(ev, "new_state", None) or getattr(ev, "state", "") or ""
-                    ).lower()
-                    if new_state == "speaking":
-                        self._pending_first_greeting = False
-                self.session.on("user_state_changed", _disarm_on_vad)
-            except Exception:
-                logger.debug("greeting: VAD disarm hook unavailable", exc_info=True)
-
-            silence_regreet = float(os.getenv("GREETING_SILENT_REGREET_SECONDS", "5.0"))
-
-            async def _silent_regreet() -> None:
-                await asyncio.sleep(silence_regreet)
-                if not self._pending_first_greeting:
-                    return
-                self._pending_first_greeting = False  # one-shot
-                logger.info(
-                    "greeting: no speech %.0fs after on-answer greeting — one-shot re-greet",
-                    silence_regreet,
-                )
-                await self._say_regreet()
-            asyncio.create_task(_silent_regreet())
             return
 
         if sp is not None:
