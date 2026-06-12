@@ -35,6 +35,13 @@ from livekit.agents.voice.background_audio import (
 )
 from livekit.plugins import assemblyai, cartesia, openai, silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
+try:
+    # Modèle de fin-de-tour anglais : distillé, plus léger que le multilingue
+    # (qui saturait les 2 vCPU — EOU 2.5s+). Re-testé le 12/06 sur 4 vCPU via
+    # campaigns.metadata.turn_detector="english" (campagne test uniquement).
+    from livekit.plugins.turn_detector.english import EnglishModel
+except ImportError:  # selon la version du plugin
+    EnglishModel = None
 
 from agent_config import (
     AxonAgent,
@@ -2618,7 +2625,7 @@ def _load_campaign_call_tuning(campaign_id: str) -> dict:
             rows = r.json() or []
             md = (rows[0] or {}).get("metadata") if rows else None
             if isinstance(md, dict):
-                keys = ("greeting_mode", "llm_provider", "llm_model", "tts_sample_rate", "min_endpointing_delay", "quick_ack", "no_speech_hangup_secs", "conversational_idle_secs", "min_interruption_duration", "confirm_reply", "greeting_wait_secs")
+                keys = ("greeting_mode", "llm_provider", "llm_model", "tts_sample_rate", "min_endpointing_delay", "quick_ack", "no_speech_hangup_secs", "conversational_idle_secs", "min_interruption_duration", "confirm_reply", "greeting_wait_secs", "turn_detector")
                 return {k: md[k] for k in keys if md.get(k) is not None}
     except Exception:
         logger.debug("call-tuning load failed (campaign=%s)", campaign_id, exc_info=True)
@@ -2960,10 +2967,16 @@ async def entrypoint(ctx: JobContext) -> None:
     #             and saturates the CPU (silero throws "slower than realtime").
     # Default is now "vad" because real-world tests on Fly cdg showed EOU=2.5s+
     # with the multilingual model. Override via TURN_DETECTOR=multilingual.
-    turn_detector_mode = os.getenv("TURN_DETECTOR", "vad").lower()
+    turn_detector_mode = (
+        str(campaign_tuning.get("turn_detector") or "").lower()
+        or os.getenv("TURN_DETECTOR", "vad").lower()
+    )
     if turn_detector_mode == "multilingual":
         chosen_turn_detector: object = MultilingualModel()
+    elif turn_detector_mode == "english" and EnglishModel is not None:
+        chosen_turn_detector = EnglishModel()
     else:
+        turn_detector_mode = "vad"
         chosen_turn_detector = "vad"
 
     # Build each provider separately so a failure points to the exact
