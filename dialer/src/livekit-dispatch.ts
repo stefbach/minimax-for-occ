@@ -27,7 +27,9 @@ import {
  * Runs on every dialer boot so a fresh Fly machine self-heals if someone
  * edits the rule out of band.
  */
-const AGENT_NAME = "minimax-voice-agent";
+// Rotation du 12/06/2026 : voir agent/agent.py (_AGENT_NAME) — file de
+// dispatch LiveKit corrompue pour l'ancien nom "minimax-voice-agent".
+const AGENT_NAME = process.env.LIVEKIT_AGENT_NAME ?? "axon-voice-agent";
 const RULE_NAME_HINT = "twilio-to-axon"; // matches agent/sip/dispatch-rule.json
 
 export async function ensureInboundDispatchRuleAgent(): Promise<void> {

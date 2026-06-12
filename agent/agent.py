@@ -3391,6 +3391,13 @@ async def entrypoint(ctx: JobContext) -> None:
 # de restart Fly relance la machine, qui se ré-enregistre proprement.
 # Les erreurs de l'API LiveKit elle-même (réseau, etc.) ne comptent PAS
 # comme échec — seul "dispatch créé mais job jamais reçu" est probant.
+# 12/06/2026 ~10:28 UTC : la file de dispatch LiveKit Cloud du nom
+# "minimax-voice-agent" a cessé de livrer les jobs (4 workers fraîchement
+# enregistrés, tous sourds, machine et code inchangés entre le dernier
+# succès 10:26 et le premier échec 10:29). Nom rotatif vers
+# "axon-voice-agent" pour repartir sur une file neuve ; surchargeable via
+# LIVEKIT_AGENT_NAME. Le dialer et la règle SIP inbound suivent le même env.
+_AGENT_NAME = os.getenv("LIVEKIT_AGENT_NAME", "axon-voice-agent")
 _PROBE_ROOM_PREFIX = "axon-probe-"
 _PROBE_MARKER = "/tmp/axon_dispatch_probe_ok"
 _LAST_JOB_MARKER = "/tmp/axon_last_job"
@@ -3422,7 +3429,7 @@ async def _run_dispatch_probe() -> bool:
         )
         await lk.agent_dispatch.create_dispatch(
             lk_api.CreateAgentDispatchRequest(
-                agent_name="minimax-voice-agent", room=room_name, metadata="{}"
+                agent_name=_AGENT_NAME, room=room_name, metadata="{}"
             )
         )
         deadline = probe_start + _PROBE_JOIN_TIMEOUT_SECS
@@ -3538,4 +3545,4 @@ if __name__ == "__main__":
         name="dispatch-liveness-watchdog",
         daemon=True,
     ).start()
-    cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint, prewarm_fnc=prewarm, agent_name="minimax-voice-agent"))
+    cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint, prewarm_fnc=prewarm, agent_name=_AGENT_NAME))
