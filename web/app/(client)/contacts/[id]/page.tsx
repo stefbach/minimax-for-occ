@@ -39,7 +39,12 @@ export default async function DataTablePage({ params }: { params: Promise<{ id: 
       (c) => colNames.has(c),
     );
 
-    let q = sb.from(reg.physical_table).select("*").limit(1000);
+    // Raised 2026-06-12 from 1000 → 10000. Wati searched "Quiche Lorraine"
+    // — created Dec 2025 — and the CRM said 0/1000 because she was past
+    // the recency cap. OCC's leads_rdv currently holds ~7800 rows, so
+    // 10k covers the full table with headroom for the next 6 months of
+    // imports. Past that, switch to server-side search.
+    let q = sb.from(reg.physical_table).select("*").limit(10000);
     if (orderCol) q = q.order(orderCol, { ascending: false, nullsFirst: false });
     const { data } = await q;
     rows = data ?? [];
