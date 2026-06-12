@@ -1973,6 +1973,15 @@ def _install_call_hygiene(
             # We bail when ≥3 CONSECUTIVE customer turns totalling ≥14
             # words arrive before the agent has said anything. _on_item
             # resets customer_consec_turns whenever the assistant speaks.
+            #
+            # FINALS ONLY (Wati's boss, 2026-06-12 09:56): partial
+            # transcripts re-deliver the same growing utterance ("What," /
+            # "What, what is it" / …), each revision counted as a new turn
+            # with its words re-counted — a hesitant HUMAN ("What, what is
+            # it? Excuse me.") blew through the threshold and got hung up
+            # on as a voicemail.
+            if not bool(getattr(ev, "is_final", True)):
+                return
             turns = state.get("customer_consec_turns") or []
             turns.append(str(text))
             state["customer_consec_turns"] = turns
