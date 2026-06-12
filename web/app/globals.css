@@ -805,3 +805,69 @@ html[data-theme="light"] .mk-core-label { color: #fff; }
   border-radius: 50%;
   box-shadow: 0 0 12px 2px var(--accent);
 }
+
+/* ── Homepage line icons (replace emojis) ── */
+.mk-chip { display: inline-flex; align-items: center; gap: 7px; }
+.mk-chip svg { color: var(--accent-2); flex: none; }
+.mk-card-icon svg { display: block; }
+.mk-card-metier .mk-card-icon { color: var(--accent); }
+.mk-node-label em { display: flex; color: var(--accent-2); }
+.mk-node-voice em { color: #22d3ee; }
+.mk-node-brain em { color: #f0abfc; }
+html[data-theme="light"] .mk-node-voice em { color: #0891b2; }
+html[data-theme="light"] .mk-node-brain em { color: #c026d3; }
+
+/* ── VoiceFace : la voix qui devient multi-métiers ── */
+.mk-face-wrap { max-width: 980px; margin: 6px auto 46px; }
+.mk-face-wrap svg { width: 100%; height: auto; display: block; }
+.mk-face-contour {
+  stroke: var(--text);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.92;
+}
+.mk-face-fine { stroke-width: 2; opacity: 0.8; }
+.mk-face-hair {
+  stroke: var(--accent-2);
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  opacity: 0.6;
+}
+.mk-face-wave {
+  stroke: var(--accent-2);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  animation: mk-wave 2.6s ease-in-out infinite;
+}
+@keyframes mk-wave {
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 0.95; }
+}
+.mk-face-flow {
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-dasharray: 5 9;
+  opacity: 0.85;
+  animation: axon-flow 4s linear infinite;
+}
+.mk-face-node {
+  fill: var(--panel);
+  stroke: var(--accent);
+  stroke-width: 1.6;
+}
+.mk-face-node-icon { color: var(--accent-2); }
+.mk-face-node-label {
+  fill: var(--muted);
+  font-size: 16px;
+  font-weight: 600;
+  font-family: inherit;
+}
+@media (max-width: 640px) {
+  /* The SVG scales down a lot on phones — thicken hairlines so the
+     face and branches stay legible. */
+  .mk-face-contour { stroke-width: 3.2; }
+  .mk-face-flow { stroke-width: 2.4; }
+  .mk-face-node-label { font-size: 22px; }
+}

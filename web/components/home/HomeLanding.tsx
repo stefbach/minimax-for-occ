@@ -18,6 +18,20 @@ import Link from "next/link";
 import dynamic from "next/dynamic";
 import { Brand } from "@/components/brand/Brand";
 import { ThemeLangSwitcher, type Theme } from "@/components/ThemeLangSwitcher";
+import { VoiceFace } from "./VoiceFace";
+import {
+  IconAssurance,
+  IconClock,
+  IconEcommerce,
+  IconEye,
+  IconGlobe,
+  IconHotellerie,
+  IconImmobilier,
+  IconPhoneIn,
+  IconPhoneOut,
+  IconSante,
+  IconSupport,
+} from "./icons";
 
 const VoiceScene = dynamic(() => import("./VoiceScene"), {
   ssr: false,
@@ -40,32 +54,32 @@ function useTheme(): Theme {
 
 const METIERS = [
   {
-    icon: "🏥",
+    icon: <IconSante size={28} />,
     title: "Santé & cliniques",
     desc: "Prise de rendez-vous, rappels patients, pré-qualification des urgences, suivi post-consultation — au téléphone, 24h/24.",
   },
   {
-    icon: "🏠",
+    icon: <IconImmobilier size={28} />,
     title: "Immobilier",
     desc: "Qualification des acquéreurs, organisation des visites, relance des mandats, réponse instantanée à chaque annonce.",
   },
   {
-    icon: "🏨",
+    icon: <IconHotellerie size={28} />,
     title: "Hôtellerie & restauration",
     desc: "Réservations, modifications, demandes spéciales, conciergerie vocale multilingue — sans jamais laisser sonner.",
   },
   {
-    icon: "🛒",
+    icon: <IconEcommerce size={28} />,
     title: "E-commerce & retail",
     desc: "Suivi de commande, retours, réassurance avant achat, campagnes de réactivation des clients dormants.",
   },
   {
-    icon: "🛡️",
+    icon: <IconAssurance size={28} />,
     title: "Assurance & finance",
     desc: "Déclaration de sinistre, qualification des leads, relances d'échéances — avec scripts conformes et traçabilité complète.",
   },
   {
-    icon: "🎧",
+    icon: <IconSupport size={28} />,
     title: "Support & service client",
     desc: "Niveau 1 résolu par la voix IA, escalade fluide vers vos agents humains sur la même file d'attente.",
   },
@@ -133,10 +147,10 @@ export default function HomeLanding({ spaceHref }: { spaceHref: string | null })
             )}
           </div>
           <div className="mk-chip-row">
-            <span className="mk-chip">📞 Entrants + Sortants</span>
-            <span className="mk-chip">🕐 24h/24 · 7j/7</span>
-            <span className="mk-chip">🌍 Multilingue</span>
-            <span className="mk-chip">👁 Supervision live</span>
+            <span className="mk-chip"><IconPhoneIn size={14} /> Entrants + Sortants</span>
+            <span className="mk-chip"><IconClock size={14} /> 24h/24 · 7j/7</span>
+            <span className="mk-chip"><IconGlobe size={14} /> Multilingue</span>
+            <span className="mk-chip"><IconEye size={14} /> Supervision live</span>
           </div>
         </div>
         <div className="mk-scroll-hint" aria-hidden>
@@ -160,7 +174,7 @@ export default function HomeLanding({ spaceHref }: { spaceHref: string | null })
 
         <div className="mk-duo">
           <div className="mk-card mk-card-in">
-            <div className="mk-card-icon">↘</div>
+            <div className="mk-card-icon"><IconPhoneIn size={30} /></div>
             <h3>Appels entrants</h3>
             <p>Plus jamais un appel perdu. Vos agents vocaux décrochent à la première sonnerie.</p>
             <ul>
@@ -172,7 +186,7 @@ export default function HomeLanding({ spaceHref }: { spaceHref: string | null })
             </ul>
           </div>
           <div className="mk-card mk-card-out">
-            <div className="mk-card-icon">↗</div>
+            <div className="mk-card-icon"><IconPhoneOut size={30} /></div>
             <h3>Appels sortants</h3>
             <p>Des campagnes vocales menées avec le naturel d&apos;un humain et la rigueur d&apos;une machine.</p>
             <ul>
@@ -194,6 +208,7 @@ export default function HomeLanding({ spaceHref }: { spaceHref: string | null })
           Pas un robot générique : un spécialiste de votre secteur, avec votre vocabulaire, vos
           process et vos contraintes réglementaires.
         </p>
+        <VoiceFace />
         <div className="mk-grid-3">
           {METIERS.map((m) => (
             <div key={m.title} className="mk-card mk-card-metier">

@@ -18,6 +18,16 @@ import { useMemo, useRef } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { Html, Stars } from "@react-three/drei";
+import {
+  IconAssurance,
+  IconBrain,
+  IconEcommerce,
+  IconHotellerie,
+  IconImmobilier,
+  IconMic,
+  IconSante,
+  IconSupport,
+} from "./icons";
 
 type Theme = "dark" | "light";
 
@@ -117,7 +127,7 @@ function AxonCore({ c }: { c: Palette }) {
 }
 
 /* ─── One tilted orbit: ring + evenly spaced labeled nodes ─── */
-type OrbitItem = { icon: string; label: string; sub?: string };
+type OrbitItem = { icon: React.ReactNode; label: string; sub?: string };
 
 function Orbit({
   radius,
@@ -256,23 +266,23 @@ function CallBadges() {
 }
 
 const METIERS: OrbitItem[] = [
-  { icon: "🏥", label: "Santé" },
-  { icon: "🏠", label: "Immobilier" },
-  { icon: "🏨", label: "Hôtellerie" },
-  { icon: "🛒", label: "E-commerce" },
-  { icon: "🛡️", label: "Assurance" },
-  { icon: "🎧", label: "Support" },
+  { icon: <IconSante size={15} />, label: "Santé" },
+  { icon: <IconImmobilier size={15} />, label: "Immobilier" },
+  { icon: <IconHotellerie size={15} />, label: "Hôtellerie" },
+  { icon: <IconEcommerce size={15} />, label: "E-commerce" },
+  { icon: <IconAssurance size={15} />, label: "Assurance" },
+  { icon: <IconSupport size={15} />, label: "Support" },
 ];
 
 const VOICES: OrbitItem[] = [
-  { icon: "🎙️", label: "ElevenLabs", sub: "Voix premium" },
-  { icon: "🎙️", label: "MiniMax", sub: "Voix premium" },
+  { icon: <IconMic size={16} />, label: "ElevenLabs", sub: "Voix premium" },
+  { icon: <IconMic size={16} />, label: "MiniMax", sub: "Voix premium" },
 ];
 
 const BRAINS: OrbitItem[] = [
-  { icon: "🧠", label: "OpenAI", sub: "Cerveau LLM" },
-  { icon: "🧠", label: "Anthropic", sub: "Cerveau LLM" },
-  { icon: "🧠", label: "DeepSeek", sub: "Cerveau LLM" },
+  { icon: <IconBrain size={16} />, label: "OpenAI", sub: "Cerveau LLM" },
+  { icon: <IconBrain size={16} />, label: "Anthropic", sub: "Cerveau LLM" },
+  { icon: <IconBrain size={16} />, label: "DeepSeek", sub: "Cerveau LLM" },
 ];
 
 export default function VoiceScene({ theme }: { theme: Theme }) {
