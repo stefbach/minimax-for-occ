@@ -2550,7 +2550,7 @@ def _load_campaign_call_tuning(campaign_id: str) -> dict:
             rows = r.json() or []
             md = (rows[0] or {}).get("metadata") if rows else None
             if isinstance(md, dict):
-                keys = ("greeting_mode", "llm_provider", "llm_model", "tts_sample_rate", "min_endpointing_delay", "quick_ack", "no_speech_hangup_secs", "conversational_idle_secs")
+                keys = ("greeting_mode", "llm_provider", "llm_model", "tts_sample_rate", "min_endpointing_delay", "quick_ack", "no_speech_hangup_secs", "conversational_idle_secs", "min_interruption_duration")
                 return {k: md[k] for k in keys if md.get(k) is not None}
     except Exception:
         logger.debug("call-tuning load failed (campaign=%s)", campaign_id, exc_info=True)
@@ -2922,6 +2922,18 @@ async def entrypoint(ctx: JobContext) -> None:
     _tun_endp = campaign_tuning.get("min_endpointing_delay")
     min_endp = float(_tun_endp) if _tun_endp else float(os.getenv("MIN_ENDPOINTING_DELAY", "0.55"))
 
+    # min_interruption_duration (Wati 2026-06-12 latency review): how long
+    # the patient must speak before the agent stops talking. The default
+    # cut on ANY sound — Summer's brief "Hello?" relances cancelled every
+    # starting reply, looping the call into 15s of mutual restarts. 0.8s
+    # on the test campaign lets the agent talk through a short "Hello?"
+    # while a real interruption (≥1s of speech) still stops it.
+    _tun_min_int = campaign_tuning.get("min_interruption_duration")
+    min_interruption = (
+        float(_tun_min_int) if _tun_min_int
+        else float(os.getenv("MIN_INTERRUPTION_DURATION", "0")) or None
+    )
+
     new_api_applied = False
     try:
         from livekit.agents import TurnHandlingOptions  # type: ignore
@@ -2935,6 +2947,8 @@ async def entrypoint(ctx: JobContext) -> None:
             "allow_interruptions": True,
             "turn_detection": chosen_turn_detector,
         }
+        if min_interruption:
+            tho_candidate["min_interruption_duration"] = min_interruption
         tho_kwargs = {k: v for k, v in tho_candidate.items() if k in tho_params}
         if tho_kwargs:
             try:
@@ -2959,6 +2973,8 @@ async def entrypoint(ctx: JobContext) -> None:
             "allow_interruptions": True,
             "turn_detection": chosen_turn_detector,
         }
+        if min_interruption:
+            legacy["min_interruption_duration"] = min_interruption
         try:
             _session_params = set(_inspect.signature(AgentSession.__init__).parameters)
         except (ValueError, TypeError):
