@@ -1,0 +1,59 @@
+name: Fly Ops
+
+# Diagnostic / opérations ponctuelles sur les apps Fly, déclenchées à la main
+# (workflow_dispatch). Créé le 12/06/2026 pour diagnostiquer pourquoi le worker
+# axon-agent enregistré sur LiveKit cesse de recevoir les dispatches quelques
+# minutes après son démarrage (appels 10:29 et 10:32 sans agent dans la room).
+# Le streaming `fly logs` côté client perd des lignes ; ce workflow récupère
+# l'état machine + les logs côté serveur via le FLY_API_TOKEN des secrets.
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "diagnose | restart-agent"
+        required: true
+        default: "diagnose"
+
+jobs:
+  ops:
+    runs-on: ubuntu-latest
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+    steps:
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Machine state (axon-agent)
+        if: ${{ github.event.inputs.action == 'diagnose' }}
+        run: |
+          echo "===== fly status -a axon-agent ====="
+          flyctl status -a axon-agent || true
+          echo ""
+          echo "===== machine config (json) ====="
+          flyctl machine list -a axon-agent --json > machines.json || true
+          jq '.[] | {id, state, region, created_at, updated_at,
+                     restart: .config.restart,
+                     services: .config.services,
+                     checks: .config.checks,
+                     auto_destroy: .config.auto_destroy,
+                     guest: .config.guest}' machines.json || cat machines.json
+
+      - name: Server-side logs (axon-agent)
+        if: ${{ github.event.inputs.action == 'diagnose' }}
+        run: |
+          echo "===== fly logs -a axon-agent (server-side, no-tail) ====="
+          timeout 60 flyctl logs -a axon-agent --no-tail || true
+
+      - name: Server-side logs (dialer)
+        if: ${{ github.event.inputs.action == 'diagnose' }}
+        run: |
+          echo "===== fly logs -a minimax-for-occ (server-side, no-tail) ====="
+          timeout 60 flyctl logs -a minimax-for-occ --no-tail || true
+
+      - name: Restart agent machine
+        if: ${{ github.event.inputs.action == 'restart-agent' }}
+        run: |
+          for id in $(flyctl machine list -a axon-agent --json | jq -r '.[].id'); do
+            echo "restarting machine $id"
+            flyctl machine restart "$id" -a axon-agent
+          done
