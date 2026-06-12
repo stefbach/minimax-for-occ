@@ -44,6 +44,21 @@ jobs:
           echo "===== fly logs -a axon-agent (server-side, no-tail) ====="
           timeout 60 flyctl logs -a axon-agent --no-tail || true
 
+      - name: Machine events + CPU/process state (axon-agent)
+        if: ${{ github.event.inputs.action == 'diagnose' }}
+        run: |
+          echo "===== machine status (event history) ====="
+          for id in $(flyctl machine list -a axon-agent --json | jq -r '.[].id'); do
+            flyctl machine status "$id" -a axon-agent || true
+          done
+          echo ""
+          echo "===== load average (in-machine) ====="
+          timeout 60 flyctl ssh console -a axon-agent -C "cat /proc/loadavg" || true
+          echo ""
+          echo "===== processes (in-machine) ====="
+          timeout 60 flyctl ssh console -a axon-agent -C "ps aux" || \
+            timeout 60 flyctl ssh console -a axon-agent -C "ls /proc" || true
+
       - name: Server-side logs (dialer)
         if: ${{ github.event.inputs.action == 'diagnose' }}
         run: |
