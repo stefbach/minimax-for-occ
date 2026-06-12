@@ -118,14 +118,19 @@ function AssignMenu({ phone, t }: { phone: string | null; t: (s: string) => stri
     return () => document.removeEventListener("mousedown", close);
   }, []);
   if (!phone) return null;
-  const assign = async (coordinator: string) => {
-    setBusy(coordinator);
+  // coordinator = null → désassignation (ferme l'assignation ouverte).
+  const assign = async (coordinator: string | null) => {
+    setBusy(coordinator ?? "__unassign__");
     setErr(null);
     try {
       const r = await fetch("/api/dashboard/nhs-suivi/assign", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone, assigned_to: coordinator, reason: "Assigné depuis le tableau de bord" }),
+        body: JSON.stringify(
+          coordinator
+            ? { phone, assigned_to: coordinator, reason: "Assigné depuis le tableau de bord" }
+            : { phone, unassign: true },
+        ),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
@@ -137,13 +142,6 @@ function AssignMenu({ phone, t }: { phone: string | null; t: (s: string) => stri
       setBusy(null);
     }
   };
-  if (done) {
-    return (
-      <span style={{ fontSize: 12, color: "var(--good)", whiteSpace: "nowrap", flexShrink: 0 }}>
-        ✓ {done}
-      </span>
-    );
-  }
   return (
     <details ref={ref} style={{ position: "relative", flexShrink: 0 }}>
       <summary
@@ -152,17 +150,17 @@ function AssignMenu({ phone, t }: { phone: string | null; t: (s: string) => stri
         style={{
           listStyle: "none", cursor: "pointer", userSelect: "none", whiteSpace: "nowrap",
           padding: "6px 11px", fontSize: 12, borderRadius: 8,
-          border: `1px solid ${err ? "var(--bad)" : "var(--border)"}`,
-          color: err ? "var(--bad)" : "var(--text)",
+          border: `1px solid ${err ? "var(--bad)" : done ? "var(--good)" : "var(--border)"}`,
+          color: err ? "var(--bad)" : done ? "var(--good)" : "var(--text)",
         }}
       >
-        👤 {t("Assigner")} <span style={{ fontSize: 9 }}>▾</span>
+        {done ? `✓ ${done}` : `👤 ${t("Assigner")}`} <span style={{ fontSize: 9 }}>▾</span>
       </summary>
       <div
         className="card"
         style={{
           position: "absolute", zIndex: 50, top: "calc(100% + 4px)", right: 0,
-          minWidth: 140, padding: 6, display: "flex", flexDirection: "column", gap: 2,
+          minWidth: 150, padding: 6, display: "flex", flexDirection: "column", gap: 2,
           boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
         }}
       >
@@ -174,14 +172,29 @@ function AssignMenu({ phone, t }: { phone: string | null; t: (s: string) => stri
             disabled={busy !== null}
             onClick={() => assign(co)}
             style={{
-              border: "none", background: "transparent", color: "var(--text)",
+              border: "none", background: done === co ? "color-mix(in srgb, var(--good) 14%, transparent)" : "transparent",
+              color: "var(--text)",
               textAlign: "left", width: "100%", padding: "6px 9px", borderRadius: 4,
               fontSize: 13, cursor: "pointer", whiteSpace: "nowrap",
             }}
           >
-            {busy === co ? `${t("Assignation…")}` : co}
+            {busy === co ? t("Assignation…") : `${done === co ? "✓ " : ""}${co}`}
           </button>
         ))}
+        <div style={{ borderTop: "1px solid var(--border)", margin: "2px 0" }} />
+        <button
+          type="button"
+          className="ghost"
+          disabled={busy !== null}
+          onClick={() => assign(null)}
+          style={{
+            border: "none", background: "transparent", color: "var(--bad)",
+            textAlign: "left", width: "100%", padding: "6px 9px", borderRadius: 4,
+            fontSize: 13, cursor: "pointer", whiteSpace: "nowrap",
+          }}
+        >
+          {busy === "__unassign__" ? t("Désassignation…") : `✕ ${t("Désassigner")}`}
+        </button>
       </div>
     </details>
   );

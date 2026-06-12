@@ -43,7 +43,7 @@ export type NhsStalledPatient = {
 
 export type NhsCoordinatorQueue = {
   name: string; // Summer | Rain | Stormi
-  patients: { name: string | null; phone: string | null; assigned_at: string | null; reason: string | null }[];
+  patients: { lead_id: string; name: string | null; phone: string | null; assigned_at: string | null; reason: string | null }[];
 };
 
 export type NhsSuiviResponse = {
@@ -284,6 +284,7 @@ export async function GET(request: Request) {
       if (!queue) continue;
       const lead = leadById.get(String(a.lead_id));
       queue.patients.push({
+        lead_id: String(a.lead_id),
         name: lead?.nom ?? null,
         phone: lead?.numero_telephone ?? null,
         assigned_at: a.assigned_at,

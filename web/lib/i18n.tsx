@@ -235,6 +235,9 @@ const EN: Record<string, string> = {
   "Assigné à": "Assigned to",
   "Assigner": "Assign",
   "Assigner à un coordinateur": "Assign to a coordinator",
+  "Désassigner": "Unassign",
+  "Désassignation…": "Unassigning…",
+  "Désassigné": "Unassigned",
   // ── NHS S2: drill-down des cards ──
   "patient(s) concerné(s)": "patient(s) concerned",
   "affichés": "shown",

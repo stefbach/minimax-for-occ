@@ -38,6 +38,22 @@ export function NhsSuiviTab() {
   };
   const openDrill = (metric: string, _title?: string) =>
     setView({ name: "list", filter: METRIC_FILTER[metric] ?? "all" });
+  // Retire un patient d'une file coordinateur (ferme l'assignation ouverte
+  // dans la table partagée), puis rafraîchit les files.
+  const [unassigning, setUnassigning] = useState<string | null>(null);
+  const unassign = async (leadId: string) => {
+    setUnassigning(leadId);
+    try {
+      await fetch("/api/dashboard/nhs-suivi/assign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lead_id: leadId, unassign: true }),
+      });
+      await fetchData();
+    } finally {
+      setUnassigning(null);
+    }
+  };
 
   const fetchData = async () => {
     setLoading(true);
@@ -262,17 +278,27 @@ export function NhsSuiviTab() {
                   <div style={{ display: "grid", gap: 2 }}>
                     {q.patients.slice(0, 8).map((p, i) => (
                       <div
-                        key={`${p.phone ?? i}`}
+                        key={`${p.lead_id}-${i}`}
                         title={[p.phone, p.reason, p.assigned_at ? new Date(p.assigned_at).toLocaleDateString("fr-FR") : null].filter(Boolean).join(" · ")}
                         style={{
-                          display: "flex", alignItems: "center", justifyContent: "space-between",
+                          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
                           padding: "6px 4px", borderTop: i > 0 ? "1px solid var(--border)" : "none", fontSize: 13,
                         }}
                       >
                         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                           {p.name ?? p.phone ?? t("Lead introuvable (supprimé)")}
                         </span>
-                        <span className="muted" aria-hidden>›</span>
+                        <button
+                          type="button"
+                          className="ghost"
+                          title={t("Désassigner")}
+                          aria-label={`${t("Désassigner")} ${p.name ?? p.phone ?? ""}`}
+                          disabled={unassigning === p.lead_id}
+                          onClick={() => unassign(p.lead_id)}
+                          style={{ padding: "1px 8px", fontSize: 12, color: "var(--bad)", borderColor: "transparent", flexShrink: 0 }}
+                        >
+                          {unassigning === p.lead_id ? "…" : "✕"}
+                        </button>
                       </div>
                     ))}
                     {q.patients.length > 8 && (
@@ -966,19 +992,24 @@ function PatientDetailView({
     return () => { alive = false; };
   }, [id]);
 
-  const assign = async (coordinator: string) => {
+  // coordinator = null → désassignation (ferme l'assignation ouverte).
+  const assign = async (coordinator: string | null) => {
     if (!detail) return;
-    setAssigning(coordinator);
+    setAssigning(coordinator ?? "__unassign__");
     setAssignedMsg(null);
     try {
       const r = await fetch("/api/dashboard/nhs-suivi/assign", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lead_id: detail.patient.lead_id, assigned_to: coordinator, reason: "Escalade NHS S2 — sans réponse 3j+" }),
+        body: JSON.stringify(
+          coordinator
+            ? { lead_id: detail.patient.lead_id, assigned_to: coordinator, reason: "Escalade NHS S2 — sans réponse 3j+" }
+            : { lead_id: detail.patient.lead_id, unassign: true },
+        ),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
-      setAssignedMsg(`${t("Assigné à")} ${coordinator} ✓`);
+      setAssignedMsg(coordinator ? `${t("Assigné à")} ${coordinator} ✓` : `${t("Désassigné")} ✓`);
     } catch (e) {
       setAssignedMsg(e instanceof Error ? e.message : "error");
     } finally {
@@ -1209,6 +1240,9 @@ function PatientDetailView({
             </button>
             <button type="button" onClick={() => assign("Summer")} disabled={assigning !== null} style={{ padding: "6px 12px", fontSize: 12, background: "var(--warn)", border: "none", color: "#fff", borderRadius: 8, cursor: "pointer" }}>
               👤 {assigning === "Summer" ? t("Assignation…") : t("Assigner à Summer")}
+            </button>
+            <button type="button" className="ghost" onClick={() => assign(null)} disabled={assigning !== null} style={{ padding: "6px 12px", fontSize: 12, color: "var(--bad)", borderColor: "var(--bad)", borderRadius: 8 }}>
+              ✕ {assigning === "__unassign__" ? t("Désassignation…") : t("Désassigner")}
             </button>
             {assignedMsg && <span style={{ fontSize: 12, color: "var(--good)" }}>{assignedMsg}</span>}
           </div>
