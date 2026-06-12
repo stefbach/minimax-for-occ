@@ -709,7 +709,7 @@ def _build_save_contact_tool(
 
 # ─── Agent wrapper that greets via TTS only ───────────────────────────────
 class AxonVoiceAgent(Agent):
-    def __init__(self, *, instructions: str, tools, greeting: str, llm=None, tts=None, stt=None, vad=None, sip_participant=None, greet_on_answer: bool = False, quick_ack: bool = False, confirm_reply: str = ""):
+    def __init__(self, *, instructions: str, tools, greeting: str, llm=None, tts=None, stt=None, vad=None, sip_participant=None, greet_on_answer: bool = False, quick_ack: bool = False, confirm_reply: str = "", greeting_wait_secs=None):
         # Per-agent llm/tts/stt/vad override the session defaults. This is what
         # makes a handoff actually CHANGE THE VOICE: update_agent() rebuilds the
         # activity from the new Agent's components, whereas reassigning
@@ -774,6 +774,12 @@ class AxonVoiceAgent(Agent):
         self._confirm_reply = (confirm_reply or "").strip()
         self._confirm_used = False
         self._user_turns_seen = 0
+        # Délai max d'attente de la voix avant de dire le greeting nous-mêmes
+        # (Wati 12/06 : 3s sur la campagne test via metadata.greeting_wait_secs).
+        try:
+            self._greeting_wait_secs = float(greeting_wait_secs) if greeting_wait_secs is not None else float(os.getenv("GREETING_WAIT_FOR_SPEECH_SECONDS", "45.0"))
+        except (TypeError, ValueError):
+            self._greeting_wait_secs = float(os.getenv("GREETING_WAIT_FOR_SPEECH_SECONDS", "45.0"))
 
     async def _say_regreet(self, prefix: str = "") -> None:
         # Speak the greeting again — used when the first one almost surely
@@ -841,31 +847,36 @@ class AxonVoiceAgent(Agent):
         # again—…") instead of robotically replaying identical audio.
         # The first substantive utterance permanently hands over to the
         # LLM. No fillers, no timers, no VAD games.
-        if self._greet_on_answer:
-            if self._opener_replies_left > 0:
-                utterance = str(
-                    getattr(new_message, "text_content", None)
-                    or getattr(new_message, "content", "")
-                    or ""
-                ).strip()
-                if self._BARE_OPENER_RE.search(utterance):
-                    n = self._opener_replies_left
-                    self._opener_replies_left -= 1
-                    prefix = {3: "", 2: "Sorry — ", 1: "Apologies, just checking — "}.get(n, "")
-                    logger.info(
-                        "greeting: bare opener (%r) — re-greeting (%d left)",
-                        utterance[:40], self._opener_replies_left,
-                    )
-                    self._suppress_first_llm_reply = True
-                    asyncio.create_task(self._say_regreet(prefix=prefix))
-                else:
-                    logger.info("greeting: substantive turn — LLM takes over for good")
-                    self._opener_replies_left = 0
-        elif self._pending_first_greeting:
+        if self._pending_first_greeting:
             self._pending_first_greeting = False
             logger.info("greeting: firing from turn-completed (speech-first mode)")
             self._suppress_first_llm_reply = True
+            # Budget d'openers armé aussi en speech-first : si la personne
+            # redit « Hello ? » après le greeting (audio perdu, blanc), elle
+            # a droit à la re-présentation au lieu d'un détour LLM.
+            self._opener_replies_left = 2
             asyncio.create_task(self._say_regreet())
+        elif self._opener_replies_left > 0:
+            # Budget d'openers — commun aux deux modes (armé par on_enter en
+            # on-answer / après greeting en speech-first).
+            utterance = str(
+                getattr(new_message, "text_content", None)
+                or getattr(new_message, "content", "")
+                or ""
+            ).strip()
+            if self._BARE_OPENER_RE.search(utterance):
+                n = self._opener_replies_left
+                self._opener_replies_left -= 1
+                prefix = {3: "", 2: "Sorry — ", 1: "Apologies, just checking — "}.get(n, "")
+                logger.info(
+                    "greeting: bare opener (%r) — re-greeting (%d left)",
+                    utterance[:40], self._opener_replies_left,
+                )
+                self._suppress_first_llm_reply = True
+                asyncio.create_task(self._say_regreet(prefix=prefix))
+            else:
+                logger.info("greeting: substantive turn — LLM takes over for good")
+                self._opener_replies_left = 0
         # Suppress the LLM's free-form reply when the re-greet IS the reply
         # — without this the LLM answers "Hello?" with a duplicate intro.
         if self._suppress_first_llm_reply:
@@ -1069,7 +1080,7 @@ class AxonVoiceAgent(Agent):
             # late pickups — in-band ringback means callStatus='active'
             # fires long before the handset actually rings.
             self._pending_first_greeting = True
-            speech_wait = float(os.getenv("GREETING_WAIT_FOR_SPEECH_SECONDS", "45.0"))
+            speech_wait = self._greeting_wait_secs
             speech_start = _t.monotonic()
             while self._pending_first_greeting and _t.monotonic() - speech_start < speech_wait:
                 await asyncio.sleep(0.25)
@@ -1079,12 +1090,19 @@ class AxonVoiceAgent(Agent):
                     _t.monotonic() - speech_start,
                 )
                 return
-            logger.warning(
-                "greeting: no speech within %.0fs — leaving interceptor armed "
-                "for late pickup (in-band ringback suspected)",
+            # Silence prolongé (Wati 12/06 : « si après 3sec de silence ça
+            # doit dire le greeting ») : on parle en premier au lieu de
+            # laisser la personne dans le vide. Le greeting part peut-être
+            # encore dans la sonnerie résiduelle (early answer UK), donc on
+            # arme le budget d'openers : un « Hello ? » ultérieur déclenche
+            # la re-présentation au lieu d'un détour LLM.
+            self._pending_first_greeting = False
+            self._opener_replies_left = 3
+            logger.info(
+                "greeting: no speech within %.1fs — speaking first (opener budget armed)",
                 speech_wait,
             )
-            return
+            # tombe dans le chemin "static greeting" ci-dessous
 
         # Static greeting path: non-SIP sessions (desk/browser) and the
         # silent-pickup timeout. Tiny pre-roll so the first syllable isn't
@@ -2600,7 +2618,7 @@ def _load_campaign_call_tuning(campaign_id: str) -> dict:
             rows = r.json() or []
             md = (rows[0] or {}).get("metadata") if rows else None
             if isinstance(md, dict):
-                keys = ("greeting_mode", "llm_provider", "llm_model", "tts_sample_rate", "min_endpointing_delay", "quick_ack", "no_speech_hangup_secs", "conversational_idle_secs", "min_interruption_duration", "confirm_reply")
+                keys = ("greeting_mode", "llm_provider", "llm_model", "tts_sample_rate", "min_endpointing_delay", "quick_ack", "no_speech_hangup_secs", "conversational_idle_secs", "min_interruption_duration", "confirm_reply", "greeting_wait_secs")
                 return {k: md[k] for k in keys if md.get(k) is not None}
     except Exception:
         logger.debug("call-tuning load failed (campaign=%s)", campaign_id, exc_info=True)
@@ -2626,6 +2644,10 @@ async def entrypoint(ctx: JobContext) -> None:
         try:
             with open(_PROBE_MARKER, "w") as _f:
                 _f.write(str(time.time()))
+        except Exception:
+            pass
+        try:
+            ctx.shutdown(reason="dispatch probe")
         except Exception:
             pass
         return
@@ -3171,6 +3193,7 @@ async def entrypoint(ctx: JobContext) -> None:
             greet_on_answer=greet_on_answer,
             quick_ack=bool(campaign_tuning.get("quick_ack")),
             confirm_reply=confirm_reply,
+            greeting_wait_secs=campaign_tuning.get("greeting_wait_secs"),
             # Pass the SIP participant already resolved by
             # ctx.wait_for_participant() so on_enter can poll its
             # sip.callStatus directly. None for browser/desk sessions.
