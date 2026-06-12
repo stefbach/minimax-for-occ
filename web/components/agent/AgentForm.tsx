@@ -674,9 +674,13 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                 </div>
                 <div className="form-row">
                   <div>
+                    {/* Cartesia sonic-3.5 accepts 0.6–1.5 (generation_config.speed);
+                        out-of-range values are ignored upstream, so the slider
+                        is bounded to what actually works. Don't forget
+                        Enregistrer — the slider alone doesn't persist. */}
                     <label>Vitesse ({speed.toFixed(2)}×)</label>
                     <input
-                      type="range" min="0.5" max="2" step="0.05"
+                      type="range" min="0.6" max="1.5" step="0.05"
                       value={speed} onChange={(e) => setSpeed(Number(e.target.value))}
                     />
                   </div>
