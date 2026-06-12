@@ -1417,6 +1417,7 @@ def _install_call_hygiene(
     idle_timeout: float = 4.0,
     goodbye_grace: float = 2.0,
     no_speech_override: Optional[float] = None,
+    conversational_idle_override: Optional[float] = None,
 ) -> None:
     """Hang up the call automatically to stop the meter when there's no
     point staying connected. Triggers:
@@ -1446,8 +1447,14 @@ def _install_call_hygiene(
     # mid-thought. 10s is the agreed compromise: covers 95% of LLM
     # response times on this stack while adding only ~5s to the voicemail-
     # without-keywords / silent-after-greeting cases vs the pre-speech 5s.
-    conversational_idle = float(
-        os.getenv("CONVERSATIONAL_IDLE_HANGUP_SECONDS", "10.0"),
+    # Per-campaign override first (Wati 2026-06-12: Summer's "Hello?"
+    # reflex interrupted a starting LLM reply, the regeneration was slow,
+    # and the 6s prod setting killed the call mid-conversation — patients
+    # do exactly this on real calls). Test campaign runs 12s.
+    conversational_idle = (
+        float(conversational_idle_override)
+        if conversational_idle_override
+        else float(os.getenv("CONVERSATIONAL_IDLE_HANGUP_SECONDS", "10.0"))
     )
 
     # Patterns that, when the AGENT says them, indicate the call is wrapping
@@ -2534,7 +2541,7 @@ def _load_campaign_call_tuning(campaign_id: str) -> dict:
             rows = r.json() or []
             md = (rows[0] or {}).get("metadata") if rows else None
             if isinstance(md, dict):
-                keys = ("greeting_mode", "llm_provider", "llm_model", "tts_sample_rate", "min_endpointing_delay", "quick_ack", "no_speech_hangup_secs")
+                keys = ("greeting_mode", "llm_provider", "llm_model", "tts_sample_rate", "min_endpointing_delay", "quick_ack", "no_speech_hangup_secs", "conversational_idle_secs")
                 return {k: md[k] for k in keys if md.get(k) is not None}
     except Exception:
         logger.debug("call-tuning load failed (campaign=%s)", campaign_id, exc_info=True)
@@ -3151,9 +3158,11 @@ async def entrypoint(ctx: JobContext) -> None:
     except Exception:
         pass
     _tun_no_speech = campaign_tuning.get("no_speech_hangup_secs")
+    _tun_conv_idle = campaign_tuning.get("conversational_idle_secs")
     _install_call_hygiene(
         ctx, session, clog,
         no_speech_override=float(_tun_no_speech) if _tun_no_speech else None,
+        conversational_idle_override=float(_tun_conv_idle) if _tun_conv_idle else None,
     )
 
     # Multi-agent team journey (Charlotte → Isabelle → Victoria): watch for
