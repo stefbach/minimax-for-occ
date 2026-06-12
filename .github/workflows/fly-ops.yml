@@ -68,6 +68,18 @@ jobs:
           echo "===== fly logs -a minimax-for-occ (server-side, no-tail) ====="
           timeout 60 flyctl logs -a minimax-for-occ --no-tail || true
 
+      - name: Probe dispatch (room de test, aucun appel téléphonique)
+        if: ${{ github.event.inputs.action == 'probe-dispatch' }}
+        run: |
+          # Crée une room + un dispatch agent depuis la machine axon-agent
+          # (clés LiveKit déjà dans son env) et vérifie si le worker reçoit
+          # le job. Script passé en base64 pour éviter l'enfer du quoting.
+          B64="CmltcG9ydCBhc3luY2lvCmZyb20gbGl2ZWtpdCBpbXBvcnQgYXBpCgphc3luYyBkZWYgbWFpbigpOgogICAgbGsgPSBhcGkuTGl2ZUtpdEFQSSgpCiAgICByb29tID0gImRpc3BhdGNoLXByb2JlLXRlc3QiCiAgICB0cnk6CiAgICAgICAgYXdhaXQgbGsucm9vbS5kZWxldGVfcm9vbShhcGkuRGVsZXRlUm9vbVJlcXVlc3Qocm9vbT1yb29tKSkKICAgIGV4Y2VwdCBFeGNlcHRpb246CiAgICAgICAgcGFzcwogICAgYXdhaXQgbGsucm9vbS5jcmVhdGVfcm9vbShhcGkuQ3JlYXRlUm9vbVJlcXVlc3QobmFtZT1yb29tLCBlbXB0eV90aW1lb3V0PTMwKSkKICAgIGQgPSBhd2FpdCBsay5hZ2VudF9kaXNwYXRjaC5jcmVhdGVfZGlzcGF0Y2goCiAgICAgICAgYXBpLkNyZWF0ZUFnZW50RGlzcGF0Y2hSZXF1ZXN0KGFnZW50X25hbWU9Im1pbmltYXgtdm9pY2UtYWdlbnQiLCByb29tPXJvb20sIG1ldGFkYXRhPSJ7fSIpKQogICAgcHJpbnQoImRpc3BhdGNoIGNyZWF0ZWQ6IiwgZ2V0YXR0cihkLCAiaWQiLCBkKSkKICAgIGpvaW5lZCA9IEZhbHNlCiAgICBmb3IgaSBpbiByYW5nZSgxNSk6CiAgICAgICAgYXdhaXQgYXN5bmNpby5zbGVlcCgxKQogICAgICAgIHBhcnRzID0gYXdhaXQgbGsucm9vbS5saXN0X3BhcnRpY2lwYW50cyhhcGkuTGlzdFBhcnRpY2lwYW50c1JlcXVlc3Qocm9vbT1yb29tKSkKICAgICAgICBpZHMgPSBbcC5pZGVudGl0eSBmb3IgcCBpbiBwYXJ0cy5wYXJ0aWNpcGFudHNdCiAgICAgICAgcHJpbnQoInQrJWRzIHBhcnRpY2lwYW50czoiICUgKGkgKyAxKSwgaWRzKQogICAgICAgIGlmIGFueSh4LnN0YXJ0c3dpdGgoImFnZW50LSIpIGZvciB4IGluIGlkcyk6CiAgICAgICAgICAgIHByaW50KCJSRVNVTFQ6IEFHRU5UIEpPSU5FRCDigJQgZGlzcGF0Y2ggcGF0aCBPSyIpCiAgICAgICAgICAgIGpvaW5lZCA9IFRydWUKICAgICAgICAgICAgYnJlYWsKICAgIGlmIG5vdCBqb2luZWQ6CiAgICAgICAgcHJpbnQoIlJFU1VMVDogTk8gQUdFTlQgYWZ0ZXIgMTVzIOKAlCBkaXNwYXRjaCBwYXRoIEJST0tFTiAoTGl2ZUtpdCBuJ2F0dGVpbnQgcGFzIGxlIHdvcmtlcikiKQogICAgdHJ5OgogICAgICAgIGF3YWl0IGxrLnJvb20uZGVsZXRlX3Jvb20oYXBpLkRlbGV0ZVJvb21SZXF1ZXN0KHJvb209cm9vbSkpCiAgICBleGNlcHQgRXhjZXB0aW9uOgogICAgICAgIHBhc3MKICAgIGF3YWl0IGxrLmFjbG9zZSgpCgphc3luY2lvLnJ1bihtYWluKCkpCg=="
+          timeout 90 flyctl ssh console -a axon-agent -C "python -c \"import base64;exec(base64.b64decode('$B64').decode())\"" || true
+          echo ""
+          echo "===== logs worker pendant la sonde ====="
+          timeout 30 flyctl logs -a axon-agent --no-tail | tail -30 || true
+
       - name: Restart agent machine
         if: ${{ github.event.inputs.action == 'restart-agent' }}
         run: |
