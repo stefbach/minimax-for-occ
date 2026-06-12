@@ -732,43 +732,32 @@ class AxonVoiceAgent(Agent):
         # answers "Hello?" with a second, duplicate intro.
         self._suppress_first_llm_reply = False
 
-    def _fire_greeting_now(self, trigger: str) -> None:
-        # Speak the canned greeting IMMEDIATELY. Called from the first
-        # PARTIAL STT transcript (Wati 2026-06-12: patients said "Hello"
-        # then sat through ~3s of silence — waiting for the END of their
-        # turn + endpointing delay + TTS round-trip stacked up). A partial
-        # arrives within a few hundred ms of speech onset, so greeting from
-        # it cuts the perceived dead air by 1.5-2.5s. Idempotent: the
-        # _pending flag flips first so a racing turn-completion can't
-        # double-fire.
-        if not self._pending_first_greeting:
-            return
-        self._pending_first_greeting = False
-        self._suppress_first_llm_reply = True
+    async def _say_regreet(self) -> None:
+        # Speak the greeting again — used when the first one almost surely
+        # played into in-band ringback before the patient picked up.
         import time as _t
-        logger.info("greeting: firing from %s", trigger)
-
-        async def _say_greeting() -> None:
-            _b = _t.monotonic()
-            logger.info("greeting: say() begin (%s)", trigger)
-            try:
-                await self.session.say(text=self._greeting, allow_interruptions=True)
-                logger.info("greeting: say() returned in %.2fs", _t.monotonic() - _b)
-            except Exception:
-                logger.info(
-                    "greeting: say() interrupted after %.2fs (likely hangup)",
-                    _t.monotonic() - _b,
-                )
-
-        asyncio.create_task(_say_greeting())
+        _b = _t.monotonic()
+        logger.info("greeting: re-greet say() begin")
+        try:
+            await self.session.say(text=self._greeting, allow_interruptions=True)
+            logger.info("greeting: re-greet say() returned in %.2fs", _t.monotonic() - _b)
+        except Exception:
+            logger.info(
+                "greeting: re-greet interrupted after %.2fs (likely hangup)",
+                _t.monotonic() - _b,
+            )
 
     async def on_user_turn_completed(self, turn_ctx, new_message) -> None:
-        # Fallback path: if no partial reached us (rare — some carriers
-        # only emit finals), fire the greeting here like the v13 flow did.
+        # Fallback for the greet-on-answer flow: if the first-speech hook
+        # never matched (carrier only emits finals, or the partial regex
+        # skipped noise), decide the re-greet here on the completed turn.
         if self._pending_first_greeting:
-            self._fire_greeting_now("turn-completed fallback")
-        # Suppress the LLM's free-form reply to the first turn — the canned
-        # greeting (already speaking via _fire_greeting_now) IS the reply.
+            self._pending_first_greeting = False
+            logger.info("greeting: first turn completed with re-greet still armed — re-greeting")
+            self._suppress_first_llm_reply = True
+            asyncio.create_task(self._say_regreet())
+        # Suppress the LLM's free-form reply when the re-greet IS the reply
+        # — without this the LLM answers "Hello?" with a duplicate intro.
         if self._suppress_first_llm_reply:
             self._suppress_first_llm_reply = False
             from livekit.agents import StopResponse
@@ -852,82 +841,79 @@ class AxonVoiceAgent(Agent):
                 )
 
         # ────────────────────────────────────────────────────────────────
-        # Speech-triggered greeting (SIP sessions only).
+        # GREET-ON-ANSWER (Wati 2026-06-12: "il faut qu'il dit son greeting
+        # au moment où la personne décroche").
         #
-        # The June 10 tests proved sip.callStatus='active' is a LIE on
-        # UK mobile routes: Three UK answers the call at the network level
-        # in <1s and then plays the ringback IN-BAND as audio for ~8s
-        # before the handset even rings. Twilio's 200 OK (and therefore
-        # LK's callStatus=active) fires at that early network answer, so
-        # any greeting keyed on it speaks into the ringback long before
-        # the patient picks up — and the idle watchdog then kills the
-        # call before the human ever hears a word.
+        # History: v13 waited for the patient's first word before greeting,
+        # because on UK mobile routes callStatus='active' fires while the
+        # carrier still plays IN-BAND ringback. But waiting cost 3-12s of
+        # dead air on every normal pickup (Summer's test: "Hello" at 0:07,
+        # agent at 0:19) — patients repeat "Hello? Hello?" and hang up.
         #
-        # The only reliable "the patient is actually there" signal is the
-        # patient SPEAKING. Real humans say "Hello?" when they answer;
-        # voicemail greetings speak too (and the voicemail STT regex in
-        # the hygiene layer catches those and hangs up with REPONDEUR
-        # before we'd mis-greet). In-band ringback is tones, which STT
-        # does not transcribe, so it can't false-trigger.
-        #
-        # So: wait for the first STT transcript (partial counts — faster)
-        # with a generous timeout, then greet. On timeout we greet anyway
-        # — covers the silent-pickup minority without leaving dead air
-        # forever.
+        # New flow:
+        #   1. The moment the SIP gate releases (callStatus=active), say
+        #      the greeting. Normal pickups hear it INSTANTLY.
+        #   2. Ringback-swallowed case: if the patient's first speech
+        #      arrives suspiciously LATE after the greeting finished
+        #      (> REGREET_WINDOW, default 4s), the greeting almost surely
+        #      played into ringback before they picked up — re-greet once,
+        #      and suppress the LLM reply to that turn (the re-greet IS
+        #      the reply).
+        #   3. If the patient replies within the window ("yes, speaking"),
+        #      it's a real answer to the greeting — the LLM takes over
+        #      normally.
+        # Silent pickups / voicemail are still handled by the existing
+        # watchdog (NO_SPEECH_HANGUP_SECS) + voicemail STT detector.
         if sp is not None:
-            # Arm the first-turn interceptor: the patient's "Hello?" fires
-            # the STATIC greeting ("Hi, is that Megane?"). Since 2026-06-12
-            # the trigger is the FIRST PARTIAL transcript (handler below),
-            # not turn completion — partials land within a few hundred ms
-            # of speech onset, so the patient hears the greeting almost
-            # immediately instead of after ~3s (endpointing delay + STT
-            # final + TTS round-trip stacked up — Wati's latency report).
-            # on_user_turn_completed keeps a fallback fire + suppresses the
-            # LLM's duplicate reply to that first turn via StopResponse.
-            self._pending_first_greeting = True
+            preroll = float(os.getenv("GREETING_PREROLL_SECONDS", "0.4"))
+            if preroll > 0:
+                await asyncio.sleep(preroll)
+            _b = _t.monotonic()
+            logger.info("greeting: say() begin (on-answer)")
             try:
-                def _on_first_partial(ev) -> None:
+                await self.session.say(text=self._greeting, allow_interruptions=True)
+                logger.info("greeting: say() returned in %.2fs", _t.monotonic() - _b)
+            except Exception:
+                logger.info(
+                    "greeting: say() interrupted after %.2fs (likely hangup)",
+                    _t.monotonic() - _b,
+                )
+            greeting_done_at = _t.monotonic()
+            regreet_window = float(os.getenv("GREETING_REGREET_WINDOW_SECONDS", "4.0"))
+            self._pending_first_greeting = True  # armed = re-greet possible
+
+            try:
+                import re as _re_g
+                _has_word = _re_g.compile(r"[a-zA-Z]{2,}")
+
+                def _on_first_speech(ev) -> None:
                     if not self._pending_first_greeting:
                         return
                     txt = str(getattr(ev, "transcript", "") or "").strip()
-                    if not txt:
+                    # Skip pure noise/digit partials ("5.", "...") — they
+                    # false-triggered the June 12 morning test.
+                    if not _has_word.search(txt):
                         return
-                    self._fire_greeting_now("first partial transcript")
-                self.session.on("user_input_transcribed", _on_first_partial)
+                    elapsed = _t.monotonic() - greeting_done_at
+                    self._pending_first_greeting = False
+                    if elapsed > regreet_window:
+                        # First speech long after the greeting ended →
+                        # greeting played into ringback, patient never
+                        # heard it. Re-greet now.
+                        logger.info(
+                            "greeting: first speech %.1fs after greeting end — re-greeting (ringback suspected)",
+                            elapsed,
+                        )
+                        self._suppress_first_llm_reply = True
+                        asyncio.create_task(self._say_regreet())
+                    else:
+                        logger.info(
+                            "greeting: patient replied %.1fs after greeting — LLM takes over",
+                            elapsed,
+                        )
+                self.session.on("user_input_transcribed", _on_first_speech)
             except Exception:
-                logger.debug("greeting: partial-transcript hook unavailable", exc_info=True)
-            # Stretched to 45 s on Wati's June 10 carrier-ringback findings.
-            # UK Three/O2 acquit the SIP leg in <2 s then play ringback
-            # IN-BAND for up to 30 s before the handset actually rings the
-            # patient. Marina Gorton answered for real at t=18 s, Dorota
-            # Walid at t=50 s — both well past the previous 25 s window.
-            speech_wait = float(os.getenv("GREETING_WAIT_FOR_SPEECH_SECONDS", "45.0"))
-            speech_start = _t.monotonic()
-            while self._pending_first_greeting and _t.monotonic() - speech_start < speech_wait:
-                await asyncio.sleep(0.25)
-            if not self._pending_first_greeting:
-                logger.info(
-                    "greeting: first turn intercepted after %.2fs — static greeting handled by interceptor",
-                    _t.monotonic() - speech_start,
-                )
-                return
-            # Timeout WITHOUT speech: do NOT fall through to a direct say().
-            # On UK mobile routes the audio path is still in-band ringback
-            # at this point — the carrier swallows the greeting and the
-            # patient hears nothing, but `_pending_first_greeting` was being
-            # disarmed, so when the patient finally picked up (Marina at
-            # 18 s, Dorota at 50 s) on_user_turn_completed had no canned
-            # greeting left to fire and the agent stayed mute.
-            # Keep the interceptor armed for the rest of the call: the next
-            # real user turn will trigger the greeting. True silent pickups
-            # are caught by the first_agent_turn watchdog ceiling
-            # (no_speech_heuristic → PAS DE REPONSE) — no agent talking
-            # into a dead line.
-            logger.warning(
-                "greeting: no speech within %.0fs — leaving interceptor armed "
-                "for late pickup (in-band ringback suspected)",
-                speech_wait,
-            )
+                logger.debug("greeting: first-speech hook unavailable", exc_info=True)
             return
 
         # Static greeting path: non-SIP sessions (desk/browser) and the

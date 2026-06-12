@@ -261,6 +261,13 @@ export function DataTableDetail({ registryId, columns, phoneColumn, nameColumn, 
         return;
       }
       setRows((prev) => prev.map((r) => ((r.id as string) === editingId ? body : r)));
+      // Also patch the active server-search results — while a search is
+      // running the table renders serverRows, and Wati's June 12 edit of
+      // Quiche Lorraine SAVED to the DB but the visible (search) list kept
+      // the old values, which read as "rien n'a sauvegardé".
+      setServerRows((prev) =>
+        prev ? prev.map((r) => ((r.id as string) === editingId ? body : r)) : prev,
+      );
       setEditingId(null);
       router.refresh();
     } finally {
@@ -284,6 +291,7 @@ export function DataTableDetail({ registryId, columns, phoneColumn, nameColumn, 
         return;
       }
       setRows((prev) => prev.filter((r) => (r.id as string) !== id));
+      setServerRows((prev) => (prev ? prev.filter((r) => (r.id as string) !== id) : prev));
       router.refresh();
     } finally {
       setDeletingId(null);
