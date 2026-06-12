@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { requestOrgId } from "@/lib/request-org";
+import { nhsLegacyClient } from "@/lib/nhs-legacy";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,18 +19,11 @@ export const dynamic = "force-dynamic";
 // The views were created for this dashboard and expose only the columns we
 // aggregate. The publishable (anon) key suffices: leads_rdv has a public-read
 // policy and the views are granted to anon. Both URL and key can be overridden
-// via env (NHS_LEGACY_SUPABASE_URL / NHS_LEGACY_SUPABASE_KEY) — e.g. to use a
-// service key or point a different tenant elsewhere.
+// via env (NHS_LEGACY_SUPABASE_URL / NHS_LEGACY_SUPABASE_KEY) — see
+// lib/nhs-legacy.ts.
 //
 // Axon's previous implementation read its own (lime-window) copies of these
 // columns, which the NHS workflow never updates — every tile showed 0.
-
-const LEGACY_URL =
-  process.env.NHS_LEGACY_SUPABASE_URL ?? "https://kgohjmivilsfoewrcovn.supabase.co";
-// Publishable anon key (public by design — same key the legacy frontend ships).
-const LEGACY_KEY =
-  process.env.NHS_LEGACY_SUPABASE_KEY ??
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtnb2hqbWl2aWxzZm9ld3Jjb3ZuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDcxNTMxMDYsImV4cCI6MjA2MjcyOTEwNn0.E_eRu1s2vpGNDNIF1L_I6T9UQsTtKKQaU94oZISpmws";
 
 const MONTHLY_OBJECTIVE = Number(process.env.NHS_MONTHLY_OBJECTIVE ?? 30);
 // All 11 required documents of the S2 pack — used as the denominator for the
@@ -124,7 +117,7 @@ export async function GET(request: Request) {
   // Auth context (the dashboard is behind login); data itself comes from the
   // legacy project below.
   await requestOrgId(request);
-  const legacy = createClient(LEGACY_URL, LEGACY_KEY, { auth: { persistSession: false } });
+  const legacy = nhsLegacyClient();
 
   const now = new Date();
   const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();

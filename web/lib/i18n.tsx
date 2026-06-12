@@ -162,6 +162,12 @@ const EN: Record<string, string> = {
   "Générée": "Generated",
   "Signée par la clinique": "Signed by clinic",
   "Devis de la clinique": "Clinic estimate",
+  // ── NHS S2: drill-down des cards ──
+  "patient(s) concerné(s)": "patient(s) concerned",
+  "affichés": "shown",
+  "Aucun patient.": "No patients.",
+  "Lead introuvable (supprimé)": "Lead not found (deleted)",
+  "Voir les dossiers soumis ce mois": "View this month's submitted files",
   // ── NHS S2: files coordinateurs (parité legacy) ──
   "Files coordinateurs": "Coordinator queues",
   "Aucun patient assigné": "No patients assigned",

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { NhsSuiviResponse } from "@/app/api/dashboard/nhs-suivi/route";
+import type { NhsDrillResponse } from "@/app/api/dashboard/nhs-suivi/drill/route";
 import { useT } from "@/lib/i18n";
 
 // Clones the OCC demo's "Suivi patient NHS S2" panel in Axon's theme.
@@ -21,6 +22,10 @@ export function NhsSuiviTab() {
   const [error, setError] = useState<string | null>(null);
   // "Bloqué 5j+" card expands inline into the stalled-patient list.
   const [showStalled, setShowStalled] = useState(false);
+  // Drill-down: every card opens the list of patients it counted, so the
+  // operator can verify each figure (parité legacy).
+  const [drill, setDrill] = useState<{ metric: string; title: string } | null>(null);
+  const openDrill = (metric: string, title: string) => setDrill({ metric, title });
 
   const fetchData = async () => {
     setLoading(true);
@@ -87,9 +92,18 @@ export function NhsSuiviTab() {
             <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6, opacity: 0.85 }}>
               {t("Objectif mensuel NHS S2")}
             </div>
-            <div style={{ fontSize: 36, fontWeight: 700, lineHeight: 1.1, marginTop: 4 }}>
+            <button
+              type="button"
+              onClick={() => openDrill("submitted_month", t("Objectif mensuel NHS S2"))}
+              title={t("Voir les dossiers soumis ce mois")}
+              style={{
+                fontSize: 36, fontWeight: 700, lineHeight: 1.1, marginTop: 4,
+                background: "none", border: "none", color: "inherit", padding: 0,
+                cursor: "pointer", font: "inherit", display: "block", textAlign: "left",
+              }}
+            >
               {data.submitted_this_month} <span style={{ fontSize: 22, opacity: 0.7 }}>/ {data.monthly_objective}</span>
-            </div>
+            </button>
             <div style={{ fontSize: 13, marginTop: 4, opacity: 0.9 }}>
               {t("dossiers soumis ce mois")} · {remaining} {t("restants à atteindre")}
             </div>
@@ -114,7 +128,7 @@ export function NhsSuiviTab() {
         title={t("Escalade requise")}
         subtitle={t("Patients sans réponse depuis 3 jours+")}
         ctaLabel={t("Voir et assigner")}
-        ctaHref="/contacts?filter=stale_3d"
+        onCta={() => openDrill("pending_3d", t("Escalade requise"))}
         value={data.pending_response_3d_plus}
       />
 
@@ -124,6 +138,8 @@ export function NhsSuiviTab() {
         icon="✓"
         title={t("Prêts à soumettre")}
         subtitle={t("Dossiers complets — soumission NHS possible")}
+        ctaLabel={t("Voir les patients")}
+        onCta={() => openDrill("ready", t("Prêts à soumettre"))}
         value={data.ready_to_submit}
       />
 
@@ -220,7 +236,7 @@ export function NhsSuiviTab() {
                         }}
                       >
                         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {p.name ?? p.phone ?? "—"}
+                          {p.name ?? p.phone ?? t("Lead introuvable (supprimé)")}
                         </span>
                         <span className="muted" aria-hidden>›</span>
                       </div>
@@ -250,6 +266,7 @@ export function NhsSuiviTab() {
             hint={t("Email initial J0")}
             tone="var(--info)"
             icon="✉"
+            onClick={() => openDrill("email_j0", t("Email explicatif envoyé"))}
           />
           <CommCard
             label={t("Email relance J+2")}
@@ -257,6 +274,7 @@ export function NhsSuiviTab() {
             hint={t("Relance avec liste des 11 docs")}
             tone="var(--warn)"
             icon="✉"
+            onClick={() => openDrill("email_j2", t("Email relance J+2"))}
           />
           <CommCard
             label={t("WhatsApp relance J+2")}
@@ -264,6 +282,7 @@ export function NhsSuiviTab() {
             hint={t("Relance en parallèle de l'email")}
             tone="var(--good)"
             icon="◐"
+            onClick={() => openDrill("whatsapp_j2", t("WhatsApp relance J+2"))}
           />
           <CommCard
             label={t("Réponses reçues")}
@@ -275,6 +294,7 @@ export function NhsSuiviTab() {
             }
             tone="var(--accent-2)"
             icon="↗"
+            onClick={() => openDrill("responses", t("Réponses reçues"))}
           />
         </div>
       </div>
@@ -291,6 +311,7 @@ export function NhsSuiviTab() {
             hint={t("Email initial envoyé · aucun document reçu")}
             tone="var(--muted)"
             icon="○"
+            onClick={() => openDrill("no_document", t("Aucun document"))}
           />
           <CommCard
             label={t("Documents partiels")}
@@ -298,6 +319,7 @@ export function NhsSuiviTab() {
             hint={t("Au moins un document manquant")}
             tone="var(--warn)"
             icon="◐"
+            onClick={() => openDrill("partial", t("Documents partiels"))}
           />
           <CommCard
             label={t("Dossiers complets")}
@@ -305,6 +327,7 @@ export function NhsSuiviTab() {
             hint={t("BMI, DOB, allergies, traitements, antécédents")}
             tone="var(--good)"
             icon="●"
+            onClick={() => openDrill("complete", t("Dossiers complets"))}
           />
           <CommCard
             label={t("Sans réponse 3j+")}
@@ -312,6 +335,7 @@ export function NhsSuiviTab() {
             hint={t("Escalade nécessaire")}
             tone="var(--bad)"
             icon="⚠"
+            onClick={() => openDrill("pending_3d", t("Sans réponse 3j+"))}
           />
         </div>
       </div>
@@ -328,6 +352,7 @@ export function NhsSuiviTab() {
             hint={t("Généré")}
             tone="var(--info)"
             icon="📄"
+            onClick={() => openDrill("doc_medical_report", t("Rapport médical"))}
           />
           <CommCard
             label={t("Lettre « Undue Delay »")}
@@ -335,6 +360,7 @@ export function NhsSuiviTab() {
             hint={t("Générée")}
             tone="var(--info)"
             icon="📄"
+            onClick={() => openDrill("doc_undue_delay", t("Lettre « Undue Delay »"))}
           />
           <CommCard
             label={t("Déclaration S2 fournisseur")}
@@ -342,6 +368,7 @@ export function NhsSuiviTab() {
             hint={t("Signée par la clinique")}
             tone="var(--warn)"
             icon="✈"
+            onClick={() => openDrill("doc_s2_declaration", t("Déclaration S2 fournisseur"))}
           />
           <CommCard
             label={t("Devis médical")}
@@ -349,6 +376,7 @@ export function NhsSuiviTab() {
             hint={t("Devis de la clinique")}
             tone="var(--warn)"
             icon="📄"
+            onClick={() => openDrill("doc_estimate", t("Devis médical"))}
           />
         </div>
       </div>
@@ -365,6 +393,7 @@ export function NhsSuiviTab() {
             hint={t("Dossiers transmis au NHS")}
             tone="var(--info)"
             icon="↗"
+            onClick={() => openDrill("sent_nhs", t("Envoyés NHS"))}
           />
           <CommCard
             label={t("In review NHS")}
@@ -372,6 +401,7 @@ export function NhsSuiviTab() {
             hint={t("Instruction en cours")}
             tone="var(--warn)"
             icon="⌛"
+            onClick={() => openDrill("in_review", t("In review NHS"))}
           />
           <CommCard
             label={t("Acceptés NHS")}
@@ -379,6 +409,7 @@ export function NhsSuiviTab() {
             hint={t("Dossiers approuvés")}
             tone="var(--good)"
             icon="✓"
+            onClick={() => openDrill("accepted", t("Acceptés NHS"))}
           />
           <CommCard
             label={t("Refusés NHS")}
@@ -386,6 +417,7 @@ export function NhsSuiviTab() {
             hint={t("Dossiers refusés")}
             tone="var(--bad)"
             icon="✕"
+            onClick={() => openDrill("rejected", t("Refusés NHS"))}
           />
         </div>
       </div>
@@ -398,6 +430,106 @@ export function NhsSuiviTab() {
           ℹ️ {t("Aucune table de leads n'est encore enregistrée pour cette organisation. Les chiffres se rempliront dès le premier appel.")}
         </div>
       )}
+
+      <NhsDrillSheet drill={drill} onClose={() => setDrill(null)} />
+    </div>
+  );
+}
+
+// Slide-over listing the patients behind a clicked card — every figure on
+// this tab is verifiable (parité legacy).
+function NhsDrillSheet({ drill, onClose }: { drill: { metric: string; title: string } | null; onClose: () => void }) {
+  const t = useT();
+  const [data, setData] = useState<NhsDrillResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!drill) return;
+    let alive = true;
+    setLoading(true); setErr(null); setData(null);
+    fetch(`/api/dashboard/nhs-suivi/drill?metric=${encodeURIComponent(drill.metric)}`, { cache: "no-store" })
+      .then(async (r) => {
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
+        if (alive) setData(j);
+      })
+      .catch((e) => alive && setErr(e instanceof Error ? e.message : "error"))
+      .finally(() => alive && setLoading(false));
+    return () => { alive = false; };
+  }, [drill]);
+
+  useEffect(() => {
+    if (!drill) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [drill, onClose]);
+
+  if (!drill) return null;
+  const fmtDate = (iso: string | null) =>
+    iso ? new Date(iso).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }) : "—";
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={drill.title}
+      style={{ position: "fixed", inset: 0, zIndex: 80, display: "flex", justifyContent: "flex-end" }}
+    >
+      <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)" }} />
+      <div
+        className="card"
+        style={{
+          position: "relative", width: "min(720px, 96vw)", height: "100%", borderRadius: 0,
+          display: "flex", flexDirection: "column", padding: 0, overflow: "hidden",
+        }}
+      >
+        <div style={{ padding: "14px 16px", display: "flex", alignItems: "center", gap: 12, borderBottom: "1px solid var(--border)" }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 600, fontSize: 15 }}>{drill.title}</div>
+            {data && (
+              <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
+                {data.total.toLocaleString("fr-FR")} {t("patient(s) concerné(s)")}
+                {data.total > data.rows.length ? ` · ${data.rows.length} ${t("affichés")}` : ""}
+              </div>
+            )}
+          </div>
+          <button type="button" className="ghost" onClick={onClose} aria-label={t("Fermer")} style={{ padding: "4px 10px", fontSize: 16, lineHeight: 1 }}>
+            ✕
+          </button>
+        </div>
+        <div style={{ flex: 1, overflowY: "auto" }}>
+          {loading && <p className="muted" style={{ padding: 16 }}>{t("Chargement…")}</p>}
+          {err && <p style={{ padding: 16, color: "var(--bad)" }}>{err}</p>}
+          {data && data.rows.length === 0 && !loading && (
+            <p className="muted" style={{ padding: 16 }}>{t("Aucun patient.")}</p>
+          )}
+          {data && data.rows.length > 0 && (
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4 }}>
+                  <th style={{ textAlign: "left", padding: "10px 12px" }}>{t("Patient")}</th>
+                  <th style={{ textAlign: "left", padding: "10px 12px" }}>{t("Téléphone")}</th>
+                  <th style={{ textAlign: "left", padding: "10px 12px" }}>Email</th>
+                  <th style={{ textAlign: "left", padding: "10px 12px" }}>{t("Statut")}</th>
+                  <th style={{ textAlign: "right", padding: "10px 12px" }}>Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.rows.map((r, i) => (
+                  <tr key={`${r.phone ?? r.email ?? i}`} style={{ borderTop: "1px solid var(--border)" }}>
+                    <td style={{ padding: "8px 12px", fontWeight: 600 }}>{r.name ?? "—"}</td>
+                    <td style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>{r.phone ?? "—"}</td>
+                    <td style={{ padding: "8px 12px", overflowWrap: "anywhere" }}>{r.email ?? "—"}</td>
+                    <td style={{ padding: "8px 12px" }}>{r.status ?? "—"}</td>
+                    <td style={{ padding: "8px 12px", textAlign: "right", whiteSpace: "nowrap" }}>{fmtDate(r.date)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -545,22 +677,45 @@ function AlertRow({
 }
 
 function CommCard({
-  label, value, hint, tone, icon,
+  label, value, hint, tone, icon, onClick,
 }: {
   label: string;
   value: number;
   hint: string;
   tone: string;
   icon: string;
+  onClick?: () => void;
 }) {
-  return (
-    <div className="card" style={{ padding: 14 }}>
+  const inner = (
+    <>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <span className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4 }}>{label}</span>
         <span style={{ fontSize: 14, color: tone }}>{icon}</span>
       </div>
       <div style={{ fontSize: 26, fontWeight: 700, marginTop: 6, color: tone }}>{value}</div>
       <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>{hint}</div>
-    </div>
+    </>
+  );
+  if (!onClick) return <div className="card" style={{ padding: 14 }}>{inner}</div>;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="card"
+      style={{
+        padding: 14, textAlign: "left", cursor: "pointer", font: "inherit", color: "inherit",
+        transition: "transform 120ms, box-shadow 120ms",
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.transform = "translateY(-1px)";
+        e.currentTarget.style.boxShadow = "0 6px 16px rgba(0,0,0,0.18)";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.transform = "";
+        e.currentTarget.style.boxShadow = "";
+      }}
+    >
+      {inner}
+    </button>
   );
 }
