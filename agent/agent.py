@@ -761,11 +761,14 @@ class AxonVoiceAgent(Agent):
     async def _say_regreet(self) -> None:
         # Speak the greeting again — used when the first one almost surely
         # played into in-band ringback before the patient picked up.
+        # allow_interruptions=False (Summer 07:45): a 3s canned opener must
+        # finish even if the patient talks over it — barge-in was cutting
+        # it to "Hi," and leaving dead air.
         import time as _t
         _b = _t.monotonic()
         logger.info("greeting: re-greet say() begin")
         try:
-            await self.session.say(text=self._greeting, allow_interruptions=True)
+            await self.session.say(text=self._greeting, allow_interruptions=False)
             logger.info("greeting: re-greet say() returned in %.2fs", _t.monotonic() - _b)
         except Exception:
             logger.info(
@@ -933,7 +936,10 @@ class AxonVoiceAgent(Agent):
             _b = _t.monotonic()
             logger.info("greeting: say() begin (on-answer)")
             try:
-                await self.session.say(text=self._greeting, allow_interruptions=True)
+                # Non-interruptible: the patient saying "Hello" over the
+                # opener must not amputate it (Summer 07:45: barge-in left
+                # her with "Hi, is" then silence).
+                await self.session.say(text=self._greeting, allow_interruptions=False)
                 logger.info("greeting: say() returned in %.2fs", _t.monotonic() - _b)
             except Exception:
                 logger.info(
@@ -954,6 +960,22 @@ class AxonVoiceAgent(Agent):
                 self.session.on("user_input_transcribed", _disarm_on_speech)
             except Exception:
                 logger.debug("greeting: disarm hook unavailable", exc_info=True)
+            try:
+                # VAD-based disarm too (Summer 07:45): her first "Hello"
+                # was VAD-detected but never transcribed, so the
+                # transcript-only disarm missed it and the 5s re-greet
+                # fired at someone who had already heard the greeting.
+                def _disarm_on_vad(ev) -> None:
+                    if not self._pending_first_greeting:
+                        return
+                    new_state = str(
+                        getattr(ev, "new_state", None) or getattr(ev, "state", "") or ""
+                    ).lower()
+                    if new_state == "speaking":
+                        self._pending_first_greeting = False
+                self.session.on("user_state_changed", _disarm_on_vad)
+            except Exception:
+                logger.debug("greeting: VAD disarm hook unavailable", exc_info=True)
 
             silence_regreet = float(os.getenv("GREETING_SILENT_REGREET_SECONDS", "5.0"))
 
