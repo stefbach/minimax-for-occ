@@ -774,19 +774,17 @@ class AxonVoiceAgent(Agent):
             )
 
     async def on_user_turn_completed(self, turn_ctx, new_message) -> None:
-        # Dual purpose: in speech-first mode (production) this is THE
-        # greeting trigger — patient's first turn completes, we speak the
-        # canned greeting and suppress the LLM reply (v13 flow). In
-        # on-answer mode (test campaigns) it's the re-greet fallback for
-        # carriers that only emit final transcripts.
+        # Speech-first mode (production): this is THE greeting trigger —
+        # patient's first turn completes, we speak the canned greeting and
+        # suppress the LLM reply (v13 flow). On-answer mode: the greeting
+        # already played at answer; a completed user turn just disarms the
+        # one-shot silent re-greet and the LLM replies normally.
         if self._pending_first_greeting:
             self._pending_first_greeting = False
-            logger.info(
-                "greeting: firing from turn-completed (%s mode)",
-                "on-answer" if self._greet_on_answer else "speech-first",
-            )
-            self._suppress_first_llm_reply = True
-            asyncio.create_task(self._say_regreet())
+            if not self._greet_on_answer:
+                logger.info("greeting: firing from turn-completed (speech-first mode)")
+                self._suppress_first_llm_reply = True
+                asyncio.create_task(self._say_regreet())
         # Suppress the LLM's free-form reply when the re-greet IS the reply
         # — without this the LLM answers "Hello?" with a duplicate intro.
         if self._suppress_first_llm_reply:
@@ -920,6 +918,15 @@ class AxonVoiceAgent(Agent):
         # watchdog (NO_SPEECH_HANGUP_SECS) + voicemail STT detector.
         if sp is not None and self._greet_on_answer:
             # ── EXPERIMENTAL on-answer flow (test campaigns only) ──
+            # Deliberately SIMPLE after Summer's 07:37 test where the
+            # clever version triple-greeted and ate the LLM's reply:
+            #   1. Greet the moment the call answers.
+            #   2. If the patient says nothing for N seconds, re-greet
+            #      ONCE (covers both "greeting played into ringback" and
+            #      "patient picked up silently").
+            #   3. From the patient's first word onward, EVERYTHING is a
+            #      normal LLM turn — no speech-triggered re-greets, no
+            #      reply suppression. The quick-ack covers LLM latency.
             preroll = float(os.getenv("GREETING_PREROLL_SECONDS", "0.4"))
             if preroll > 0:
                 await asyncio.sleep(preroll)
@@ -933,59 +940,32 @@ class AxonVoiceAgent(Agent):
                     "greeting: say() interrupted after %.2fs (likely hangup)",
                     _t.monotonic() - _b,
                 )
-            greeting_done_at = _t.monotonic()
-            regreet_window = float(os.getenv("GREETING_REGREET_WINDOW_SECONDS", "4.0"))
-            self._pending_first_greeting = True  # armed = re-greet possible
+            # _pending_first_greeting here only means "the one-shot silent
+            # re-greet is still allowed". Any patient speech disarms it.
+            self._pending_first_greeting = True
 
             try:
-                import re as _re_g
-                _has_word = _re_g.compile(r"[a-zA-Z]{2,}")
-
-                def _on_first_speech(ev) -> None:
+                def _disarm_on_speech(ev) -> None:
                     if not self._pending_first_greeting:
                         return
                     txt = str(getattr(ev, "transcript", "") or "").strip()
-                    # Skip pure noise/digit partials ("5.", "...") — they
-                    # false-triggered the June 12 morning test.
-                    if not _has_word.search(txt):
-                        return
-                    elapsed = _t.monotonic() - greeting_done_at
-                    self._pending_first_greeting = False
-                    if elapsed > regreet_window:
-                        # First speech long after the greeting ended →
-                        # greeting played into ringback, patient never
-                        # heard it. Re-greet now.
-                        logger.info(
-                            "greeting: first speech %.1fs after greeting end — re-greeting (ringback suspected)",
-                            elapsed,
-                        )
-                        self._suppress_first_llm_reply = True
-                        asyncio.create_task(self._say_regreet())
-                    else:
-                        logger.info(
-                            "greeting: patient replied %.1fs after greeting — LLM takes over",
-                            elapsed,
-                        )
-                self.session.on("user_input_transcribed", _on_first_speech)
+                    if txt:
+                        self._pending_first_greeting = False
+                self.session.on("user_input_transcribed", _disarm_on_speech)
             except Exception:
-                logger.debug("greeting: first-speech hook unavailable", exc_info=True)
+                logger.debug("greeting: disarm hook unavailable", exc_info=True)
 
-            # Silent-pickup re-greet (Summer's June 12 test: the greeting
-            # played into ringback, she picked up and stayed silent —
-            # nothing re-triggered and the watchdog killed the call). If
-            # no qualifying speech disarms the flag within the silence
-            # window, re-greet once proactively.
             silence_regreet = float(os.getenv("GREETING_SILENT_REGREET_SECONDS", "5.0"))
+
             async def _silent_regreet() -> None:
                 await asyncio.sleep(silence_regreet)
                 if not self._pending_first_greeting:
                     return
+                self._pending_first_greeting = False  # one-shot
                 logger.info(
-                    "greeting: no speech %.0fs after on-answer greeting — proactive re-greet",
+                    "greeting: no speech %.0fs after on-answer greeting — one-shot re-greet",
                     silence_regreet,
                 )
-                # Keep the flag armed: a later first-speech can still
-                # decide LLM-takeover vs another re-greet via the hook.
                 await self._say_regreet()
             asyncio.create_task(_silent_regreet())
             return
