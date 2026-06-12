@@ -945,7 +945,15 @@ def auto_qualify_call(call_id: Optional[str]) -> None:
             elif handoff_count > 0:
                 qual = "A PASSER A L'HUMAIN"
                 qualification_source = "auto_inferred"
-            elif not answered or duration == 0:
+            elif (not answered and not any_user_speech) or duration == 0:
+                # `answered` comes from calls.answered_at, which the Twilio
+                # status webhook often fails to stamp on the LiveKit path
+                # (race / missing in-progress event). Patient SPEECH is the
+                # ground truth: if we transcribed them, the call WAS
+                # answered no matter what the column says — Wati's June 12
+                # test had a full greeting→identity→intro conversation
+                # auto-stamped PAS DE REPONSE purely because answered_at
+                # was NULL.
                 qual = "PAS DE REPONSE"
                 qualification_source = "auto_inferred"
             elif not any_user_speech:
