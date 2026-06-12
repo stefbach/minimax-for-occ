@@ -443,6 +443,65 @@ async function seedSelected(
     insertedContactIds = new Set((inserted ?? []).map((r) => r.contact_id as string));
   }
 
+  // 2b. RE-ARM the duplicates whose target is in a terminal state.
+  //
+  // THE June 12 volume bug (Wati: "pourquoi 157 appels à midi au lieu de
+  // 440 ?"): ignoreDuplicates above silently dropped every re-selected
+  // lead that already had a campaign_target from an earlier slot. The
+  // morning's targets end the slot in 'answered' / 'failed' / 'done' /
+  // 'no_answer', so when the midi selection legitimately re-picked those
+  // same leads for attempt 2-of-3 (j1_attempts=1, date_j1 NULL), the
+  // upsert ignored them and they were never dialed again that day. Only
+  // Wednesday's first-ever seeding (empty targets table) reached 1000+
+  // calls — every later slot starved.
+  //
+  // Fix: targets in a terminal state for re-selected leads get flipped
+  // back to pending with next_attempt_at = now. We do NOT touch rows in
+  // 'pending' (already queued) or 'dialing' (in-flight right now).
+  const phaseByContact = new Map<string, string | null>();
+  for (const s of dedupedSelected) {
+    const tel = normalisePhoneToE164(String(s.row[phoneCol] ?? ""));
+    const cid = contactByE164.get(tel);
+    if (cid) phaseByContact.set(cid, s.phase);
+  }
+  const dupContactIds = [...phaseByContact.keys()].filter((id) => !insertedContactIds.has(id));
+  let rearmed = 0;
+  const TERMINAL_STATUSES = ["answered", "failed", "done", "no_answer", "busy"];
+  const CHUNK = 200;
+  for (let i = 0; i < dupContactIds.length; i += CHUNK) {
+    const chunk = dupContactIds.slice(i, i + CHUNK);
+    const { data: flipped, error: rearmErr } = await sb
+      .from("campaign_targets")
+      .update({ status: "pending", next_attempt_at: nowIso })
+      .eq("campaign_id", campaign.id)
+      .in("contact_id", chunk)
+      .in("status", TERMINAL_STATUSES)
+      .select("id, contact_id, source_metadata");
+    if (rearmErr) {
+      console.error(`[dynamic-selection] re-arm failed: ${rearmErr.message}`);
+      continue;
+    }
+    rearmed += (flipped ?? []).length;
+    // Phase drift: a target seeded as J1 on Monday may be re-selected as
+    // J3 on Wednesday. sync-lead bumps the attempts column named in the
+    // call's phase, so a stale phase would mis-book J3 attempts as J1.
+    // Patch source_metadata.phase on the rows where it changed (rare —
+    // only on phase transitions, so per-row updates are fine).
+    for (const f of flipped ?? []) {
+      const meta = (f.source_metadata ?? {}) as Record<string, unknown>;
+      const newPhase = phaseByContact.get(f.contact_id as string) ?? null;
+      if (newPhase && meta.phase !== newPhase) {
+        await sb
+          .from("campaign_targets")
+          .update({ source_metadata: { ...meta, phase: newPhase } })
+          .eq("id", f.id);
+      }
+    }
+  }
+  if (rearmed > 0) {
+    console.log(`[dynamic-selection] re-armed ${rearmed} terminal target(s) for this slot`);
+  }
+
   // Phase bookkeeping (attempts++/date_jN stamp) is intentionally NOT done
   // here. It now happens server-side in /api/calls/[id]/sync-lead AFTER the
   // call completes — that endpoint reads the call's outcome and decides
@@ -452,5 +511,5 @@ async function seedSelected(
   // (a single 08:00 call would land at attempts=2 by 09:00 and date_j1
   // already stamped by 13:00 — a bug we observed in production).
 
-  return insertedContactIds.size;
+  return insertedContactIds.size + rearmed;
 }
