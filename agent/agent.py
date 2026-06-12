@@ -21,6 +21,8 @@ import asyncio
 import logging
 import os
 import re
+import threading
+import time
 from typing import Optional
 
 from dotenv import load_dotenv
@@ -2558,6 +2560,28 @@ def _load_campaign_call_tuning(campaign_id: str) -> dict:
 
 
 async def entrypoint(ctx: JobContext) -> None:
+    # Liveness bookkeeping for the dispatch watchdog (see
+    # _dispatch_liveness_watchdog): every delivered job stamps a marker, and
+    # probe rooms exit immediately without connecting (no DB writes, no SIP,
+    # no phone call — the room dies on its own empty_timeout).
+    _room_name = ""
+    try:
+        _room_name = ctx.job.room.name or ""
+    except Exception:
+        pass
+    try:
+        with open(_LAST_JOB_MARKER, "w") as _f:
+            _f.write(str(time.time()))
+    except Exception:
+        pass
+    if _room_name.startswith(_PROBE_ROOM_PREFIX):
+        try:
+            with open(_PROBE_MARKER, "w") as _f:
+                _f.write(str(time.time()))
+        except Exception:
+            pass
+        return
+
     await ctx.connect()
 
     # Flow runtime path — if room metadata carries flow_id, drive the IVR
@@ -3350,6 +3374,109 @@ async def entrypoint(ctx: JobContext) -> None:
         clog.debug("ctx.add_shutdown_callback unavailable; skipping post-call hook")
 
 
+# ─── Dispatch liveness watchdog ──────────────────────────────────────────────
+# Incident du 12/06/2026 (matin) : LiveKit Cloud garde le worker "registered"
+# mais cesse silencieusement de lui livrer les jobs. Constaté noir sur blanc :
+# worker AW_39yqViRJ4g72 enregistré 10:25:28, job de 10:26:27 livré et traité,
+# puis appels 10:29/10:32 dispatchés par le dialer SANS qu'aucun job n'arrive ;
+# machine saine (load 0.05, HTTP :8081 → 200), aucun log d'erreur ni de
+# reconnexion ; sonde dispatch AD_6yiVzuzV6qRk créée depuis la machine même :
+# aucun agent dans la room après 15 s. Résultat : le patient décroche et
+# n'entend RIEN. Ni LiveKit ni le worker ne détectent la connexion morte.
+#
+# Auto-guérison : un thread du processus principal crée toutes les
+# PROBE_INTERVAL secondes une room de test `axon-probe-<ts>` + un dispatch
+# explicite, et vérifie que l'entrypoint a bien été invoqué (marker file).
+# Deux échecs consécutifs ⇒ le worker est sourd ⇒ os._exit(1) ⇒ la policy
+# de restart Fly relance la machine, qui se ré-enregistre proprement.
+# Les erreurs de l'API LiveKit elle-même (réseau, etc.) ne comptent PAS
+# comme échec — seul "dispatch créé mais job jamais reçu" est probant.
+_PROBE_ROOM_PREFIX = "axon-probe-"
+_PROBE_MARKER = "/tmp/axon_dispatch_probe_ok"
+_LAST_JOB_MARKER = "/tmp/axon_last_job"
+_PROBE_INTERVAL_SECS = int(os.getenv("DISPATCH_PROBE_INTERVAL_SECS", "120"))
+_PROBE_STARTUP_DELAY_SECS = int(os.getenv("DISPATCH_PROBE_STARTUP_DELAY_SECS", "180"))
+_PROBE_JOIN_TIMEOUT_SECS = 20
+_PROBE_MAX_CONSECUTIVE_MISSES = 2
+
+
+def _marker_mtime(path: str) -> float:
+    try:
+        return os.path.getmtime(path)
+    except OSError:
+        return 0.0
+
+
+async def _run_dispatch_probe() -> bool:
+    """Returns True if the dispatch path works (job delivered), False if the
+    dispatch was created but never reached this worker. Raises on LK API
+    errors so the caller can ignore them (not proof of deafness)."""
+    from livekit import api as lk_api
+
+    room_name = f"{_PROBE_ROOM_PREFIX}{int(time.time())}"
+    probe_start = time.time()
+    lk = lk_api.LiveKitAPI()
+    try:
+        await lk.room.create_room(
+            lk_api.CreateRoomRequest(name=room_name, empty_timeout=15)
+        )
+        await lk.agent_dispatch.create_dispatch(
+            lk_api.CreateAgentDispatchRequest(
+                agent_name="minimax-voice-agent", room=room_name, metadata="{}"
+            )
+        )
+        deadline = probe_start + _PROBE_JOIN_TIMEOUT_SECS
+        while time.time() < deadline:
+            await asyncio.sleep(1.0)
+            if _marker_mtime(_PROBE_MARKER) >= probe_start:
+                return True
+            # Un vrai job (appel réel) livré pendant la fenêtre prouve aussi
+            # que le dispatch fonctionne — pas besoin d'attendre la sonde.
+            if _marker_mtime(_LAST_JOB_MARKER) >= probe_start:
+                return True
+        return False
+    finally:
+        try:
+            await lk.room.delete_room(lk_api.DeleteRoomRequest(room=room_name))
+        except Exception:
+            pass
+        try:
+            await lk.aclose()
+        except Exception:
+            pass
+
+
+def _dispatch_liveness_watchdog() -> None:
+    wlog = logging.getLogger("axon.dispatch-watchdog")
+    time.sleep(_PROBE_STARTUP_DELAY_SECS)
+    misses = 0
+    while True:
+        try:
+            ok = asyncio.run(_run_dispatch_probe())
+        except Exception as e:
+            wlog.warning("probe API error (ignored, not proof of deafness): %s", e)
+            time.sleep(_PROBE_INTERVAL_SECS)
+            continue
+        if ok:
+            if misses:
+                wlog.info("dispatch path recovered after %d miss(es)", misses)
+            misses = 0
+        else:
+            misses += 1
+            wlog.error(
+                "dispatch probe FAILED (%d/%d): dispatch created but no job "
+                "delivered within %ds — worker may be deaf to LiveKit",
+                misses, _PROBE_MAX_CONSECUTIVE_MISSES, _PROBE_JOIN_TIMEOUT_SECS,
+            )
+            if misses >= _PROBE_MAX_CONSECUTIVE_MISSES:
+                wlog.critical(
+                    "worker is deaf to LiveKit dispatch — exiting so Fly "
+                    "restarts the machine and we re-register cleanly"
+                )
+                os._exit(1)
+        time.sleep(_PROBE_INTERVAL_SECS)
+
+
 def prewarm(proc):
     """Load heavy models ONCE when the worker process starts, not per call.
     Silero VAD is reused across every job via proc.userdata — this removes a
@@ -3406,4 +3533,9 @@ if __name__ == "__main__":
     # no agent ever joins (call rings out, 487 Request Terminated, room with 0
     # participants). Naming the worker makes the dispatch explicit and
     # deterministic.
+    threading.Thread(
+        target=_dispatch_liveness_watchdog,
+        name="dispatch-liveness-watchdog",
+        daemon=True,
+    ).start()
     cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint, prewarm_fnc=prewarm, agent_name="minimax-voice-agent"))
