@@ -55,9 +55,12 @@ jobs:
           echo "===== load average (in-machine) ====="
           timeout 60 flyctl ssh console -a axon-agent -C "cat /proc/loadavg" || true
           echo ""
-          echo "===== processes (in-machine) ====="
-          timeout 60 flyctl ssh console -a axon-agent -C "ps aux" || \
-            timeout 60 flyctl ssh console -a axon-agent -C "ls /proc" || true
+          echo "===== processes (in-machine, via /proc) ====="
+          timeout 60 flyctl ssh console -a axon-agent -C "python -c \"import os,glob; [print(p.split('/')[2], open(p).read().strip()[:120]) for p in glob.glob('/proc/[0-9]*/cmdline') if open(p).read().strip()]\"" || true
+          echo ""
+          echo "===== worker HTTP :8081 (event-loop alive?) ====="
+          timeout 60 flyctl ssh console -a axon-agent -C "python -c \"import urllib.request; r=urllib.request.urlopen('http://127.0.0.1:8081/', timeout=5); print('HTTP', r.status, r.read()[:200])\"" || \
+            echo "PROBE FAILED — worker event loop likely blocked or HTTP server down"
 
       - name: Server-side logs (dialer)
         if: ${{ github.event.inputs.action == 'diagnose' }}
