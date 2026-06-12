@@ -698,7 +698,7 @@ def _build_save_contact_tool(
 
 # ─── Agent wrapper that greets via TTS only ───────────────────────────────
 class AxonVoiceAgent(Agent):
-    def __init__(self, *, instructions: str, tools, greeting: str, llm=None, tts=None, stt=None, vad=None, sip_participant=None):
+    def __init__(self, *, instructions: str, tools, greeting: str, llm=None, tts=None, stt=None, vad=None, sip_participant=None, greet_on_answer: bool = False):
         # Per-agent llm/tts/stt/vad override the session defaults. This is what
         # makes a handoff actually CHANGE THE VOICE: update_agent() rebuilds the
         # activity from the new Agent's components, whereas reassigning
@@ -731,6 +731,14 @@ class AxonVoiceAgent(Agent):
         # suppress the LLM's reply to that first turn, otherwise the LLM
         # answers "Hello?" with a second, duplicate intro.
         self._suppress_first_llm_reply = False
+        # Greeting mode (Wati 2026-06-12 A/B setup): production campaigns
+        # keep the proven Wednesday flow (speech-first — wait for the
+        # patient's first words, then greet). Campaigns explicitly opted
+        # in via campaigns.metadata.greeting_mode = "on_answer" (or the
+        # GREETING_ON_ANSWER_CAMPAIGN_IDS env list) get the experimental
+        # greet-the-moment-the-SIP-answers flow, currently being tuned on
+        # the "teste summer" campaign only.
+        self._greet_on_answer = bool(greet_on_answer)
 
     async def _say_regreet(self) -> None:
         # Speak the greeting again — used when the first one almost surely
@@ -748,12 +756,17 @@ class AxonVoiceAgent(Agent):
             )
 
     async def on_user_turn_completed(self, turn_ctx, new_message) -> None:
-        # Fallback for the greet-on-answer flow: if the first-speech hook
-        # never matched (carrier only emits finals, or the partial regex
-        # skipped noise), decide the re-greet here on the completed turn.
+        # Dual purpose: in speech-first mode (production) this is THE
+        # greeting trigger — patient's first turn completes, we speak the
+        # canned greeting and suppress the LLM reply (v13 flow). In
+        # on-answer mode (test campaigns) it's the re-greet fallback for
+        # carriers that only emit final transcripts.
         if self._pending_first_greeting:
             self._pending_first_greeting = False
-            logger.info("greeting: first turn completed with re-greet still armed — re-greeting")
+            logger.info(
+                "greeting: firing from turn-completed (%s mode)",
+                "on-answer" if self._greet_on_answer else "speech-first",
+            )
             self._suppress_first_llm_reply = True
             asyncio.create_task(self._say_regreet())
         # Suppress the LLM's free-form reply when the re-greet IS the reply
@@ -864,7 +877,8 @@ class AxonVoiceAgent(Agent):
         #      normally.
         # Silent pickups / voicemail are still handled by the existing
         # watchdog (NO_SPEECH_HANGUP_SECS) + voicemail STT detector.
-        if sp is not None:
+        if sp is not None and self._greet_on_answer:
+            # ── EXPERIMENTAL on-answer flow (test campaigns only) ──
             preroll = float(os.getenv("GREETING_PREROLL_SECONDS", "0.4"))
             if preroll > 0:
                 await asyncio.sleep(preroll)
@@ -914,6 +928,50 @@ class AxonVoiceAgent(Agent):
                 self.session.on("user_input_transcribed", _on_first_speech)
             except Exception:
                 logger.debug("greeting: first-speech hook unavailable", exc_info=True)
+
+            # Silent-pickup re-greet (Summer's June 12 test: the greeting
+            # played into ringback, she picked up and stayed silent —
+            # nothing re-triggered and the watchdog killed the call). If
+            # no qualifying speech disarms the flag within the silence
+            # window, re-greet once proactively.
+            silence_regreet = float(os.getenv("GREETING_SILENT_REGREET_SECONDS", "5.0"))
+            async def _silent_regreet() -> None:
+                await asyncio.sleep(silence_regreet)
+                if not self._pending_first_greeting:
+                    return
+                logger.info(
+                    "greeting: no speech %.0fs after on-answer greeting — proactive re-greet",
+                    silence_regreet,
+                )
+                # Keep the flag armed: a later first-speech can still
+                # decide LLM-takeover vs another re-greet via the hook.
+                await self._say_regreet()
+            asyncio.create_task(_silent_regreet())
+            return
+
+        if sp is not None:
+            # ── PRODUCTION speech-first flow (Wednesday June 10 v13) ──
+            # Wait for the patient's first words; the greeting is fired by
+            # on_user_turn_completed (which also suppresses the LLM's
+            # duplicate reply). On timeout leave the interceptor armed for
+            # late pickups — in-band ringback means callStatus='active'
+            # fires long before the handset actually rings.
+            self._pending_first_greeting = True
+            speech_wait = float(os.getenv("GREETING_WAIT_FOR_SPEECH_SECONDS", "45.0"))
+            speech_start = _t.monotonic()
+            while self._pending_first_greeting and _t.monotonic() - speech_start < speech_wait:
+                await asyncio.sleep(0.25)
+            if not self._pending_first_greeting:
+                logger.info(
+                    "greeting: first turn intercepted after %.2fs — static greeting handled by interceptor",
+                    _t.monotonic() - speech_start,
+                )
+                return
+            logger.warning(
+                "greeting: no speech within %.0fs — leaving interceptor armed "
+                "for late pickup (in-band ringback suspected)",
+                speech_wait,
+            )
             return
 
         # Static greeting path: non-SIP sessions (desk/browser) and the
@@ -2317,6 +2375,32 @@ def _wire_transcript_hooks(session: AgentSession, call_id: Optional[str]) -> Non
             logger.debug("session.on(%s) unavailable on this LiveKit version", ev_name)
 
 
+def _load_campaign_greeting_mode(campaign_id: str) -> Optional[str]:
+    """Read campaigns.metadata.greeting_mode for the campaign driving this
+    call. Returns "on_answer" / "speech_first" / None (= default).
+
+    Wati 2026-06-12 A/B setup: production campaigns run the proven
+    speech-first greeting; only campaigns explicitly flagged (the test
+    table campaign) get the experimental greet-on-answer flow. Flag lives
+    in DB so it can be flipped via SQL without a redeploy."""
+    try:
+        from db_writes import _supabase_headers as _sb_h, _supabase_url as _sb_u, has_supabase as _sb_has
+        if not _sb_has() or not campaign_id:
+            return None
+        import httpx as _httpx
+        with _httpx.Client(timeout=_httpx.Timeout(4.0), headers=_sb_h()) as c:
+            r = c.get(_sb_u(f"/rest/v1/campaigns?id=eq.{campaign_id}&select=metadata"))
+            if not r.is_success:
+                return None
+            rows = r.json() or []
+            md = (rows[0] or {}).get("metadata") if rows else None
+            if isinstance(md, dict) and md.get("greeting_mode"):
+                return str(md["greeting_mode"])
+    except Exception:
+        logger.debug("greeting-mode load failed (campaign=%s)", campaign_id, exc_info=True)
+    return None
+
+
 async def entrypoint(ctx: JobContext) -> None:
     await ctx.connect()
 
@@ -2482,11 +2566,12 @@ async def entrypoint(ctx: JobContext) -> None:
     async def _load(fn, arg):
         return await asyncio.to_thread(fn, str(arg)) if arg else None
 
-    axon, script_text, target_vars, sim_script_text = await asyncio.gather(
+    axon, script_text, target_vars, sim_script_text, campaign_greeting_mode = await asyncio.gather(
         _load(load_agent, agent_id),
         _load(load_campaign_script, campaign_id),
         _load(load_target_context, target_id),
         _load(load_script_by_id, sim_script_id),
+        _load(_load_campaign_greeting_mode, campaign_id),
     )
     target_vars = target_vars or {}
     # In simulation the script comes by id (no campaign); prefer it.
@@ -2787,6 +2872,18 @@ async def entrypoint(ctx: JobContext) -> None:
 
     import time as _time2
     _t_start = _time2.monotonic()
+    # Greeting mode A/B (Wati 2026-06-12): DB flag wins, env list as
+    # backup. Default (None) = speech-first, the proven production flow.
+    _env_on_answer_ids = {
+        s.strip() for s in os.getenv("GREETING_ON_ANSWER_CAMPAIGN_IDS", "").split(",") if s.strip()
+    }
+    greet_on_answer = (
+        campaign_greeting_mode == "on_answer"
+        or (campaign_id is not None and str(campaign_id) in _env_on_answer_ids)
+    )
+    if greet_on_answer:
+        clog.info("greeting mode: ON-ANSWER (experimental, campaign=%s)", campaign_id)
+
     clog.info("timing: session.start() begin")
     await session.start(
         room=ctx.room,
@@ -2794,6 +2891,7 @@ async def entrypoint(ctx: JobContext) -> None:
             instructions=instructions,
             tools=tools,
             greeting=greeting,
+            greet_on_answer=greet_on_answer,
             # Pass the SIP participant already resolved by
             # ctx.wait_for_participant() so on_enter can poll its
             # sip.callStatus directly. None for browser/desk sessions.
