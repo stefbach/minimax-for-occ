@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from "react";
 import type { NhsSuiviResponse } from "@/app/api/dashboard/nhs-suivi/route";
-import type { NhsDrillResponse } from "@/app/api/dashboard/nhs-suivi/drill/route";
+import type { NhsPatientsResponse } from "@/app/api/dashboard/nhs-suivi/patients/route";
+import type { NhsPatientDetail } from "@/app/api/dashboard/nhs-suivi/patients/[id]/route";
+import type { NhsPatient, PatientStatus } from "@/lib/nhs-patients";
 import { useT } from "@/lib/i18n";
 
 // Clones the OCC demo's "Suivi patient NHS S2" panel in Axon's theme.
@@ -22,10 +24,20 @@ export function NhsSuiviTab() {
   const [error, setError] = useState<string | null>(null);
   // "Bloqué 5j+" card expands inline into the stalled-patient list.
   const [showStalled, setShowStalled] = useState(false);
-  // Drill-down: every card opens the list of patients it counted, so the
-  // operator can verify each figure (parité legacy).
-  const [drill, setDrill] = useState<{ metric: string; title: string } | null>(null);
-  const openDrill = (metric: string, title: string) => setDrill({ metric, title });
+  // Same 3-view navigation as the legacy dashboard: clicking a card opens the
+  // patient LIST pre-filtered on the matching status; clicking a patient opens
+  // the full dossier (checklist 11 docs, timeline, statut NHS, actions).
+  const [view, setView] = useState<NhsView>({ name: "dashboard" });
+  // Maps each card to the same list filter the legacy dashboard uses.
+  const METRIC_FILTER: Record<string, PatientFilter> = {
+    email_j0: "all", email_j2: "all", whatsapp_j2: "all", responses: "all",
+    no_document: "aucun-doc", partial: "partiels", complete: "complets", pending_3d: "sans-reponse",
+    doc_medical_report: "all", doc_undue_delay: "all", doc_s2_declaration: "all", doc_estimate: "all",
+    sent_nhs: "envoye-nhs", in_review: "envoye-nhs", accepted: "envoye-nhs", rejected: "envoye-nhs",
+    submitted_month: "envoye-nhs", ready: "complets",
+  };
+  const openDrill = (metric: string, _title?: string) =>
+    setView({ name: "list", filter: METRIC_FILTER[metric] ?? "all" });
 
   const fetchData = async () => {
     setLoading(true);
@@ -47,6 +59,28 @@ export function NhsSuiviTab() {
     const t = setInterval(fetchData, 60_000);
     return () => clearInterval(t);
   }, []);
+
+  // All hooks above this line — the sub-views replace the whole tab body.
+  if (view.name === "list") {
+    return (
+      <PatientListView
+        filter={view.filter}
+        onBack={() => setView({ name: "dashboard" })}
+        onChangeFilter={(filter) => setView({ name: "list", filter })}
+        onOpenPatient={(id) => setView({ name: "detail", id, from: view.filter })}
+      />
+    );
+  }
+  if (view.name === "detail") {
+    return (
+      <PatientDetailView
+        id={view.id}
+        fromFilter={view.from}
+        onBackDashboard={() => setView({ name: "dashboard" })}
+        onBackList={() => setView({ name: "list", filter: view.from })}
+      />
+    );
+  }
 
   if (loading && !data) return <div className="card"><p className="muted" style={{ margin: 0 }}>{t("Chargement…")}</p></div>;
   if (error) return <div className="card" style={{ borderColor: "var(--bad)", color: "var(--bad)" }}>{error}</div>;
@@ -431,108 +465,11 @@ export function NhsSuiviTab() {
         </div>
       )}
 
-      <NhsDrillSheet drill={drill} onClose={() => setDrill(null)} />
+
     </div>
   );
 }
 
-// Slide-over listing the patients behind a clicked card — every figure on
-// this tab is verifiable (parité legacy).
-function NhsDrillSheet({ drill, onClose }: { drill: { metric: string; title: string } | null; onClose: () => void }) {
-  const t = useT();
-  const [data, setData] = useState<NhsDrillResponse | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!drill) return;
-    let alive = true;
-    setLoading(true); setErr(null); setData(null);
-    fetch(`/api/dashboard/nhs-suivi/drill?metric=${encodeURIComponent(drill.metric)}`, { cache: "no-store" })
-      .then(async (r) => {
-        const j = await r.json();
-        if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
-        if (alive) setData(j);
-      })
-      .catch((e) => alive && setErr(e instanceof Error ? e.message : "error"))
-      .finally(() => alive && setLoading(false));
-    return () => { alive = false; };
-  }, [drill]);
-
-  useEffect(() => {
-    if (!drill) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [drill, onClose]);
-
-  if (!drill) return null;
-  const fmtDate = (iso: string | null) =>
-    iso ? new Date(iso).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }) : "—";
-  return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={drill.title}
-      style={{ position: "fixed", inset: 0, zIndex: 80, display: "flex", justifyContent: "flex-end" }}
-    >
-      <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)" }} />
-      <div
-        className="card"
-        style={{
-          position: "relative", width: "min(720px, 96vw)", height: "100%", borderRadius: 0,
-          display: "flex", flexDirection: "column", padding: 0, overflow: "hidden",
-        }}
-      >
-        <div style={{ padding: "14px 16px", display: "flex", alignItems: "center", gap: 12, borderBottom: "1px solid var(--border)" }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 600, fontSize: 15 }}>{drill.title}</div>
-            {data && (
-              <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
-                {data.total.toLocaleString("fr-FR")} {t("patient(s) concerné(s)")}
-                {data.total > data.rows.length ? ` · ${data.rows.length} ${t("affichés")}` : ""}
-              </div>
-            )}
-          </div>
-          <button type="button" className="ghost" onClick={onClose} aria-label={t("Fermer")} style={{ padding: "4px 10px", fontSize: 16, lineHeight: 1 }}>
-            ✕
-          </button>
-        </div>
-        <div style={{ flex: 1, overflowY: "auto" }}>
-          {loading && <p className="muted" style={{ padding: 16 }}>{t("Chargement…")}</p>}
-          {err && <p style={{ padding: 16, color: "var(--bad)" }}>{err}</p>}
-          {data && data.rows.length === 0 && !loading && (
-            <p className="muted" style={{ padding: 16 }}>{t("Aucun patient.")}</p>
-          )}
-          {data && data.rows.length > 0 && (
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-              <thead>
-                <tr className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4 }}>
-                  <th style={{ textAlign: "left", padding: "10px 12px" }}>{t("Patient")}</th>
-                  <th style={{ textAlign: "left", padding: "10px 12px" }}>{t("Téléphone")}</th>
-                  <th style={{ textAlign: "left", padding: "10px 12px" }}>Email</th>
-                  <th style={{ textAlign: "left", padding: "10px 12px" }}>{t("Statut")}</th>
-                  <th style={{ textAlign: "right", padding: "10px 12px" }}>Date</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.rows.map((r, i) => (
-                  <tr key={`${r.phone ?? r.email ?? i}`} style={{ borderTop: "1px solid var(--border)" }}>
-                    <td style={{ padding: "8px 12px", fontWeight: 600 }}>{r.name ?? "—"}</td>
-                    <td style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>{r.phone ?? "—"}</td>
-                    <td style={{ padding: "8px 12px", overflowWrap: "anywhere" }}>{r.email ?? "—"}</td>
-                    <td style={{ padding: "8px 12px" }}>{r.status ?? "—"}</td>
-                    <td style={{ padding: "8px 12px", textAlign: "right", whiteSpace: "nowrap" }}>{fmtDate(r.date)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function PipelinePanel({ data }: { data: NhsSuiviResponse }) {
   const t = useT();
@@ -717,5 +654,566 @@ function CommCard({
     >
       {inner}
     </button>
+  );
+}
+
+// ── Patient list + detail (port of the legacy 3-view NHS page) ─────────────
+
+type PatientFilter = PatientStatus | "all";
+type NhsView =
+  | { name: "dashboard" }
+  | { name: "list"; filter: PatientFilter }
+  | { name: "detail"; id: string; from: PatientFilter };
+
+const STATUS_TONE: Record<PatientStatus, string> = {
+  "complets": "var(--good)",
+  "partiels": "var(--warn)",
+  "sans-reponse": "var(--bad)",
+  "aucun-doc": "var(--muted)",
+  "envoye-nhs": "var(--info)",
+};
+const STATUS_LABEL: Record<PatientStatus, string> = {
+  "complets": "Complet",
+  "partiels": "Partiel",
+  "sans-reponse": "Sans réponse 3j+",
+  "aucun-doc": "Aucun doc",
+  "envoye-nhs": "Envoyé NHS",
+};
+const FILTER_LABEL: Record<PatientFilter, string> = {
+  "all": "Tous les patients",
+  "sans-reponse": "Sans réponse 3j+ — Escalade requise",
+  "complets": "Dossiers complets — Prêts pour la NHS",
+  "partiels": "Documents partiels",
+  "aucun-doc": "Aucun document reçu",
+  "envoye-nhs": "Envoyés NHS S2",
+};
+const NHS_BADGE_LABEL: Record<string, string> = {
+  in_review: "In review",
+  additional_info: "Demande additionnelle",
+  accepted: "Accepté",
+  refused: "Refusé",
+};
+const DOC_LABEL: Record<string, string> = {
+  doc_nhs_s2_form: "NHS S2 Form",
+  doc_s2_provider_declaration: "S2 Provider Declaration Form",
+  doc_cpam_certificate: "CPAM Certificate",
+  doc_clinical_justification_gp: "Lettre de justification clinique (GP)",
+  doc_medical_report: "Rapport médical",
+  doc_undue_delay_letter: "« Undue Delay » — rationale",
+  doc_patient_authorisation: "Autorisation patient",
+  doc_identity_document: "Pièce d'identité",
+  doc_proof_of_residence: "Justificatif de domicile",
+  doc_bank_statements: "Relevés bancaires",
+  doc_detailed_medical_estimate: "Devis médical détaillé",
+};
+
+function StatusBadge({ status }: { status: PatientStatus }) {
+  const t = useT();
+  const tone = STATUS_TONE[status];
+  return (
+    <span
+      style={{
+        display: "inline-flex", padding: "2px 9px", fontSize: 11, fontWeight: 600,
+        borderRadius: 999, border: `1px solid ${tone}`, color: tone, whiteSpace: "nowrap",
+        background: `color-mix(in srgb, ${tone} 12%, transparent)`,
+      }}
+    >
+      {t(STATUS_LABEL[status])}
+    </span>
+  );
+}
+
+function Breadcrumb({ items }: { items: Array<{ label: string; onClick?: () => void }> }) {
+  return (
+    <nav style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, flexWrap: "wrap" }}>
+      {items.map((it, i) => (
+        <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+          {i > 0 && <span className="muted">›</span>}
+          {it.onClick ? (
+            <button
+              type="button"
+              onClick={it.onClick}
+              style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: "var(--accent)", font: "inherit", fontSize: 13 }}
+            >
+              {it.label}
+            </button>
+          ) : (
+            <span style={{ fontWeight: 600 }}>{it.label}</span>
+          )}
+        </span>
+      ))}
+    </nav>
+  );
+}
+
+function Avatar({ initials, size = 32 }: { initials: string; size?: number }) {
+  return (
+    <span
+      aria-hidden
+      style={{
+        width: size, height: size, borderRadius: "50%", flexShrink: 0,
+        display: "inline-flex", alignItems: "center", justifyContent: "center",
+        background: "color-mix(in srgb, var(--info) 16%, transparent)",
+        color: "var(--info)", fontWeight: 700, fontSize: size > 40 ? 18 : 12,
+        border: size > 40 ? "2px solid color-mix(in srgb, var(--info) 40%, transparent)" : "none",
+      }}
+    >
+      {initials}
+    </span>
+  );
+}
+
+// ── View 2: patient list ────────────────────────────────────────────────────
+
+function PatientListView({
+  filter, onBack, onChangeFilter, onOpenPatient,
+}: {
+  filter: PatientFilter;
+  onBack: () => void;
+  onChangeFilter: (f: PatientFilter) => void;
+  onOpenPatient: (id: string) => void;
+}) {
+  const t = useT();
+  const [patients, setPatients] = useState<NhsPatient[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    fetch("/api/dashboard/nhs-suivi/patients", { cache: "no-store" })
+      .then(async (r) => {
+        const j = (await r.json()) as NhsPatientsResponse & { error?: string };
+        if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
+        if (alive) { setPatients(j.patients); setError(null); }
+      })
+      .catch((e) => alive && setError(e instanceof Error ? e.message : "error"))
+      .finally(() => alive && setLoading(false));
+    return () => { alive = false; };
+  }, []);
+
+  const q = search.trim().toLowerCase();
+  const filtered = (patients ?? []).filter((p) => {
+    if (filter !== "all" && p.status !== filter) return false;
+    if (!q) return true;
+    return `${p.name ?? ""} ${p.email ?? ""} ${p.phone ?? ""}`.toLowerCase().includes(q);
+  });
+
+  const chips: Array<{ id: PatientFilter; label: string }> = [
+    { id: "all", label: t("Tous") },
+    { id: "sans-reponse", label: t("Sans réponse") },
+    { id: "partiels", label: t("Partiels") },
+    { id: "complets", label: t("Complets") },
+    { id: "envoye-nhs", label: t("Envoyés NHS") },
+  ];
+
+  const fmtActivity = (iso: string | null) =>
+    iso ? new Date(iso).toLocaleString("fr-FR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "—";
+
+  return (
+    <div style={{ display: "grid", gap: 14 }}>
+      <Breadcrumb
+        items={[
+          { label: t("Vue d'ensemble"), onClick: onBack },
+          { label: t(FILTER_LABEL[filter]) },
+        ]}
+      />
+      <div className="page-header" style={{ margin: 0 }}>
+        <div>
+          <h2 style={{ margin: 0 }}>{t("Liste des patients")}</h2>
+          <div className="muted" style={{ fontSize: 13 }}>{t("Cliquer sur un patient pour accéder à la fiche dossier complète")}</div>
+        </div>
+        <button onClick={onBack} className="ghost" style={{ padding: "5px 12px", fontSize: 13 }}>← {t("Retour")}</button>
+      </div>
+
+      {/* Filter chips + search */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+        {chips.map((c) => {
+          const active = filter === c.id;
+          return (
+            <button
+              key={c.id}
+              type="button"
+              onClick={() => onChangeFilter(c.id)}
+              className={active ? "" : "ghost"}
+              style={{ padding: "4px 12px", fontSize: 12, borderRadius: 999 }}
+            >
+              {c.label}
+            </button>
+          );
+        })}
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder={t("Rechercher…")}
+          style={{ marginLeft: "auto", padding: "5px 12px", fontSize: 13, borderRadius: 999, width: "auto", minWidth: 180 }}
+        />
+      </div>
+
+      {error && <div className="card" style={{ borderColor: "var(--bad)", color: "var(--bad)" }}>{error}</div>}
+
+      <div className="card" style={{ padding: 0, overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+          <thead>
+            <tr className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4 }}>
+              <th style={{ textAlign: "left", padding: "10px 14px" }}>{t("Patient")}</th>
+              <th style={{ textAlign: "left", padding: "10px 14px" }}>{t("Statut")}</th>
+              <th style={{ textAlign: "left", padding: "10px 14px", minWidth: 160 }}>{t("Documents")}</th>
+              <th style={{ textAlign: "left", padding: "10px 14px" }}>{t("Dernière activité")}</th>
+              <th style={{ textAlign: "left", padding: "10px 14px" }}>{t("Statut NHS")}</th>
+              <th style={{ textAlign: "left", padding: "10px 14px" }}>{t("Actions")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading && (
+              <tr><td colSpan={6} className="muted" style={{ padding: "24px 14px", textAlign: "center" }}>{t("Chargement…")}</td></tr>
+            )}
+            {!loading && filtered.length === 0 && (
+              <tr><td colSpan={6} className="muted" style={{ padding: "24px 14px", textAlign: "center" }}>{t("Aucun patient trouvé pour ce filtre.")}</td></tr>
+            )}
+            {filtered.map((p) => {
+              const pct = p.docs_required > 0 ? Math.round((p.docs_received / p.docs_required) * 100) : 0;
+              const fill = p.status === "complets" ? "var(--good)" : pct < 50 ? "var(--bad)" : "var(--warn)";
+              return (
+                <tr
+                  key={p.id}
+                  onClick={() => onOpenPatient(p.id)}
+                  style={{ borderTop: "1px solid var(--border)", cursor: "pointer" }}
+                >
+                  <td style={{ padding: "10px 14px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <Avatar initials={p.initials} />
+                      <div>
+                        <div style={{ fontWeight: 600 }}>{p.name ?? "—"}</div>
+                        <div className="muted" style={{ fontSize: 11 }}>
+                          {p.age != null ? `${p.age} ${t("ans")}` : ""}
+                          {p.phone ? `${p.age != null ? " · " : ""}${p.phone}` : ""}
+                        </div>
+                      </div>
+                    </div>
+                  </td>
+                  <td style={{ padding: "10px 14px" }}><StatusBadge status={p.status} /></td>
+                  <td style={{ padding: "10px 14px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div style={{ flex: 1, height: 6, background: "var(--bg-2)", borderRadius: 6, overflow: "hidden" }}>
+                        <div style={{ width: `${pct}%`, height: "100%", background: fill }} />
+                      </div>
+                      <span className="muted" style={{ fontSize: 12, fontVariantNumeric: "tabular-nums" }}>
+                        {p.docs_received}/{p.docs_required}
+                      </span>
+                    </div>
+                  </td>
+                  <td className="muted" style={{ padding: "10px 14px", whiteSpace: "nowrap" }}>{fmtActivity(p.last_activity)}</td>
+                  <td style={{ padding: "10px 14px" }}>
+                    {p.nhs_status ? (
+                      <span style={{ fontSize: 11, fontWeight: 600, color: "var(--info)" }}>
+                        {t(NHS_BADGE_LABEL[p.nhs_status] ?? p.nhs_status)}
+                      </span>
+                    ) : <span className="muted">—</span>}
+                  </td>
+                  <td style={{ padding: "10px 14px" }} onClick={(e) => e.stopPropagation()}>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      {p.escalade && (
+                        <button type="button" className="ghost" onClick={() => onOpenPatient(p.id)} style={{ padding: "3px 9px", fontSize: 11, color: "var(--bad)", borderColor: "var(--bad)" }}>
+                          {t("Escalade")}
+                        </button>
+                      )}
+                      <button type="button" className="ghost" onClick={() => onOpenPatient(p.id)} style={{ padding: "3px 9px", fontSize: 11 }}>
+                        {t("Voir")} →
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ── View 3: patient detail ──────────────────────────────────────────────────
+
+function PatientDetailView({
+  id, fromFilter, onBackDashboard, onBackList,
+}: {
+  id: string;
+  fromFilter: PatientFilter;
+  onBackDashboard: () => void;
+  onBackList: () => void;
+}) {
+  const t = useT();
+  const [detail, setDetail] = useState<NhsPatientDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [assigning, setAssigning] = useState<string | null>(null);
+  const [assignedMsg, setAssignedMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    fetch(`/api/dashboard/nhs-suivi/patients/${encodeURIComponent(id)}`, { cache: "no-store" })
+      .then(async (r) => {
+        const j = (await r.json()) as NhsPatientDetail & { error?: string };
+        if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
+        if (alive) { setDetail(j); setError(null); }
+      })
+      .catch((e) => alive && setError(e instanceof Error ? e.message : "error"))
+      .finally(() => alive && setLoading(false));
+    return () => { alive = false; };
+  }, [id]);
+
+  const assign = async (coordinator: string) => {
+    if (!detail) return;
+    setAssigning(coordinator);
+    setAssignedMsg(null);
+    try {
+      const r = await fetch("/api/dashboard/nhs-suivi/assign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lead_id: detail.patient.lead_id, assigned_to: coordinator, reason: "Escalade NHS S2 — sans réponse 3j+" }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
+      setAssignedMsg(`${t("Assigné à")} ${coordinator} ✓`);
+    } catch (e) {
+      setAssignedMsg(e instanceof Error ? e.message : "error");
+    } finally {
+      setAssigning(null);
+    }
+  };
+
+  const crumbs = [
+    { label: t("Vue d'ensemble"), onClick: onBackDashboard },
+    { label: t(FILTER_LABEL[fromFilter]), onClick: onBackList },
+    { label: detail?.patient.name ?? "…" },
+  ];
+
+  if (loading || !detail) {
+    return (
+      <div style={{ display: "grid", gap: 14 }}>
+        <Breadcrumb items={crumbs} />
+        {error
+          ? <div className="card" style={{ borderColor: "var(--bad)", color: "var(--bad)" }}>{error}</div>
+          : <div className="card"><p className="muted" style={{ margin: 0 }}>{t("Chargement du dossier…")}</p></div>}
+      </div>
+    );
+  }
+
+  const { patient, documents, timeline } = detail;
+  const docPct = patient.docs_required > 0 ? Math.round((patient.docs_received / patient.docs_required) * 100) : 0;
+  const docComplete = patient.docs_received >= patient.docs_required;
+
+  // Parcours patient — same 6 steps as the legacy detail page.
+  const journey: Array<{ label: string; done: boolean; active: boolean }> = [
+    { label: t("Appel initial"), done: !!patient.last_activity, active: false },
+    { label: t("Email explicatif"), done: patient.status !== "aucun-doc" || timeline.some((x) => x.kind === "email"), active: false },
+    { label: t("Relance J+2"), done: timeline.some((x) => x.title_key === "Email relance J+2"), active: false },
+    { label: t("Documents en cours"), done: docComplete, active: patient.status === "partiels" || patient.status === "aucun-doc" },
+    { label: t("Dossier complet"), done: patient.status === "complets" || patient.status === "envoye-nhs", active: patient.status === "complets" },
+    { label: t("Envoyé NHS"), done: patient.status === "envoye-nhs", active: patient.status === "envoye-nhs" && !patient.nhs_status },
+  ];
+
+  const TIMELINE_TONE: Record<string, string> = {
+    call: "var(--info)", email: "var(--warn)", whatsapp: "var(--good)", doc: "var(--muted)", response: "var(--good)",
+  };
+
+  return (
+    <div style={{ display: "grid", gap: 14 }}>
+      <Breadcrumb items={crumbs} />
+
+      {/* Header */}
+      <div className="card" style={{ padding: 18, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 14, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 14 }}>
+          <Avatar initials={patient.initials} size={52} />
+          <div>
+            <h3 style={{ margin: 0, fontSize: 20 }}>{patient.name ?? "—"}</h3>
+            <div className="muted" style={{ display: "flex", gap: 12, fontSize: 12, marginTop: 4, flexWrap: "wrap" }}>
+              {patient.age != null && <span>👤 {patient.age} {t("ans")}</span>}
+              {patient.phone && <span>☎ {patient.phone}</span>}
+              {patient.email && <span>@ {patient.email}</span>}
+            </div>
+          </div>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+          <StatusBadge status={patient.status} />
+          {patient.bank_exception && (
+            <span style={{ fontSize: 11, color: "var(--warn)" }}>⚑ {t("Exception relevés bancaires")}</span>
+          )}
+          {patient.last_activity && (
+            <span className="muted" style={{ fontSize: 11 }}>
+              📅 {new Date(patient.last_activity).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" })}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Parcours */}
+      <div className="card" style={{ padding: 18 }}>
+        <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 16 }}>
+          {t("Progression du parcours patient")}
+        </div>
+        <div style={{ display: "flex" }}>
+          {journey.map((step, i) => {
+            const dotColor = step.done ? "var(--good)" : step.active ? "var(--warn)" : "var(--border)";
+            return (
+              <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", position: "relative" }}>
+                {i < journey.length - 1 && (
+                  <div style={{ position: "absolute", top: 13, left: "50%", right: "-50%", height: 2, background: step.done ? "var(--good)" : "var(--border)" }} />
+                )}
+                <div
+                  style={{
+                    width: 26, height: 26, borderRadius: "50%", zIndex: 1, fontSize: 12, fontWeight: 700,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    border: `2px solid ${dotColor}`,
+                    background: step.done ? "var(--good)" : "var(--bg)",
+                    color: step.done ? "#fff" : dotColor,
+                  }}
+                >
+                  {step.done ? "✓" : step.active ? "⏳" : ""}
+                </div>
+                <div style={{ fontSize: 11, textAlign: "center", marginTop: 6, color: step.done ? "var(--good)" : "var(--muted)", fontWeight: step.done ? 600 : 400 }}>
+                  {step.label}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 14 }}>
+        {/* Checklist 11 documents */}
+        <div className="card" style={{ padding: 18 }}>
+          <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 10 }}>
+            {t("Checklist — 11 documents NHS S2")}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+            <div style={{ flex: 1, height: 6, background: "var(--bg-2)", borderRadius: 6, overflow: "hidden" }}>
+              <div style={{ width: `${docPct}%`, height: "100%", background: docComplete ? "var(--good)" : docPct < 50 ? "var(--bad)" : "var(--warn)" }} />
+            </div>
+            <span className="muted" style={{ fontSize: 12, fontVariantNumeric: "tabular-nums" }}>
+              {patient.docs_received} / {patient.docs_required} {t("obligatoires")}
+            </span>
+            <span style={{ fontSize: 11, fontWeight: 600, color: docComplete ? "var(--good)" : "var(--warn)" }}>
+              {docComplete ? t("Complet") : t("Incomplet")}
+            </span>
+          </div>
+          <div style={{ display: "grid", gap: 6 }}>
+            {documents.map((doc) => {
+              const tag = !doc.required ? "optional" : doc.received ? "received" : "pending";
+              const tone = tag === "received" ? "var(--good)" : tag === "optional" ? "var(--warn)" : "var(--muted)";
+              const tagLabel = tag === "received" ? t("Reçu") : tag === "optional" ? t("Optionnel") : t("En attente");
+              return (
+                <div key={doc.key} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 10px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--bg-2)" }}>
+                  <span style={{ width: 18, textAlign: "center", color: tone, fontWeight: 700 }}>
+                    {tag === "received" ? "✓" : tag === "optional" ? "○" : "·"}
+                  </span>
+                  <span style={{ flex: 1, fontSize: 12 }}>{t(DOC_LABEL[doc.key] ?? doc.key)}</span>
+                  <span style={{ fontSize: 10, fontWeight: 600, color: tone }}>{tagLabel}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Historique des communications */}
+        <div className="card" style={{ padding: 18 }}>
+          <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 10 }}>
+            {t("Historique des communications")}
+          </div>
+          {timeline.length === 0 ? (
+            <p className="muted" style={{ fontSize: 12, margin: 0 }}>{t("Aucune communication enregistrée.")}</p>
+          ) : (
+            <div style={{ display: "grid", gap: 2 }}>
+              {timeline.map((item, i) => (
+                <div key={i} style={{ display: "flex", gap: 10, padding: "8px 0", borderTop: i > 0 ? "1px solid var(--border)" : "none", fontSize: 12 }}>
+                  <span aria-hidden style={{ width: 8, height: 8, borderRadius: 99, marginTop: 5, flexShrink: 0, background: TIMELINE_TONE[item.kind] ?? "var(--muted)" }} />
+                  <span className="muted" style={{ whiteSpace: "nowrap", minWidth: 95 }}>
+                    {new Date(item.date).toLocaleString("fr-FR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                  <span style={{ flex: 1 }}>
+                    <span style={{ fontWeight: 600 }}>{t(item.title_key)}</span>
+                    {item.detail && <span className="muted"> · {item.detail}</span>}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Statut NHS S2 */}
+      <div className="card" style={{ padding: 18 }}>
+        <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 10 }}>
+          {t("Statut NHS S2")}
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {["envoye-nhs", "in_review", "additional_info", "accepted", "refused"].map((s) => {
+            const isActive = patient.nhs_status === s || (s === "envoye-nhs" && patient.status === "envoye-nhs");
+            const label = s === "envoye-nhs" ? t("Envoyé NHS") : t(NHS_BADGE_LABEL[s] ?? s);
+            return (
+              <span
+                key={s}
+                style={{
+                  padding: "4px 12px", fontSize: 11, fontWeight: 600, borderRadius: 999,
+                  border: `1px solid ${isActive ? "var(--info)" : "var(--border)"}`,
+                  color: isActive ? "var(--info)" : "var(--muted)",
+                  background: isActive ? "color-mix(in srgb, var(--info) 12%, transparent)" : "transparent",
+                }}
+              >
+                {label}
+              </span>
+            );
+          })}
+        </div>
+        {patient.status !== "envoye-nhs" && (
+          <p className="muted" style={{ fontSize: 12, marginTop: 10, marginBottom: 0 }}>
+            {t("Dossier pas encore soumis à la NHS.")}
+          </p>
+        )}
+      </div>
+
+      {/* Actions rapides — mêmes boutons que le legacy (relances/soumission
+          non câblées côté n8n, comme sur l'ancien dashboard). */}
+      <div className="card" style={{ padding: 18 }}>
+        <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 10 }}>
+          {t("Actions rapides")}
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button type="button" className="ghost" disabled title={t("Non câblé — identique à l'ancien dashboard (workflow n8n à brancher)")} style={{ padding: "6px 12px", fontSize: 12, opacity: 0.6 }}>
+            ✉ {t("Relancer par email")}
+          </button>
+          <button type="button" className="ghost" disabled title={t("Non câblé — identique à l'ancien dashboard (workflow n8n à brancher)")} style={{ padding: "6px 12px", fontSize: 12, opacity: 0.6 }}>
+            ◐ {t("Relancer WhatsApp")}
+          </button>
+          <button type="button" disabled={!docComplete} title={docComplete ? t("Non câblé — identique à l'ancien dashboard (workflow n8n à brancher)") : t("Dossier incomplet")} style={{ padding: "6px 12px", fontSize: 12, opacity: docComplete ? 1 : 0.5 }}>
+            ↗ {t("Soumettre à la NHS")}
+          </button>
+        </div>
+      </div>
+
+      {/* Escalade — fonctionnel : écrit dans dashboard_assignments (files
+          Summer / Rain partagées avec l'ancien dashboard). */}
+      {patient.escalade && (
+        <div className="card" style={{ padding: 18, borderColor: "var(--bad)", background: "color-mix(in srgb, var(--bad) 8%, var(--panel))" }}>
+          <div style={{ fontWeight: 600, color: "var(--bad)" }}>{t("Escalade requise — Aucune réponse depuis 3 jours+")}</div>
+          <p className="muted" style={{ fontSize: 12, margin: "4px 0 12px" }}>
+            {t("Assigner ce patient à un coordinateur pour un suivi humain.")}
+          </p>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <button type="button" onClick={() => assign("Rain")} disabled={assigning !== null} style={{ padding: "6px 12px", fontSize: 12, background: "var(--warn)", border: "none", color: "#fff", borderRadius: 8, cursor: "pointer" }}>
+              👤 {assigning === "Rain" ? t("Assignation…") : t("Assigner à Rain")}
+            </button>
+            <button type="button" onClick={() => assign("Summer")} disabled={assigning !== null} style={{ padding: "6px 12px", fontSize: 12, background: "var(--warn)", border: "none", color: "#fff", borderRadius: 8, cursor: "pointer" }}>
+              👤 {assigning === "Summer" ? t("Assignation…") : t("Assigner à Summer")}
+            </button>
+            {assignedMsg && <span style={{ fontSize: 12, color: "var(--good)" }}>{assignedMsg}</span>}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
