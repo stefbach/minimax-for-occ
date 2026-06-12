@@ -100,6 +100,93 @@ function AnsweredIcon({ answered, t }: { answered: boolean; t: (s: string) => st
   );
 }
 
+// "Assigner ▾" — same affordance as the legacy drill: hand the lead to a
+// coordinator queue (Summer / Rain / Stormi). Resolves the lead by phone via
+// /api/dashboard/nhs-suivi/assign; shared dashboard_assignments table, so the
+// queues stay in sync with the legacy dashboard.
+function AssignMenu({ phone, t }: { phone: string | null; t: (s: string) => string }) {
+  const ref = useRef<HTMLDetailsElement>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    const close = (e: MouseEvent) => {
+      const el = ref.current;
+      if (el?.open && e.target instanceof Node && !el.contains(e.target)) el.open = false;
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, []);
+  if (!phone) return null;
+  const assign = async (coordinator: string) => {
+    setBusy(coordinator);
+    setErr(null);
+    try {
+      const r = await fetch("/api/dashboard/nhs-suivi/assign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone, assigned_to: coordinator, reason: "Assigné depuis le tableau de bord" }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
+      setDone(coordinator);
+      if (ref.current) ref.current.open = false;
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "error");
+    } finally {
+      setBusy(null);
+    }
+  };
+  if (done) {
+    return (
+      <span style={{ fontSize: 12, color: "var(--good)", whiteSpace: "nowrap", flexShrink: 0 }}>
+        ✓ {done}
+      </span>
+    );
+  }
+  return (
+    <details ref={ref} style={{ position: "relative", flexShrink: 0 }}>
+      <summary
+        className="ghost"
+        title={err ?? t("Assigner à un coordinateur")}
+        style={{
+          listStyle: "none", cursor: "pointer", userSelect: "none", whiteSpace: "nowrap",
+          padding: "6px 11px", fontSize: 12, borderRadius: 8,
+          border: `1px solid ${err ? "var(--bad)" : "var(--border)"}`,
+          color: err ? "var(--bad)" : "var(--text)",
+        }}
+      >
+        👤 {t("Assigner")} <span style={{ fontSize: 9 }}>▾</span>
+      </summary>
+      <div
+        className="card"
+        style={{
+          position: "absolute", zIndex: 50, top: "calc(100% + 4px)", right: 0,
+          minWidth: 140, padding: 6, display: "flex", flexDirection: "column", gap: 2,
+          boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+        }}
+      >
+        {["Summer", "Rain", "Stormi"].map((co) => (
+          <button
+            key={co}
+            type="button"
+            className="ghost"
+            disabled={busy !== null}
+            onClick={() => assign(co)}
+            style={{
+              border: "none", background: "transparent", color: "var(--text)",
+              textAlign: "left", width: "100%", padding: "6px 9px", borderRadius: 4,
+              fontSize: 13, cursor: "pointer", whiteSpace: "nowrap",
+            }}
+          >
+            {busy === co ? `${t("Assignation…")}` : co}
+          </button>
+        ))}
+      </div>
+    </details>
+  );
+}
+
 function buildQS(filters: DrillFilters): string {
   const qs = new URLSearchParams();
   qs.set("from", filters.from);
@@ -327,57 +414,62 @@ export function DrillSheet({ spec, onClose }: { spec: DrillSpec | null; onClose:
             </div>
           )}
           {data && data.calls.map((c) => {
-            const hasName = Boolean(c.contact_name);
+            const tone = QUAL_TONE[c.qualification];
             return (
-              <button
+              <div
                 key={c.id}
-                type="button"
-                onClick={() => setSelected(c)}
+                className="card"
                 style={{
-                  display: "flex", alignItems: "center", gap: 10, width: "100%",
-                  padding: "10px 16px", textAlign: "left",
-                  background: "transparent", border: 0,
-                  color: "inherit", cursor: "pointer",
-                  borderBottom: "1px solid var(--border)",
-                  transition: "background 120ms",
+                  display: "flex", alignItems: "center", gap: 12,
+                  margin: "8px 12px", padding: "12px 14px", borderRadius: 10,
+                  borderLeft: `3px solid ${tone}`,
                 }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = "color-mix(in srgb, var(--accent) 6%, transparent)")}
-                onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
               >
-                <span
-                  aria-hidden
-                  style={{ width: 4, alignSelf: "stretch", borderRadius: 2, background: QUAL_TONE[c.qualification] }}
-                />
-                <AnsweredIcon answered={c.answered} t={t} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-                    <span style={{ fontWeight: 600, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {c.contact_name ?? c.phone ?? t("Inconnu")}
-                    </span>
-                    <span aria-hidden style={{ fontSize: 10, color: "var(--muted)" }}>
-                      {c.direction === "in" ? "↘" : "↗"}
-                    </span>
-                  </div>
-                  <div className="muted" style={{ fontSize: 11, marginTop: 2, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    {/* Show the number too when we resolved a real name. */}
-                    {hasName && c.phone && (<><span>{c.phone}</span><span>·</span></>)}
-                    <span>{fmtDate(c.started_at)}</span>
-                    <span>·</span>
-                    <span>{fmtDur(c.duration_secs, !!c.answered)}</span>
-                    {c.agent_name && (<><span>·</span><span>{c.agent_name}</span></>)}
-                  </div>
-                </div>
-                <span
+                {/* Whole left/main zone opens the call detail. */}
+                <button
+                  type="button"
+                  onClick={() => setSelected(c)}
                   style={{
-                    fontSize: 10, padding: "3px 7px", borderRadius: 4, whiteSpace: "nowrap",
-                    background: `color-mix(in srgb, ${QUAL_TONE[c.qualification]} 14%, transparent)`,
-                    color: QUAL_TONE[c.qualification],
-                    fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.3,
+                    display: "flex", alignItems: "center", gap: 12, flex: 1, minWidth: 0,
+                    background: "transparent", border: 0, color: "inherit",
+                    cursor: "pointer", textAlign: "left", padding: 0, font: "inherit",
                   }}
                 >
-                  {qualLabel(c.qualification)}
-                </span>
-              </button>
+                  <AnsweredIcon answered={c.answered} t={t} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                      <span style={{ fontWeight: 600, fontSize: 15, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {c.contact_name ?? t("Inconnu")}
+                      </span>
+                      <span aria-hidden style={{ fontSize: 11, color: "var(--muted)" }}>
+                        {c.direction === "in" ? "↘" : "↗"}
+                      </span>
+                    </div>
+                    <div className="muted" style={{ fontSize: 13, marginTop: 3 }}>
+                      {c.phone ?? "—"}
+                      {c.agent_name ? ` · ${c.agent_name}` : ""}
+                    </div>
+                  </div>
+                  {/* Right column: badge above, duration + date below — same
+                      stacked layout as the legacy drill, large enough to read. */}
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 5, flexShrink: 0 }}>
+                    <span
+                      style={{
+                        fontSize: 11, padding: "4px 10px", borderRadius: 6, whiteSpace: "nowrap",
+                        background: `color-mix(in srgb, ${tone} 14%, transparent)`,
+                        color: tone, border: `1px solid color-mix(in srgb, ${tone} 40%, transparent)`,
+                        fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4,
+                      }}
+                    >
+                      {qualLabel(c.qualification)}
+                    </span>
+                    <span className="muted" style={{ fontSize: 12.5, whiteSpace: "nowrap" }}>
+                      {fmtDur(c.duration_secs, !!c.answered)} · {fmtDate(c.started_at)}
+                    </span>
+                  </div>
+                </button>
+                <AssignMenu phone={c.phone} t={t} />
+              </div>
             );
           })}
           {data?.truncated && (

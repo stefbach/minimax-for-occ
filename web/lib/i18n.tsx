@@ -233,6 +233,8 @@ const EN: Record<string, string> = {
   "Assigner à Summer": "Assign to Summer",
   "Assignation…": "Assigning…",
   "Assigné à": "Assigned to",
+  "Assigner": "Assign",
+  "Assigner à un coordinateur": "Assign to a coordinator",
   // ── NHS S2: drill-down des cards ──
   "patient(s) concerné(s)": "patient(s) concerned",
   "affichés": "shown",
