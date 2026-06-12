@@ -1416,6 +1416,7 @@ def _install_call_hygiene(
     *,
     idle_timeout: float = 4.0,
     goodbye_grace: float = 2.0,
+    no_speech_override: Optional[float] = None,
 ) -> None:
     """Hang up the call automatically to stop the meter when there's no
     point staying connected. Triggers:
@@ -2119,7 +2120,17 @@ def _install_call_hygiene(
                     # the SIP leg fast (no ringingTimeout) but STT never
                     # heard a single word, leaving the agent to chat with
                     # the voicemail audio for 2 minutes.
-                    no_speech_ceiling = float(os.getenv("NO_SPEECH_HANGUP_SECS", "10.0"))
+                    # Per-campaign override first (Wati 2026-06-12: the
+                    # Three UK test SIM "answers" at the network level in
+                    # ~3s while the handset keeps ringing 8-15s — the
+                    # global 12s budget expired right as Summer picked up,
+                    # killing every greeting test). Test campaign runs
+                    # 25s; production keeps the env/default policy.
+                    no_speech_ceiling = (
+                        float(no_speech_override)
+                        if no_speech_override
+                        else float(os.getenv("NO_SPEECH_HANGUP_SECS", "10.0"))
+                    )
                     if (
                         state.get("first_speech_ts") is None
                         and _t.monotonic() - state["call_started_at"] >= no_speech_ceiling
@@ -2523,7 +2534,7 @@ def _load_campaign_call_tuning(campaign_id: str) -> dict:
             rows = r.json() or []
             md = (rows[0] or {}).get("metadata") if rows else None
             if isinstance(md, dict):
-                keys = ("greeting_mode", "llm_provider", "llm_model", "tts_sample_rate", "min_endpointing_delay", "quick_ack")
+                keys = ("greeting_mode", "llm_provider", "llm_model", "tts_sample_rate", "min_endpointing_delay", "quick_ack", "no_speech_hangup_secs")
                 return {k: md[k] for k in keys if md.get(k) is not None}
     except Exception:
         logger.debug("call-tuning load failed (campaign=%s)", campaign_id, exc_info=True)
@@ -3139,7 +3150,11 @@ async def entrypoint(ctx: JobContext) -> None:
         ctx._call_id = call_id  # type: ignore[attr-defined]
     except Exception:
         pass
-    _install_call_hygiene(ctx, session, clog)
+    _tun_no_speech = campaign_tuning.get("no_speech_hangup_secs")
+    _install_call_hygiene(
+        ctx, session, clog,
+        no_speech_override=float(_tun_no_speech) if _tun_no_speech else None,
+    )
 
     # Multi-agent team journey (Charlotte → Isabelle → Victoria): watch for
     # `handoff_to` in room metadata and fully swap the running agent — prompt,
