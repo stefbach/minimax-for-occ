@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: "diagnose | restart-agent | list-secrets | probe-dispatch | bench-deepseek | bench-anthropic | bench-lk-inference | check-replicate-schema | test-replicate-predict | tighten-watchdog | probe-replicate-import"
+        description: "diagnose | restart-agent | list-secrets | probe-dispatch | bench-deepseek | bench-anthropic | bench-lk-inference | check-replicate-schema | test-replicate-predict | tighten-watchdog | probe-replicate-import | check-agent-source"
         required: true
         default: "diagnose"
 
