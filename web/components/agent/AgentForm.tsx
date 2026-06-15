@@ -779,32 +779,93 @@ export function AgentForm({ initial }: { initial?: Agent }) {
             </button>
             {showVoiceAdvanced && (
               <div style={{ display: "grid", gap: 14, marginTop: 12 }}>
-                <div>
-                  <label>Modèle TTS</label>
-                  <select value={ttsModel} onChange={(e) => setTtsModel(e.target.value)}>
-                    {TTS_MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-                  </select>
-                </div>
-                <div className="form-row">
-                  <div>
-                    {/* Cartesia sonic-3.5 accepts 0.6–1.5 (generation_config.speed);
-                        out-of-range values are ignored upstream, so the slider
-                        is bounded to what actually works. Don't forget
-                        Enregistrer — the slider alone doesn't persist. */}
-                    <label>Vitesse ({speed.toFixed(2)}×)</label>
-                    <input
-                      type="range" min="0.6" max="1.5" step="0.05"
-                      value={speed} onChange={(e) => setSpeed(Number(e.target.value))}
-                    />
-                  </div>
-                  <div>
-                    <label>Volume ({volume.toFixed(1)})</label>
-                    <input
-                      type="range" min="0.1" max="2" step="0.1"
-                      value={volume} onChange={(e) => setVolume(Number(e.target.value))}
-                    />
-                  </div>
-                </div>
+                {/* Detection du fournisseur (Wati 15/06) : adapte les
+                    reglages avances au moteur derriere la voix selectionnee.
+                    voice_id "replicate:elevenlabs-flash:..." → ElevenLabs Flash
+                    voice_id "replicate:elevenlabs-turbo:..." → ElevenLabs Turbo
+                    voice_id "replicate:minimax-turbo:..."    → MiniMax Turbo
+                    voice_id "replicate:minimax-hd:..."       → MiniMax HD
+                    sinon → Cartesia (defaut historique). */}
+                {(() => {
+                  const isReplicate = voice.startsWith("replicate:");
+                  const family = isReplicate ? voice.split(":")[1] ?? "" : "cartesia";
+                  const isElevenLabs = family.startsWith("elevenlabs");
+                  const isMiniMax = family.startsWith("minimax");
+                  const familyLabel =
+                    family === "cartesia" ? "Cartesia Sonic" :
+                    family === "elevenlabs-flash" ? "ElevenLabs Flash v2.5" :
+                    family === "elevenlabs-turbo" ? "ElevenLabs Turbo v2.5" :
+                    family === "minimax-turbo" ? "MiniMax Speech 02 Turbo" :
+                    family === "minimax-hd" ? "MiniMax Speech 02 HD" :
+                    "Cartesia Sonic";
+                  return (
+                    <>
+                      {/* Modele TTS : dropdown sonic-3.5/sonic-3 uniquement
+                          quand la voix est Cartesia. Pour Replicate, le modele
+                          est encode dans le voice_id (familyLabel), on l'affiche
+                          en lecture seule. */}
+                      {!isReplicate ? (
+                        <div>
+                          <label>Modèle TTS</label>
+                          <select value={ttsModel} onChange={(e) => setTtsModel(e.target.value)}>
+                            {TTS_MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+                          </select>
+                        </div>
+                      ) : (
+                        <div>
+                          <label>Modèle TTS</label>
+                          <div style={{ padding: "8px 12px", borderRadius: 6, background: "var(--bg-2)", color: "var(--muted)", fontSize: 13 }}>
+                            <strong style={{ color: "var(--text)" }}>{familyLabel}</strong>
+                            <span> — fixé par la voix sélectionnée, non modifiable</span>
+                          </div>
+                        </div>
+                      )}
+                      <div className="form-row">
+                        {/* Vitesse : Cartesia 0.6-1.5 / MiniMax 0.5-2.0 /
+                            ElevenLabs Flash/Turbo via Replicate ne supporte
+                            PAS de speed → on masque. */}
+                        {!isElevenLabs && (
+                          <div>
+                            <label>Vitesse ({speed.toFixed(2)}×)</label>
+                            <input
+                              type="range"
+                              min={isMiniMax ? "0.5" : "0.6"}
+                              max={isMiniMax ? "2" : "1.5"}
+                              step="0.05"
+                              value={speed} onChange={(e) => setSpeed(Number(e.target.value))}
+                            />
+                          </div>
+                        )}
+                        {isElevenLabs && (
+                          <div>
+                            <label>Vitesse</label>
+                            <div style={{ padding: "8px 12px", borderRadius: 6, background: "var(--bg-2)", color: "var(--muted)", fontSize: 13 }}>
+                              Non disponible pour ElevenLabs via Replicate
+                            </div>
+                          </div>
+                        )}
+                        {/* Volume : Cartesia uniquement. ElevenLabs et
+                            MiniMax via Replicate ne l'exposent pas. */}
+                        {!isReplicate ? (
+                          <div>
+                            <label>Volume ({volume.toFixed(1)})</label>
+                            <input
+                              type="range" min="0.1" max="2" step="0.1"
+                              value={volume} onChange={(e) => setVolume(Number(e.target.value))}
+                            />
+                          </div>
+                        ) : (
+                          <div>
+                            <label>Volume</label>
+                            <div style={{ padding: "8px 12px", borderRadius: 6, background: "var(--bg-2)", color: "var(--muted)", fontSize: 13 }}>
+                              Non disponible chez {familyLabel}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  );
+                })()}
                 <div>
                   <label>Style &amp; ton (consigne LLM)</label>
                   <textarea
