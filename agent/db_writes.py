@@ -980,20 +980,26 @@ def auto_qualify_call(call_id: Optional[str]) -> None:
             # messaging service and the lead tagged as a callback.
             voicemail_transcript = False
             any_user_speech = False
+            user_rows_full: list = []
+            joined_full = ""
             try:
                 vt = c.get(
                     _supabase_url(
                         f"/rest/v1/call_transcripts?call_id=eq.{call_id}"
-                        "&speaker=in.(user,customer)&select=text&order=seq.asc&limit=8"
+                        "&speaker=in.(user,customer)&select=text&order=seq.asc&limit=100"
                     ),
                 )
                 if vt.is_success:
-                    user_rows = vt.json() or []
+                    user_rows_full = vt.json() or []
                     any_user_speech = any(
-                        str(r.get("text") or "").strip() for r in user_rows
+                        str(r.get("text") or "").strip() for r in user_rows_full
                     )
+                    user_rows = user_rows_full[:8]
                     joined = " ".join(
                         str(r.get("text") or "") for r in user_rows
+                    ).lower()
+                    joined_full = " ".join(
+                        str(r.get("text") or "") for r in user_rows_full
                     ).lower()
                     voicemail_transcript = bool(re.search(
                         r"leave\s+(a|your)\s+message|after\s+the\s+(tone|beep)"
@@ -1022,6 +1028,65 @@ def auto_qualify_call(call_id: Optional[str]) -> None:
             except Exception:
                 pass
 
+            # ── Transcript intent detection (Wati 15/06 — safety net) ─────────
+            # When the agent forgets to call save_contact_data /
+            # transfer_to_human, we rescue the qualification by reading the
+            # patient's own words. The 15/06 morning audit caught six
+            # mis-qualified RAPPEL calls in one batch: Charlotte/Isabelle
+            # engaged the conversation but never wrote a qualification, so the
+            # duration heuristic bucketed every >30s answered call as RAPPEL.
+            # That silently loses leads who explicitly asked for a human and
+            # leaves "no thanks" patients getting recalled for weeks.
+            # Two intents in priority order:
+            #   1. HUMAN_SIGNAL — explicit ask for a real person, bot
+            #      rejection, or sensitive life event (bereavement, terminal
+            #      diagnosis, hospitalisation).
+            #   2. EXPLICIT_REFUSAL — patient said "no" with clear intent.
+            #      Polite "I'm fine for now" stays RAPPEL via duration.
+            intent_qual: Optional[str] = None
+            intent_source: Optional[str] = None
+            if any_user_speech and not voicemail_transcript and not audio_dropped:
+                if re.search(
+                    r"(real|actual|live)\s+(person|human|being)"
+                    r"|(speak|talk|chat)\s+(to|with)\s+(a|an|the)?\s*(real\s+)?(human|person)"
+                    r"|human\s+being\s+(to\s+)?(talk|speak|call)"
+                    r"|(have|want|need|get)\s+(a|the)\s+human"
+                    r"|when\s+you\s+have\s+a\s+human"
+                    r"|have\s+a\s+human\s+(being\s+)?(to\s+)?(talk|call|speak)"
+                    # Bot rejection: patient names what they're talking to AND
+                    # signals they don't want it (time complaint, "don't have
+                    # time for automated", "machines speak", etc.).
+                    r"|this\s+is\s+(a\s+)?(computer|robot|bot|machine|automated|automation|an\s+ai)"
+                    r"|i\s+know\s+(this|you('?re|\s+are))\s+(a|an)\s*(computer|robot|bot|machine|automated|ai)"
+                    r"|don'?t\s+(really\s+)?have\s+time\s+(to\s+)?(be\s+)?(talking|speaking)\s+to\s+(automated|computers|robots|bots|machines|an?\s*ai)"
+                    r"|grab\s+the\s+automata"
+                    r"|machines?\s+speak\s+with"
+                    # Bereavement / sensitive medical context.
+                    r"|(mother(\s*[\-\s]?in[\-\s]?law)?|father(\s*[\-\s]?in[\-\s]?law)?|husband|wife|partner|son|daughter|sister|brother|mum|dad|mom)\s+(just\s+)?(passed\s+away|has\s+died|died(\s+recently)?)"
+                    r"|just\s+lost\s+my\s+(mother|father|husband|wife|partner|son|daughter|sister|brother|mum|dad|mom)"
+                    r"|i'?m?\s+(in\s+)?mourning|bereave(d|ment)"
+                    r"|(diagnosed\s+with|fighting)\s+(cancer|terminal)"
+                    r"|in\s+(the\s+)?hospital\s+(right\s+)?(now|today|currently)",
+                    joined_full,
+                ):
+                    intent_qual = "A PASSER A L'HUMAIN"
+                    intent_source = "transcript_human_signal"
+                elif re.search(
+                    r"\bno,?\s*(i\s+)?(don'?t|do\s+not|did\s+not|didn'?t|never)\s+(want(ed)?|need|think\s+i\s+(ever\s+)?(want|need))\b"
+                    r"|\bi\s+(never|don'?t)\s+(want(ed)?|need(ed)?|ask(ed)?|sign(ed)?\s+up|appl(ied|y))\b"
+                    r"|\bno\s+interest\b"
+                    r"|\bnot\s+interested\b"
+                    r"|\bi'?m\s+not\s+interested\b"
+                    r"|\bdon'?t\s+call\s+(me\s+)?(again|back|anymore|any\s+more)\b"
+                    r"|\bstop\s+calling\b"
+                    r"|\bremove\s+me\s+(from|off)\b"
+                    r"|\bplease\s+(do\s+not|don'?t)\s+(contact|call)\s+me\b"
+                    r"|\btake\s+me\s+off\s+(your\s+)?(list|database)\b",
+                    joined_full,
+                ):
+                    intent_qual = "PAS INTERESSE"
+                    intent_source = "transcript_refusal_signal"
+
             if voicemail_transcript:
                 qual = "REPONDEUR"
                 qualification_source = "voicemail_transcript"
@@ -1031,6 +1096,9 @@ def auto_qualify_call(call_id: Optional[str]) -> None:
             elif handoff_count > 0:
                 qual = "A PASSER A L'HUMAIN"
                 qualification_source = "auto_inferred"
+            elif intent_qual is not None:
+                qual = intent_qual
+                qualification_source = intent_source or "auto_inferred"
             elif (not answered and not any_user_speech) or duration == 0:
                 # `answered` comes from calls.answered_at, which the Twilio
                 # status webhook often fails to stamp on the LiveKit path
