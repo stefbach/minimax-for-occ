@@ -821,29 +821,20 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                         </div>
                       )}
                       <div className="form-row">
-                        {/* Vitesse : Cartesia 0.6-1.5 / MiniMax 0.5-2.0 /
-                            ElevenLabs Flash/Turbo via Replicate ne supporte
-                            PAS de speed → on masque. */}
-                        {!isElevenLabs && (
-                          <div>
-                            <label>Vitesse ({speed.toFixed(2)}×)</label>
-                            <input
-                              type="range"
-                              min={isMiniMax ? "0.5" : "0.6"}
-                              max={isMiniMax ? "2" : "1.5"}
-                              step="0.05"
-                              value={speed} onChange={(e) => setSpeed(Number(e.target.value))}
-                            />
-                          </div>
-                        )}
-                        {isElevenLabs && (
-                          <div>
-                            <label>Vitesse</label>
-                            <div style={{ padding: "8px 12px", borderRadius: 6, background: "var(--bg-2)", color: "var(--muted)", fontSize: 13 }}>
-                              Non disponible pour ElevenLabs via Replicate
-                            </div>
-                          </div>
-                        )}
+                        {/* Vitesse — plages par fournisseur :
+                              Cartesia  : 0.6 - 1.5
+                              MiniMax   : 0.5 - 2.0 (champ speed)
+                              ElevenLabs: 0.7 - 1.2 (voice_settings.speed) */}
+                        <div>
+                          <label>Vitesse ({speed.toFixed(2)}×)</label>
+                          <input
+                            type="range"
+                            min={isMiniMax ? "0.5" : isElevenLabs ? "0.7" : "0.6"}
+                            max={isMiniMax ? "2" : isElevenLabs ? "1.2" : "1.5"}
+                            step="0.05"
+                            value={speed} onChange={(e) => setSpeed(Number(e.target.value))}
+                          />
+                        </div>
                         {/* Volume : Cartesia uniquement. ElevenLabs et
                             MiniMax via Replicate ne l'exposent pas. */}
                         {!isReplicate ? (

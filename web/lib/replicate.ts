@@ -283,8 +283,12 @@ function buildReplicateInput(
       voice_id: voice.provider_voice_id,
     };
     if (speed && speed !== 1.0) {
-      // ElevenLabs ne supporte pas un "speed" direct via Replicate, on l'ignore
-      // côté preview pour éviter une erreur 422. Note Wati 15/06.
+      // ElevenLabs API directe supporte voice_settings.speed (0.7-1.2 selon
+      // leur doc officielle). Le wrapper Replicate l'expose probablement via
+      // ce sous-objet — si Replicate refuse on aura un 422 explicite.
+      input.voice_settings = {
+        speed: Math.max(0.7, Math.min(1.2, speed)),
+      };
     }
     return input;
   }

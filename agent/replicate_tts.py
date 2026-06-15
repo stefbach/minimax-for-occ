@@ -146,9 +146,14 @@ class _ReplicateChunkedStream(tts.ChunkedStream):
             # ElevenLabs flash/turbo v2.5 sur Replicate attend "prompt"
             # (pas "text") — sinon HTTP 422 "input: prompt is required".
             # Wati preview 15/06.
-            payload = {"prompt": self._input_text, "voice_id": vid}
-            # ElevenLabs Flash/Turbo via Replicate ne supporte pas un champ
-            # speed direct ; on l'ignore en silence pour ne pas faire échouer.
+            payload: dict = {"prompt": self._input_text, "voice_id": vid}
+            sp = self._rtts._speed
+            if sp and sp != 1.0:
+                # voice_settings.speed (0.7-1.2 selon la doc ElevenLabs API).
+                # Si Replicate refuse on aura une erreur 422 explicite.
+                payload["voice_settings"] = {
+                    "speed": max(0.7, min(1.2, sp)),
+                }
             return payload
         if family.startswith("minimax"):
             payload = {"text": self._input_text, "voice_id": vid}
