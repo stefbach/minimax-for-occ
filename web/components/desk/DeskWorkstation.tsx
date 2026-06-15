@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { dispatchSoftphoneExpand } from "@/components/voice/PersistentSoftphoneShell";
+import { DESK_SOFTPHONE_SLOT_ID } from "@/components/voice/PersistentSoftphoneShell";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 import { useT } from "@/lib/i18n";
 
@@ -262,13 +262,12 @@ export function DeskWorkstation() {
     fetch("/api/desk/tasks/auto-distribute", { method: "POST" }).catch(() => {});
   }, []);
 
-  // /desk is the agent's primary workspace, so we auto-open the full
-  // softphone drawer when they land here. The layout-level shell handles
-  // the actual state. Wati 2026-06-11 — Softphone moved from a desk grid
-  // cell to a persistent shell so calls survive navigation.
-  useEffect(() => {
-    dispatchSoftphoneExpand();
-  }, []);
+  // Wati 2026-06-15: the softphone drawer was retired. The full poste UI
+  // (statut + clavier + notes + appels récents) is now rendered INLINE
+  // at the top of this page via a portal target div (#desk-softphone-slot
+  // — see the JSX below). The persistent shell in (client)/layout.tsx
+  // detects the slot and teleports the live Softphone fiber into it, so
+  // call state still survives navigation away from /desk.
 
   useEffect(() => {
     void refresh();
@@ -341,6 +340,20 @@ export function DeskWorkstation() {
 
   return (
     <div style={{ display: "grid", gap: 14 }}>
+      {/* Wati 2026-06-15: portal target for the persistent Softphone. The
+          layout-level <PersistentSoftphoneShell /> teleports the live
+          Softphone fiber into this div so the agent sees status +
+          clavier + notes + appels récents inline at the top of /desk,
+          instead of in the old slide-out drawer. Empty until the shell
+          mounts its portal — collapses with no padding/border so it
+          doesn't leave a gap on first paint. */}
+      <section
+        id={DESK_SOFTPHONE_SLOT_ID}
+        aria-label="Mon poste — softphone"
+        className="desk-softphone-slot"
+        style={{ display: "grid", gap: 8 }}
+      />
+
       {/* Mobile-only toggle */}
       <div
         className="desk-mobile-toggle"
@@ -525,9 +538,10 @@ export function DeskWorkstation() {
             display: ${mobileView === "shared" ? "flex" : "none"};
           }
         }
-        /* Softphone keeps its internal layout single-column so it doesn't
-           fight the 2x2 grid. Hide the duplicated recent-calls + contact
-           sidebars to keep the poste compact. */
+        /* Softphone keeps its internal layout single-column inside the
+           qualification pane so it doesn't fight the 2x2 grid. The full
+           softphone (with sidebars) now lives at the top of the page in
+           #desk-softphone-slot, not inside .desk-poste. */
         .desk-poste :global(.softphone-grid) {
           grid-template-columns: 1fr !important;
         }

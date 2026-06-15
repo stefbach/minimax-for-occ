@@ -26,7 +26,15 @@ export default async function DataTablePage({ params }: { params: Promise<{ id: 
   // tables use different names (created_at on Axon-default schemas,
   // date_creation on OCC-aligned tables, etc.). Fall back to no order at
   // all rather than erroring out.
+  //
+  // Wati 2026-06-15: load only the first page (20 rows) on the server so
+  // the initial paint stays snappy on tables with thousands of rows. The
+  // client then fetches subsequent pages via /api/data-tables/.../rows.
+  // `total` is requested via the `count: "exact"` head so the pager can
+  // render "X / Y" without a second roundtrip.
+  const INITIAL_PER_PAGE = 20;
   let rows: Record<string, unknown>[] = [];
+  let total = 0;
   try {
     const { data: colInfo } = await sb
       .from("information_schema.columns" as never)
@@ -39,17 +47,17 @@ export default async function DataTablePage({ params }: { params: Promise<{ id: 
       (c) => colNames.has(c),
     );
 
-    // Raised 2026-06-12 from 1000 → 10000. Wati searched "Quiche Lorraine"
-    // — created Dec 2025 — and the CRM said 0/1000 because she was past
-    // the recency cap. OCC's leads_rdv currently holds ~7800 rows, so
-    // 10k covers the full table with headroom for the next 6 months of
-    // imports. Past that, switch to server-side search.
-    let q = sb.from(reg.physical_table).select("*").limit(10000);
+    let q = sb
+      .from(reg.physical_table)
+      .select("*", { count: "exact" })
+      .range(0, INITIAL_PER_PAGE - 1);
     if (orderCol) q = q.order(orderCol, { ascending: false, nullsFirst: false });
-    const { data } = await q;
+    const { data, count } = await q;
     rows = data ?? [];
+    total = count ?? rows.length;
   } catch {
     rows = [];
+    total = 0;
   }
 
   const columns = (Array.isArray(reg.columns) ? reg.columns : []) as ColumnSpec[];
@@ -64,7 +72,7 @@ export default async function DataTablePage({ params }: { params: Promise<{ id: 
             {" · "}
             <span style={{ fontFamily: "monospace" }}>{reg.physical_table}</span>
             {" · "}
-            {rows.length} contact{rows.length === 1 ? "" : "s"}
+            {total} contact{total === 1 ? "" : "s"}
           </div>
         </div>
       </div>
@@ -76,6 +84,8 @@ export default async function DataTablePage({ params }: { params: Promise<{ id: 
         phoneColumn={reg.phone_column}
         nameColumn={reg.name_column ?? null}
         initialRows={rows}
+        initialTotal={total}
+        initialPerPage={INITIAL_PER_PAGE}
       />
     </>
   );
