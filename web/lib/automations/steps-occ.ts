@@ -2,7 +2,8 @@ import { type RunCtx, loadCredential } from "./runtime";
 import { renderTemplate, type Ctx } from "./templating";
 import { analyzeFiles, generateText, runAgent, type AnthropicCred } from "./ai";
 import { searchMessages, getMessageAttachments, type GmailCred } from "./gmail";
-import { uploadObject, downloadObject, publicUrl, upsertNhsDocument } from "./storage";
+import { uploadObject, downloadObject, publicUrl, upsertNhsDocument, renderPdf } from "./storage";
+import { extractClinicalPrompt, medicalReportPrompt, undueDelayPrompt } from "./prompts-occ";
 
 /**
  * OCC patient-pipeline compound steps.
@@ -415,6 +416,138 @@ async function screenDossier(rc: RunCtx, step: Record<string, unknown>, ctx: Ctx
   rc.log("info", `A7: ${status} ${completionPct}% region=${region} for ${ctx.nom ?? patientId}`);
 }
 
+// ── Agent 6: Document Generator (Medical Report + Undue Delay) ───────────────
+
+function gbDate(): string {
+  return new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" });
+}
+
+async function generateDocuments(rc: RunCtx, step: Record<string, unknown>, ctx: Ctx): Promise<void> {
+  const anthropic = (await cred(rc, step.anthropic_credential_id as string)) as AnthropicCred | null;
+  if (!anthropic) { rc.log("warn", "A6: anthropic credential missing — skipping"); rc.stats.skipped++; return; }
+  const bucket = String(step.bucket ?? "OCC_Patient");
+  const docsTable = String(step.table_documents ?? "nhs_documents");
+  const dossierTable = String(step.table_dossier ?? "nhs_dossiers");
+  const footer = String(step.footer ?? "Tel: +33 6 95 95 09 65   |   drmariusnedelcu@gmail.com");
+  const genModel = step.model ? String(step.model) : undefined;
+  const genMaxTokens = Number(step.gen_max_tokens ?? 16000);
+
+  const patientId = String(ctx.patient_id ?? "");
+  const dossierId = String(ctx.dossier_id ?? "");
+  const nom = String(ctx.nom ?? "Patient");
+
+  // Refresh the dossier and gate on eligibility (S2 + GP letter received,
+  // not already generated) — exactly like the n8n "Should Generate?" node.
+  const { data: dossier } = await rc.ds.client.from(dossierTable).select("*").eq("id", dossierId).maybeSingle();
+  const d = (dossier as Record<string, unknown>) ?? {};
+  const eligible =
+    d.doc_nhs_s2_form === "received" && d.doc_clinical_justification_gp === "received" && d.documents_generated !== true;
+  if (!eligible) {
+    ctx.generated_skipped = true;
+    ctx.medical_report_url = "";
+    ctx.undue_delay_url = "";
+    ctx.generated_count = 0;
+    rc.log("info", `A6: not eligible / already generated for ${nom} — skipped`);
+    return;
+  }
+
+  // Build the clinical profile from the S2 form + GP/medical-history docs.
+  const { data: docRows } = await rc.ds.client.from(docsTable).select("*").eq("lead_id", patientId).eq("status", "received");
+  const docs = (docRows ?? []) as Array<Record<string, unknown>>;
+  const sources = docs.filter((r) => {
+    const cat = String(r.category ?? "").toLowerCase();
+    const df = String(r.doc_field ?? "");
+    return (
+      String(r.source ?? "") !== "generated" &&
+      (df === "doc_nhs_s2_form" ||
+        df === "doc_clinical_justification_gp" ||
+        cat.includes("medical history") ||
+        cat.includes("clinical justification") ||
+        cat.includes("patient summ"))
+    );
+  });
+
+  const parts: string[] = [];
+  for (const r of sources) {
+    const url = String(r.public_url ?? "");
+    if (!url) continue;
+    try {
+      const file = await downloadObject(rc.ds, url);
+      if (!VISION_MIME.has(file.contentType)) continue;
+      const txt = (
+        await analyzeFiles({
+          cred: anthropic,
+          prompt: extractClinicalPrompt(String(r.file_name ?? "document")),
+          attachments: [{ data: file.base64, mediaType: file.contentType }],
+          maxTokens: 4000,
+        })
+      ).trim();
+      if (txt && !/^NO RELEVANT DATA/i.test(txt)) {
+        parts.push(`### Source: ${r.file_name ?? "document"} [${r.category ?? ""}]\n${txt}`);
+      }
+    } catch (e) {
+      rc.log("warn", `A6: extract ${r.file_name} failed: ${e instanceof Error ? e.message : e}`);
+    }
+  }
+  let profile = parts.join("\n\n");
+  if (profile.replace(/\s/g, "").length < 100) {
+    profile = `SOURCE DOCUMENTS COULD NOT BE PARSED - generate based on the patient name only and flag this dossier for manual review.\n\n${profile}`;
+  }
+
+  // Generate both documents in parallel, then render + store each.
+  const dateStr = gbDate();
+  const [medMd, undMd] = await Promise.all([
+    generateText({ cred: anthropic, prompt: medicalReportPrompt(nom, profile, dateStr), model: genModel, maxTokens: genMaxTokens }),
+    generateText({ cred: anthropic, prompt: undueDelayPrompt(nom, profile, dateStr), model: genModel, maxTokens: genMaxTokens }),
+  ]);
+
+  const outputs = [
+    { md: medMd || `# Medical Report for ${nom}`, file: `COMPREHENSIVE MEDICAL REPORT - ${nom}.pdf`, field: "doc_medical_report", category: "4. Medical Report" },
+    { md: undMd || `# Undue Delay Letter for ${nom}`, file: `Undue Delay Letter - ${nom}.pdf`, field: "doc_undue_delay_letter", category: "5. Undue Delay" },
+  ];
+
+  const urls: Record<string, string> = {};
+  for (const o of outputs) {
+    const pdf = await renderPdf(rc.ds, o.md, footer);
+    const path = `${patientId}/${o.field}/${o.file}`;
+    const url = await uploadObject(rc.ds, bucket, path, pdf, "application/pdf");
+    urls[o.field] = url;
+    await upsertNhsDocument(rc.ds, {
+      dossier_id: dossierId || null,
+      lead_id: patientId,
+      category: o.category,
+      doc_field: o.field,
+      file_name: o.file,
+      storage_bucket: bucket,
+      storage_path: path,
+      public_url: url,
+      mime_type: "application/pdf",
+      source: "generated",
+      status: "received",
+      classified_by: "axon-agent6",
+    });
+    rc.stats.actions++;
+  }
+
+  await rc.ds.client
+    .from(dossierTable)
+    .update({
+      doc_medical_report: "received",
+      doc_medical_report_url: urls.doc_medical_report,
+      doc_undue_delay_letter: "received",
+      doc_undue_delay_letter_url: urls.doc_undue_delay_letter,
+      documents_generated: true,
+      documents_generated_at: new Date().toISOString(),
+    })
+    .eq("id", dossierId);
+
+  ctx.generated_skipped = false;
+  ctx.medical_report_url = urls.doc_medical_report;
+  ctx.undue_delay_url = urls.doc_undue_delay_letter;
+  ctx.generated_count = outputs.length;
+  rc.log("info", `A6: generated ${outputs.length} documents for ${nom}`);
+}
+
 // ── dispatcher ──────────────────────────────────────────────────────────────
 
 type OccHandler = (rc: RunCtx, step: Record<string, unknown>, ctx: Ctx) => Promise<void>;
@@ -424,6 +557,7 @@ const HANDLERS: Record<string, OccHandler> = {
   gmail_ingest_documents: gmailIngestDocuments,
   supabase_controller_agent: supabaseControllerAgent,
   screen_dossier: screenDossier,
+  generate_documents: generateDocuments,
 };
 
 export async function runOccStep(rc: RunCtx, step: { type: string; [k: string]: unknown }, ctx: Ctx): Promise<boolean> {
