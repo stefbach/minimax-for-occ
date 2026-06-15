@@ -1,23 +1,21 @@
 name: Evening Slot Monitor (Wati 15/06)
 
-# Surveille le créneau du soir UK (~17:00–22:00 UTC = 18:00–23:00 BST) en
-# capturant un snapshot des appels passés depuis le début du créneau,
-# toutes les 20 minutes. Les résultats restent dans les Action logs ;
-# Wati pourra les consulter le matin avec le rapport d'audit séparé.
+# Surveille le créneau du soir UK (18:00–20:00 UK = 17:00–19:00 UTC) en
+# capturant un snapshot des appels passés toutes les 15 minutes, plus un
+# snapshot 5 min après la fin du créneau pour vérifier qu'aucun appel ne
+# part hors fenêtre. Les résultats restent dans les Action logs ;
+# Wati pourra les consulter au matin avec le rapport d'audit séparé.
 #
 # La requête tape Supabase via la fonction REST et ne déclenche AUCUN
 # appel téléphonique. Aucun impact sur la prod — c'est de l'observation.
 
 on:
   schedule:
-    # Toutes les 20 minutes entre 17:00 et 22:00 UTC (cron en UTC).
-    # GitHub limite la précision à 5 min ; on prend des points fixes.
-    - cron: "0,20,40 17 * * *"
-    - cron: "0,20,40 18 * * *"
-    - cron: "0,20,40 19 * * *"
-    - cron: "0,20,40 20 * * *"
-    - cron: "0,20,40 21 * * *"
-    - cron: "30 22 * * *"  # snapshot final post-créneau
+    # Tous les 15 min de 17:00 à 19:00 UTC + 19:05 UTC pour le check post-slot.
+    - cron: "0,15,30,45 17 * * *"
+    - cron: "0,15,30,45 18 * * *"
+    - cron: "0 19 * * *"
+    - cron: "5 19 * * *"
   workflow_dispatch:
 
 jobs:
