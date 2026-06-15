@@ -67,42 +67,42 @@ interface ElevenLabsVoiceSpec {
   voice_id: string;
   name: string;
   description: string;
-  gender: "male" | "female" | "neutral";
+  gender: "masculine" | "feminine" | "neutral";  // canonique = Cartesia (Wati 15/06)
   language: string; // "en" ou "multi"
 }
 
 const ELEVENLABS_VOICES: ElevenLabsVoiceSpec[] = [
   // Voix anglaises (catalogue par défaut ElevenLabs — disponibles pour tous)
-  { voice_id: "21m00Tcm4TlvDq8ikWAM", name: "Rachel", description: "American, calm, narration", gender: "female", language: "en" },
-  { voice_id: "AZnzlk1XvdvUeBnXmlld", name: "Domi", description: "American, strong, energetic", gender: "female", language: "en" },
-  { voice_id: "EXAVITQu4vr4xnSDxMaL", name: "Bella", description: "American, soft, young", gender: "female", language: "en" },
-  { voice_id: "ErXwobaYiN019PkySvjV", name: "Antoni", description: "American, well-rounded, warm", gender: "male", language: "en" },
-  { voice_id: "MF3mGyEYCl7XYWbV9V6O", name: "Elli", description: "American, emotional, expressive", gender: "female", language: "en" },
-  { voice_id: "TxGEqnHWrfWFTfGW9XjX", name: "Josh", description: "American, deep, narrative", gender: "male", language: "en" },
-  { voice_id: "VR6AewLTigWG4xSOukaG", name: "Arnold", description: "American, crisp, authoritative", gender: "male", language: "en" },
-  { voice_id: "pNInz6obpgDQGcFmaJgB", name: "Adam", description: "American, deep, narration", gender: "male", language: "en" },
-  { voice_id: "yoZ06aMxZJJ28mfd3POQ", name: "Sam", description: "American, raspy, dynamic", gender: "male", language: "en" },
+  { voice_id: "21m00Tcm4TlvDq8ikWAM", name: "Rachel", description: "American, calm, narration", gender: "feminine", language: "en" },
+  { voice_id: "AZnzlk1XvdvUeBnXmlld", name: "Domi", description: "American, strong, energetic", gender: "feminine", language: "en" },
+  { voice_id: "EXAVITQu4vr4xnSDxMaL", name: "Bella", description: "American, soft, young", gender: "feminine", language: "en" },
+  { voice_id: "ErXwobaYiN019PkySvjV", name: "Antoni", description: "American, well-rounded, warm", gender: "masculine", language: "en" },
+  { voice_id: "MF3mGyEYCl7XYWbV9V6O", name: "Elli", description: "American, emotional, expressive", gender: "feminine", language: "en" },
+  { voice_id: "TxGEqnHWrfWFTfGW9XjX", name: "Josh", description: "American, deep, narrative", gender: "masculine", language: "en" },
+  { voice_id: "VR6AewLTigWG4xSOukaG", name: "Arnold", description: "American, crisp, authoritative", gender: "masculine", language: "en" },
+  { voice_id: "pNInz6obpgDQGcFmaJgB", name: "Adam", description: "American, deep, narration", gender: "masculine", language: "en" },
+  { voice_id: "yoZ06aMxZJJ28mfd3POQ", name: "Sam", description: "American, raspy, dynamic", gender: "masculine", language: "en" },
   // British
-  { voice_id: "ThT5KcBeYPX3keUQqHPh", name: "Dorothy", description: "British, pleasant, friendly", gender: "female", language: "en" },
-  { voice_id: "g5CIjZEefAph4nQFvHAz", name: "Ethan", description: "American, whispery, intimate", gender: "male", language: "en" },
-  { voice_id: "jBpfuIE2acCO8z3wKNLl", name: "Gigi", description: "American, childlike, cartoon", gender: "female", language: "en" },
-  { voice_id: "jsCqWAovK2LkecY7zXl4", name: "Freya", description: "American, expressive, young", gender: "female", language: "en" },
-  { voice_id: "oWAxZDx7w5VEj9dCyTzz", name: "Grace", description: "Southern US, gentle, mature", gender: "female", language: "en" },
-  { voice_id: "onwK4e9ZLuTAKqWW03F9", name: "Daniel", description: "British, deep, authoritative", gender: "male", language: "en" },
-  { voice_id: "pFZP5JQG7iQjIQuC4Bku", name: "Lily", description: "British, calm, warm", gender: "female", language: "en" },
-  { voice_id: "piTKgcLEGmPE4e6mEKli", name: "Nicole", description: "American, whispery, soft", gender: "female", language: "en" },
-  { voice_id: "pqHfZKP75CvOlQylNhV4", name: "Bill", description: "American, mature, narrative", gender: "male", language: "en" },
-  { voice_id: "z9fAnlkpzviPz146aGWa", name: "Glinda", description: "American, witchy, character", gender: "female", language: "en" },
-  { voice_id: "zcAOhNBS3c14rBihAFp1", name: "Giovanni", description: "Italian-accented English, foreign", gender: "male", language: "en" },
+  { voice_id: "ThT5KcBeYPX3keUQqHPh", name: "Dorothy", description: "British, pleasant, friendly", gender: "feminine", language: "en" },
+  { voice_id: "g5CIjZEefAph4nQFvHAz", name: "Ethan", description: "American, whispery, intimate", gender: "masculine", language: "en" },
+  { voice_id: "jBpfuIE2acCO8z3wKNLl", name: "Gigi", description: "American, childlike, cartoon", gender: "feminine", language: "en" },
+  { voice_id: "jsCqWAovK2LkecY7zXl4", name: "Freya", description: "American, expressive, young", gender: "feminine", language: "en" },
+  { voice_id: "oWAxZDx7w5VEj9dCyTzz", name: "Grace", description: "Southern US, gentle, mature", gender: "feminine", language: "en" },
+  { voice_id: "onwK4e9ZLuTAKqWW03F9", name: "Daniel", description: "British, deep, authoritative", gender: "masculine", language: "en" },
+  { voice_id: "pFZP5JQG7iQjIQuC4Bku", name: "Lily", description: "British, calm, warm", gender: "feminine", language: "en" },
+  { voice_id: "piTKgcLEGmPE4e6mEKli", name: "Nicole", description: "American, whispery, soft", gender: "feminine", language: "en" },
+  { voice_id: "pqHfZKP75CvOlQylNhV4", name: "Bill", description: "American, mature, narrative", gender: "masculine", language: "en" },
+  { voice_id: "z9fAnlkpzviPz146aGWa", name: "Glinda", description: "American, witchy, character", gender: "feminine", language: "en" },
+  { voice_id: "zcAOhNBS3c14rBihAFp1", name: "Giovanni", description: "Italian-accented English, foreign", gender: "masculine", language: "en" },
   // Multilingue (utilisable en FR + EN + 30 autres)
-  { voice_id: "XB0fDUnXU5powFXDhCwa", name: "Charlotte", description: "Swedish, sultry, multilingual", gender: "female", language: "multi" },
-  { voice_id: "Xb7hH8MSUJpSbSDYk0k2", name: "Alice", description: "British, confident, multilingual", gender: "female", language: "multi" },
-  { voice_id: "XrExE9yKIg1WjnnlVkGX", name: "Matilda", description: "American, warm, multilingual", gender: "female", language: "multi" },
-  { voice_id: "bIHbv24MWmeRgasZH58o", name: "Will", description: "American, friendly, multilingual", gender: "male", language: "multi" },
-  { voice_id: "cgSgspJ2msm6clMCkdW9", name: "Jessica", description: "American, popular, multilingual", gender: "female", language: "multi" },
-  { voice_id: "cjVigY5qzO86Huf0OWal", name: "Eric", description: "American, classy, multilingual", gender: "male", language: "multi" },
-  { voice_id: "iP95p4xoKVk53GoZ742B", name: "Chris", description: "American, casual, multilingual", gender: "male", language: "multi" },
-  { voice_id: "nPczCjzI2devNBz1zQrb", name: "Brian", description: "American, deep, multilingual", gender: "male", language: "multi" },
+  { voice_id: "XB0fDUnXU5powFXDhCwa", name: "Charlotte", description: "Swedish, sultry, multilingual", gender: "feminine", language: "multi" },
+  { voice_id: "Xb7hH8MSUJpSbSDYk0k2", name: "Alice", description: "British, confident, multilingual", gender: "feminine", language: "multi" },
+  { voice_id: "XrExE9yKIg1WjnnlVkGX", name: "Matilda", description: "American, warm, multilingual", gender: "feminine", language: "multi" },
+  { voice_id: "bIHbv24MWmeRgasZH58o", name: "Will", description: "American, friendly, multilingual", gender: "masculine", language: "multi" },
+  { voice_id: "cgSgspJ2msm6clMCkdW9", name: "Jessica", description: "American, popular, multilingual", gender: "feminine", language: "multi" },
+  { voice_id: "cjVigY5qzO86Huf0OWal", name: "Eric", description: "American, classy, multilingual", gender: "masculine", language: "multi" },
+  { voice_id: "iP95p4xoKVk53GoZ742B", name: "Chris", description: "American, casual, multilingual", gender: "masculine", language: "multi" },
+  { voice_id: "nPczCjzI2devNBz1zQrb", name: "Brian", description: "American, deep, multilingual", gender: "masculine", language: "multi" },
 ];
 
 // ─── MiniMax : catalogue (sourcé de la doc MiniMax + dispo sur Replicate) ────
@@ -112,40 +112,40 @@ interface MiniMaxVoiceSpec {
   voice_id: string;
   name: string;
   description: string;
-  gender: "male" | "female" | "neutral";
+  gender: "masculine" | "feminine" | "neutral";  // canonique = Cartesia (Wati 15/06)
   language: string;
 }
 
 const MINIMAX_VOICES: MiniMaxVoiceSpec[] = [
   // Voix anglaises système MiniMax
-  { voice_id: "English_ReservedYoungMan", name: "Reserved Young Man (EN)", description: "Calm young male voice", gender: "male", language: "en" },
-  { voice_id: "English_Trustworth_Man", name: "Trustworthy Man (EN)", description: "Mature, authoritative male", gender: "male", language: "en" },
-  { voice_id: "English_CalmWoman", name: "Calm Woman (EN)", description: "Soothing female voice", gender: "female", language: "en" },
-  { voice_id: "English_UpsetGirl", name: "Upset Girl (EN)", description: "Expressive young female", gender: "female", language: "en" },
-  { voice_id: "English_Gentle-voiced_man", name: "Gentle Man (EN)", description: "Soft-spoken male", gender: "male", language: "en" },
-  { voice_id: "English_Graceful_Lady", name: "Graceful Lady (EN)", description: "Elegant mature female", gender: "female", language: "en" },
-  { voice_id: "English_MaturePartner", name: "Mature Partner (EN)", description: "Reassuring adult male", gender: "male", language: "en" },
-  { voice_id: "English_PassionateWarrior", name: "Passionate Warrior (EN)", description: "Energetic deep male", gender: "male", language: "en" },
-  { voice_id: "English_WiseScholar", name: "Wise Scholar (EN)", description: "Thoughtful older male", gender: "male", language: "en" },
-  { voice_id: "English_SoftFemale", name: "Soft Female (EN)", description: "Gentle warm female", gender: "female", language: "en" },
+  { voice_id: "English_ReservedYoungMan", name: "Reserved Young Man (EN)", description: "Calm young male voice", gender: "masculine", language: "en" },
+  { voice_id: "English_Trustworth_Man", name: "Trustworthy Man (EN)", description: "Mature, authoritative male", gender: "masculine", language: "en" },
+  { voice_id: "English_CalmWoman", name: "Calm Woman (EN)", description: "Soothing female voice", gender: "feminine", language: "en" },
+  { voice_id: "English_UpsetGirl", name: "Upset Girl (EN)", description: "Expressive young female", gender: "feminine", language: "en" },
+  { voice_id: "English_Gentle-voiced_man", name: "Gentle Man (EN)", description: "Soft-spoken male", gender: "masculine", language: "en" },
+  { voice_id: "English_Graceful_Lady", name: "Graceful Lady (EN)", description: "Elegant mature female", gender: "feminine", language: "en" },
+  { voice_id: "English_MaturePartner", name: "Mature Partner (EN)", description: "Reassuring adult male", gender: "masculine", language: "en" },
+  { voice_id: "English_PassionateWarrior", name: "Passionate Warrior (EN)", description: "Energetic deep male", gender: "masculine", language: "en" },
+  { voice_id: "English_WiseScholar", name: "Wise Scholar (EN)", description: "Thoughtful older male", gender: "masculine", language: "en" },
+  { voice_id: "English_SoftFemale", name: "Soft Female (EN)", description: "Gentle warm female", gender: "feminine", language: "en" },
   // Multilingue
-  { voice_id: "Wise_Woman", name: "Wise Woman", description: "Multilingual wise mature female", gender: "female", language: "multi" },
+  { voice_id: "Wise_Woman", name: "Wise Woman", description: "Multilingual wise mature female", gender: "feminine", language: "multi" },
   { voice_id: "Friendly_Person", name: "Friendly Person", description: "Multilingual friendly neutral", gender: "neutral", language: "multi" },
-  { voice_id: "Inspirational_girl", name: "Inspirational Girl", description: "Multilingual energetic female", gender: "female", language: "multi" },
-  { voice_id: "Deep_Voice_Man", name: "Deep Voice Man", description: "Multilingual deep male", gender: "male", language: "multi" },
-  { voice_id: "Calm_Woman", name: "Calm Woman", description: "Multilingual calm female", gender: "female", language: "multi" },
-  { voice_id: "Casual_Guy", name: "Casual Guy", description: "Multilingual casual male", gender: "male", language: "multi" },
-  { voice_id: "Lively_Girl", name: "Lively Girl", description: "Multilingual lively female", gender: "female", language: "multi" },
-  { voice_id: "Patient_Man", name: "Patient Man", description: "Multilingual patient male", gender: "male", language: "multi" },
-  { voice_id: "Young_Knight", name: "Young Knight", description: "Multilingual heroic male", gender: "male", language: "multi" },
-  { voice_id: "Determined_Man", name: "Determined Man", description: "Multilingual firm male", gender: "male", language: "multi" },
-  { voice_id: "Lovely_Girl", name: "Lovely Girl", description: "Multilingual sweet female", gender: "female", language: "multi" },
-  { voice_id: "Decent_Boy", name: "Decent Boy", description: "Multilingual proper young male", gender: "male", language: "multi" },
-  { voice_id: "Imposing_Manner", name: "Imposing Manner", description: "Multilingual commanding male", gender: "male", language: "multi" },
-  { voice_id: "Elegant_Man", name: "Elegant Man", description: "Multilingual refined male", gender: "male", language: "multi" },
-  { voice_id: "Abbess", name: "Abbess", description: "Multilingual mature female", gender: "female", language: "multi" },
-  { voice_id: "Sweet_Girl_2", name: "Sweet Girl", description: "Multilingual sweet young female", gender: "female", language: "multi" },
-  { voice_id: "Exuberant_Girl", name: "Exuberant Girl", description: "Multilingual energetic female", gender: "female", language: "multi" },
+  { voice_id: "Inspirational_girl", name: "Inspirational Girl", description: "Multilingual energetic female", gender: "feminine", language: "multi" },
+  { voice_id: "Deep_Voice_Man", name: "Deep Voice Man", description: "Multilingual deep male", gender: "masculine", language: "multi" },
+  { voice_id: "Calm_Woman", name: "Calm Woman", description: "Multilingual calm female", gender: "feminine", language: "multi" },
+  { voice_id: "Casual_Guy", name: "Casual Guy", description: "Multilingual casual male", gender: "masculine", language: "multi" },
+  { voice_id: "Lively_Girl", name: "Lively Girl", description: "Multilingual lively female", gender: "feminine", language: "multi" },
+  { voice_id: "Patient_Man", name: "Patient Man", description: "Multilingual patient male", gender: "masculine", language: "multi" },
+  { voice_id: "Young_Knight", name: "Young Knight", description: "Multilingual heroic male", gender: "masculine", language: "multi" },
+  { voice_id: "Determined_Man", name: "Determined Man", description: "Multilingual firm male", gender: "masculine", language: "multi" },
+  { voice_id: "Lovely_Girl", name: "Lovely Girl", description: "Multilingual sweet female", gender: "feminine", language: "multi" },
+  { voice_id: "Decent_Boy", name: "Decent Boy", description: "Multilingual proper young male", gender: "masculine", language: "multi" },
+  { voice_id: "Imposing_Manner", name: "Imposing Manner", description: "Multilingual commanding male", gender: "masculine", language: "multi" },
+  { voice_id: "Elegant_Man", name: "Elegant Man", description: "Multilingual refined male", gender: "masculine", language: "multi" },
+  { voice_id: "Abbess", name: "Abbess", description: "Multilingual mature female", gender: "feminine", language: "multi" },
+  { voice_id: "Sweet_Girl_2", name: "Sweet Girl", description: "Multilingual sweet young female", gender: "feminine", language: "multi" },
+  { voice_id: "Exuberant_Girl", name: "Exuberant Girl", description: "Multilingual energetic female", gender: "feminine", language: "multi" },
 ];
 
 /**
