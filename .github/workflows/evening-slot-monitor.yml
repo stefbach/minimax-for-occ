@@ -1,0 +1,34 @@
+name: Evening Slot Monitor (Wati 15/06)
+
+# Surveille le créneau du soir UK (~17:00–22:00 UTC = 18:00–23:00 BST) en
+# capturant un snapshot des appels passés depuis le début du créneau,
+# toutes les 20 minutes. Les résultats restent dans les Action logs ;
+# Wati pourra les consulter le matin avec le rapport d'audit séparé.
+#
+# La requête tape Supabase via la fonction REST et ne déclenche AUCUN
+# appel téléphonique. Aucun impact sur la prod — c'est de l'observation.
+
+on:
+  schedule:
+    # Toutes les 20 minutes entre 17:00 et 22:00 UTC (cron en UTC).
+    # GitHub limite la précision à 5 min ; on prend des points fixes.
+    - cron: "0,20,40 17 * * *"
+    - cron: "0,20,40 18 * * *"
+    - cron: "0,20,40 19 * * *"
+    - cron: "0,20,40 20 * * *"
+    - cron: "0,20,40 21 * * *"
+    - cron: "30 22 * * *"  # snapshot final post-créneau
+  workflow_dispatch:
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Query Supabase for evening-slot call stats
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -eo pipefail
+          BSTAT="aW1wb3J0IGpzb24sIG9zLCB0aW1lLCB1cmxsaWIucmVxdWVzdAoKdXJsX2Jhc2UgPSBvcy5lbnZpcm9uWyJTVVBBQkFTRV9VUkwiXSArICIvcmVzdC92MS9jYWxscyIKaGRycyA9IHsKICAgICJhcGlrZXkiOiBvcy5lbnZpcm9uWyJTVVBBQkFTRV9TRVJWSUNFX1JPTEVfS0VZIl0sCiAgICAiQXV0aG9yaXphdGlvbiI6ICJCZWFyZXIgIiArIG9zLmVudmlyb25bIlNVUEFCQVNFX1NFUlZJQ0VfUk9MRV9LRVkiXSwKICAgICJBY2NlcHQiOiAiYXBwbGljYXRpb24vanNvbiIsCn0KCm5vdyA9IGludCh0aW1lLnRpbWUoKSkKZGF5X3N0YXJ0X3V0YyA9IHRpbWUuc3RyZnRpbWUoIiVZLSVtLSVkVDE3OjAwOjAwIiwgdGltZS5nbXRpbWUobm93KSkKbm93X2lzbyA9IHRpbWUuc3RyZnRpbWUoIiVZLSVtLSVkVCVIOiVNOiVTIiwgdGltZS5nbXRpbWUobm93KSkKCnByaW50KGYiPT09IHNuYXBzaG90IGNyZW5lYXUgc29pciAtIHsgbm93X2lzbyB9IFVUQyA9PT0iKQpwcmludChmIndpbmRvdyBiYXNlOiB7IGRheV9zdGFydF91dGMgfSAtPiB7IG5vd19pc28gfSAoVVRDKSIpCnByaW50KCIiKQoKZGVmIGZldGNoKHFzKToKICAgIHJlcSA9IHVybGxpYi5yZXF1ZXN0LlJlcXVlc3QodXJsX2Jhc2UgKyAiPyIgKyBxcywgaGVhZGVycz1oZHJzKQogICAgd2l0aCB1cmxsaWIucmVxdWVzdC51cmxvcGVuKHJlcSwgdGltZW91dD0yMCkgYXMgcjoKICAgICAgICByZXR1cm4ganNvbi5sb2FkcyhyLnJlYWQoKSkKCmZpbHRlciA9IGYic3RhcnRlZF9hdD1ndC57ZGF5X3N0YXJ0X3V0Y30mb3JkZXI9c3RhcnRlZF9hdC5kZXNjJmxpbWl0PTUwMCIKcm93cyA9IGZldGNoKGYie2ZpbHRlcn0mc2VsZWN0PWlkLHN0YXRlLGRpcmVjdGlvbixzdGFydGVkX2F0LGFuc3dlcmVkX2F0LGVuZGVkX2F0LGR1cmF0aW9uX3NlY3MsZGlzcG9zaXRpb24sbWV0YWRhdGEsdG9fZTE2NCxhZ2VudF9oYW5kbGVfaWQiKQoKbiA9IGxlbihyb3dzKQphbnNfcGVyc2lzdGVkID0gc3VtKDEgZm9yIHIgaW4gcm93cyBpZiByLmdldCgiYW5zd2VyZWRfYXQiKSkKZW5kZWQgPSBzdW0oMSBmb3IgciBpbiByb3dzIGlmIHIuZ2V0KCJzdGF0ZSIpID09ICJlbmRlZCIpCmZhaWxlZCA9IHN1bSgxIGZvciByIGluIHJvd3MgaWYgci5nZXQoInN0YXRlIikgPT0gImZhaWxlZCIpCmFjdGl2ZSA9IHN1bSgxIGZvciByIGluIHJvd3MgaWYgci5nZXQoInN0YXRlIikgaW4gKCJyaW5naW5nIiwgImluX3Byb2dyZXNzIiwgIml2ciIsICJ3cmFwX3VwIikpCmR1cmF0aW9ucyA9IFtyLmdldCgiZHVyYXRpb25fc2VjcyIpIG9yIDAgZm9yIHIgaW4gcm93cyBpZiByLmdldCgiZHVyYXRpb25fc2VjcyIpXQp0b3RhbF9zZWNzID0gc3VtKGR1cmF0aW9ucykKbWVkX3NlY3MgPSBzb3J0ZWQoZHVyYXRpb25zKVtsZW4oZHVyYXRpb25zKS8vMl0gaWYgZHVyYXRpb25zIGVsc2UgMAptZXRhZGF0YV9xdWFsID0ge30KZm9yIHIgaW4gcm93czoKICAgIG0gPSByLmdldCgibWV0YWRhdGEiKSBvciB7fQogICAgcSA9IG0uZ2V0KCJxdWFsaWZpY2F0aW9uIikgaWYgaXNpbnN0YW5jZShtLCBkaWN0KSBlbHNlIE5vbmUKICAgIHEgPSBxLnVwcGVyKCkgaWYgcSBlbHNlICIoTk9OUUUpIgogICAgbWV0YWRhdGFfcXVhbFtxXSA9IG1ldGFkYXRhX3F1YWwuZ2V0KHEsIDApICsgMQoKcHJpbnQoZiJ0b3RhbCBhcHBlbHMgZGVwdWlzIGRlYnV0IGRlIGNyZW5lYXU6IHsgbiB9IikKcHJpbnQoZiIgIGFuc3dlcmVkX2F0IG5vbi1udWxsOiB7IGFuc19wZXJzaXN0ZWQgfSIpCnByaW50KGYiICBzdGF0ZSBlbmRlZDogeyBlbmRlZCB9IikKcHJpbnQoZiIgIHN0YXRlIGZhaWxlZDogeyBmYWlsZWQgfSIpCnByaW50KGYiICBzdGF0ZSBlbiBjb3VycyAocmluZ2luZy9pbl9wcm9ncmVzcyk6IHsgYWN0aXZlIH0iKQpwcmludChmIiAgZHVyZWUgdG90YWxlIGV0IG1lZGlhbmU6IHsgdG90YWxfc2VjcyB9cyB0b3RhbCwgbWVkaWFuPXsgbWVkX3NlY3MgfXMiKQpwcmludCgiIikKcHJpbnQoInF1YWxpZmljYXRpb25zOiIpCmZvciBrLCB2IGluIHNvcnRlZChtZXRhZGF0YV9xdWFsLml0ZW1zKCksIGtleT1sYW1iZGEgeDogLXhbMV0pOgogICAgcHJpbnQoZiIgIHsgaywgdiB9IikKCiMgU2lnbmFsIGRlIHJlZ3Jlc3Npb24gOiBkZXRlcm1pbmUgc2kgPj0gNyBhcHBlbHMgY29uc2VjdXRpZnMgc29udCBmYWlsZWQKbGFzdF9zdGF0ZXMgPSBbciBmb3IgciBpbiByb3dzWzo3XV0KbGFzdF9mYWlscyA9IHN1bSgxIGZvciByIGluIGxhc3Rfc3RhdGVzIGlmIHIuZ2V0KCJzdGF0ZSIpID09ICJmYWlsZWQiKQppZiBsZW4obGFzdF9zdGF0ZXMpID09IDcgYW5kIGxhc3RfZmFpbHMgPj0gNToKICAgIHByaW50KCIiKQogICAgcHJpbnQoIldBVE4gOiAgPj0gNS83IGRlcm5pZXJzIGFwcGVscyBlbiBmYWlsZWQuIFNpZ25hbCBkZSByZWdyZXNzaW9uLiIpCg=="
+          python3 -c "import base64;exec(base64.b64decode('$BSTAT').decode())"
