@@ -1,8 +1,8 @@
 import { type RunCtx, loadCredential } from "./runtime";
 import { renderTemplate, type Ctx } from "./templating";
-import { analyzeFiles, type AnthropicCred } from "./ai";
+import { analyzeFiles, generateText, runAgent, type AnthropicCred } from "./ai";
 import { searchMessages, getMessageAttachments, type GmailCred } from "./gmail";
-import { uploadObject, publicUrl, upsertNhsDocument } from "./storage";
+import { uploadObject, downloadObject, publicUrl, upsertNhsDocument } from "./storage";
 
 /**
  * OCC patient-pipeline compound steps.
@@ -232,6 +232,189 @@ async function gmailIngestDocuments(rc: RunCtx, step: Record<string, unknown>, c
   rc.log("info", `A3: ${atts.length} attachments, ${stored.length} stored for ${nom || patientId}`);
 }
 
+// ── Agent 5: Supabase Controller (agentic, tool-using) ──────────────────────
+
+async function supabaseControllerAgent(rc: RunCtx, step: Record<string, unknown>, ctx: Ctx): Promise<void> {
+  const anthropic = (await cred(rc, step.anthropic_credential_id as string)) as AnthropicCred | null;
+  if (!anthropic) { rc.log("warn", "A5: anthropic credential missing — skipping"); rc.stats.skipped++; return; }
+  const docsTable = String(step.table_documents ?? "nhs_documents");
+  const dossierTable = String(step.table_dossier ?? "nhs_dossiers");
+  const patientId = String(ctx.patient_id ?? "");
+  const dossierId = String(ctx.dossier_id ?? "");
+
+  const { data: docRows } = await rc.ds.client.from(docsTable).select("*").eq("lead_id", patientId);
+  const docs = (docRows ?? []) as Array<Record<string, unknown>>;
+  const docSummary = docs.map((d) => ({
+    id: d.id, category: d.category, doc_field: d.doc_field, status: d.status, file_name: d.file_name,
+  }));
+  const dossier = (ctx.dossier as Record<string, unknown>) ?? {};
+
+  const system =
+    "You are a meticulous data controller inside an NHS S2 document pipeline. You reason in database logic and act precisely by row id via your Supabase tools. Be conservative: only modify data when confident, never delete, and always explain what you changed.";
+  const prompt =
+    `You are the OCC Supabase Controller (Agent 5) for ONE patient.\n` +
+    `Patient lead_id: ${patientId}\nDossier id: ${dossierId}\n` +
+    `Documents on file (${docs.length}): ${JSON.stringify(docSummary)}\n` +
+    `Dossier flags: ${JSON.stringify(dossier)}\n\n` +
+    `1. Consistency — every received document should map to its dossier doc_* flag; if clearly mis-categorised call reclassify_document.\n` +
+    `2. De-duplicate — if the same category appears twice and one is clearly an older copy, call set_document_status to mark the obsolete one 'superseded'.\n` +
+    `3. Summary — call set_dossier_notes with a one-line control summary. Do NOT change the dossier status (the Screener does that next).\n` +
+    `4. Never delete. Act only when confident; otherwise just report.\n` +
+    `Reply starting with 'OK' if consistent, or 'ISSUE: <one sentence>' if a human should look.`;
+
+  const tools = [
+    {
+      name: "get_documents",
+      description: "List nhs_documents rows for a patient lead_id.",
+      input_schema: { type: "object", properties: { lead_id: { type: "string" } }, required: ["lead_id"] },
+      handler: async (i: Record<string, unknown>) => {
+        const { data } = await rc.ds.client.from(docsTable).select("*").eq("lead_id", String(i.lead_id ?? patientId));
+        return data ?? [];
+      },
+    },
+    {
+      name: "set_document_status",
+      description: "Set a document row's status (e.g. superseded).",
+      input_schema: { type: "object", properties: { document_id: { type: "string" }, status: { type: "string" } }, required: ["document_id", "status"] },
+      handler: async (i: Record<string, unknown>) => {
+        const { error } = await rc.ds.client.from(docsTable).update({ status: i.status }).eq("id", i.document_id);
+        return error ? { error: error.message } : { ok: true };
+      },
+    },
+    {
+      name: "reclassify_document",
+      description: "Set a document row's category + doc_field.",
+      input_schema: { type: "object", properties: { document_id: { type: "string" }, category: { type: "string" }, doc_field: { type: "string" } }, required: ["document_id", "category", "doc_field"] },
+      handler: async (i: Record<string, unknown>) => {
+        const { error } = await rc.ds.client.from(docsTable).update({ category: i.category, doc_field: i.doc_field }).eq("id", i.document_id);
+        return error ? { error: error.message } : { ok: true };
+      },
+    },
+    {
+      name: "set_dossier_notes",
+      description: "Write a one-line control summary onto the dossier.",
+      input_schema: { type: "object", properties: { dossier_id: { type: "string" }, notes: { type: "string" } }, required: ["dossier_id", "notes"] },
+      handler: async (i: Record<string, unknown>) => {
+        const { error } = await rc.ds.client.from(dossierTable).update({ ai_analysis_notes: i.notes }).eq("id", String(i.dossier_id ?? dossierId));
+        return error ? { error: error.message } : { ok: true };
+      },
+    },
+  ];
+
+  const { output, toolCalls } = await runAgent({ cred: anthropic, system, prompt, tools, maxTokens: 1200, maxTurns: 6 });
+  ctx.control_report = output;
+  ctx.controller_tool_calls = toolCalls.length;
+  ctx.supervisor_status = /^\s*issue/i.test(output) ? "issue" : "ok";
+  ctx.supervisor_notes = output || "OK";
+  rc.stats.actions++;
+  rc.log("info", `A5: controller ran (${toolCalls.length} tool calls) → ${output.slice(0, 80)}`);
+}
+
+// ── Agent 7: Screener (completion %, NHS region, status) ────────────────────
+
+const PROBE_FIELDS = [
+  "doc_nhs_s2_form", "doc_s2_provider_declaration", "doc_cpam_certificate",
+  "doc_clinical_justification_gp", "doc_medical_report", "doc_undue_delay_letter",
+  "doc_patient_authorisation", "doc_identity_document", "doc_proof_of_residence",
+  "doc_bank_statements", "doc_detailed_medical_estimate",
+];
+const ACTIVE_DOC_STATUS = new Set(["received", "validated", "signed", "sent"]);
+// CPAM Certificate + Detailed Medical Estimate are OCC-supplied standards,
+// always counted as present (attached at NHS submission, never asked of the patient).
+const OCC_SUPPLIED = new Set(["doc_cpam_certificate", "doc_detailed_medical_estimate"]);
+
+async function screenDossier(rc: RunCtx, step: Record<string, unknown>, ctx: Ctx): Promise<void> {
+  const docsTable = String(step.table_documents ?? "nhs_documents");
+  const dossierTable = String(step.table_dossier ?? "nhs_dossiers");
+  const leadTable = String(step.table_lead ?? "leads_rdv");
+  const patientId = String(ctx.patient_id ?? "");
+  const dossierId = String(ctx.dossier_id ?? "");
+  const dossier = (ctx.dossier as Record<string, unknown>) ?? {};
+
+  const { data: docRows } = await rc.ds.client.from(docsTable).select("*").eq("lead_id", patientId);
+  const docs = (docRows ?? []) as Array<Record<string, unknown>>;
+  const present = new Set<string>();
+  let residenceUrl = "";
+  for (const d of docs) {
+    const st = String(d.status ?? "").toLowerCase();
+    if (d.doc_field && ACTIVE_DOC_STATUS.has(st)) present.add(String(d.doc_field));
+    if (d.doc_field === "doc_proof_of_residence" && !residenceUrl) residenceUrl = String(d.public_url ?? "");
+  }
+  const outDocs: Record<string, string> = {};
+  for (const f of PROBE_FIELDS) outDocs[f] = present.has(f) ? "received" : "missing";
+  for (const f of OCC_SUPPLIED) outDocs[f] = "received";
+
+  let received = 0;
+  for (const f of PROBE_FIELDS) if (outDocs[f] === "received") received++;
+  const total = PROBE_FIELDS.length;
+  let realReceived = 0;
+  for (const f of PROBE_FIELDS) if (outDocs[f] === "received" && !OCC_SUPPLIED.has(f)) realReceived++;
+  const status = received === total ? "COMPLETE" : realReceived > 0 ? "MISSING_DOCUMENTS" : "NO_DOCUMENTS_RECEIVED";
+  const completionPct = Math.round((received / total) * 100);
+  const medicalHistoryReceived = outDocs.doc_clinical_justification_gp === "received";
+  const submissionReady = status === "COMPLETE";
+
+  // NHS region: read the residence document once if not already known.
+  let region = String(dossier.nhs_region ?? "") || "england";
+  const anthropic = (await cred(rc, step.anthropic_credential_id as string)) as AnthropicCred | null;
+  if (residenceUrl && !dossier.nhs_region && anthropic) {
+    try {
+      const file = await downloadObject(rc.ds, residenceUrl);
+      if (VISION_MIME.has(file.contentType)) {
+        const verdict = (await analyzeFiles({
+          cred: anthropic,
+          prompt: "This is a UK proof of residence document for an NHS S2 application. Identify which UK nation the residential address is in. Answer with exactly one lowercase word: england, wales, or scotland.",
+          attachments: [{ data: file.base64, mediaType: file.contentType }],
+          maxTokens: 20,
+        })).toLowerCase();
+        region = verdict.includes("scotland") ? "scotland" : verdict.includes("wales") ? "wales" : "england";
+      }
+    } catch (e) {
+      rc.log("warn", `A7: region analysis failed: ${e instanceof Error ? e.message : e}`);
+    }
+  }
+
+  // Short AI status note.
+  let notes = "";
+  if (anthropic) {
+    try {
+      const receivedList = PROBE_FIELDS.filter((f) => outDocs[f] === "received");
+      const missingList = PROBE_FIELDS.filter((f) => outDocs[f] === "missing");
+      notes = await generateText({
+        cred: anthropic,
+        prompt:
+          `Write 1-2 concise sentences summarising this NHS S2 dossier. Patient: ${ctx.nom ?? ""}. Status: ${status}. ` +
+          `Completion: ${completionPct}%. Region: ${region}. Received: ${receivedList.join(", ") || "none"}. ` +
+          `Missing: ${missingList.join(", ") || "none"}. Respond with only the summary.`,
+        maxTokens: 200,
+      });
+    } catch { /* best effort */ }
+  }
+  if (!notes) notes = `Dossier ${status} at ${completionPct}% (${received}/${total} documents).`;
+
+  // Persist to the dossier + sync the lead.
+  const dossierPatch: Record<string, unknown> = { ...outDocs };
+  dossierPatch.dossier_status = status;
+  dossierPatch.dossier_completion_pct = completionPct;
+  dossierPatch.nhs_region = region;
+  dossierPatch.submission_ready = submissionReady;
+  dossierPatch.ai_analysis_notes = notes;
+  dossierPatch.medical_history_received = medicalHistoryReceived;
+  dossierPatch.last_analysed_at = new Date().toISOString();
+  if (dossierId) await rc.ds.client.from(dossierTable).update(dossierPatch).eq("id", dossierId);
+  if (patientId) await rc.ds.client.from(leadTable).update({ document_status: status, last_updated: new Date().toISOString() }).eq("id", patientId);
+
+  ctx.docs = outDocs;
+  ctx.dossier_status = status;
+  ctx.completion_pct = completionPct;
+  ctx.nhs_region = region;
+  ctx.submission_ready = submissionReady;
+  ctx.medical_history_received = medicalHistoryReceived;
+  ctx.ai_analysis_notes = notes;
+  rc.stats.actions++;
+  rc.log("info", `A7: ${status} ${completionPct}% region=${region} for ${ctx.nom ?? patientId}`);
+}
+
 // ── dispatcher ──────────────────────────────────────────────────────────────
 
 type OccHandler = (rc: RunCtx, step: Record<string, unknown>, ctx: Ctx) => Promise<void>;
@@ -239,6 +422,8 @@ type OccHandler = (rc: RunCtx, step: Record<string, unknown>, ctx: Ctx) => Promi
 const HANDLERS: Record<string, OccHandler> = {
   fetch_patient_context: fetchPatientContext,
   gmail_ingest_documents: gmailIngestDocuments,
+  supabase_controller_agent: supabaseControllerAgent,
+  screen_dossier: screenDossier,
 };
 
 export async function runOccStep(rc: RunCtx, step: { type: string; [k: string]: unknown }, ctx: Ctx): Promise<boolean> {
