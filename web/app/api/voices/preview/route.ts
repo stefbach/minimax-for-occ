@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { previewCartesiaTTS } from "@/lib/cartesia";
+import { previewReplicateTTS } from "@/lib/replicate";
 import { requestOrgId } from "@/lib/request-org";
 import { recordUsage, estimateCostCents } from "@/lib/billing";
 import { rateLimit, clientIp } from "@/lib/rate-limit";

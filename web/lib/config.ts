@@ -64,6 +64,15 @@ export interface AppConfig {
     readonly apiKey: string | undefined;
     readonly baseUrl: string;
   };
+  /**
+   * Replicate — passerelle de modèles (préview Wati 15/06) :
+   * voix ElevenLabs (flash-v2.5, turbo-v2.5) + MiniMax (speech-02-turbo/hd)
+   * accessibles avec une SEULE clé Replicate au lieu de comptes séparés.
+   */
+  replicate: {
+    readonly apiKey: string | undefined;
+    readonly baseUrl: string;
+  };
   app: {
     /** APP_URL → NEXT_PUBLIC_APP_URL → ''. Never throws. */
     readonly url: string;
@@ -128,6 +137,14 @@ export const cfg: AppConfig = {
     },
     get baseUrl() {
       return optEnv("CARTESIA_BASE_URL", "https://api.cartesia.ai")!;
+    },
+  },
+  replicate: {
+    get apiKey() {
+      return optEnv("REPLICATE_API_TOKEN") ?? optEnv("REPLICATE_API_KEY");
+    },
+    get baseUrl() {
+      return optEnv("REPLICATE_BASE_URL", "https://api.replicate.com/v1")!;
     },
   },
   app: {
