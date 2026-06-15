@@ -3,6 +3,7 @@ import { requestOrgId } from "@/lib/request-org";
 import { nhsLegacyClient } from "@/lib/nhs-legacy";
 import {
   buildPatient,
+  buildPatientFromLead,
   DOSSIER_SELECT,
   LEAD_SELECT,
   type DossierRow,
@@ -13,15 +14,15 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Suivi patient NHS S2 — aggregate tiles for the OCC weight management
-// programme.
+// Suivi patient NHS S2 — aggregate tiles for the dashboard cards.
 //
-// All counts are derived from the SAME dossier+lead join used by the patient
-// list (/api/dashboard/nhs-suivi/patients). This guarantees that the number
-// shown on a card always matches the number of patients you see when you click
-// it. The legacy route counted directly from leads_rdv (7 000+ rows) while the
-// patient list iterated axon_nhs_dossiers_ro (~38 rows), causing the visible
-// mismatch (e.g. "85" on the card, "34" in the list).
+// Population = ALL leads with email_sent = true (currently 63). For each we
+// overlay the nhs_dossiers row when one exists. Every card count is derived
+// from this combined set so the number on the card always matches the count
+// of patients shown when you click it.
+//
+// Comms counts (email J0, relance, WhatsApp, responses) come from leads_rdv.
+// Doc / clinic / NHS-tracking counts come from nhs_dossiers (via the view).
 
 const MONTHLY_OBJECTIVE = Number(process.env.NHS_MONTHLY_OBJECTIVE ?? 30);
 const DOCS_TOTAL = 11;
@@ -83,12 +84,11 @@ export type NhsSuiviResponse = {
   };
 };
 
-// Include qualification for the stalled list (not in the shared LEAD_SELECT).
+// qualification for the stalled list (not in the shared LEAD_SELECT)
 const LEAD_SELECT_EXT = LEAD_SELECT + ", qualification";
 type LeadRowExt = LeadRow & { qualification: string | null };
 
-// Doc cells are text (URL / yes / status word); treat empty + negative words
-// as "not produced" — used only for clinic-produced docs, not patient docs.
+// Clinic-produced docs: any truthy value (URL / "yes" / "generated") counts.
 function truthyDoc(v: unknown): boolean {
   if (v === true) return true;
   if (typeof v === "number") return v > 0;
@@ -106,66 +106,69 @@ export async function GET(request: Request) {
   const threeDaysAgo = new Date(now.getTime() - 3 * 86400_000);
   const fiveDaysAgoMs = now.getTime() - 5 * 86400_000;
 
-  // ── Step 1: fetch dossiers (same view the patient list uses) ──────────
-  let dossiers: DossierRow[] = [];
+  // ── Step 1: all leads with email_sent = true (the full population) ─────
+  let allLeads: LeadRowExt[] = [];
   try {
     const { data } = await legacy
-      .from("axon_nhs_dossiers_ro")
-      .select(DOSSIER_SELECT)
+      .from("leads_rdv")
+      .select(LEAD_SELECT_EXT)
+      .eq("email_sent", true)
       .limit(10000);
-    dossiers = (data ?? []) as unknown as DossierRow[];
-  } catch { /* view unreachable — tiles stay at 0 */ }
+    allLeads = (data ?? []) as unknown as LeadRowExt[];
+  } catch { /* empty */ }
 
-  // ── Step 2: fetch leads for those dossier lead_ids only ───────────────
-  const leadIds = [...new Set(dossiers.map((d) => d.lead_id).filter((id): id is string => Boolean(id)))];
-  const leadById = new Map<string, LeadRowExt>();
+  // ── Step 2: overlay dossiers for those lead IDs ───────────────────────
+  const leadIds = allLeads.map((l) => String(l.id));
+  const dossierByLeadId = new Map<string, DossierRow>();
   for (let i = 0; i < leadIds.length; i += 200) {
     try {
       const { data } = await legacy
-        .from("leads_rdv")
-        .select(LEAD_SELECT_EXT)
-        .in("id", leadIds.slice(i, i + 200));
-      for (const l of (data ?? []) as unknown as LeadRowExt[]) {
-        leadById.set(String(l.id), l);
+        .from("axon_nhs_dossiers_ro")
+        .select(DOSSIER_SELECT)
+        .in("lead_id", leadIds.slice(i, i + 200));
+      for (const d of (data ?? []) as unknown as DossierRow[]) {
+        if (d.lead_id) dossierByLeadId.set(String(d.lead_id), d);
       }
-    } catch { /* ignore batch error */ }
+    } catch { /* ignore */ }
   }
 
-  // ── Step 3: build entries (same pairing as the patient list) ──────────
-  type Entry = { patient: NhsPatient; lead: LeadRowExt; d: DossierRow };
-  const entries: Entry[] = [];
-  for (const d of dossiers) {
-    if (!d.lead_id) continue;
-    const lead = leadById.get(String(d.lead_id));
-    if (!lead) continue;
-    entries.push({ patient: buildPatient(d, lead, threeDaysAgo), lead, d });
-  }
+  // ── Step 3: build patient entries (lead + optional dossier) ───────────
+  type Entry = { patient: NhsPatient; lead: LeadRowExt; d: DossierRow | null };
+  const entries: Entry[] = allLeads.map((l) => {
+    const d = dossierByLeadId.get(String(l.id)) ?? null;
+    return {
+      patient: d ? buildPatient(d, l, threeDaysAgo) : buildPatientFromLead(l, threeDaysAgo),
+      lead: l,
+      d,
+    };
+  });
 
-  const hasData = entries.length > 0;
+  const hasData = allLeads.length > 0;
 
-  // ── Step 4: comms counts (scoped to dossier-linked leads) ─────────────
+  // ── Step 4: comms — straight lead counts (J0 = 63, relance = 9…) ─────
   const comms = {
-    email_j0_sent: entries.filter(({ lead }) => lead.email_sent).length,
-    email_j2_sent: entries.filter(({ lead }) => lead.relance_email_sent).length,
-    whatsapp_sent: entries.filter(({ lead }) => lead.relance_whatsapp_sent || lead.whatsapp_sent).length,
-    responses_received: entries.filter(({ lead }) => lead.last_response_date).length,
+    email_j0_sent: allLeads.length,                                            // all email_sent=true
+    email_j2_sent: allLeads.filter(({ relance_email_sent: r }) => r).length,  // 9
+    whatsapp_sent: allLeads.filter(({ relance_whatsapp_sent: r, whatsapp_sent: w }) => r || w).length,
+    responses_received: allLeads.filter(({ last_response_date: d }) => d).length,
   };
 
-  // ── Step 5: file status = patient statuses (matches the list's chips) ──
+  // ── Step 5: file status from patient statuses (matches list chips) ─────
   const pending3d = entries.filter(({ patient }) => patient.status === "sans-reponse").length;
   const file_status = {
     no_document: entries.filter(({ patient }) => patient.status === "aucun-doc").length,
-    partial: entries.filter(({ patient }) => patient.status === "partiels").length,
-    complete: entries.filter(({ patient }) => patient.status === "complets").length,
+    partial:     entries.filter(({ patient }) => patient.status === "partiels").length,
+    complete:    entries.filter(({ patient }) => patient.status === "complets").length,
     no_response_3d: pending3d,
   };
 
-  // ── Step 6: clinic docs + NHS tracking + ready / submitted ────────────
+  // ── Step 6: dossier-based counts (clinic docs, NHS tracking) ──────────
   const clinicDocs = { medical_report: 0, undue_delay_letter: 0, s2_provider_declaration: 0, medical_estimate: 0 };
   const tracking = { submitted: 0, in_review: 0, accepted: 0, rejected: 0 };
   let readyToSubmit = 0;
   let submittedThisMonth = 0;
   for (const { d } of entries) {
+    if (!d) continue; // no dossier yet — skip clinic/NHS counts
     if (truthyDoc(d["doc_medical_report"])) clinicDocs.medical_report++;
     if (truthyDoc(d["doc_undue_delay_letter"])) clinicDocs.undue_delay_letter++;
     if (truthyDoc(d["doc_s2_provider_declaration"])) clinicDocs.s2_provider_declaration++;
@@ -207,12 +210,12 @@ export async function GET(request: Request) {
     return am - bm;
   });
 
-  // ── Step 8: pipeline ──────────────────────────────────────────────────
+  // ── Step 8: pipeline (lead-scoped, matching the 63 population) ─────────
   const pipeline = {
-    initial_call: entries.filter(({ lead }) => !!lead.last_call_datetime).length,
+    initial_call: allLeads.filter((l) => !!l.last_call_datetime).length,
     email_reminder: comms.email_j2_sent,
     response_received: comms.responses_received,
-    file_complete: entries.filter(({ patient }) => patient.status === "complets" || patient.status === "envoye-nhs").length,
+    file_complete: entries.filter(({ patient: p }) => p.status === "complets" || p.status === "envoye-nhs").length,
     nhs_submitted: tracking.submitted,
   };
 

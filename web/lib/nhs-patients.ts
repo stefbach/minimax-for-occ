@@ -49,7 +49,11 @@ export type LeadRow = {
 };
 
 export interface NhsPatient {
+  // id is ALWAYS the lead ID. dossier_id is set only when a dossier exists.
+  // This allows leads without dossiers to appear in the list (email recipients
+  // who haven't started a dossier yet are shown with aucun-doc status).
   id: string;
+  dossier_id?: string;
   lead_id: string;
   name: string | null;
   initials: string;
@@ -113,13 +117,17 @@ function deriveStatus(d: DossierRow, l: LeadRow, received: number, threeDaysAgo:
   return "partiels";
 }
 
+// Build a patient from a dossier + lead pair. The patient ID is always the
+// lead ID so that /patients/[id] can resolve by lead whether or not a dossier
+// exists. dossier_id carries the nhs_dossiers PK for reference.
 export function buildPatient(d: DossierRow, l: LeadRow, threeDaysAgo: Date): NhsPatient {
   const { received, required } = countDocs(d);
   const status = deriveStatus(d, l, received, threeDaysAgo);
   const lastActivity =
     d.last_analysed_at || l.last_response_date || l.relance_email_date || l.last_call_datetime || l.last_updated || null;
   return {
-    id: d.id,
+    id: l.id,
+    dossier_id: d.id,
     lead_id: l.id,
     name: l.nom,
     initials: initialsOf(l.nom),
@@ -133,6 +141,37 @@ export function buildPatient(d: DossierRow, l: LeadRow, threeDaysAgo: Date): Nhs
     nhs_status: d.nhs_submission_status,
     escalade: status === "sans-reponse",
     bank_exception: !!d.bank_statement_exception,
+  };
+}
+
+// Build a patient from a lead alone — no dossier exists yet. Used for the
+// 63 explanation-email recipients who haven't started their dossier.
+export function buildPatientFromLead(l: LeadRow, threeDaysAgo: Date): NhsPatient {
+  const required = NHS_DOCS.filter((x) => x.required).length;
+  const noResponse =
+    !!l.email_sent &&
+    !l.last_response_date &&
+    !!l.relance_email_sent &&
+    !!l.relance_email_date &&
+    new Date(l.relance_email_date) < threeDaysAgo;
+  const status: PatientStatus = noResponse ? "sans-reponse" : "aucun-doc";
+  const lastActivity =
+    l.last_response_date || l.relance_email_date || l.last_call_datetime || l.last_updated || null;
+  return {
+    id: l.id,
+    lead_id: l.id,
+    name: l.nom,
+    initials: initialsOf(l.nom),
+    age: ageFromDob(l.patient_dob),
+    email: l.email,
+    phone: l.numero_telephone,
+    status,
+    docs_received: 0,
+    docs_required: required,
+    last_activity: lastActivity,
+    nhs_status: null,
+    escalade: status === "sans-reponse",
+    bank_exception: false,
   };
 }
 
