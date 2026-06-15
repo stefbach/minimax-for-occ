@@ -76,6 +76,12 @@ jobs:
           echo ""
           echo "===== LIVEKIT_AGENT_NAME dans l'env de la machine agent ====="
           timeout 30 flyctl ssh console -a axon-agent -C "python -c \"import os; print('LIVEKIT_AGENT_NAME =', os.getenv('LIVEKIT_AGENT_NAME', '(non défini — défaut du code)'))\"" || true
+          echo ""
+          echo "===== Cles API critiques sur la machine agent (presence seule, valeur masquee) ====="
+          timeout 30 flyctl ssh console -a axon-agent -C "python -c \"import os
+for k in ('REPLICATE_API_TOKEN', 'REPLICATE_API_KEY', 'CARTESIA_API_KEY', 'ASSEMBLYAI_API_KEY', 'DEEPSEEK_API_KEY', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'MINIMAX_API_KEY'):
+    v = os.getenv(k)
+    print(f'  {k:25s} = {(\\\"OK (\\\"+str(len(v))+\\\" chars)\\\") if v else \\\"MISSING\\\"}')\"" || true
 
       - name: Probe dispatch (room de test, aucun appel téléphonique)
         if: ${{ github.event.inputs.action == 'probe-dispatch' }}
