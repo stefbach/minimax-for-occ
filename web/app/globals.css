@@ -389,12 +389,20 @@ table.list tr:hover td { background: var(--panel-2); }
 }
 .softphone-grid {
   display: grid;
-  grid-template-columns: 280px 1fr 320px;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) minmax(0, 320px);
   gap: 14px;
   align-items: start;
 }
+/* Wati 15/06 — ContactPanel returns null when no call is active, leaving
+   a 320px ghost column that squeezed the centre (dialer + notes). Drop
+   the column track entirely whenever .softphone-right isn't in the DOM
+   so the centre reclaims that width and the dialer keypad breathes. */
+.softphone-grid:not(:has(.softphone-right)) {
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+}
 @media (max-width: 1100px) {
-  .softphone-grid { grid-template-columns: 1fr; }
+  .softphone-grid,
+  .softphone-grid:not(:has(.softphone-right)) { grid-template-columns: 1fr; }
 }
 .softphone-left, .softphone-center, .softphone-right {
   display: flex;
@@ -402,6 +410,18 @@ table.list tr:hover td { background: var(--panel-2); }
   gap: 10px;
 }
 .softphone-center { min-height: 240px; }
+/* Inner two-col grid inside .softphone-center (dialer | notes). Stacks
+   below 900px so the dialer keeps a usable width when /desk shares
+   horizontal space with the rest of the workstation. */
+.softphone-center-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 360px);
+  gap: 12px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .softphone-center-cols { grid-template-columns: 1fr; }
+}
 
 /* ─── Live supervision ───────────────────────────────────── */
 .calls-kpis { gap: 12px; }
