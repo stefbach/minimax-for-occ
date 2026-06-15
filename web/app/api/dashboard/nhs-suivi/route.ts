@@ -125,7 +125,7 @@ export async function GET(request: Request) {
         .from("leads_rdv")
         .select(LEAD_SELECT_EXT)
         .in("id", leadIds.slice(i, i + 200));
-      for (const l of (data ?? []) as LeadRowExt[]) {
+      for (const l of (data ?? []) as unknown as LeadRowExt[]) {
         leadById.set(String(l.id), l);
       }
     } catch { /* ignore batch error */ }
