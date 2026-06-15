@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: "diagnose | restart-agent | list-secrets | probe-dispatch | bench-deepseek | bench-anthropic | bench-lk-inference | check-replicate-schema | test-replicate-predict"
+        description: "diagnose | restart-agent | list-secrets | probe-dispatch | bench-deepseek | bench-anthropic | bench-lk-inference | check-replicate-schema | test-replicate-predict | tighten-watchdog"
         required: true
         default: "diagnose"
 
@@ -122,6 +122,15 @@ jobs:
         run: |
           BANT="aW1wb3J0IG9zLCB0aW1lLCBqc29uLCB1cmxsaWIucmVxdWVzdCwgdXJsbGliLmVycm9yCmtleSA9IG9zLmVudmlyb24uZ2V0KCJBTlRIUk9QSUNfQVBJX0tFWSIsICIiKQpwcmludCgia2V5X2xlbj0iICsgc3RyKGxlbihrZXkpKSArICIgcHJlZml4PSIgKyBrZXlbOjEwXSkKcHJpbnQoIiIpCnVybCA9ICJodHRwczovL2FwaS5hbnRocm9waWMuY29tL3YxL21lc3NhZ2VzIgpmb3IgbW9kZWwgaW4gWyJjbGF1ZGUtaGFpa3UtNC01LTIwMjUxMDAxIiwgImNsYXVkZS1oYWlrdS00LTUiLCAiY2xhdWRlLXNvbm5ldC00LTYiLCAiY2xhdWRlLW9wdXMtNC03Il06CiAgICBwcmludCgiLS0tICIgKyBtb2RlbCArICIgLS0tIikKICAgIGJvZHkgPSB7Im1vZGVsIjogbW9kZWwsICJtYXhfdG9rZW5zIjogMzAsCiAgICAgICAgICAgICJtZXNzYWdlcyI6IFt7InJvbGUiOiAidXNlciIsICJjb250ZW50IjogIlJlcGx5IGp1c3QgJ09LJy4ifV19CiAgICByZXEgPSB1cmxsaWIucmVxdWVzdC5SZXF1ZXN0KHVybCwgbWV0aG9kPSJQT1NUIiwKICAgICAgICBkYXRhPWpzb24uZHVtcHMoYm9keSkuZW5jb2RlKCksCiAgICAgICAgaGVhZGVycz17IngtYXBpLWtleSI6IGtleSwgImFudGhyb3BpYy12ZXJzaW9uIjogIjIwMjMtMDYtMDEiLCAiQ29udGVudC1UeXBlIjogImFwcGxpY2F0aW9uL2pzb24ifSkKICAgIHQwID0gdGltZS50aW1lKCkKICAgIHRyeToKICAgICAgICB3aXRoIHVybGxpYi5yZXF1ZXN0LnVybG9wZW4ocmVxLCB0aW1lb3V0PTMwKSBhcyByOgogICAgICAgICAgICBqID0ganNvbi5sb2FkcyhyLnJlYWQoKSkKICAgICAgICAgICAgZWxhcHNlZCA9ICh0aW1lLnRpbWUoKSAtIHQwKSAqIDEwMDAKICAgICAgICAgICAgdGV4dCA9IChqLmdldCgiY29udGVudCIpIG9yIFt7fV0pWzBdLmdldCgidGV4dCIsICIiKQogICAgICAgICAgICBwcmludCgiICBPSyBpbiAiICsgc3RyKGludChlbGFwc2VkKSkgKyAibXM6ICIgKyB0ZXh0Wzo4MF0pCiAgICBleGNlcHQgdXJsbGliLmVycm9yLkhUVFBFcnJvciBhcyBlOgogICAgICAgIGJvZCA9IGUucmVhZCgpLmRlY29kZSgpWzo0MDBdCiAgICAgICAgcHJpbnQoIiAgSFRUUCAiICsgc3RyKGUuY29kZSkgKyAiOiAiICsgYm9kKQogICAgZXhjZXB0IEV4Y2VwdGlvbiBhcyBlOgogICAgICAgIHByaW50KCIgIEVYQzogIiArIHR5cGUoZSkuX19uYW1lX18gKyAiOiAiICsgc3RyKGUpWzoyMDBdKQogICAgcHJpbnQoIiIpCgpwcmludCgiLS0tIHZpYSBsaXZla2l0LnBsdWdpbnMuYW50aHJvcGljIC0tLSIpCnRyeToKICAgIGZyb20gbGl2ZWtpdC5wbHVnaW5zIGltcG9ydCBhbnRocm9waWMKICAgIHByaW50KCIgIG1vZHVsZTogIiArIHN0cihhbnRocm9waWMuX19maWxlX18pKQogICAgdHJ5OgogICAgICAgIGltcG9ydCBpbXBvcnRsaWIubWV0YWRhdGEgYXMgbWQKICAgICAgICBwcmludCgiICB2ZXJzaW9uOiAiICsgbWQudmVyc2lvbigibGl2ZWtpdC1wbHVnaW5zLWFudGhyb3BpYyIpKQogICAgZXhjZXB0IEV4Y2VwdGlvbjoKICAgICAgICBwYXNzCiAgICBsbG0gPSBhbnRocm9waWMuTExNKG1vZGVsPSJjbGF1ZGUtaGFpa3UtNC01LTIwMjUxMDAxIiwgYXBpX2tleT1rZXkpCiAgICBwcmludCgiICBMTE0gaW5zdGFuY2UgT0s6ICIgKyB0eXBlKGxsbSkuX19uYW1lX18pCmV4Y2VwdCBFeGNlcHRpb24gYXMgZToKICAgIHByaW50KCIgIEVYQzogIiArIHR5cGUoZSkuX19uYW1lX18gKyAiOiAiICsgc3RyKGUpWzozMDBdKQo="
           timeout 120 flyctl ssh console -a axon-agent -C "python -c \"import base64;exec(base64.b64decode('$BANT').decode())\"" || true
+
+      - name: Tighten dispatch watchdog (probe interval 120s -> 30s)
+        if: ${{ github.event.inputs.action == 'tighten-watchdog' }}
+        run: |
+          echo "Setting DISPATCH_PROBE_INTERVAL_SECS=30 on axon-agent…"
+          flyctl secrets set DISPATCH_PROBE_INTERVAL_SECS=30 DISPATCH_PROBE_STARTUP_DELAY_SECS=60 -a axon-agent --stage=false
+          echo ""
+          echo "Done. Worker will restart and probe every 30s instead of 120s."
+          echo "Window of undetected 'deaf' state: 60s max (vs 4min before)."
 
       - name: Restart agent machine
         if: ${{ github.event.inputs.action == 'restart-agent' }}
