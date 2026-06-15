@@ -684,24 +684,11 @@ def create_human_callback_task(
         # wants to defer (e.g. a "rappel à 18h" RAPPEL).
         scheduled = datetime.now(timezone.utc) + timedelta(days=max(0, days_ahead))
         with httpx.Client(timeout=httpx.Timeout(5.0), headers=_supabase_headers()) as c:
-            if contact_id:
-                check = c.get(_supabase_url(
-                    f"/rest/v1/human_callback_tasks?contact_id=eq.{contact_id}"
-                    f"&org_id=eq.{org_id}&status=in.(pending,in_progress)"
-                    "&select=id&limit=1"
-                ))
-                if check.is_success and check.json():
-                    logger.debug(
-                        "create_human_callback_task: contact=%s already has open task",
-                        contact_id,
-                    )
-                    return
-            # Resolve patient details (15/06/2026 Wati fix): callers might
-            # only pass contact_id (legacy paths) or even no resolution at
-            # all when the lead lives in a data_table. Look up via calls →
-            # to_e164 and campaign_targets.source_metadata → leads_rdv* to
-            # always populate display_name/e164 on the task. Best-effort:
-            # any failure here is logged but does NOT block task creation.
+            # Resolve patient details FIRST (15/06/2026 Wati v2 fix) — avant
+            # le dedup check, et avant de tenter de retrouver un contact_id.
+            # On veut éviter de créer des tâches contact_id=NULL : si on
+            # arrive à résoudre un e164, on cherche ou crée un contact pour
+            # rendre la fiche cliquable depuis le superviseur.
             if (not e164 or not display_name) and original_call_id:
                 try:
                     cr = c.get(_supabase_url(
@@ -711,7 +698,6 @@ def create_human_callback_task(
                         crows = cr.json() or []
                         if crows and not e164:
                             e164 = crows[0].get("to_e164") or None
-                    # Resolve patient row from campaign_targets → leads_rdv*
                     if not display_name:
                         ct = c.get(_supabase_url(
                             f"/rest/v1/campaign_targets?last_call_id=eq.{original_call_id}"
@@ -741,6 +727,51 @@ def create_human_callback_task(
                                         e164 = e164 or lrows[0].get("numero_telephone")
                 except Exception:
                     logger.debug("create_human_callback_task: resolve patient details failed", exc_info=True)
+            # Find-or-create un contact pour rendre la fiche cliquable
+            # côté superviseur. Sans ça, les leads vivant dans leads_rdv*
+            # produisent des tâches sans contact_id (bug Wati 15/06).
+            if not contact_id and e164:
+                try:
+                    cq = c.get(_supabase_url(
+                        f"/rest/v1/contacts?org_id=eq.{org_id}&e164=eq.{e164}&select=id&limit=1"
+                    ))
+                    if cq.is_success:
+                        rows = cq.json() or []
+                        if rows:
+                            contact_id = rows[0]["id"]
+                    if not contact_id:
+                        # Création paresseuse — display_name peut être null,
+                        # le contact sera enrichi plus tard si besoin via
+                        # save_contact_data ou par un humain.
+                        ic = c.post(
+                            _supabase_url("/rest/v1/contacts"),
+                            headers={
+                                **_supabase_headers(),
+                                "Content-Type": "application/json",
+                                "Prefer": "return=representation",
+                            },
+                            json={"org_id": org_id, "display_name": display_name, "e164": e164},
+                        )
+                        if ic.is_success:
+                            created = ic.json() or []
+                            if created:
+                                contact_id = created[0].get("id") if isinstance(created, list) else created.get("id")
+                except Exception:
+                    logger.debug("create_human_callback_task: find-or-create contact failed", exc_info=True)
+            # Dedup check : ne crée pas un doublon de tâche ouverte pour le
+            # même contact. À ce stade contact_id est résolu si possible.
+            if contact_id:
+                check = c.get(_supabase_url(
+                    f"/rest/v1/human_callback_tasks?contact_id=eq.{contact_id}"
+                    f"&org_id=eq.{org_id}&status=in.(pending,in_progress)"
+                    "&select=id&limit=1"
+                ))
+                if check.is_success and check.json():
+                    logger.debug(
+                        "create_human_callback_task: contact=%s already has open task",
+                        contact_id,
+                    )
+                    return
             r = c.post(
                 _supabase_url("/rest/v1/human_callback_tasks"),
                 headers={
