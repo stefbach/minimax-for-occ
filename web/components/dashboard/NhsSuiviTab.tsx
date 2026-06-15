@@ -499,40 +499,40 @@ export function NhsSuiviTab() {
 
 function PipelinePanel({ data }: { data: NhsSuiviResponse }) {
   const t = useT();
-  const total = Math.max(1, data.pipeline.initial_call);
+  const total = Math.max(1, data.comms.email_j0_sent); // enrolled population base for %
   const steps = [
     {
-      key: "initial_call",
-      label: t("Appel initial"),
-      day: "J0",
-      value: data.pipeline.initial_call,
+      key: "enrolled",
+      label: t("Inscrits au programme"),
+      day: t("PROGRAMME"),
+      value: data.comms.email_j0_sent,
       pct: 100,
     },
     {
       key: "email_reminder",
-      label: t("Email relance"),
-      day: "J+2",
+      label: t("Relance email + WhatsApp envoyée"),
+      day: t("RELANCE"),
       value: data.pipeline.email_reminder,
       pct: Math.round((data.pipeline.email_reminder / total) * 100),
     },
     {
       key: "response_received",
-      label: t("Réponse reçue"),
-      day: "J+2-5",
+      label: t("Ont renvoyé des documents"),
+      day: t("RÉPONSE"),
       value: data.pipeline.response_received,
       pct: Math.round((data.pipeline.response_received / total) * 100),
     },
     {
       key: "file_complete",
-      label: t("Dossier complet"),
-      day: "J+5-10",
+      label: t("Dossier complet, prêt NHS"),
+      day: t("COMPLET"),
       value: data.pipeline.file_complete,
       pct: Math.round((data.pipeline.file_complete / total) * 100),
     },
     {
       key: "nhs_submitted",
-      label: t("Soumis NHS"),
-      day: "—",
+      label: t("Soumis à la NHS S2"),
+      day: t("NHS"),
       value: data.pipeline.nhs_submitted,
       pct: Math.round((data.pipeline.nhs_submitted / total) * 100),
     },
