@@ -173,12 +173,14 @@ export async function GET(request: Request) {
   const tracking = { submitted: 0, in_review: 0, accepted: 0, rejected: 0 };
   let readyToSubmit = 0;
   let submittedThisMonth = 0;
-  for (const { d } of entries) {
+  for (const { d, patient } of entries) {
     if (!d) continue; // no dossier yet — skip clinic/NHS counts
     if (truthyDoc(d["doc_medical_report"])) clinicDocs.medical_report++;
     if (truthyDoc(d["doc_undue_delay_letter"])) clinicDocs.undue_delay_letter++;
     if (truthyDoc(d["doc_s2_provider_declaration"])) clinicDocs.s2_provider_declaration++;
-    if (truthyDoc(d["doc_detailed_medical_estimate"])) clinicDocs.medical_estimate++;
+    // Medical estimate is only produced by the clinic once ALL patient docs are in
+    const fileComplete = patient.status === "complets" || patient.status === "envoye-nhs";
+    if (fileComplete && truthyDoc(d["doc_detailed_medical_estimate"])) clinicDocs.medical_estimate++;
 
     const submissionDate = d.nhs_submission_date;
     const submissionStatus = d.nhs_submission_status;
