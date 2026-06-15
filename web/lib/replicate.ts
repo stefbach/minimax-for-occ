@@ -276,8 +276,10 @@ function buildReplicateInput(
   // Champs spécifiques par famille — Replicate normalise tout mais chaque
   // modèle a son schéma d'entrée.
   if (voice.family.startsWith("elevenlabs")) {
+    // ElevenLabs flash/turbo v2.5 sur Replicate attend "prompt" (pas "text").
+    // Erreur Wati 15/06 : HTTP 422 "input: prompt is required".
     const input: Record<string, unknown> = {
-      text,
+      prompt: text,
       voice_id: voice.provider_voice_id,
     };
     if (speed && speed !== 1.0) {

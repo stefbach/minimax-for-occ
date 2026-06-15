@@ -68,6 +68,10 @@ const REPLICATE_FAMILY_LABELS: Record<string, string> = {
 };
 
 const LANG_NAMES: Record<string, string> = {
+  // "multi" est la valeur emise par les voix Replicate multilingues
+  // (ElevenLabs Charlotte/Alice + MiniMax Wise_Woman/etc.) — sans cette
+  // entree elles s'affichaient en brut "multi" dans le dropdown.
+  multi: "Multilingue",
   fr: "Français", en: "Anglais", es: "Espagnol", de: "Allemand",
   it: "Italien", pt: "Portugais", zh: "Mandarin", ja: "Japonais",
   ko: "Coréen", nl: "Néerlandais", pl: "Polonais", ar: "Arabe",
