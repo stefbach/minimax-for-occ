@@ -307,6 +307,31 @@ export async function POST(
       // Wati's June 10 pivot: do NOT pre-schedule the callback. The lead
       // lands 'à traiter maintenant' so the manager can assign it; the
       // agent who handles it sets the next follow-up date themselves.
+      // 15/06 (Wati supervise): also denormalise display_name + e164 on
+      // the task row so the supervisor view never shows "—". Source from
+      // contacts (when resolved) or fall back to call.to_e164 + the lead
+      // row in the physical table.
+      let dispName: string | null = null;
+      if (resolvedContactId) {
+        const { data: cdetails } = await sb
+          .from("contacts")
+          .select("display_name")
+          .eq("id", resolvedContactId)
+          .maybeSingle();
+        dispName = cdetails?.display_name ?? null;
+      }
+      if (!dispName && table && rowId) {
+        try {
+          const { data: leadRow } = await sb
+            .from(table)
+            .select("nom")
+            .eq("id", rowId)
+            .maybeSingle();
+          dispName = (leadRow as { nom?: string | null } | null)?.nom ?? null;
+        } catch {
+          /* table may not have a `nom` column — non-fatal */
+        }
+      }
       await sb.from("human_callback_tasks").insert({
         org_id: call.org_id,
         contact_id: resolvedContactId,
@@ -315,6 +340,8 @@ export async function POST(
         transfer_reason: "auto from sync-lead (safety net)",
         scheduled_for: new Date().toISOString(),
         status: "pending",
+        display_name: dispName,
+        e164: call.to_e164 ?? null,
       });
     }
   }
