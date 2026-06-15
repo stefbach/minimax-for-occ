@@ -107,13 +107,14 @@ export async function GET(request: Request) {
   const threeDaysAgo = new Date(now.getTime() - 3 * 86400_000);
   const fiveDaysAgoMs = now.getTime() - 5 * 86400_000;
 
-  // ── Step 1: all leads with email_sent = true (the full population) ─────
+  // ── Step 1: NHS S2 programme population (email AND WhatsApp both sent) ──
   let allLeads: LeadRowExt[] = [];
   try {
     const { data } = await legacy
       .from("leads_rdv")
       .select(LEAD_SELECT_EXT)
       .eq("email_sent", true)
+      .eq("whatsapp_sent", true)
       .limit(10000);
     allLeads = (data ?? []) as unknown as LeadRowExt[];
   } catch { /* empty */ }

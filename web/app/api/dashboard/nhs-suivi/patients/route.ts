@@ -28,11 +28,12 @@ export async function GET(request: Request) {
   await requestOrgId(request);
   const legacy = nhsLegacyClient();
   try {
-    // 1. All leads that received the J0 explanation email
+    // 1. All leads in the NHS S2 programme (both explanation email AND WhatsApp sent)
     const leadsRes = await legacy
       .from("leads_rdv")
       .select(LEAD_SELECT)
       .eq("email_sent", true)
+      .eq("whatsapp_sent", true)
       .limit(10000);
     if (leadsRes.error) throw leadsRes.error;
     const leads = (leadsRes.data ?? []) as unknown as LeadRow[];
