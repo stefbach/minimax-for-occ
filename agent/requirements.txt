@@ -4,3 +4,7 @@ livekit-agents[assemblyai,cartesia,openai,silero,turn-detector,anthropic]~=1.5
 python-dotenv>=1.0.0
 supabase>=2.7.0
 httpx>=0.27.0
+# aiohttp : utilisé par agent/replicate_tts.py (preview Wati 15/06) —
+# le wrapper TTS Replicate poste en async aux predictions API. Déjà
+# transitivement présent via livekit-agents mais on l'explicite.
+aiohttp>=3.9.0

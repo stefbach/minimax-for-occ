@@ -487,7 +487,52 @@ def _stt_for(agent: Optional[AxonAgent]) -> assemblyai.STT:
     raise last_exc
 
 
-def _tts_for(agent: Optional[AxonAgent], sample_rate: Optional[int] = None) -> cartesia.TTS:
+def _tts_for(agent: Optional[AxonAgent], sample_rate: Optional[int] = None):
+    """Construit le plugin TTS adapté au voice_id de l'agent.
+
+    Routing (Wati preview 15/06) :
+      • voice_id commençant par "replicate:" → ReplicateTTS (ElevenLabs Flash/
+        Turbo + MiniMax Speech 02 Turbo/HD via la passerelle Replicate).
+      • sinon → cartesia.TTS, le chemin par défaut (prod).
+
+    Le wrapper Replicate est non-streaming (l'API renvoie l'audio complet),
+    ce qui ajoute ~1-2s de TTFB côté UX. Acceptable pour valider les voix
+    en campagne test ; switch ElevenLabs/MiniMax direct sans douleur ensuite.
+    """
+    try:
+        from replicate_tts import is_replicate_voice_id, ReplicateTTS
+    except ImportError:
+        # Permet à _tts_for de continuer même si le module Replicate n'est
+        # pas vendored (ex : ancien container) — fallback Cartesia.
+        is_replicate_voice_id = lambda _v: False
+        ReplicateTTS = None  # type: ignore[assignment]
+
+    _voice_for_routing = (
+        (agent.tts_voice_id if agent and agent.tts_voice_id else None)
+        or os.getenv("CARTESIA_VOICE_ID")
+    )
+    if ReplicateTTS is not None and is_replicate_voice_id(_voice_for_routing):
+        try:
+            _speed_for_replicate = (
+                float(agent.tts_speed)
+                if agent and agent.tts_speed and agent.tts_speed != 1.0
+                else None
+            )
+            return ReplicateTTS(
+                voice_id=_voice_for_routing,  # type: ignore[arg-type]
+                sample_rate=int(sample_rate) if sample_rate else 22050,
+                language=(agent.language if agent and agent.language else None),
+                speed=_speed_for_replicate,
+            )
+        except Exception:
+            logger.exception(
+                "ReplicateTTS init failed for voice_id=%s — falling back to Cartesia",
+                _voice_for_routing,
+            )
+    return _cartesia_tts_for(agent, sample_rate)
+
+
+def _cartesia_tts_for(agent: Optional[AxonAgent], sample_rate: Optional[int] = None) -> cartesia.TTS:
     """Cartesia Sonic TTS — honors the per-agent voice/language/speed.
 
     Replaced MiniMax for lower TTFB: Cartesia Sonic targets ~90ms
