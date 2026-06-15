@@ -189,6 +189,10 @@ export function AgentForm({ initial }: { initial?: Agent }) {
   const [filterLang, setFilterLang] = useState("");
   const [filterGender, setFilterGender] = useState("");
   const [filterCountry, setFilterCountry] = useState("");
+  // Filtre fournisseur (Wati 15/06) : "" tous, "cartesia", "elevenlabs-flash",
+  // "elevenlabs-turbo", "minimax-turbo", "minimax-hd". Évite de scroller dans
+  // 881 voix quand on cherche par exemple uniquement ElevenLabs Flash.
+  const [filterProvider, setFilterProvider] = useState("");
 
   // Inline voice cloning (Cartesia /voices/clone).
   const [showClone, setShowClone] = useState(false);
@@ -411,13 +415,16 @@ export function AgentForm({ initial }: { initial?: Agent }) {
   ].sort();
   const catalogCountries = [...new Set(cartesiaVoices.map((v) => v.country).filter(Boolean) as string[])].sort();
 
-  // Apply active filters.
-  const filteredCatalog = cartesiaVoices.filter((v) => {
-    if (filterLang && v.language !== filterLang) return false;
-    if (filterGender && v.gender !== filterGender) return false;
-    if (filterCountry && v.country !== filterCountry) return false;
-    return true;
-  });
+  // Apply active filters (provider Cartesia uniquement, on cache si le filtre
+  // demande explicitement une famille Replicate).
+  const filteredCatalog = (filterProvider && filterProvider !== "cartesia")
+    ? []
+    : cartesiaVoices.filter((v) => {
+        if (filterLang && v.language !== filterLang) return false;
+        if (filterGender && v.gender !== filterGender) return false;
+        if (filterCountry && v.country !== filterCountry) return false;
+        return true;
+      });
 
   // Group filtered catalog by language (Cartesia).
   const catalogGroups: [string, CartesiaVoiceCatalog[]][] = (() => {
@@ -437,13 +444,17 @@ export function AgentForm({ initial }: { initial?: Agent }) {
     });
   })();
 
-  // Replicate : meme logique de filtrage, regroupement par famille
-  // (ElevenLabs Flash, Turbo, MiniMax Turbo, HD).
-  const filteredReplicate = replicateVoices.filter((v) => {
-    if (filterLang && v.language !== filterLang) return false;
-    if (filterGender && v.gender !== filterGender) return false;
-    return true;
-  });
+  // Replicate : meme logique de filtrage + filtre famille (Wati 15/06).
+  // Si filterProvider est "cartesia" → on cache toutes les Replicate.
+  // Si filterProvider est une famille Replicate → on garde que cette famille.
+  const filteredReplicate = (filterProvider === "cartesia")
+    ? []
+    : replicateVoices.filter((v) => {
+        if (filterProvider && filterProvider !== v.family) return false;
+        if (filterLang && v.language !== filterLang) return false;
+        if (filterGender && v.gender !== filterGender) return false;
+        return true;
+      });
   const replicateGroups: [string, ReplicateVoiceCatalog[]][] = (() => {
     const map = new Map<string, ReplicateVoiceCatalog[]>();
     for (const v of filteredReplicate) {
@@ -616,6 +627,22 @@ export function AgentForm({ initial }: { initial?: Agent }) {
             {/* Horizontal filter bar — below the dropdown, like Cartesia's UI */}
             {(cartesiaVoices.length > 0 || replicateVoices.length > 0) && (
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 10 }}>
+                {/* Filtre fournisseur (Wati 15/06) — premier filtre car le plus
+                    selectif : ramene 881 voix a quelques dizaines en un clic. */}
+                {replicateVoices.length > 0 && (
+                  <select
+                    value={filterProvider}
+                    onChange={(e) => setFilterProvider(e.target.value)}
+                    style={{ width: "auto", fontSize: 13, padding: "6px 12px", borderRadius: 20, background: "var(--bg-2)", color: "var(--text)", fontWeight: filterProvider ? 600 : 400 }}
+                  >
+                    <option value="" style={{ background: "var(--bg-2)", color: "var(--text)" }}>Tous les fournisseurs</option>
+                    <option value="cartesia" style={{ background: "var(--bg-2)", color: "var(--text)" }}>Cartesia ({cartesiaVoices.length})</option>
+                    <option value="elevenlabs-flash" style={{ background: "var(--bg-2)", color: "var(--text)" }}>ElevenLabs Flash v2.5 ({replicateVoices.filter((v) => v.family === "elevenlabs-flash").length})</option>
+                    <option value="elevenlabs-turbo" style={{ background: "var(--bg-2)", color: "var(--text)" }}>ElevenLabs Turbo v2.5 ({replicateVoices.filter((v) => v.family === "elevenlabs-turbo").length})</option>
+                    <option value="minimax-turbo" style={{ background: "var(--bg-2)", color: "var(--text)" }}>MiniMax Speech 02 Turbo ({replicateVoices.filter((v) => v.family === "minimax-turbo").length})</option>
+                    <option value="minimax-hd" style={{ background: "var(--bg-2)", color: "var(--text)" }}>MiniMax Speech 02 HD ({replicateVoices.filter((v) => v.family === "minimax-hd").length})</option>
+                  </select>
+                )}
                 <select
                   value={filterGender}
                   onChange={(e) => setFilterGender(e.target.value)}
@@ -646,12 +673,12 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                     <option key={c} value={c} style={{ background: "var(--bg-2)", color: "var(--text)" }}>{COUNTRY_LABELS[c] ?? c}</option>
                   ))}
                 </select>
-                {(filterLang || filterGender || filterCountry) && (
+                {(filterLang || filterGender || filterCountry || filterProvider) && (
                   <button
                     type="button"
                     className="ghost"
                     style={{ fontSize: 12, padding: "6px 12px", borderRadius: 20 }}
-                    onClick={() => { setFilterLang(""); setFilterGender(""); setFilterCountry(""); }}
+                    onClick={() => { setFilterLang(""); setFilterGender(""); setFilterCountry(""); setFilterProvider(""); }}
                   >
                     ✕ Effacer
                   </button>
