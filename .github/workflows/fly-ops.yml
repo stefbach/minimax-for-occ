@@ -78,10 +78,8 @@ jobs:
           timeout 30 flyctl ssh console -a axon-agent -C "python -c \"import os; print('LIVEKIT_AGENT_NAME =', os.getenv('LIVEKIT_AGENT_NAME', '(non défini — défaut du code)'))\"" || true
           echo ""
           echo "===== Cles API critiques sur la machine agent (presence seule, valeur masquee) ====="
-          timeout 30 flyctl ssh console -a axon-agent -C "python -c \"import os
-for k in ('REPLICATE_API_TOKEN', 'REPLICATE_API_KEY', 'CARTESIA_API_KEY', 'ASSEMBLYAI_API_KEY', 'DEEPSEEK_API_KEY', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'MINIMAX_API_KEY'):
-    v = os.getenv(k)
-    print(f'  {k:25s} = {(\\\"OK (\\\"+str(len(v))+\\\" chars)\\\") if v else \\\"MISSING\\\"}')\"" || true
+          BCHK="aW1wb3J0IG9zCmZvciBrIGluICgiUkVQTElDQVRFX0FQSV9UT0tFTiIsICJSRVBMSUNBVEVfQVBJX0tFWSIsICJDQVJURVNJQV9BUElfS0VZIiwgIkFTU0VNQkxZQUlfQVBJX0tFWSIsICJERUVQU0VFS19BUElfS0VZIiwgIk9QRU5BSV9BUElfS0VZIiwgIkFOVEhST1BJQ19BUElfS0VZIiwgIk1JTklNQVhfQVBJX0tFWSIpOgogICAgdiA9IG9zLmdldGVudihrKQogICAgbXNnID0gKCJPSyAoIiArIHN0cihsZW4odikpICsgIiBjaGFycykiKSBpZiB2IGVsc2UgIk1JU1NJTkciCiAgICBwcmludChmIiAge2s6MjVzfSA9IHttc2d9IikK"
+          timeout 30 flyctl ssh console -a axon-agent -C "python -c \"import base64;exec(base64.b64decode('$BCHK').decode())\"" || true
 
       - name: Probe dispatch (room de test, aucun appel téléphonique)
         if: ${{ github.event.inputs.action == 'probe-dispatch' }}
