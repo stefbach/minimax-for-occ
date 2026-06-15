@@ -46,6 +46,27 @@ interface CartesiaVoiceCatalog {
   is_public: boolean;
 }
 
+// Catalogue Replicate (Wati preview 15/06) — meme structure normalisee
+// que Cartesia pour reutiliser les memes filtres/affichage. La famille
+// distingue ElevenLabs Flash/Turbo et MiniMax Turbo/HD pour grouper le
+// dropdown par fournisseur.
+interface ReplicateVoiceCatalog {
+  id: string;
+  name: string;
+  description: string | null;
+  language: string | null;
+  gender: string | null;
+  is_public: boolean;
+  family: string; // "elevenlabs-flash" | "elevenlabs-turbo" | "minimax-turbo" | "minimax-hd"
+}
+
+const REPLICATE_FAMILY_LABELS: Record<string, string> = {
+  "elevenlabs-flash": "ElevenLabs Flash v2.5",
+  "elevenlabs-turbo": "ElevenLabs Turbo v2.5",
+  "minimax-turbo": "MiniMax Speech 02 Turbo",
+  "minimax-hd": "MiniMax Speech 02 HD",
+};
+
 const LANG_NAMES: Record<string, string> = {
   fr: "Français", en: "Anglais", es: "Espagnol", de: "Allemand",
   it: "Italien", pt: "Portugais", zh: "Mandarin", ja: "Japonais",
@@ -127,6 +148,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
   const [error, setError] = useState<string | null>(null);
   const [voices, setVoices] = useState<Voice[]>([]);
   const [cartesiaVoices, setCartesiaVoices] = useState<CartesiaVoiceCatalog[]>([]);
+  const [replicateVoices, setReplicateVoices] = useState<ReplicateVoiceCatalog[]>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const objectUrlRef = useRef<string | null>(null);
 
@@ -212,6 +234,12 @@ export function AgentForm({ initial }: { initial?: Agent }) {
     fetch("/api/voices/cartesia")
       .then((r) => (r.ok ? r.json() : []))
       .then((data) => { if (!cancelled) setCartesiaVoices(Array.isArray(data) ? data : []); })
+      .catch(() => {});
+    // Load Replicate catalog voices (ElevenLabs Flash/Turbo + MiniMax —
+    // renvoie [] si REPLICATE_API_TOKEN n'est pas configure).
+    fetch("/api/voices/replicate")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) => { if (!cancelled) setReplicateVoices(Array.isArray(data) ? data : []); })
       .catch(() => {});
     return () => {
       cancelled = true;
@@ -368,9 +396,19 @@ export function AgentForm({ initial }: { initial?: Agent }) {
   const customCloned = voices.filter((v) => v.source === "cloned");
   const customPresets = voices.filter((v) => v.source === "preset");
 
-  // Derive filter options from catalog data.
-  const catalogLangs = [...new Set(cartesiaVoices.map((v) => v.language).filter(Boolean) as string[])].sort();
-  const catalogGenders = [...new Set(cartesiaVoices.map((v) => v.gender).filter(Boolean) as string[])].sort();
+  // Derive filter options from catalog data (Cartesia + Replicate fusionnes).
+  const catalogLangs = [
+    ...new Set([
+      ...(cartesiaVoices.map((v) => v.language).filter(Boolean) as string[]),
+      ...(replicateVoices.map((v) => v.language).filter(Boolean) as string[]),
+    ]),
+  ].sort();
+  const catalogGenders = [
+    ...new Set([
+      ...(cartesiaVoices.map((v) => v.gender).filter(Boolean) as string[]),
+      ...(replicateVoices.map((v) => v.gender).filter(Boolean) as string[]),
+    ]),
+  ].sort();
   const catalogCountries = [...new Set(cartesiaVoices.map((v) => v.country).filter(Boolean) as string[])].sort();
 
   // Apply active filters.
@@ -381,7 +419,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
     return true;
   });
 
-  // Group filtered catalog by language.
+  // Group filtered catalog by language (Cartesia).
   const catalogGroups: [string, CartesiaVoiceCatalog[]][] = (() => {
     const map = new Map<string, CartesiaVoiceCatalog[]>();
     for (const v of filteredCatalog) {
@@ -399,8 +437,33 @@ export function AgentForm({ initial }: { initial?: Agent }) {
     });
   })();
 
+  // Replicate : meme logique de filtrage, regroupement par famille
+  // (ElevenLabs Flash, Turbo, MiniMax Turbo, HD).
+  const filteredReplicate = replicateVoices.filter((v) => {
+    if (filterLang && v.language !== filterLang) return false;
+    if (filterGender && v.gender !== filterGender) return false;
+    return true;
+  });
+  const replicateGroups: [string, ReplicateVoiceCatalog[]][] = (() => {
+    const map = new Map<string, ReplicateVoiceCatalog[]>();
+    for (const v of filteredReplicate) {
+      const fam = v.family;
+      const list = map.get(fam) ?? [];
+      list.push(v);
+      map.set(fam, list);
+    }
+    // Ordre fixe : Flash (le plus rapide), Turbo, puis MiniMax.
+    const order = ["elevenlabs-flash", "elevenlabs-turbo", "minimax-turbo", "minimax-hd"];
+    return Array.from(map.entries()).sort(([a], [b]) => {
+      const ia = order.indexOf(a);
+      const ib = order.indexOf(b);
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+    });
+  })();
+
   const knownVoiceIds = new Set<string>([
     ...cartesiaVoices.map((v) => v.id),
+    ...replicateVoices.map((v) => v.id),
     ...customCloned.map((v) => v.voice_id),
     ...customPresets.map((v) => v.voice_id),
   ]);
@@ -514,8 +577,13 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                   ))}
                 </optgroup>
               )}
+              {catalogGroups.length > 0 && (
+                <optgroup label="━━━ Cartesia ━━━" disabled>
+                  <option value="" disabled>↓ Voix Cartesia (voix clonees + catalogue)</option>
+                </optgroup>
+              )}
               {catalogGroups.map(([lang, options]) => (
-                <optgroup key={lang} label={LANG_NAMES[lang] ?? lang.toUpperCase()}>
+                <optgroup key={`cartesia-${lang}`} label={`Cartesia · ${LANG_NAMES[lang] ?? lang.toUpperCase()}`}>
                   {options.map((v) => (
                     <option key={v.id} value={v.id}>
                       {v.name}{v.gender ? ` (${GENDER_LABELS[v.gender] ?? v.gender})` : ""}
@@ -523,8 +591,22 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                   ))}
                 </optgroup>
               ))}
-              {cartesiaVoices.length === 0 && (
-                <option value="" disabled>Catalogue vocal non disponible (clé API manquante)</option>
+              {replicateGroups.length > 0 && (
+                <optgroup label="━━━ Replicate ━━━" disabled>
+                  <option value="" disabled>↓ ElevenLabs + MiniMax via Replicate</option>
+                </optgroup>
+              )}
+              {replicateGroups.map(([fam, options]) => (
+                <optgroup key={`replicate-${fam}`} label={REPLICATE_FAMILY_LABELS[fam] ?? fam}>
+                  {options.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.name}{v.gender ? ` (${GENDER_LABELS[v.gender] ?? v.gender})` : ""}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+              {cartesiaVoices.length === 0 && replicateVoices.length === 0 && (
+                <option value="" disabled>Catalogue vocal non disponible (cle API manquante)</option>
               )}
               {voice && !knownVoiceIds.has(voice) && (
                 <option value={voice}>{voice} (ID manuel)</option>
@@ -532,7 +614,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
             </select>
 
             {/* Horizontal filter bar — below the dropdown, like Cartesia's UI */}
-            {cartesiaVoices.length > 0 && (
+            {(cartesiaVoices.length > 0 || replicateVoices.length > 0) && (
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 10 }}>
                 <select
                   value={filterGender}
@@ -575,7 +657,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                   </button>
                 )}
                 <span style={{ fontSize: 12, color: "var(--muted)", marginLeft: 4 }}>
-                  {filteredCatalog.length} voix
+                  {filteredCatalog.length + filteredReplicate.length} voix
                 </span>
               </div>
             )}

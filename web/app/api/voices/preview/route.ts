@@ -45,14 +45,24 @@ export async function POST(req: Request) {
   try {
     const text =
       body.text || "Bonjour, je suis votre nouvel assistant vocal. Comment puis-je vous aider ?";
-    const { audio, format } = await previewCartesiaTTS({
-      voice_id: body.voice_id,
-      text,
-      speed: body.speed,
-      emotion: body.emotion,
-      model: body.model,
-      language: body.language,
-    });
+    // Routing par provider (Wati preview 15/06) : les voice_id Replicate
+    // sont prefixes "replicate:famille:provider_voice_id". Tout le reste
+    // (UUIDs Cartesia, voix clonees) reste sur le chemin Cartesia.
+    const isReplicate = body.voice_id.startsWith("replicate:");
+    const { audio, format } = isReplicate
+      ? await previewReplicateTTS({
+          voice_id: body.voice_id,
+          text,
+          speed: body.speed,
+        })
+      : await previewCartesiaTTS({
+          voice_id: body.voice_id,
+          text,
+          speed: body.speed,
+          emotion: body.emotion,
+          model: body.model,
+          language: body.language,
+        });
 
     // Billing: record TTS chars (best-effort, never blocks the response).
     try {
