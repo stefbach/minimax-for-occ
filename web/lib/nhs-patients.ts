@@ -67,6 +67,7 @@ export interface NhsPatient {
   nhs_status: string | null;
   escalade: boolean;
   bank_exception: boolean;
+  has_response: boolean;
   duplicate?: boolean;
 }
 
@@ -141,6 +142,7 @@ export function buildPatient(d: DossierRow, l: LeadRow, threeDaysAgo: Date): Nhs
     nhs_status: d.nhs_submission_status,
     escalade: status === "sans-reponse",
     bank_exception: !!d.bank_statement_exception,
+    has_response: !!l.last_response_date,
   };
 }
 
@@ -172,6 +174,7 @@ export function buildPatientFromLead(l: LeadRow, threeDaysAgo: Date): NhsPatient
     nhs_status: null,
     escalade: status === "sans-reponse",
     bank_exception: false,
+    has_response: !!l.last_response_date,
   };
 }
 

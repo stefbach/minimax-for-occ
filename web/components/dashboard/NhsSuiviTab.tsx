@@ -30,8 +30,8 @@ export function NhsSuiviTab() {
   const [view, setView] = useState<NhsView>({ name: "dashboard" });
   // Maps each card to the same list filter the legacy dashboard uses.
   const METRIC_FILTER: Record<string, PatientFilter> = {
-    email_j0: "all", email_j2: "all", whatsapp_j2: "all", responses: "all",
-    no_document: "aucun-doc", partial: "partiels", complete: "complets", pending_3d: "sans-reponse",
+    email_j0: "all", email_j2: "all", whatsapp_j2: "all", responses: "has-response",
+    no_document: "no-docs", partial: "partiels", complete: "complets", pending_3d: "sans-reponse",
     doc_medical_report: "all", doc_undue_delay: "all", doc_s2_declaration: "all", doc_estimate: "all",
     sent_nhs: "envoye-nhs", in_review: "envoye-nhs", accepted: "envoye-nhs", rejected: "envoye-nhs",
     submitted_month: "envoye-nhs", ready: "complets",
@@ -685,7 +685,7 @@ function CommCard({
 
 // ── Patient list + detail (port of the legacy 3-view NHS page) ─────────────
 
-type PatientFilter = PatientStatus | "all";
+type PatientFilter = PatientStatus | "all" | "has-response" | "no-docs";
 type NhsView =
   | { name: "dashboard" }
   | { name: "list"; filter: PatientFilter }
@@ -712,6 +712,8 @@ const FILTER_LABEL: Record<PatientFilter, string> = {
   "partiels": "Documents partiels",
   "aucun-doc": "Aucun document reçu",
   "envoye-nhs": "Envoyés NHS S2",
+  "has-response": "Réponses reçues",
+  "no-docs": "Aucun document reçu",
 };
 const NHS_BADGE_LABEL: Record<string, string> = {
   in_review: "In review",
@@ -821,7 +823,9 @@ function PatientListView({
 
   const q = search.trim().toLowerCase();
   const filtered = (patients ?? []).filter((p) => {
-    if (filter !== "all" && p.status !== filter) return false;
+    if (filter === "has-response" && !p.has_response) return false;
+    if (filter === "no-docs" && p.docs_received !== 0) return false;
+    if (filter !== "all" && filter !== "has-response" && filter !== "no-docs" && p.status !== filter) return false;
     if (!q) return true;
     return `${p.name ?? ""} ${p.email ?? ""} ${p.phone ?? ""}`.toLowerCase().includes(q);
   });
