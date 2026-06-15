@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { DirectorResponse } from "@/app/api/dashboard/director/route";
 import type { QualBucket } from "@/lib/qualification";
 import { useT } from "@/lib/i18n";
@@ -121,8 +121,13 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
   };
 
   const gfKey = globalFiltersKey(global);
-  useEffect(() => {
-    let alive = true;
+  // Token-based cancellation: each call to loadDirector() bumps the token, and
+  // any in-flight fetch from a prior call ignores its own response. This lets
+  // both the deps-driven useEffect AND the DrillSheet `onClosed` callback share
+  // the same loader without racing each other (last-writer-wins on data).
+  const loadTokenRef = useRef(0);
+  const loadDirector = useCallback(() => {
+    const token = ++loadTokenRef.current;
     setLoading(true);
     const qs = new URLSearchParams({ from, to, threshold: String(threshold), leads_source: leadsSource });
     if (direction !== "all") qs.set("direction", direction);
@@ -133,11 +138,22 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
       .then(async (r) => {
         const j = await r.json();
         if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
-        if (alive) { setData(j); setError(null); }
+        if (loadTokenRef.current === token) { setData(j); setError(null); }
       })
-      .catch((e) => alive && setError(e instanceof Error ? e.message : "error"))
-      .finally(() => alive && setLoading(false));
-    return () => { alive = false; };
+      .catch((e) => {
+        if (loadTokenRef.current === token) setError(e instanceof Error ? e.message : "error");
+      })
+      .finally(() => {
+        if (loadTokenRef.current === token) setLoading(false);
+      });
+  }, [from, to, direction, threshold, leadsSource, system, slot, global]);
+
+  useEffect(() => {
+    loadDirector();
+    // Bumping the token in the cleanup invalidates the in-flight fetch when
+    // deps change before it resolves — same effect as the previous `alive` flag.
+    return () => { loadTokenRef.current++; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [from, to, direction, threshold, leadsSource, system, slot, gfKey, reloadKey, refreshKey]);
 
   // AI qualification is automatic: any answered call left in the "autre" bucket
@@ -690,7 +706,14 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
           </div>
         )}
       </div>
-      <DrillSheet spec={drill} onClose={() => setDrill(null)} />
+      <DrillSheet
+        spec={drill}
+        onClose={() => setDrill(null)}
+        // Refresh the KPI tiles after the drill panel closes — calls may have
+        // been re-qualified or modified while the user was inspecting the list,
+        // and the tiles otherwise stay frozen on the data fetched at mount.
+        onClosed={loadDirector}
+      />
     </div>
   );
 }
