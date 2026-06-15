@@ -1,11 +1,9 @@
 import { supabaseServer } from "@/lib/supabase";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveDataSource, type DataSource } from "./datasource";
 import { renderTemplate, renderDeep, getPath, truthy, type Ctx } from "./templating";
-import {
-  generateText,
-  type AnthropicCred,
-} from "./ai";
+import { generateText, type AnthropicCred } from "./ai";
+import { type RunCtx, loadCredential } from "./runtime";
+import { runOccStep } from "./steps-occ";
 
 /**
  * Native Axon automation engine ("mini-n8n"), v2.
@@ -64,39 +62,6 @@ export interface RunStats {
   log: Array<{ at: string; level: "info" | "warn" | "error"; msg: string }>;
   /** Last context (handy for callable automations returning a result). */
   output?: Ctx;
-}
-
-interface RunCtx {
-  orgId: string;
-  ds: DataSource;
-  app: SupabaseClient;
-  creds: Map<string, Record<string, unknown>>;
-  stats: RunStats;
-  log: (level: "info" | "warn" | "error", msg: string) => void;
-  /** Re-entrancy guard for call_automation. */
-  depth: number;
-}
-
-// ── Credentials (always in the app DB) ─────────────────────────────────────
-
-async function loadCredential(
-  rc: RunCtx,
-  credentialId: string,
-): Promise<Record<string, unknown> | null> {
-  if (rc.creds.has(credentialId)) return rc.creds.get(credentialId)!;
-  const { data } = await rc.app
-    .from("org_credentials")
-    .select("kind, data")
-    .eq("id", credentialId)
-    .eq("org_id", rc.orgId)
-    .maybeSingle();
-  if (!data) {
-    rc.creds.set(credentialId, { _missing: true });
-    return null;
-  }
-  const merged = { kind: data.kind, ...(data.data as Record<string, unknown>) };
-  rc.creds.set(credentialId, merged);
-  return merged;
 }
 
 // ── Step executors ─────────────────────────────────────────────────────────
@@ -369,9 +334,47 @@ async function executeStep(rc: RunCtx, step: StepConfig, ctx: Ctx): Promise<void
       return;
     }
 
-    default:
-      rc.log("warn", `unknown step type ${step.type}`);
+    // ── call another automation (orchestrator → sub-agent) ─────────────────
+    case "call_automation": {
+      if (rc.depth >= 8) {
+        rc.log("error", "call_automation: max depth reached");
+        rc.stats.errors++;
+        return;
+      }
+      const targetId = String(step.workflow_id ?? "");
+      const { data: target } = await rc.app
+        .from("org_workflows")
+        .select("id, org_id, name, active, trigger, steps, last_run_at")
+        .eq("id", targetId)
+        .eq("org_id", rc.orgId)
+        .maybeSingle();
+      if (!target) {
+        rc.log("error", `call_automation: workflow ${targetId} not found`);
+        rc.stats.errors++;
+        return;
+      }
+      // Build the sub-agent input from the mapping (templated against ctx).
+      const input = renderDeep((step.input as Record<string, unknown>) ?? {}, ctx);
+      const sub = await runWorkflow(target as unknown as WorkflowRow, input as Ctx, rc.depth + 1);
+      // Roll the sub-agent's counters up into this run.
+      rc.stats.actions += sub.actions;
+      rc.stats.skipped += sub.skipped;
+      rc.stats.errors += sub.errors;
+      for (const l of sub.log) rc.stats.log.push(l);
+      const key = (step.output_key as string) ?? "result";
+      ctx[key] = sub.output ?? {};
+      rc.log("info", `called ${target.name}: ${sub.actions} actions, ${sub.errors} errors`);
       return;
+    }
+
+    default: {
+      // OCC compound steps (fetch_patient_context, gmail_ingest_documents,
+      // screen_dossier, generate_documents, communicate, …) live in their own
+      // module to keep this dispatcher lean.
+      const handled = await runOccStep(rc, step, ctx);
+      if (!handled) rc.log("warn", `unknown step type ${step.type}`);
+      return;
+    }
   }
 }
 
@@ -381,7 +384,7 @@ function makeStats(): RunStats {
   return { matched: 0, actions: 0, skipped: 0, errors: 0, log: [] };
 }
 
-export async function runWorkflow(wf: WorkflowRow, input?: Ctx): Promise<RunStats> {
+export async function runWorkflow(wf: WorkflowRow, input?: Ctx, depth = 0): Promise<RunStats> {
   const app = supabaseServer();
   const stats = makeStats();
   const log = (level: "info" | "warn" | "error", msg: string) => {
@@ -399,11 +402,13 @@ export async function runWorkflow(wf: WorkflowRow, input?: Ctx): Promise<RunStat
     return stats;
   }
 
-  const rc: RunCtx = { orgId: wf.org_id, ds, app, creds: new Map(), stats, log, depth: 0 };
+  const rc: RunCtx = { orgId: wf.org_id, ds, app, creds: new Map(), stats, log, depth };
 
-  // Callable automation: run steps once over the supplied input context.
+  // Callable automation: run steps once over the supplied input context
+  // (falling back to trigger.test_input so "Run now" can exercise sub-agents).
   if (trig.type === "callable") {
-    const ctx: Ctx = { _now: new Date().toISOString(), ...(input ?? {}) };
+    const seed = input ?? (trig as { test_input?: Ctx }).test_input ?? {};
+    const ctx: Ctx = { _now: new Date().toISOString(), ...seed };
     stats.matched = 1;
     await runStepsOnContext(rc, wf.steps ?? [], ctx);
     stats.output = ctx;
