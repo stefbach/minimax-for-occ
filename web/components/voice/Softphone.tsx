@@ -811,7 +811,7 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
           onSelect={(c) => setActiveCall(c)}
         />
 
-        <div className="softphone-center" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(260px, 360px)", gap: 12, alignItems: "start" }}>
+        <div className="softphone-center softphone-center-cols">
           <div className="card" style={{ padding: 12 }}>
           <h3 style={{ marginTop: 0 }}>Composer un numéro</h3>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
