@@ -78,6 +78,7 @@ const NAV: NavItem[] = [
 
   // ─── CONFIGURATION ───
   { href: "/agents",         label: "Agents",                icon: "◇", group: "Configuration", module: "agents" },
+  { href: "/outbound-call",  label: "Appel sortant",         icon: "☎", group: "Configuration", module: "agents" },
   { href: "/teams",          label: "Teams IA",              icon: "⌬", group: "Configuration", module: "agents" },
   { href: "/scripts",        label: "Scripts",               icon: "✎", group: "Configuration", module: "agents" },
   { href: "/agents/library", label: "Bibliothèque persona", icon: "⊕", group: "Configuration", module: "agents" },
