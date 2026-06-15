@@ -121,6 +121,54 @@ Consultant Bariatric Surgeon
 Clinique Bouchard, Marseille, France`;
 }
 
+export function s2SubmissionEmailPrompt(nom: string): string {
+  return `You are Dr Marius Nedelcu's medical-administrative writer at Clinique Bouchard (ELSAN Group), Marseille. From the ATTACHED patient documents (signed UK S2 form, comprehensive Medical Report, Undue Delay justification), generate ONE complete formal HTML email supporting this patient's NHS S2 planned-treatment application for bariatric surgery, written in the name of Dr Marius Nedelcu, the treating clinician supporting the patient's OWN application. Output ONLY the HTML email body (no markdown, no preamble, no commentary), beginning directly with: Dear European Cross Border Healthcare Team,
+
+PATIENT: ${nom}
+
+=== DATA SOURCE ===
+Extract ALL patient-specific facts ONLY from the attached documents (full name, DOB and age, sex, NHS number, NI number, address, telephone, email, NHS GP and practice; height, weight, BMI, maximum weight; every documented comorbidity with diagnosis date and most recent value; every current medication with dose, frequency and indication; documented allergies; conservative-management history; the proposed procedure; both phase dates). Use the patient's correct title and pronouns. Never invent data.
+
+=== ACCURACY GUARDRAILS (override fluency) ===
+- HbA1c 46-48 mmol/mol is good / near-threshold control; do NOT call it 'poor'. Make the case via elevated lifetime complication risk given age and comorbidity burden.
+- Quote blood pressure with its date; only call it 'above target' if the reading supports it.
+- Do NOT fabricate medications, lab values, dates, or citations. Cite ONLY: STAMPEDE (Schauer et al., NEJM 2017); Honka et al., Diabetes Care 2024; SOS (Sjostrom et al.); Aminian et al., JAMA 2022; Syn et al., JAMA 2023; Doumouras et al., Circulation 2023; Lassailly et al., Gastroenterology 2020 — each tied to a comorbidity the patient actually has.
+- No absolute outcome promises; use 'associated with', 'reported', 'expected'.
+
+=== FIXED LEGAL BASIS (reproduce; do not embellish) ===
+The S2 route gives effect to: Article 20 of Regulation (EC) No 883/2004; as applied under the EU-UK Withdrawal Agreement; and enabled by the Healthcare (European Economic Area and Switzerland Arrangements) Act 2019, administered by NHS England. Do NOT cite EU Directive 2011/24/EU or 'Article 112'. Confirm the patient is ordinarily resident in England, registered with an NHS GP, holds no UK-issued S1, and that treatment is in the French STATE healthcare sector.
+
+=== FIXED COSTS (use these EXACT figures; show the arithmetic; figures must reconcile) ===
+Standard Level 1 (Base Scenario), laparoscopic sleeve gastrectomy, in Euros:
+- Phase 1 (Pre-operative assessment, 3 days / 2 nights): Total EUR 2,709.70 | NHS S2 EUR 2,608.70 | Patient EUR 101.00 (FJH EUR 69 + PAS EUR 32)
+- Phase 2 (Surgical intervention, 5 days / 4 nights): Total EUR 4,889.65 | NHS S2 EUR 4,742.65 | Patient EUR 147.00 (FJH EUR 115 + PAS EUR 32)
+- TOTAL: Total EUR 7,599.35 | NHS S2 EUR 7,351.35 | Patient EUR 248.00
+Co-payment: Forfait Journalier Hospitalier EUR 23/day (Phase 1 EUR 69; Phase 2 EUR 115; total EUR 184); Participation Forfaitaire EUR 32 once per phase (total EUR 64); total patient co-payment EUR 248.00. The clinic invoices NHS England EUR 7,351.35 and charges the patient the EUR 248.00 co-payment only.
+
+=== STRUCTURE (produce ALL, fully developed; >= ~4,500 words) ===
+Opening: three justified paragraphs (treating clinician supporting the named patient's S2 application + the fixed legal basis; one-line clinical summary + an NHS delay of 18-36+ months constituting undue delay; Clinique Bouchard can treat within 4-6 weeks of approval).
+SECTION 1: PATIENT AND TREATMENT SPECIFICATIONS (identification table; clinical status; comorbidities; medications; proposed treatment specification table).
+SECTION 2: LEGAL FRAMEWORK AND ELIGIBILITY COMPLIANCE (the three instruments; residency; undue delay table; NICE NG246/CG189 BMI and failed-non-surgical criteria).
+SECTION 3: CLINICAL JUSTIFICATION (rationale for laparoscopic sleeve gastrectomy; expected outcomes with figures; safety profile; risks of delay by organ system; evidence base).
+SECTION 4: FINANCIAL TRANSPARENCY (the cost table; co-payment arithmetic; what NHS S2 covers; follow-up).
+SECTION 5: ATTACHED DOCUMENTATION (described list).
+SECTION 6: FORMAL REQUEST AND COMMITMENT (restate the figures; clinic + patient commitments).
+SECTION 7: LEGAL COMPLIANCE STATEMENT (accuracy declaration; liability; disclosure consent naming NHS England, DHSC, NHS BSA, NHS Counter Fraud Authority; expedited-processing request).
+Signature block exactly:
+Yours sincerely,
+Dr Marius NEDELCU
+Consultant Bariatric Surgeon
+Clinique Bouchard - ELSAN Group
+77 Rue du Docteur Escat, 13006 Marseille, France
+Tel: +33 6 95 95 09 65
+Email: drmariusnedelcu@gmail.com
+
+=== HTML FORMAT (inline styles only; render as a clean Gmail-native email) ===
+Font throughout font-family:Calibri,Arial,sans-serif. Body paragraphs font-size:11pt; justified; color rgb(0,0,0). Section headers font-size:14pt; color rgb(0,48,135); 2px bottom border. Tables border-collapse with rgb(0,48,135) borders; header cells on rgb(0,48,135) background, white text. Email addresses as plain copy-pasteable text (never mailto: or entities). Render the Euro sign as the symbol.
+
+Output ONLY the HTML email body, starting with: Dear European Cross Border Healthcare Team,`;
+}
+
 export function undueDelayPrompt(nom: string, profile: string, dateStr: string): string {
   return `You are Dr Marius Nedelcu, Consultant Bariatric Surgeon at Clinique Bouchard, Marseille, France (15+ years of bariatric experience, 3,000+ personal cases, specialist in complex obesity and metabolic comorbidities). You are writing a formal MEDICAL JUSTIFICATION LETTER regarding UNDUE DELAY, addressed to NHS England's European Cross Border Healthcare Team, in support of an NHS S2 planned-treatment application for bariatric surgery under EU Directive 2011/24/EU Article 112. Your style is professionally assertive but never defensive, evidence-driven, respectful toward NHS processes while clear about system limitations, collaborative (seeking approval, not adversarial), and sophisticated yet accessible. Every factual claim is evidence-based or explicitly flagged as clinical opinion; no exaggeration for length-filling.
 

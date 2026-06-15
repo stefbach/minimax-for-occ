@@ -1,9 +1,10 @@
 import { type RunCtx, loadCredential } from "./runtime";
 import { renderTemplate, type Ctx } from "./templating";
 import { analyzeFiles, generateText, runAgent, type AnthropicCred } from "./ai";
-import { searchMessages, getMessageAttachments, type GmailCred } from "./gmail";
+import { searchMessages, getMessageAttachments, sendEmail, createDraft, type GmailCred, type GmailAttachment } from "./gmail";
 import { uploadObject, downloadObject, publicUrl, upsertNhsDocument, renderPdf } from "./storage";
-import { extractClinicalPrompt, medicalReportPrompt, undueDelayPrompt } from "./prompts-occ";
+import { extractClinicalPrompt, medicalReportPrompt, undueDelayPrompt, s2SubmissionEmailPrompt } from "./prompts-occ";
+import { buildComms } from "./comms-occ";
 
 /**
  * OCC patient-pipeline compound steps.
@@ -548,6 +549,262 @@ async function generateDocuments(rc: RunCtx, step: Record<string, unknown>, ctx:
   rc.log("info", `A6: generated ${outputs.length} documents for ${nom}`);
 }
 
+// ── Agent 4: Communicate (status comms + relance + forms/clinic drafts) ──────
+
+async function watiSessionMessage(cred: Record<string, unknown>, phone: string, text: string): Promise<void> {
+  const base = String(cred.base_url ?? "").replace(/\/+$/, "");
+  const token = String(cred.token ?? "");
+  if (!base || !token) throw new Error("WATI credential missing base_url/token");
+  const url = `${base}/api/v1/sendSessionMessage/${encodeURIComponent(phone.replace(/^\+/, ""))}?messageText=${encodeURIComponent(text)}`;
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { Authorization: token.startsWith("Bearer ") ? token : `Bearer ${token}` },
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!r.ok) throw new Error(`WATI session ${r.status}: ${(await r.text()).slice(0, 150)}`);
+}
+
+async function telegramSend(cred: Record<string, unknown>, text: string): Promise<void> {
+  const token = String(cred.bot_token ?? cred.token ?? "");
+  const chatId = String(cred.chat_id ?? "");
+  if (!token || !chatId) return;
+  await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId, text }),
+    signal: AbortSignal.timeout(15000),
+  });
+}
+
+const NHS_REGION_EMAIL: Record<string, string> = {
+  england: "england.europeanhealthcare@nhs.net",
+  wales: "nwjcc.ipc@wales.nhs.uk",
+  scotland: "loth.safehaven@nhs.scot",
+};
+const SIGN_KEYMAP: Record<string, string> = {
+  s2_form: "doc_nhs_s2_form",
+  patient_authorisation: "doc_patient_authorisation",
+  s2_provider: "doc_s2_provider_declaration",
+};
+
+function dossierDocFlags(d: Record<string, unknown>): Record<string, string> {
+  const docs: Record<string, string> = {};
+  for (const f of PROBE_FIELDS) docs[f] = String(d[f] ?? "missing");
+  return docs;
+}
+
+async function communicatePatient(rc: RunCtx, step: Record<string, unknown>, ctx: Ctx): Promise<void> {
+  const stormi = (await cred(rc, step.gmail_stormi_credential_id as string)) as GmailCred | null;
+  const wati = await cred(rc, step.wati_credential_id as string);
+  const telegram = step.telegram_credential_id ? await cred(rc, step.telegram_credential_id as string) : null;
+  const leadTable = String(step.table_lead ?? "leads_rdv");
+  const dossierTable = String(step.table_dossier ?? "nhs_dossiers");
+  const stdTable = String(step.table_standard_documents ?? "nhs_standard_documents");
+  const clinicEmail = String(step.clinic_email ?? "customer.service@obesity-care-clinic.com");
+
+  const patientId = String(ctx.patient_id ?? "");
+  const dossierId = String(ctx.dossier_id ?? "");
+  const { data: lead } = await rc.ds.client.from(leadTable).select("*").eq("id", patientId).maybeSingle();
+  const { data: dossier } = await rc.ds.client.from(dossierTable).select("*").eq("id", dossierId).maybeSingle();
+  const L = (lead as Record<string, unknown>) ?? {};
+  const D = (dossier as Record<string, unknown>) ?? {};
+  const nom = String(ctx.nom ?? L.nom ?? D.nom ?? "");
+  const email = String(ctx.email ?? L.email ?? "");
+  const phone = String(L.numero_telephone ?? ctx.numero_telephone ?? "").replace(/[^0-9]/g, "");
+  const status = String(D.dossier_status ?? "NO_DOCUMENTS_RECEIVED");
+  const pct = Number(D.dossier_completion_pct ?? 0);
+  const region = String(D.nhs_region ?? "england").toLowerCase();
+  const docs = dossierDocFlags(D);
+  const comms = buildComms({
+    nom, status, pct, region, docs,
+    medical_report_url: String(D.doc_medical_report_url ?? ""),
+    undue_delay_url: String(D.doc_undue_delay_letter_url ?? ""),
+  });
+
+  // Relance (J+2) calculation, mirroring the n8n Prepare Comms node.
+  const nowIso = new Date().toISOString();
+  const firstEmailAt = (L.first_email_at as string) || null;
+  const anchor = firstEmailAt || nowIso;
+  const days = (Date.now() - Date.parse(anchor)) / 86400000;
+  const responded = !!L.last_response_date;
+  const alreadyRel = L.relance_email_sent === true;
+  const alreadyRelWa = L.relance_whatsapp_sent === true;
+  const reminder = status === "NO_DOCUMENTS_RECEIVED" || status === "MISSING_DOCUMENTS";
+  const relanceDue = reminder && !responded && !alreadyRel && days >= 2;
+
+  await rc.ds.client.from(leadTable).update({
+    document_status: status,
+    first_email_at: anchor,
+    relance_email_sent: relanceDue ? true : alreadyRel,
+    relance_email_date: relanceDue ? nowIso : (L.relance_email_date ?? null),
+    relance_whatsapp_sent: relanceDue ? true : alreadyRelWa,
+    relance_whatsapp_date: relanceDue ? nowIso : (L.relance_whatsapp_date ?? null),
+  }).eq("id", patientId);
+
+  // Status email + WhatsApp to the patient.
+  if (stormi && email) {
+    const { subject, html } = comms.emailFor(status);
+    try { await sendEmail(stormi, { to: email, subject, html }); rc.stats.actions++; }
+    catch (e) { rc.log("warn", `A4: patient email failed: ${e instanceof Error ? e.message : e}`); }
+  }
+  if (wati && phone) {
+    try { await watiSessionMessage(wati, phone, comms.waFor(status)); rc.stats.actions++; }
+    catch (e) { rc.log("warn", `A4: WhatsApp failed: ${e instanceof Error ? e.message : e}`); }
+  }
+
+  // Forms to sign (S2 / Patient Authorisation) → email to the patient.
+  const formsSent: string[] = [];
+  if (comms.need_to_sign && stormi && email) {
+    const { data: forms } = await rc.ds.client.from(stdTable).select("*").eq("send_for_signing", true).eq("active", true);
+    for (const r of (forms ?? []) as Array<Record<string, unknown>>) {
+      if (r.recipient !== "patient" || !r.public_url) continue;
+      const df = SIGN_KEYMAP[String(r.doc_key)];
+      if (df && docs[df] === "received") continue;
+      try {
+        const f = await downloadObject(rc.ds, String(r.public_url));
+        await sendEmail(stormi, {
+          to: email,
+          subject: `Please sign: ${r.title} - NHS S2 application`,
+          html: `<p>Dear ${nom},</p><p>Please find attached the <strong>${r.title}</strong> for the NHS S2 application. Kindly complete, sign and return it to customer.service@obesity-care-clinic.com.</p><p>Warm regards,<br>The OCC Patient Services Team</p>`,
+          attachments: [{ filename: String(r.file_name ?? `${r.title}.pdf`), mimeType: f.contentType, data: f.base64 }],
+        });
+        formsSent.push(String(r.doc_key));
+        rc.stats.actions++;
+      } catch (e) { rc.log("warn", `A4: form ${r.doc_key} failed: ${e instanceof Error ? e.message : e}`); }
+    }
+  }
+
+  // Clinic-signature draft (Provider Declaration + Devis) once docs generated.
+  const docsGenerated = !!(D.doc_medical_report_url && D.doc_undue_delay_letter_url);
+  if (docsGenerated && docs.doc_s2_provider_declaration !== "received" && stormi) {
+    const { data: stds } = await rc.ds.client.from(stdTable).select("*").eq("active", true);
+    const WANT: Record<string, string> = { s2_provider: "S2 Provider Declaration Form", cost_estimate: "Detailed Medical Estimate (Devis)" };
+    const atts: GmailAttachment[] = [];
+    const lines: string[] = [];
+    for (const r of (stds ?? []) as Array<Record<string, unknown>>) {
+      const label = WANT[String(r.doc_key)];
+      if (!label || !r.public_url) continue;
+      try {
+        const f = await downloadObject(rc.ds, String(r.public_url));
+        atts.push({ filename: String(r.file_name ?? `${label}.pdf`), mimeType: f.contentType, data: f.base64 });
+        lines.push(`<li>${label}</li>`);
+      } catch { /* skip */ }
+    }
+    if (atts.length > 0) {
+      try {
+        await createDraft(stormi, {
+          to: clinicEmail,
+          subject: `NHS S2 — Documents for Signature — ${nom}`,
+          html: `<html><body style='font-family:Arial,sans-serif;color:#333;line-height:1.6;'><p>Dear Clinique Bouchard team,</p><p>Please find attached, for our patient <strong>${nom}</strong>, the following documents relating to the NHS S2 funded-treatment pathway:</p><ul>${lines.join("")}</ul><p>Kindly review and <strong>sign the S2 Provider Declaration Form</strong>, then return the signed copy to us at customer.service@obesity-care-clinic.com.</p><p>With thanks,<br>The OCC Patient Services Team</p></body></html>`,
+          attachments: atts,
+        });
+        rc.stats.actions++;
+      } catch (e) { rc.log("warn", `A4: clinic draft failed: ${e instanceof Error ? e.message : e}`); }
+    }
+  }
+
+  if (telegram) {
+    try { await telegramSend(telegram, `🗂 NHS Dossier Update\nPatient: ${nom}\nStatus: ${status}\nCompletion: ${pct}%\nRegion: ${region}`); } catch { /* best effort */ }
+  }
+
+  ctx.dossier_status = status;
+  ctx.completion_pct = pct;
+  ctx.nhs_region = region;
+  ctx.submission_ready = D.submission_ready === true || status === "COMPLETE";
+  ctx.forms_to_sign_sent = formsSent;
+  ctx.is_relance_due = relanceDue;
+  ctx.email = email;
+  ctx.numero_telephone = phone;
+  rc.stats.actions++;
+  rc.log("info", `A4: ${status} comms for ${nom} (relance=${relanceDue}, forms=${formsSent.length})`);
+}
+
+// ── Agent 4b: NHS submission draft (only when the dossier is COMPLETE) ───────
+
+async function prepareNhsSubmission(rc: RunCtx, step: Record<string, unknown>, ctx: Ctx): Promise<void> {
+  const submissionReady = ctx.submission_ready === true || ctx.dossier_status === "COMPLETE";
+  if (!submissionReady) { ctx.nhs_submission_drafted = false; return; }
+
+  const nedelcu = (await cred(rc, step.gmail_nedelcu_credential_id as string)) as GmailCred | null;
+  const stormi = (await cred(rc, step.gmail_stormi_credential_id as string)) as GmailCred | null;
+  const anthropic = (await cred(rc, step.anthropic_credential_id as string)) as AnthropicCred | null;
+  const dossierTable = String(step.table_dossier ?? "nhs_dossiers");
+  const docsTable = String(step.table_documents ?? "nhs_documents");
+  const stdTable = String(step.table_standard_documents ?? "nhs_standard_documents");
+  const coordinatorEmail = String(step.coordinator_email ?? "customer.service@obesity-care-clinic.com");
+
+  const patientId = String(ctx.patient_id ?? "");
+  const dossierId = String(ctx.dossier_id ?? "");
+  const nom = String(ctx.nom ?? "");
+  const { data: dossier } = await rc.ds.client.from(dossierTable).select("*").eq("id", dossierId).maybeSingle();
+  const D = (dossier as Record<string, unknown>) ?? {};
+  const region = String(D.nhs_region ?? "england").toLowerCase();
+  const nhsEmail = String(step.nhs_email_override ?? NHS_REGION_EMAIL[region] ?? NHS_REGION_EMAIL.england);
+
+  // Coordinator notification.
+  if (stormi) {
+    const comms = buildComms({
+      nom, status: "COMPLETE", pct: Number(D.dossier_completion_pct ?? 100), region,
+      docs: dossierDocFlags(D),
+      medical_report_url: String(D.doc_medical_report_url ?? ""),
+      undue_delay_url: String(D.doc_undue_delay_letter_url ?? ""),
+    });
+    try {
+      await sendEmail(stormi, { to: coordinatorEmail, subject: `NHS S2 Dossier Ready — ${nom}`, html: comms.html_coordinator });
+      rc.stats.actions++;
+    } catch (e) { rc.log("warn", `A4b: coordinator email failed: ${e instanceof Error ? e.message : e}`); }
+  }
+
+  // Assemble the submission attachments (dossier documents + OCC standards).
+  const { data: docRows } = await rc.ds.client.from(docsTable).select("*").eq("dossier_id", dossierId);
+  const order = ["doc_nhs_s2_form", "doc_medical_report", "doc_undue_delay_letter", "doc_clinical_justification_gp", "doc_patient_authorisation", "doc_identity_document", "doc_proof_of_residence", "doc_bank_statements"];
+  const seen = new Set<string>();
+  const picked: Array<{ url: string; file: string }> = [];
+  for (const f of order) {
+    const r = (docRows ?? []).find((x: Record<string, unknown>) => x.doc_field === f && x.public_url && x.status !== "superseded" && x.source !== "superseded");
+    if (r && !seen.has(f)) { seen.add(f); picked.push({ url: String(r.public_url), file: String(r.file_name ?? `${f}.pdf`) }); }
+  }
+  const { data: stds } = await rc.ds.client.from(stdTable).select("*").eq("active", true);
+  const STD_WANT: Record<string, string> = { cpam: "CPAM Certificate", cost_estimate: "Detailed Medical Estimate (Devis)" };
+  for (const r of (stds ?? []) as Array<Record<string, unknown>>) {
+    const label = STD_WANT[String(r.doc_key)];
+    if (label && r.public_url) picked.push({ url: String(r.public_url), file: String(r.file_name ?? `${label}.pdf`) });
+  }
+
+  const attachments: GmailAttachment[] = [];
+  for (const p of picked) {
+    try { const f = await downloadObject(rc.ds, p.url); attachments.push({ filename: p.file, mimeType: f.contentType, data: f.base64 }); }
+    catch { /* skip unreachable */ }
+  }
+
+  // Generate the formal S2 cover email from the key documents (best effort).
+  let coverHtml = `<html><body style='font-family:Calibri,Arial,sans-serif;color:#000;line-height:1.5;'><p>Dear Sir or Madam,</p><p>Please find enclosed an application for prior authorisation of planned treatment under the S2 route (Article 20 of Regulation (EC) No 883/2004) for our patient <strong>${nom}</strong> (NHS region: ${region}).</p><p>Yours faithfully,<br>The OCC Patient Services Team<br>Obesity Care Clinic</p></body></html>`;
+  if (anthropic) {
+    try {
+      const keyDocs = attachments.filter((a) => /S2|MEDICAL REPORT|Undue Delay/i.test(a.filename)).slice(0, 3)
+        .map((a) => ({ data: a.data, mediaType: a.mimeType, fileName: a.filename }));
+      const llm = await analyzeFiles({ cred: anthropic, prompt: s2SubmissionEmailPrompt(nom), attachments: keyDocs, maxTokens: 24000 });
+      const cleaned = llm.replace(/^```(?:html)?/i, "").replace(/```$/i, "").trim();
+      if (cleaned.replace(/<[^>]+>/g, "").trim().length >= 500) {
+        coverHtml = `<div style='font-family:Calibri,Arial,sans-serif;font-size:11pt;color:rgb(0,0,0);line-height:1.5;'>${cleaned}</div>`;
+      }
+    } catch (e) { rc.log("warn", `A4b: S2 email generation failed: ${e instanceof Error ? e.message : e}`); }
+  }
+
+  // Create the NHS submission DRAFT (reviewed/sent by a human).
+  if (nedelcu) {
+    try {
+      await createDraft(nedelcu, { to: nhsEmail, subject: `NHS S2 Prior Authorisation Application — ${nom}`, html: coverHtml, attachments });
+      ctx.nhs_submission_drafted = true;
+      rc.stats.actions++;
+      rc.log("info", `A4b: NHS submission draft created for ${nom} (${attachments.length} attachments) → ${nhsEmail}`);
+    } catch (e) { rc.log("warn", `A4b: NHS draft failed: ${e instanceof Error ? e.message : e}`); ctx.nhs_submission_drafted = false; }
+  } else {
+    ctx.nhs_submission_drafted = false;
+    rc.log("warn", "A4b: Dr Nedelcu mailbox credential missing — no NHS draft");
+  }
+}
+
 // ── dispatcher ──────────────────────────────────────────────────────────────
 
 type OccHandler = (rc: RunCtx, step: Record<string, unknown>, ctx: Ctx) => Promise<void>;
@@ -558,6 +815,8 @@ const HANDLERS: Record<string, OccHandler> = {
   supabase_controller_agent: supabaseControllerAgent,
   screen_dossier: screenDossier,
   generate_documents: generateDocuments,
+  communicate_patient: communicatePatient,
+  prepare_nhs_submission: prepareNhsSubmission,
 };
 
 export async function runOccStep(rc: RunCtx, step: { type: string; [k: string]: unknown }, ctx: Ctx): Promise<boolean> {
