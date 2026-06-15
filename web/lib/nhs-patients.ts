@@ -27,6 +27,7 @@ export type DossierRow = Record<string, unknown> & {
   dossier_status: string | null;
   submission_ready: boolean | null;
   nhs_submission_status: string | null;
+  nhs_submission_date: string | null;
   bank_statement_exception: boolean | null;
   last_analysed_at: string | null;
 };
@@ -62,6 +63,7 @@ export interface NhsPatient {
   nhs_status: string | null;
   escalade: boolean;
   bank_exception: boolean;
+  duplicate?: boolean;
 }
 
 export function ageFromDob(dob: string | null): number | null {
@@ -134,6 +136,6 @@ export function buildPatient(d: DossierRow, l: LeadRow, threeDaysAgo: Date): Nhs
   };
 }
 
-export const DOSSIER_SELECT = `id, lead_id, dossier_status, submission_ready, nhs_submission_status, bank_statement_exception, last_analysed_at, ${NHS_DOCS.map((d) => d.key).join(", ")}`;
+export const DOSSIER_SELECT = `id, lead_id, dossier_status, submission_ready, nhs_submission_status, nhs_submission_date, bank_statement_exception, last_analysed_at, ${NHS_DOCS.map((d) => d.key).join(", ")}`;
 export const LEAD_SELECT =
   "id, nom, email, numero_telephone, patient_dob, email_sent, whatsapp_sent, relance_email_sent, relance_whatsapp_sent, relance_email_date, last_response_date, last_call_datetime, last_updated";

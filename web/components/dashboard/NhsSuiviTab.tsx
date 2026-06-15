@@ -912,7 +912,21 @@ function PatientListView({
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                       <Avatar initials={p.initials} />
                       <div>
-                        <div style={{ fontWeight: 600 }}>{p.name ?? "—"}</div>
+                        <div style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
+                          {p.name ?? "—"}
+                          {p.duplicate && (
+                            <span
+                              title={t("Ce numéro de téléphone apparaît sur plusieurs dossiers")}
+                              style={{
+                                fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 999,
+                                background: "color-mix(in srgb, var(--warn) 15%, transparent)",
+                                color: "var(--warn)", border: "1px solid var(--warn)", whiteSpace: "nowrap",
+                              }}
+                            >
+                              {t("doublon")}
+                            </span>
+                          )}
+                        </div>
                         <div className="muted" style={{ fontSize: 11 }}>
                           {p.age != null ? `${p.age} ${t("ans")}` : ""}
                           {p.phone ? `${p.age != null ? " · " : ""}${p.phone}` : ""}

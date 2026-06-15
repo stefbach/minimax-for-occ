@@ -42,6 +42,16 @@ export async function GET(request: Request) {
       const tb = b.last_activity ? new Date(b.last_activity).getTime() : 0;
       return tb - ta;
     });
+
+    // Flag duplicates: same phone number appearing on more than one dossier.
+    const phoneCounts = new Map<string, number>();
+    for (const p of patients) {
+      if (p.phone) phoneCounts.set(p.phone, (phoneCounts.get(p.phone) ?? 0) + 1);
+    }
+    for (const p of patients) {
+      if (p.phone && (phoneCounts.get(p.phone) ?? 0) > 1) p.duplicate = true;
+    }
+
     return NextResponse.json({ patients } satisfies NhsPatientsResponse);
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
