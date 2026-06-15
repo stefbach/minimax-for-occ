@@ -4,6 +4,7 @@ import { nhsLegacyClient } from "@/lib/nhs-legacy";
 import {
   buildPatient,
   buildPatientFromLead,
+  deduplicateLeads,
   DOSSIER_SELECT,
   LEAD_SELECT,
   type DossierRow,
@@ -49,8 +50,11 @@ export async function GET(request: Request) {
       }
     }
 
+    // Deduplicate: 85 raw rows → 63 unique patients (one entry per phone)
+    const uniqueLeads = deduplicateLeads(leads, (id) => dossierByLeadId.has(id));
+
     const threeDaysAgo = new Date(Date.now() - 3 * 86400_000);
-    const patients: NhsPatient[] = leads.map((l) => {
+    const patients: NhsPatient[] = uniqueLeads.map((l) => {
       const d = dossierByLeadId.get(String(l.id));
       return d ? buildPatient(d, l, threeDaysAgo) : buildPatientFromLead(l, threeDaysAgo);
     });

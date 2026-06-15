@@ -4,6 +4,7 @@ import { nhsLegacyClient } from "@/lib/nhs-legacy";
 import {
   buildPatient,
   buildPatientFromLead,
+  deduplicateLeads,
   DOSSIER_SELECT,
   LEAD_SELECT,
   type DossierRow,
@@ -132,9 +133,10 @@ export async function GET(request: Request) {
     } catch { /* ignore */ }
   }
 
-  // ── Step 3: build patient entries (lead + optional dossier) ───────────
+  // ── Step 3: deduplicate (85 raw rows → 63 unique patients) + entries ───
+  const uniqueLeads = deduplicateLeads(allLeads, (id) => dossierByLeadId.has(id));
   type Entry = { patient: NhsPatient; lead: LeadRowExt; d: DossierRow | null };
-  const entries: Entry[] = allLeads.map((l) => {
+  const entries: Entry[] = uniqueLeads.map((l) => {
     const d = dossierByLeadId.get(String(l.id)) ?? null;
     return {
       patient: d ? buildPatient(d, l, threeDaysAgo) : buildPatientFromLead(l, threeDaysAgo),
@@ -143,14 +145,14 @@ export async function GET(request: Request) {
     };
   });
 
-  const hasData = allLeads.length > 0;
+  const hasData = uniqueLeads.length > 0;
 
-  // ── Step 4: comms — straight lead counts (J0 = 63, relance = 9…) ─────
+  // ── Step 4: comms from unique patients (J0=63, relance=9…) ───────────
   const comms = {
-    email_j0_sent: allLeads.length,                                            // all email_sent=true
-    email_j2_sent: allLeads.filter(({ relance_email_sent: r }) => r).length,  // 9
-    whatsapp_sent: allLeads.filter(({ relance_whatsapp_sent: r, whatsapp_sent: w }) => r || w).length,
-    responses_received: allLeads.filter(({ last_response_date: d }) => d).length,
+    email_j0_sent: uniqueLeads.length,
+    email_j2_sent: uniqueLeads.filter(({ relance_email_sent: r }) => r).length,
+    whatsapp_sent: uniqueLeads.filter(({ relance_whatsapp_sent: r, whatsapp_sent: w }) => r || w).length,
+    responses_received: uniqueLeads.filter(({ last_response_date: d }) => d).length,
   };
 
   // ── Step 5: file status from patient statuses (matches list chips) ─────
@@ -212,7 +214,7 @@ export async function GET(request: Request) {
 
   // ── Step 8: pipeline (lead-scoped, matching the 63 population) ─────────
   const pipeline = {
-    initial_call: allLeads.filter((l) => !!l.last_call_datetime).length,
+    initial_call: uniqueLeads.filter((l) => !!l.last_call_datetime).length,
     email_reminder: comms.email_j2_sent,
     response_received: comms.responses_received,
     file_complete: entries.filter(({ patient: p }) => p.status === "complets" || p.status === "envoye-nhs").length,

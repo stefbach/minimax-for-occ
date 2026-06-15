@@ -178,3 +178,61 @@ export function buildPatientFromLead(l: LeadRow, threeDaysAgo: Date): NhsPatient
 export const DOSSIER_SELECT = `id, lead_id, dossier_status, submission_ready, nhs_submission_status, nhs_submission_date, bank_statement_exception, last_analysed_at, ${NHS_DOCS.map((d) => d.key).join(", ")}`;
 export const LEAD_SELECT =
   "id, nom, email, numero_telephone, patient_dob, email_sent, whatsapp_sent, relance_email_sent, relance_whatsapp_sent, relance_email_date, last_response_date, last_call_datetime, last_updated";
+
+// Strip non-digits and normalise UK mobile numbers (07xxx → +447xxx) so that
+// two rows for the same person collapse to the same key regardless of spacing
+// or country-code formatting.
+export function normalizePhone(phone: string | null): string | null {
+  if (!phone) return null;
+  const d = phone.replace(/\D/g, "");
+  if (!d) return null;
+  if (d.startsWith("07") && d.length === 11) return `+44${d.slice(1)}`;
+  if (d.startsWith("447") && d.length === 12) return `+${d}`;
+  return d;
+}
+
+// Collapse duplicate leads_rdv rows that represent the same patient (same phone
+// number). Returns one T per unique phone. Among duplicates:
+//   • Prefers the row whose ID is the dossier's lead_id (so the dossier lookup
+//     by primary.id always works).
+//   • Otherwise prefers the most recently updated row.
+// Boolean flags (relance_email_sent, whatsapp, response) are OR-merged so a
+// flag set on any duplicate row is reflected on the primary.
+export function deduplicateLeads<T extends LeadRow>(
+  leads: T[],
+  hasDossier: (leadId: string) => boolean,
+): T[] {
+  const byKey = new Map<string, T[]>();
+  for (const l of leads) {
+    const key =
+      normalizePhone(l.numero_telephone) ??
+      l.email?.toLowerCase() ??
+      String(l.id);
+    if (!byKey.has(key)) byKey.set(key, []);
+    byKey.get(key)!.push(l);
+  }
+  return [...byKey.values()].map((rows) => {
+    // Pick primary row: dossier-linked first, then most recently updated
+    let primary = rows[0];
+    for (const r of rows) {
+      const rHas = hasDossier(String(r.id));
+      const pHas = hasDossier(String(primary.id));
+      if (rHas && !pHas) { primary = r; continue; }
+      if (!rHas && pHas) continue;
+      if (new Date(r.last_updated ?? 0) > new Date(primary.last_updated ?? 0)) primary = r;
+    }
+    // Merge boolean flags with OR so no signal is lost across duplicates
+    return {
+      ...primary,
+      relance_email_sent:
+        rows.some((r) => !!r.relance_email_sent) || !!primary.relance_email_sent,
+      relance_whatsapp_sent:
+        rows.some((r) => !!r.relance_whatsapp_sent) || !!primary.relance_whatsapp_sent,
+      whatsapp_sent:
+        rows.some((r) => !!r.whatsapp_sent) || !!primary.whatsapp_sent,
+      last_response_date:
+        rows.find((r) => r.last_response_date)?.last_response_date ??
+        primary.last_response_date,
+    } as T;
+  });
+}
