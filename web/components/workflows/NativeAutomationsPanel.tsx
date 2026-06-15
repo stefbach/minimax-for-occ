@@ -29,7 +29,23 @@ interface Run {
 const STEP_LABELS: Record<string, string> = {
   send_email_smtp: "✉️ Email",
   send_wati_template: "💬 WhatsApp",
+  send_whatsapp_session: "💬 WA session",
   update_row: "✎ MAJ ligne",
+  ai_brain: "🧠 IA",
+  telegram_notify: "📣 Telegram",
+  http_request: "🌐 HTTP",
+  call_automation: "🔗 Sous-agent",
+  gmail_search: "📥 Gmail",
+  classify_document_ai: "🧠 Classer doc",
+  storage_upload: "📤 Stockage",
+  upsert_nhs_document: "🗂 Document",
+  screen_dossier: "📊 Screening",
+  ai_agent_tools: "🧠 Agent+outils",
+  generate_document_ai: "🧠 Génération doc",
+  render_pdf: "📄 PDF",
+  extract_clinical_ai: "🧠 Extraction",
+  draft_gmail: "✉️ Brouillon",
+  send_gmail: "✉️ Gmail",
 };
 
 export function NativeAutomationsPanel() {
@@ -137,7 +153,9 @@ export function NativeAutomationsPanel() {
                 <span className="tag" style={{ fontSize: 11 }}>
                   {wf.trigger?.type === "table_scan"
                     ? `⏱ ${wf.trigger.every_minutes ?? 5} min · ${wf.trigger.table}`
-                    : wf.trigger?.type}
+                    : wf.trigger?.type === "callable"
+                      ? "🔗 sous-agent"
+                      : wf.trigger?.type}
                 </span>
                 {wf.steps.map((s, i) => (
                   <span key={i} className="tag" style={{ fontSize: 11 }}>
