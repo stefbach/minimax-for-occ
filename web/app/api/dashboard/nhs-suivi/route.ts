@@ -158,9 +158,11 @@ export async function GET(request: Request) {
   };
 
   // ── Step 5: file status from patient statuses (matches list chips) ─────
+  // no_document counts ANY patient with 0 docs received, including those also
+  // flagged "sans-reponse" — both buckets can overlap and both show 0 docs.
   const pending3d = entries.filter(({ patient }) => patient.status === "sans-reponse").length;
   const file_status = {
-    no_document: entries.filter(({ patient }) => patient.status === "aucun-doc").length,
+    no_document: entries.filter(({ patient }) => patient.docs_received === 0).length,
     partial:     entries.filter(({ patient }) => patient.status === "partiels").length,
     complete:    entries.filter(({ patient }) => patient.status === "complets").length,
     no_response_3d: pending3d,
