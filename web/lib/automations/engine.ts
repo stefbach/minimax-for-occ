@@ -2,6 +2,7 @@ import { supabaseServer } from "@/lib/supabase";
 import { resolveDataSource, type DataSource } from "./datasource";
 import { renderTemplate, renderDeep, getPath, truthy, type Ctx } from "./templating";
 import { generateText, type AnthropicCred } from "./ai";
+import { sendEmail, createDraft, type GmailCred } from "./gmail";
 import { type RunCtx, loadCredential } from "./runtime";
 import { runOccStep } from "./steps-occ";
 
@@ -219,6 +220,7 @@ async function executeStep(rc: RunCtx, step: StepConfig, ctx: Ctx): Promise<void
 
   switch (step.type) {
     // ── messaging / sends (idempotent) ─────────────────────────────────────
+    case "send_gmail":
     case "send_email_smtp":
     case "send_wati_template":
     case "send_whatsapp_session": {
@@ -233,7 +235,16 @@ async function executeStep(rc: RunCtx, step: StepConfig, ctx: Ctx): Promise<void
         rc.stats.skipped++;
         return;
       }
-      if (step.type === "send_email_smtp") {
+      if (step.type === "send_gmail") {
+        const to = get("to").trim();
+        if (!to.includes("@")) {
+          rc.log("warn", `row ${rowId}: no valid email (${to || "empty"})`);
+          rc.stats.skipped++;
+          return;
+        }
+        await sendEmail(cred as GmailCred, { to, subject: get("subject"), html: get("html") });
+        rc.log("info", `row ${rowId}: gmail sent to ${to}`);
+      } else if (step.type === "send_email_smtp") {
         const to = get("to").trim();
         if (!to.includes("@")) {
           rc.log("warn", `row ${rowId}: no valid email (${to || "empty"})`);
@@ -265,6 +276,15 @@ async function executeStep(rc: RunCtx, step: StepConfig, ctx: Ctx): Promise<void
         if (error) rc.log("error", `row ${rowId}: mark ${markCol} failed: ${error.message}`);
         else ctx[markCol] = true;
       }
+      return;
+    }
+
+    // ── gmail draft (reviewed/sent by a human) ─────────────────────────────
+    case "draft_gmail": {
+      const cred = credId ? await loadCredential(rc, credId) : null;
+      if (!cred) { rc.log("warn", "draft_gmail — credential missing"); rc.stats.skipped++; return; }
+      await createDraft(cred as GmailCred, { to: get("to"), subject: get("subject"), html: get("html") });
+      rc.stats.actions++;
       return;
     }
 
