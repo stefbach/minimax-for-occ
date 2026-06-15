@@ -108,10 +108,11 @@ export async function GET(request: Request) {
   if (Object.keys(meta).length > 0) at.metadata = JSON.stringify(meta);
 
   // Explicitly dispatch the agent into this room. The worker registers with
-  // agent_name "minimax-voice-agent" (needed for SIP dispatch), which DISABLES
-  // automatic dispatch — so frontend voice rooms must request the agent here,
-  // otherwise no agent ever joins and the session can't start.
-  const agentName = process.env.LIVEKIT_AGENT_NAME ?? "minimax-voice-agent";
+  // agent_name "axon-voice-agent" (rotation Wati 12/06 — l'ancien
+  // "minimax-voice-agent" etait casse cote LiveKit Cloud). Sans dispatch
+  // explicite, aucun agent ne rejoint la room et la simulation echoue
+  // silencieusement (browser connecte, agent absent, disconnect timeout).
+  const agentName = process.env.LIVEKIT_AGENT_NAME ?? "axon-voice-agent";
   at.roomConfig = new RoomConfiguration({
     agents: [
       new RoomAgentDispatch({
