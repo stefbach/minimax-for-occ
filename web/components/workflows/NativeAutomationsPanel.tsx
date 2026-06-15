@@ -12,6 +12,8 @@ interface Wf {
   steps: Array<{ type: string }>;
   last_run_at: string | null;
   last_status: string | null;
+  group_label: string | null;
+  sort_order: number | null;
 }
 
 interface Run {
@@ -117,6 +119,96 @@ export function NativeAutomationsPanel() {
     }
   }
 
+  function renderCard(wf: Wf, step?: number) {
+    const wfRuns = runs.filter((r) => r.workflow_id === wf.id).slice(0, 5);
+    return (
+      <div
+        key={wf.id}
+        style={{
+          border: "1px solid var(--border)",
+          borderLeft: `3px solid ${wf.active ? "var(--good)" : "var(--muted)"}`,
+          borderRadius: 8,
+          padding: 12,
+          display: "grid",
+          gap: 8,
+        }}
+      >
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          {typeof step === "number" && (
+            <span
+              className="tag"
+              style={{ fontSize: 11, fontWeight: 700, background: "var(--border)" }}
+              title={t("Ordre d'exécution dans le pipeline")}
+            >
+              {step}
+            </span>
+          )}
+          <strong style={{ flex: "1 1 240px" }}>{wf.name}</strong>
+          <span className="tag" style={{ fontSize: 11 }}>
+            {wf.trigger?.type === "table_scan"
+              ? `⏱ ${wf.trigger.every_minutes ?? 5} min · ${wf.trigger.table}`
+              : wf.trigger?.type === "callable"
+                ? "🔗 sous-agent"
+                : wf.trigger?.type}
+          </span>
+          {wf.steps.map((s, i) => (
+            <span key={i} className="tag" style={{ fontSize: 11 }}>
+              {STEP_LABELS[s.type] ?? s.type}
+            </span>
+          ))}
+        </div>
+        {wf.description && <div className="muted" style={{ fontSize: 12 }}>{wf.description}</div>}
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <button disabled={busy === wf.id} onClick={() => toggle(wf)} style={{ padding: "6px 12px", fontWeight: 600 }}>
+            {wf.active ? t("Désactiver") : t("Activer")}
+          </button>
+          <button className="ghost" disabled={busy === wf.id} onClick={() => runNow(wf)} style={{ padding: "6px 12px" }}>
+            {busy === wf.id ? "…" : t("Exécuter maintenant")}
+          </button>
+          <a href={`/workflows/automations/${wf.id}`}>
+            <button className="ghost" style={{ padding: "6px 12px" }}>{t("Ouvrir / Éditer")}</button>
+          </a>
+          <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>
+            {wf.last_run_at
+              ? `${t("Dernier run")}: ${new Date(wf.last_run_at).toLocaleString("fr-FR")} (${wf.last_status ?? "—"})`
+              : t("Jamais exécuté")}
+          </span>
+        </div>
+        {wfRuns.length > 0 && (
+          <div style={{ fontSize: 11, color: "var(--muted)", display: "grid", gap: 2 }}>
+            {wfRuns.map((r) => (
+              <div key={r.id}>
+                {new Date(r.started_at).toLocaleTimeString("fr-FR")} — {r.status} · {r.matched} {t("lignes")} ·{" "}
+                {r.actions} {t("actions")} · {r.skipped} {t("ignorées")} · {r.errors} {t("erreurs")}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Group by group_label (preserving the API's sort order); number the
+  // sub-agents so their execution order (2,3,5,7,6,4) is explicit.
+  const groups: Array<{ label: string; items: Wf[] }> = [];
+  const groupIndex = new Map<string, number>();
+  for (const wf of wfs) {
+    const label =
+      wf.group_label ||
+      (wf.trigger?.type === "table_scan"
+        ? t("Déclencheurs automatiques (CRON)")
+        : wf.trigger?.type === "callable"
+          ? t("Sous-agents du pipeline (appelés par l'orchestrateur)")
+          : t("Automations"));
+    let i = groupIndex.get(label);
+    if (i === undefined) {
+      i = groups.length;
+      groupIndex.set(label, i);
+      groups.push({ label, items: [] });
+    }
+    groups[i].items.push(wf);
+  }
+
   return (
     <div className="card" style={{ display: "grid", gap: 12, padding: 14 }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
@@ -134,76 +226,25 @@ export function NativeAutomationsPanel() {
           {t("Aucune automation. Le workflow seedé apparaîtra ici après le déploiement.")}
         </div>
       ) : (
-        wfs.map((wf) => {
-          const wfRuns = runs.filter((r) => r.workflow_id === wf.id).slice(0, 5);
+        groups.map((group) => {
+          const isSubAgents = group.items.every((w) => w.trigger?.type === "callable");
           return (
-            <div
-              key={wf.id}
-              style={{
-                border: "1px solid var(--border)",
-                borderLeft: `3px solid ${wf.active ? "var(--good)" : "var(--muted)"}`,
-                borderRadius: 8,
-                padding: 12,
-                display: "grid",
-                gap: 8,
-              }}
-            >
-              <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                <strong style={{ flex: "1 1 240px" }}>{wf.name}</strong>
-                <span className="tag" style={{ fontSize: 11 }}>
-                  {wf.trigger?.type === "table_scan"
-                    ? `⏱ ${wf.trigger.every_minutes ?? 5} min · ${wf.trigger.table}`
-                    : wf.trigger?.type === "callable"
-                      ? "🔗 sous-agent"
-                      : wf.trigger?.type}
-                </span>
-                {wf.steps.map((s, i) => (
-                  <span key={i} className="tag" style={{ fontSize: 11 }}>
-                    {STEP_LABELS[s.type] ?? s.type}
-                  </span>
-                ))}
+            <div key={group.label} style={{ display: "grid", gap: 8 }}>
+              <div
+                style={{
+                  fontSize: 12,
+                  fontWeight: 700,
+                  textTransform: "uppercase",
+                  letterSpacing: 0.4,
+                  color: "var(--muted)",
+                  marginTop: 6,
+                  borderTop: "1px solid var(--border)",
+                  paddingTop: 10,
+                }}
+              >
+                {group.label}
               </div>
-              {wf.description && (
-                <div className="muted" style={{ fontSize: 12 }}>{wf.description}</div>
-              )}
-              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                <button
-                  disabled={busy === wf.id}
-                  onClick={() => toggle(wf)}
-                  style={{ padding: "6px 12px", fontWeight: 600 }}
-                >
-                  {wf.active ? t("Désactiver") : t("Activer")}
-                </button>
-                <button
-                  className="ghost"
-                  disabled={busy === wf.id}
-                  onClick={() => runNow(wf)}
-                  style={{ padding: "6px 12px" }}
-                >
-                  {busy === wf.id ? "…" : t("Exécuter maintenant")}
-                </button>
-                <a href={`/workflows/automations/${wf.id}`}>
-                  <button className="ghost" style={{ padding: "6px 12px" }}>
-                    {t("Ouvrir / Éditer")}
-                  </button>
-                </a>
-                <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>
-                  {wf.last_run_at
-                    ? `${t("Dernier run")}: ${new Date(wf.last_run_at).toLocaleString("fr-FR")} (${wf.last_status ?? "—"})`
-                    : t("Jamais exécuté")}
-                </span>
-              </div>
-              {wfRuns.length > 0 && (
-                <div style={{ fontSize: 11, color: "var(--muted)", display: "grid", gap: 2 }}>
-                  {wfRuns.map((r) => (
-                    <div key={r.id}>
-                      {new Date(r.started_at).toLocaleTimeString("fr-FR")} — {r.status} ·{" "}
-                      {r.matched} {t("lignes")} · {r.actions} {t("actions")} · {r.skipped}{" "}
-                      {t("ignorées")} · {r.errors} {t("erreurs")}
-                    </div>
-                  ))}
-                </div>
-              )}
+              {group.items.map((wf, idx) => renderCard(wf, isSubAgents ? idx + 1 : undefined))}
             </div>
           );
         })

@@ -26,8 +26,9 @@ export async function GET(req: Request) {
   const admin = supabaseServer();
   const { data: wfs, error } = await admin
     .from("org_workflows")
-    .select("id, name, description, active, trigger, steps, last_run_at, last_status, created_at")
+    .select("id, name, description, active, trigger, steps, last_run_at, last_status, created_at, group_label, sort_order")
     .eq("org_id", orgId)
+    .order("sort_order", { ascending: true, nullsFirst: false })
     .order("created_at", { ascending: true });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
