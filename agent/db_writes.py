@@ -656,6 +656,8 @@ def create_human_callback_task(
     qualification: Optional[str] = None,
     reason: Optional[str] = None,
     days_ahead: int = 0,  # kept for compat; ignored when 0 (= immediate)
+    display_name: Optional[str] = None,
+    e164: Optional[str] = None,
 ) -> None:
     """Insert a human_callback_tasks row scheduled for NOW so the contact
     appears in the manager's 'à traiter' queue immediately. The human
@@ -664,6 +666,12 @@ def create_human_callback_task(
 
     Dedupes: if the same contact already has a pending/in_progress task,
     no new row is created.
+
+    display_name + e164 are denormalised onto the task row (15/06/2026,
+    Wati supervise bug) so the manager's queue always shows patient
+    details even when contact_id is NULL (lead lives in leads_rdv_*
+    physical tables without a matching contacts row). If callers don't
+    pass them, we resolve from the calls + leads_rdv chain below.
     """
     if not org_id or not has_supabase():
         return
@@ -688,6 +696,51 @@ def create_human_callback_task(
                         contact_id,
                     )
                     return
+            # Resolve patient details (15/06/2026 Wati fix): callers might
+            # only pass contact_id (legacy paths) or even no resolution at
+            # all when the lead lives in a data_table. Look up via calls →
+            # to_e164 and campaign_targets.source_metadata → leads_rdv* to
+            # always populate display_name/e164 on the task. Best-effort:
+            # any failure here is logged but does NOT block task creation.
+            if (not e164 or not display_name) and original_call_id:
+                try:
+                    cr = c.get(_supabase_url(
+                        f"/rest/v1/calls?id=eq.{original_call_id}&select=to_e164"
+                    ))
+                    if cr.is_success:
+                        crows = cr.json() or []
+                        if crows and not e164:
+                            e164 = crows[0].get("to_e164") or None
+                    # Resolve patient row from campaign_targets → leads_rdv*
+                    if not display_name:
+                        ct = c.get(_supabase_url(
+                            f"/rest/v1/campaign_targets?last_call_id=eq.{original_call_id}"
+                            "&select=source_metadata&limit=1"
+                        ))
+                        if ct.is_success:
+                            ctrows = ct.json() or []
+                            sm = (ctrows[0] if ctrows else {}).get("source_metadata") or {}
+                            ptable = sm.get("physical_table")
+                            prow = sm.get("row_id")
+                            # Restrict to known leads_rdv* tables (defensive
+                            # against SQL injection via untrusted metadata).
+                            if (
+                                isinstance(ptable, str)
+                                and ptable.startswith("leads_rdv")
+                                and ptable.replace("_", "").isalnum()
+                                and prow
+                            ):
+                                lr = c.get(_supabase_url(
+                                    f"/rest/v1/{ptable}?id=eq.{prow}"
+                                    "&select=nom,numero_telephone"
+                                ))
+                                if lr.is_success:
+                                    lrows = lr.json() or []
+                                    if lrows:
+                                        display_name = display_name or lrows[0].get("nom")
+                                        e164 = e164 or lrows[0].get("numero_telephone")
+                except Exception:
+                    logger.debug("create_human_callback_task: resolve patient details failed", exc_info=True)
             r = c.post(
                 _supabase_url("/rest/v1/human_callback_tasks"),
                 headers={
@@ -703,6 +756,8 @@ def create_human_callback_task(
                     "transfer_reason": reason,
                     "scheduled_for": scheduled.isoformat(),
                     "status": "pending",
+                    "display_name": display_name,
+                    "e164": e164,
                 },
             )
             r.raise_for_status()
