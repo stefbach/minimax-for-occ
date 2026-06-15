@@ -15,6 +15,20 @@ const TABS = [
   { id: "rag", label: "RAG / Documents" },
 ];
 
+// Wati 15/06 — Replicate (ElevenLabs Flash/Turbo, MiniMax Speech 02) coexiste
+// avec Cartesia depuis la branche preview. Le label de l'en-tête "Voix"
+// affichait Cartesia en dur, ce qui contredisait le tag voice:replicate:…
+// affiché juste au-dessus quand l'agent est branché sur Replicate.
+function ttsLabelFor(voiceId: string | null | undefined): string {
+  if (!voiceId) return "Cartesia TTS";
+  if (voiceId.startsWith("replicate:elevenlabs-flash")) return "ElevenLabs Flash v2.5 (via Replicate)";
+  if (voiceId.startsWith("replicate:elevenlabs-turbo")) return "ElevenLabs Turbo v2.5 (via Replicate)";
+  if (voiceId.startsWith("replicate:minimax-turbo")) return "MiniMax Speech 02 Turbo (via Replicate)";
+  if (voiceId.startsWith("replicate:minimax-hd")) return "MiniMax Speech 02 HD (via Replicate)";
+  if (voiceId.startsWith("replicate:")) return "Replicate TTS";
+  return "Cartesia TTS";
+}
+
 export function AgentSession({ agent, initialTab }: { agent: Agent; initialTab: string }) {
   const [tab, setTab] = useState(initialTab);
 
@@ -63,7 +77,7 @@ export function AgentSession({ agent, initialTab }: { agent: Agent; initialTab: 
           <section className="panel">
             <header>
               <h2>Voix</h2>
-              <div className="meta">LiveKit · Cartesia TTS · AssemblyAI STT</div>
+              <div className="meta">LiveKit · {ttsLabelFor(agent.tts_voice_id)} · AssemblyAI STT</div>
             </header>
             <VoicePanel
               agentId={agent.id}
