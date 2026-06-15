@@ -17,10 +17,11 @@ export const dynamic = "force-dynamic";
 
 // Suivi patient NHS S2 — aggregate tiles for the dashboard cards.
 //
-// Population = ALL leads with email_sent = true (currently 63). For each we
-// overlay the nhs_dossiers row when one exists. Every card count is derived
-// from this combined set so the number on the card always matches the count
-// of patients shown when you click it.
+// Population = leads with email_sent=true AND whatsapp_sent=true (the 60 confirmed
+// NHS S2 programme patients after data cleanup). For each we overlay the
+// nhs_dossiers row when one exists. Every card count is derived from this
+// combined set so the number on the card always matches the count of patients
+// shown when you click it.
 //
 // Comms counts (email J0, relance, WhatsApp, responses) come from leads_rdv.
 // Doc / clinic / NHS-tracking counts come from nhs_dossiers (via the view).
@@ -152,7 +153,7 @@ export async function GET(request: Request) {
   const comms = {
     email_j0_sent: uniqueLeads.length,
     email_j2_sent: uniqueLeads.filter(({ relance_email_sent: r }) => r).length,
-    whatsapp_sent: uniqueLeads.filter(({ relance_whatsapp_sent: r, whatsapp_sent: w }) => r || w).length,
+    whatsapp_sent: uniqueLeads.filter(({ relance_whatsapp_sent: r }) => r).length,
     responses_received: uniqueLeads.filter(({ last_response_date: d }) => d).length,
   };
 
