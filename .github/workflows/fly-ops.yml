@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: "diagnose | restart-agent"
+        description: "diagnose | restart-agent | list-secrets | probe-dispatch | bench-deepseek | bench-lk-inference | check-replicate-schema | test-replicate-predict"
         required: true
         default: "diagnose"
 
@@ -123,4 +123,20 @@ jobs:
           for id in $(flyctl machine list -a axon-agent --json | jq -r '.[].id'); do
             echo "restarting machine $id"
             flyctl machine restart "$id" -a axon-agent
+          done
+
+      - name: List secret names (axon-agent)
+        if: ${{ github.event.inputs.action == 'list-secrets' }}
+        run: |
+          echo "===== secrets on axon-agent (names only) ====="
+          flyctl secrets list -a axon-agent || true
+          echo ""
+          echo "===== critical-key presence check ====="
+          flyctl secrets list -a axon-agent --json > /tmp/sec.json || true
+          for k in DEEPSEEK_API_KEY ANTHROPIC_API_KEY CLAUDE_API_KEY OPENAI_API_KEY CARTESIA_API_KEY REPLICATE_API_TOKEN ASSEMBLYAI_API_KEY MINIMAX_API_KEY LIVEKIT_API_KEY LIVEKIT_API_SECRET SUPABASE_SERVICE_ROLE_KEY; do
+            if jq -e ".[] | select(.Name == \"$k\")" /tmp/sec.json > /dev/null 2>&1; then
+              echo "  ✓ $k"
+            else
+              echo "  ✗ $k  MISSING"
+            fi
           done
