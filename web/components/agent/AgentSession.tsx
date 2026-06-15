@@ -7,6 +7,7 @@ import { VoicePanel } from "@/components/voice/VoicePanel";
 import { ChatPanel } from "./ChatPanel";
 import { AgentN8nBindings } from "./AgentN8nBindings";
 import { AgentDocuments } from "./AgentDocuments";
+import { OutboundCallModal } from "./OutboundCallModal";
 import { HelpButton } from "@/components/help/HelpButton";
 
 const TABS = [
@@ -17,6 +18,7 @@ const TABS = [
 
 export function AgentSession({ agent, initialTab }: { agent: Agent; initialTab: string }) {
   const [tab, setTab] = useState(initialTab);
+  const [dialOpen, setDialOpen] = useState(false);
 
   return (
     <>
@@ -31,12 +33,26 @@ export function AgentSession({ agent, initialTab }: { agent: Agent; initialTab: 
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button
+            onClick={() => setDialOpen(true)}
+            title="Lancer un appel sortant immédiat avec cet agent (sans campagne)"
+          >
+            ☎ Make outbound call
+          </button>
           <Link href={`/agents/${agent.id}/edit`}>
             <button className="ghost">Éditer la config</button>
           </Link>
           <HelpButton contextKey="agents.detail" />
         </div>
       </div>
+
+      {dialOpen && (
+        <OutboundCallModal
+          agentId={agent.id}
+          agentName={agent.name}
+          onClose={() => setDialOpen(false)}
+        />
+      )}
 
       <div style={{ display: "flex", gap: 4, borderBottom: "1px solid var(--border)", marginBottom: 18 }}>
         {TABS.map((t) => (
