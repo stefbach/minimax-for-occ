@@ -54,6 +54,7 @@ export async function POST(req: Request) {
           voice_id: body.voice_id,
           text,
           speed: body.speed,
+          language: body.language,
         })
       : await previewCartesiaTTS({
           voice_id: body.voice_id,

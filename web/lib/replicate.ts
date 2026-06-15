@@ -63,46 +63,49 @@ export interface ReplicateVoice {
 // (https://elevenlabs.io/app/voice-library), restreinte aux voix les plus
 // utilisées et de qualité éprouvée. Si Wati en veut d'autres on rajoute des
 // lignes — c'est juste un tableau JS.
+// ─── ElevenLabs : catalogue (Wati 15/06 — VRAIES voix Replicate) ────────────
+// Sourcé du playground Replicate elevenlabs/flash-v2.5 — le champ s'appelle
+// `voice` (pas voice_id) et la valeur est un NOM en clair (pas un UUID).
+// Wati a partagé deux screenshots du dropdown ; cette liste fusionne les
+// deux fenêtres visibles. Si Replicate en ajoute d'autres, on rajoute des
+// lignes ici — c'est juste un tableau JS.
 interface ElevenLabsVoiceSpec {
-  voice_id: string;
-  name: string;
+  voice_name: string;   // nom passé tel quel au champ "voice" du modele
   description: string;
-  gender: "masculine" | "feminine" | "neutral";  // canonique = Cartesia (Wati 15/06)
-  language: string; // "en" ou "multi"
+  gender: "masculine" | "feminine" | "neutral";
+  language: string; // "en" ou "multi" — ElevenLabs flash/turbo v2.5 sont multilingues
 }
 
 const ELEVENLABS_VOICES: ElevenLabsVoiceSpec[] = [
-  // Voix anglaises (catalogue par défaut ElevenLabs — disponibles pour tous)
-  { voice_id: "21m00Tcm4TlvDq8ikWAM", name: "Rachel", description: "American, calm, narration", gender: "feminine", language: "en" },
-  { voice_id: "AZnzlk1XvdvUeBnXmlld", name: "Domi", description: "American, strong, energetic", gender: "feminine", language: "en" },
-  { voice_id: "EXAVITQu4vr4xnSDxMaL", name: "Bella", description: "American, soft, young", gender: "feminine", language: "en" },
-  { voice_id: "ErXwobaYiN019PkySvjV", name: "Antoni", description: "American, well-rounded, warm", gender: "masculine", language: "en" },
-  { voice_id: "MF3mGyEYCl7XYWbV9V6O", name: "Elli", description: "American, emotional, expressive", gender: "feminine", language: "en" },
-  { voice_id: "TxGEqnHWrfWFTfGW9XjX", name: "Josh", description: "American, deep, narrative", gender: "masculine", language: "en" },
-  { voice_id: "VR6AewLTigWG4xSOukaG", name: "Arnold", description: "American, crisp, authoritative", gender: "masculine", language: "en" },
-  { voice_id: "pNInz6obpgDQGcFmaJgB", name: "Adam", description: "American, deep, narration", gender: "masculine", language: "en" },
-  { voice_id: "yoZ06aMxZJJ28mfd3POQ", name: "Sam", description: "American, raspy, dynamic", gender: "masculine", language: "en" },
-  // British
-  { voice_id: "ThT5KcBeYPX3keUQqHPh", name: "Dorothy", description: "British, pleasant, friendly", gender: "feminine", language: "en" },
-  { voice_id: "g5CIjZEefAph4nQFvHAz", name: "Ethan", description: "American, whispery, intimate", gender: "masculine", language: "en" },
-  { voice_id: "jBpfuIE2acCO8z3wKNLl", name: "Gigi", description: "American, childlike, cartoon", gender: "feminine", language: "en" },
-  { voice_id: "jsCqWAovK2LkecY7zXl4", name: "Freya", description: "American, expressive, young", gender: "feminine", language: "en" },
-  { voice_id: "oWAxZDx7w5VEj9dCyTzz", name: "Grace", description: "Southern US, gentle, mature", gender: "feminine", language: "en" },
-  { voice_id: "onwK4e9ZLuTAKqWW03F9", name: "Daniel", description: "British, deep, authoritative", gender: "masculine", language: "en" },
-  { voice_id: "pFZP5JQG7iQjIQuC4Bku", name: "Lily", description: "British, calm, warm", gender: "feminine", language: "en" },
-  { voice_id: "piTKgcLEGmPE4e6mEKli", name: "Nicole", description: "American, whispery, soft", gender: "feminine", language: "en" },
-  { voice_id: "pqHfZKP75CvOlQylNhV4", name: "Bill", description: "American, mature, narrative", gender: "masculine", language: "en" },
-  { voice_id: "z9fAnlkpzviPz146aGWa", name: "Glinda", description: "American, witchy, character", gender: "feminine", language: "en" },
-  { voice_id: "zcAOhNBS3c14rBihAFp1", name: "Giovanni", description: "Italian-accented English, foreign", gender: "masculine", language: "en" },
-  // Multilingue (utilisable en FR + EN + 30 autres)
-  { voice_id: "XB0fDUnXU5powFXDhCwa", name: "Charlotte", description: "Swedish, sultry, multilingual", gender: "feminine", language: "multi" },
-  { voice_id: "Xb7hH8MSUJpSbSDYk0k2", name: "Alice", description: "British, confident, multilingual", gender: "feminine", language: "multi" },
-  { voice_id: "XrExE9yKIg1WjnnlVkGX", name: "Matilda", description: "American, warm, multilingual", gender: "feminine", language: "multi" },
-  { voice_id: "bIHbv24MWmeRgasZH58o", name: "Will", description: "American, friendly, multilingual", gender: "masculine", language: "multi" },
-  { voice_id: "cgSgspJ2msm6clMCkdW9", name: "Jessica", description: "American, popular, multilingual", gender: "feminine", language: "multi" },
-  { voice_id: "cjVigY5qzO86Huf0OWal", name: "Eric", description: "American, classy, multilingual", gender: "masculine", language: "multi" },
-  { voice_id: "iP95p4xoKVk53GoZ742B", name: "Chris", description: "American, casual, multilingual", gender: "masculine", language: "multi" },
-  { voice_id: "nPczCjzI2devNBz1zQrb", name: "Brian", description: "American, deep, multilingual", gender: "masculine", language: "multi" },
+  // Premier groupe screenshot Wati 15/06 (~20 voix)
+  { voice_name: "Rachel",     description: "Calm, narration",         gender: "feminine",  language: "multi" },
+  { voice_name: "Drew",       description: "Well-rounded",            gender: "masculine", language: "multi" },
+  { voice_name: "Clyde",      description: "Mature, war veteran",     gender: "masculine", language: "multi" },
+  { voice_name: "Paul",       description: "Authoritative, news",     gender: "masculine", language: "multi" },
+  { voice_name: "Aria",       description: "Expressive, smooth",      gender: "feminine",  language: "multi" },
+  { voice_name: "Domi",       description: "Strong, confident",       gender: "feminine",  language: "multi" },
+  { voice_name: "Dave",       description: "Conversational, British", gender: "masculine", language: "multi" },
+  { voice_name: "Roger",      description: "Confident, mature male",  gender: "masculine", language: "multi" },
+  { voice_name: "Fin",        description: "Sailor character",        gender: "masculine", language: "multi" },
+  { voice_name: "Sarah",      description: "Soft, professional",      gender: "feminine",  language: "multi" },
+  { voice_name: "James",      description: "Calm, husky",             gender: "masculine", language: "multi" },
+  { voice_name: "Jane",       description: "Friendly, conversational", gender: "feminine", language: "multi" },
+  { voice_name: "Juniper",    description: "Modern, energetic",       gender: "feminine",  language: "multi" },
+  { voice_name: "Arabella",   description: "British, expressive",     gender: "feminine",  language: "multi" },
+  { voice_name: "Hope",       description: "Warm, optimistic",        gender: "feminine",  language: "multi" },
+  { voice_name: "Bradford",   description: "British, mature male",    gender: "masculine", language: "multi" },
+  { voice_name: "Reginald",   description: "Cultured British",        gender: "masculine", language: "multi" },
+  { voice_name: "Austin",     description: "American, deep",          gender: "masculine", language: "multi" },
+  { voice_name: "Kuon",       description: "Asian-accented",          gender: "neutral",   language: "multi" },
+  { voice_name: "Blondie",    description: "Playful, character",      gender: "feminine",  language: "multi" },
+  // Deuxième groupe screenshot Wati 15/06
+  { voice_name: "Priyanka",   description: "Indian-accented",         gender: "feminine",  language: "multi" },
+  { voice_name: "Alexandra",  description: "Smooth, professional",    gender: "feminine",  language: "multi" },
+  { voice_name: "Monika",     description: "Eastern European accent", gender: "feminine",  language: "multi" },
+  { voice_name: "Mark",       description: "Casual, friendly male",   gender: "masculine", language: "multi" },
+  { voice_name: "Grimblewood", description: "Character, gnomish",     gender: "masculine", language: "multi" },
+  // NOTE : "Gaming" et autres noms vus dans les screenshots semblent etre
+  // des categories ou voix de personnage — on les ajoutera si Wati en veut.
 ];
 
 // ─── MiniMax : catalogue (sourcé de la doc MiniMax + dispo sur Replicate) ────
@@ -159,28 +162,28 @@ export function listReplicateVoices(): ReplicateVoice[] {
   // ElevenLabs Flash v2.5
   for (const v of ELEVENLABS_VOICES) {
     all.push({
-      id: `replicate:elevenlabs-flash:${v.voice_id}`,
-      name: `${v.name} (Flash)`,
+      id: `replicate:elevenlabs-flash:${v.voice_name}`,
+      name: `${v.voice_name} (Flash)`,
       description: v.description,
       language: v.language,
       gender: v.gender,
       is_public: true,
       model: "elevenlabs/flash-v2.5",
-      provider_voice_id: v.voice_id,
+      provider_voice_id: v.voice_name,
       family: "elevenlabs-flash",
     });
   }
   // ElevenLabs Turbo v2.5
   for (const v of ELEVENLABS_VOICES) {
     all.push({
-      id: `replicate:elevenlabs-turbo:${v.voice_id}`,
-      name: `${v.name} (Turbo)`,
+      id: `replicate:elevenlabs-turbo:${v.voice_name}`,
+      name: `${v.voice_name} (Turbo)`,
       description: v.description,
       language: v.language,
       gender: v.gender,
       is_public: true,
       model: "elevenlabs/turbo-v2.5",
-      provider_voice_id: v.voice_id,
+      provider_voice_id: v.voice_name,
       family: "elevenlabs-turbo",
     });
   }
@@ -228,11 +231,12 @@ export async function previewReplicateTTS(opts: {
   voice_id: string; // id unifié "replicate:family:provider_voice_id"
   text: string;
   speed?: number; // 0.5..2.0
+  language?: string; // "fr"/"en"/"es"… pour le champ language_code ElevenLabs
 }): Promise<{ audio: ArrayBuffer; format: string }> {
   const voice = listReplicateVoices().find((v) => v.id === opts.voice_id);
   if (!voice) throw new Error(`Replicate voice unknown: ${opts.voice_id}`);
 
-  const input = buildReplicateInput(voice, opts.text, opts.speed);
+  const input = buildReplicateInput(voice, opts.text, opts.speed, opts.language);
 
   // Replicate "official models" endpoint : POST /v1/models/{owner}/{name}/predictions
   // Le header Prefer: wait demande un retour synchrone (jusqu'à 60s).
@@ -272,23 +276,29 @@ function buildReplicateInput(
   voice: ReplicateVoice,
   text: string,
   speed?: number,
+  languageCode?: string,
 ): Record<string, unknown> {
   // Champs spécifiques par famille — Replicate normalise tout mais chaque
-  // modèle a son schéma d'entrée.
+  // modèle a son schéma d'entrée différent.
   if (voice.family.startsWith("elevenlabs")) {
-    // ElevenLabs flash/turbo v2.5 sur Replicate attend "prompt" (pas "text").
-    // Erreur Wati 15/06 : HTTP 422 "input: prompt is required".
+    // Wati 15/06 (screenshots playground Replicate) — schéma vrai :
+    //   • prompt (string)        — texte à dire
+    //   • voice (string)         — nom de voix (Rachel, Drew, etc.), PAS uuid
+    //   • stability (0-1)        — défaut 0.5 (consistance)
+    //   • similarity_boost (0-1) — défaut 0.75
+    //   • style (0-1)            — défaut 0 (exagération)
+    //   • speed (0.7-1.2)        — défaut 1
+    //   • language_code (str)    — "en", "fr", "es"… défaut "en"
+    //   • previous_text/next_text — contexte (ignoré ici)
     const input: Record<string, unknown> = {
       prompt: text,
-      voice_id: voice.provider_voice_id,
+      voice: voice.provider_voice_id,  // c'est le NOM (Rachel, Drew…)
     };
     if (speed && speed !== 1.0) {
-      // ElevenLabs API directe supporte voice_settings.speed (0.7-1.2 selon
-      // leur doc officielle). Le wrapper Replicate l'expose probablement via
-      // ce sous-objet — si Replicate refuse on aura un 422 explicite.
-      input.voice_settings = {
-        speed: Math.max(0.7, Math.min(1.2, speed)),
-      };
+      input.speed = Math.max(0.7, Math.min(1.2, speed));
+    }
+    if (languageCode) {
+      input.language_code = languageCode;
     }
     return input;
   }
