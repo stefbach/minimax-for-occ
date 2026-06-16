@@ -74,14 +74,17 @@ jobs:
           LIVEKIT_API_KEY: ${{ secrets.LIVEKIT_API_KEY }}
           LIVEKIT_API_SECRET: ${{ secrets.LIVEKIT_API_SECRET }}
         run: |
+          set -e
           # `lk agent create` lit livekit.toml. On bascule temporairement le
           # vrai livekit.toml et on utilise livekit-test.toml pendant la création.
           mv livekit.toml livekit.toml.bak
           mv livekit-test.toml livekit.toml
-          lk agent create --silent || lk agent create || true
-          echo "=== livekit.toml apres creation (devrait contenir le nouvel ID) ==="
+          # --region eu-central : le plus proche du UK (patients OCC).
+          lk agent create --region eu-central --silent
+          echo ""
+          echo "=== livekit.toml apres creation (contient le nouvel ID) ==="
           cat livekit.toml
-          # On le renomme proprement pour qu'il ne masque pas le vrai prod
+          # On le renomme proprement pour qu'il ne masque pas le vrai prod.
           mv livekit.toml livekit-test.toml
           mv livekit.toml.bak livekit.toml
 
