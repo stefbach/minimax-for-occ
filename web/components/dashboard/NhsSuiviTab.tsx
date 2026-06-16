@@ -30,8 +30,8 @@ export function NhsSuiviTab() {
   const [view, setView] = useState<NhsView>({ name: "dashboard" });
   // Maps each card to the same list filter the legacy dashboard uses.
   const METRIC_FILTER: Record<string, PatientFilter> = {
-    email_j0: "all", email_j2: "all", whatsapp_j2: "all", responses: "all",
-    no_document: "aucun-doc", partial: "partiels", complete: "complets", pending_3d: "sans-reponse",
+    email_j0: "all", email_j2: "all", whatsapp_j2: "all", responses: "has-response",
+    no_document: "no-docs", partial: "partiels", complete: "complets", pending_3d: "sans-reponse",
     doc_medical_report: "all", doc_undue_delay: "all", doc_s2_declaration: "all", doc_estimate: "all",
     sent_nhs: "envoye-nhs", in_review: "envoye-nhs", accepted: "envoye-nhs", rejected: "envoye-nhs",
     submitted_month: "envoye-nhs", ready: "complets",
@@ -499,40 +499,40 @@ export function NhsSuiviTab() {
 
 function PipelinePanel({ data }: { data: NhsSuiviResponse }) {
   const t = useT();
-  const total = Math.max(1, data.pipeline.initial_call);
+  const total = Math.max(1, data.comms.email_j0_sent); // enrolled population base for %
   const steps = [
     {
-      key: "initial_call",
-      label: t("Appel initial"),
-      day: "J0",
-      value: data.pipeline.initial_call,
+      key: "enrolled",
+      label: t("Inscrits au programme"),
+      day: t("PROGRAMME"),
+      value: data.comms.email_j0_sent,
       pct: 100,
     },
     {
       key: "email_reminder",
-      label: t("Email relance"),
-      day: "J+2",
+      label: t("Relance email + WhatsApp envoyée"),
+      day: t("RELANCE"),
       value: data.pipeline.email_reminder,
       pct: Math.round((data.pipeline.email_reminder / total) * 100),
     },
     {
       key: "response_received",
-      label: t("Réponse reçue"),
-      day: "J+2-5",
+      label: t("Ont renvoyé des documents"),
+      day: t("RÉPONSE"),
       value: data.pipeline.response_received,
       pct: Math.round((data.pipeline.response_received / total) * 100),
     },
     {
       key: "file_complete",
-      label: t("Dossier complet"),
-      day: "J+5-10",
+      label: t("Dossier complet, prêt NHS"),
+      day: t("COMPLET"),
       value: data.pipeline.file_complete,
       pct: Math.round((data.pipeline.file_complete / total) * 100),
     },
     {
       key: "nhs_submitted",
-      label: t("Soumis NHS"),
-      day: "—",
+      label: t("Soumis à la NHS S2"),
+      day: t("NHS"),
       value: data.pipeline.nhs_submitted,
       pct: Math.round((data.pipeline.nhs_submitted / total) * 100),
     },
@@ -685,7 +685,7 @@ function CommCard({
 
 // ── Patient list + detail (port of the legacy 3-view NHS page) ─────────────
 
-type PatientFilter = PatientStatus | "all";
+type PatientFilter = PatientStatus | "all" | "has-response" | "no-docs";
 type NhsView =
   | { name: "dashboard" }
   | { name: "list"; filter: PatientFilter }
@@ -712,6 +712,8 @@ const FILTER_LABEL: Record<PatientFilter, string> = {
   "partiels": "Documents partiels",
   "aucun-doc": "Aucun document reçu",
   "envoye-nhs": "Envoyés NHS S2",
+  "has-response": "Réponses reçues",
+  "no-docs": "Aucun document reçu",
 };
 const NHS_BADGE_LABEL: Record<string, string> = {
   in_review: "In review",
@@ -821,7 +823,9 @@ function PatientListView({
 
   const q = search.trim().toLowerCase();
   const filtered = (patients ?? []).filter((p) => {
-    if (filter !== "all" && p.status !== filter) return false;
+    if (filter === "has-response" && !p.has_response) return false;
+    if (filter === "no-docs" && p.docs_received !== 0) return false;
+    if (filter !== "all" && filter !== "has-response" && filter !== "no-docs" && p.status !== filter) return false;
     if (!q) return true;
     return `${p.name ?? ""} ${p.email ?? ""} ${p.phone ?? ""}`.toLowerCase().includes(q);
   });
@@ -912,7 +916,21 @@ function PatientListView({
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                       <Avatar initials={p.initials} />
                       <div>
-                        <div style={{ fontWeight: 600 }}>{p.name ?? "—"}</div>
+                        <div style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
+                          {p.name ?? "—"}
+                          {p.duplicate && (
+                            <span
+                              title={t("Ce numéro de téléphone apparaît sur plusieurs dossiers")}
+                              style={{
+                                fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 999,
+                                background: "color-mix(in srgb, var(--warn) 15%, transparent)",
+                                color: "var(--warn)", border: "1px solid var(--warn)", whiteSpace: "nowrap",
+                              }}
+                            >
+                              {t("doublon")}
+                            </span>
+                          )}
+                        </div>
                         <div className="muted" style={{ fontSize: 11 }}>
                           {p.age != null ? `${p.age} ${t("ans")}` : ""}
                           {p.phone ? `${p.age != null ? " · " : ""}${p.phone}` : ""}

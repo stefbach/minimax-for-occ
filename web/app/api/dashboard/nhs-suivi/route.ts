@@ -1,33 +1,32 @@
 import { NextResponse } from "next/server";
 import { requestOrgId } from "@/lib/request-org";
 import { nhsLegacyClient } from "@/lib/nhs-legacy";
+import {
+  buildPatient,
+  buildPatientFromLead,
+  deduplicateLeads,
+  DOSSIER_SELECT,
+  LEAD_SELECT,
+  type DossierRow,
+  type LeadRow,
+  type NhsPatient,
+} from "@/lib/nhs-patients";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Suivi patient NHS S2 — pipeline panel for the OCC weight management
-// programme.
+// Suivi patient NHS S2 — aggregate tiles for the dashboard cards.
 //
-// DATA SOURCE: the legacy dashboard's Supabase project (emerald-ocean), NOT
-// Axon's own database. The NHS workflow (n8n: emails J0/J+2, WhatsApp, doc
-// tracking, dossier analysis, coordinator assignments) writes to that project:
-//   - leads_rdv             → comms flags, document_status, response dates
-//   - axon_nhs_dossiers_ro  → read-only view over nhs_dossiers (doc_*,
-//                             submission_ready, nhs_submission_status…)
-//   - axon_assignments_ro   → read-only view over dashboard_assignments
-//                             (Summer / Rain / Stormi queues)
-// The views were created for this dashboard and expose only the columns we
-// aggregate. The publishable (anon) key suffices: leads_rdv has a public-read
-// policy and the views are granted to anon. Both URL and key can be overridden
-// via env (NHS_LEGACY_SUPABASE_URL / NHS_LEGACY_SUPABASE_KEY) — see
-// lib/nhs-legacy.ts.
+// Population = leads with email_sent=true AND whatsapp_sent=true (the 60 confirmed
+// NHS S2 programme patients after data cleanup). For each we overlay the
+// nhs_dossiers row when one exists. Every card count is derived from this
+// combined set so the number on the card always matches the count of patients
+// shown when you click it.
 //
-// Axon's previous implementation read its own (lime-window) copies of these
-// columns, which the NHS workflow never updates — every tile showed 0.
+// Comms counts (email J0, relance, WhatsApp, responses) come from leads_rdv.
+// Doc / clinic / NHS-tracking counts come from nhs_dossiers (via the view).
 
 const MONTHLY_OBJECTIVE = Number(process.env.NHS_MONTHLY_OBJECTIVE ?? 30);
-// All 11 required documents of the S2 pack — used as the denominator for the
-// stalled list's "docs X/11" column.
 const DOCS_TOTAL = 11;
 
 export type NhsStalledPatient = {
@@ -37,12 +36,12 @@ export type NhsStalledPatient = {
   docs_filled: number;
   docs_total: number;
   qualification: string | null;
-  last_activity: string | null; // ISO; null = no activity recorded at all
-  days_stalled: number | null;  // null when last_activity is null
+  last_activity: string | null;
+  days_stalled: number | null;
 };
 
 export type NhsCoordinatorQueue = {
-  name: string; // Summer | Rain | Stormi
+  name: string;
   patients: { lead_id: string; name: string | null; phone: string | null; assigned_at: string | null; reason: string | null }[];
 };
 
@@ -52,11 +51,8 @@ export type NhsSuiviResponse = {
   submitted_this_month: number;
   pending_response_3d_plus: number;
   ready_to_submit: number;
-  // Dossiers partiels (documents manquants) sans activité depuis 5 jours+.
   stalled: { count: number; patients: NhsStalledPatient[] };
-  // Files coordinateurs — mêmes files Summer / Rain / Stormi que le legacy.
   coordinators: NhsCoordinatorQueue[];
-  // Documents à produire par la clinique (nhs_dossiers.doc_*).
   clinic_docs: {
     medical_report: number;
     undue_delay_letter: number;
@@ -90,21 +86,11 @@ export type NhsSuiviResponse = {
   };
 };
 
-type DossierRow = {
-  lead_id: string | null;
-  submission_ready: boolean | null;
-  nhs_submission_status: string | null;
-  nhs_submission_date: string | null;
-  dossier_status: string | null;
-  updated_at: string | null;
-  doc_medical_report: string | null;
-  doc_undue_delay_letter: string | null;
-  doc_s2_provider_declaration: string | null;
-  doc_detailed_medical_estimate: string | null;
-};
+// qualification for the stalled list (not in the shared LEAD_SELECT)
+const LEAD_SELECT_EXT = LEAD_SELECT + ", qualification";
+type LeadRowExt = LeadRow & { qualification: string | null };
 
-// Doc cells are text (URL / yes / status word); treat empty + negative words
-// as "not produced".
+// Clinic-produced docs: any truthy value (URL / "yes" / "generated") counts.
 function truthyDoc(v: unknown): boolean {
   if (v === true) return true;
   if (typeof v === "number") return v > 0;
@@ -114,133 +100,117 @@ function truthyDoc(v: unknown): boolean {
 }
 
 export async function GET(request: Request) {
-  // Auth context (the dashboard is behind login); data itself comes from the
-  // legacy project below.
   await requestOrgId(request);
   const legacy = nhsLegacyClient();
 
   const now = new Date();
   const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
-  const threeDaysAgoMs = now.getTime() - 3 * 86400_000;
+  const threeDaysAgo = new Date(now.getTime() - 3 * 86400_000);
   const fiveDaysAgoMs = now.getTime() - 5 * 86400_000;
 
-  const countLeads = async (build: (q: any) => any): Promise<number> => {
-    try {
-      const { count, error } = await build(
-        legacy.from("leads_rdv").select("id", { count: "exact", head: true }),
-      );
-      if (error) return 0;
-      return count ?? 0;
-    } catch {
-      return 0;
-    }
-  };
-
-  // ── Communication patient (leads_rdv flags, written by n8n) ───────────
-  const [emailJ0, emailJ2, whatsapp, responses, initialCall] = await Promise.all([
-    countLeads((q) => q.eq("email_sent", true)),
-    countLeads((q) => q.eq("relance_email_sent", true)),
-    countLeads((q) => q.eq("relance_whatsapp_sent", true)),
-    countLeads((q) => q.not("last_response_date", "is", null)),
-    countLeads((q) => q.not("last_call_datetime", "is", null)),
-  ]);
-  const hasData = emailJ0 > 0 || initialCall > 0;
-
-  // ── Statut des dossiers côté leads (document_status, scope = emailed) ──
-  // Values observed in production: NULL, NO_DOCUMENTS_RECEIVED,
-  // MISSING_DOCUMENTS (+ future COMPLETE/ALL_DOCUMENTS_RECEIVED).
-  const [noDocument, partialDocs, completeDocs] = await Promise.all([
-    countLeads((q) =>
-      q.eq("email_sent", true).or("document_status.is.null,document_status.ilike.%no_document%,document_status.ilike.%aucun%"),
-    ),
-    countLeads((q) =>
-      q.or("document_status.ilike.%missing%,document_status.ilike.%partial%,document_status.ilike.%partiel%"),
-    ),
-    countLeads((q) =>
-      q.in("document_status", ["COMPLETE", "COMPLET", "ALL_DOCUMENTS_RECEIVED", "ALL_RECEIVED"]),
-    ),
-  ]);
-
-  // ── Dossiers NHS (read-only view over nhs_dossiers) ────────────────────
-  let dossiers: DossierRow[] = [];
+  // ── Step 1: NHS S2 programme population (email AND WhatsApp both sent) ──
+  let allLeads: LeadRowExt[] = [];
   try {
     const { data } = await legacy
-      .from("axon_nhs_dossiers_ro")
-      .select(
-        "lead_id, submission_ready, nhs_submission_status, nhs_submission_date, dossier_status, updated_at, doc_medical_report, doc_undue_delay_letter, doc_s2_provider_declaration, doc_detailed_medical_estimate",
-      )
+      .from("leads_rdv")
+      .select(LEAD_SELECT_EXT)
+      .eq("email_sent", true)
+      .eq("whatsapp_sent", true)
       .limit(10000);
-    dossiers = (data ?? []) as DossierRow[];
-  } catch {
-    /* view unreachable — dossier-based tiles stay at 0 */
+    allLeads = (data ?? []) as unknown as LeadRowExt[];
+  } catch { /* empty */ }
+
+  // ── Step 2: overlay dossiers for those lead IDs ───────────────────────
+  const leadIds = allLeads.map((l) => String(l.id));
+  const dossierByLeadId = new Map<string, DossierRow>();
+  for (let i = 0; i < leadIds.length; i += 200) {
+    try {
+      const { data } = await legacy
+        .from("axon_nhs_dossiers_ro")
+        .select(DOSSIER_SELECT)
+        .in("lead_id", leadIds.slice(i, i + 200));
+      for (const d of (data ?? []) as unknown as DossierRow[]) {
+        if (d.lead_id) dossierByLeadId.set(String(d.lead_id), d);
+      }
+    } catch { /* ignore */ }
   }
 
+  // ── Step 3: deduplicate (85 raw rows → 63 unique patients) + entries ───
+  const uniqueLeads = deduplicateLeads(allLeads, (id) => dossierByLeadId.has(id));
+  type Entry = { patient: NhsPatient; lead: LeadRowExt; d: DossierRow | null };
+  const entries: Entry[] = uniqueLeads.map((l) => {
+    const d = dossierByLeadId.get(String(l.id)) ?? null;
+    return {
+      patient: d ? buildPatient(d, l, threeDaysAgo) : buildPatientFromLead(l, threeDaysAgo),
+      lead: l,
+      d,
+    };
+  });
+
+  const hasData = uniqueLeads.length > 0;
+
+  // ── Step 4: comms from unique patients (J0=63, relance=9…) ───────────
+  const comms = {
+    email_j0_sent: uniqueLeads.length,
+    email_j2_sent: uniqueLeads.filter(({ relance_email_sent: r }) => r).length,
+    whatsapp_sent: uniqueLeads.filter(({ relance_whatsapp_sent: r }) => r).length,
+    responses_received: uniqueLeads.filter(({ last_response_date: d }) => d).length,
+  };
+
+  // ── Step 5: file status from patient statuses (matches list chips) ─────
+  // no_document counts ANY patient with 0 docs received, including those also
+  // flagged "sans-reponse" — both buckets can overlap and both show 0 docs.
+  const pending3d = entries.filter(({ patient }) => patient.status === "sans-reponse").length;
+  const file_status = {
+    no_document: entries.filter(({ patient }) => patient.docs_received === 0).length,
+    partial:     entries.filter(({ patient }) => patient.status === "partiels").length,
+    complete:    entries.filter(({ patient }) => patient.status === "complets").length,
+    no_response_3d: pending3d,
+  };
+
+  // ── Step 6: dossier-based counts (clinic docs, NHS tracking) ──────────
   const clinicDocs = { medical_report: 0, undue_delay_letter: 0, s2_provider_declaration: 0, medical_estimate: 0 };
   const tracking = { submitted: 0, in_review: 0, accepted: 0, rejected: 0 };
   let readyToSubmit = 0;
   let submittedThisMonth = 0;
-  let pending3d = 0;
-  for (const d of dossiers) {
-    if (truthyDoc(d.doc_medical_report)) clinicDocs.medical_report += 1;
-    if (truthyDoc(d.doc_undue_delay_letter)) clinicDocs.undue_delay_letter += 1;
-    if (truthyDoc(d.doc_s2_provider_declaration)) clinicDocs.s2_provider_declaration += 1;
-    if (truthyDoc(d.doc_detailed_medical_estimate)) clinicDocs.medical_estimate += 1;
+  for (const { d, patient } of entries) {
+    if (!d) continue; // no dossier yet — skip clinic/NHS counts
+    if (truthyDoc(d["doc_medical_report"])) clinicDocs.medical_report++;
+    if (truthyDoc(d["doc_undue_delay_letter"])) clinicDocs.undue_delay_letter++;
+    if (truthyDoc(d["doc_s2_provider_declaration"])) clinicDocs.s2_provider_declaration++;
+    // Medical estimate is only produced by the clinic once ALL patient docs are in
+    const fileComplete = patient.status === "complets" || patient.status === "envoye-nhs";
+    if (fileComplete && truthyDoc(d["doc_detailed_medical_estimate"])) clinicDocs.medical_estimate++;
 
-    const submitted = Boolean(d.nhs_submission_date) || Boolean(d.nhs_submission_status?.trim());
-    const status = (d.nhs_submission_status ?? "").toLowerCase();
-    if (submitted) tracking.submitted += 1;
-    if (/review|pending|instruction|examen/.test(status)) tracking.in_review += 1;
-    if (/accept|approv/.test(status)) tracking.accepted += 1;
-    if (/refus|reject/.test(status)) tracking.rejected += 1;
+    const submissionDate = d.nhs_submission_date;
+    const submissionStatus = d.nhs_submission_status;
+    const submitted = Boolean(submissionDate) || Boolean(submissionStatus?.trim());
+    if (submitted) tracking.submitted++;
+    const status = (submissionStatus ?? "").toLowerCase();
+    if (/review|pending|instruction|examen/.test(status)) tracking.in_review++;
+    if (/accept|approv/.test(status)) tracking.accepted++;
+    if (/refus|reject/.test(status)) tracking.rejected++;
 
-    if (d.submission_ready && !submitted) readyToSubmit += 1;
-    if (d.nhs_submission_date && d.nhs_submission_date >= monthStart) submittedThisMonth += 1;
-
-    // "Sans réponse 3j+" — dossier ouvert (non soumis, non complet) sans
-    // aucune mise à jour depuis 3 jours.
-    const updatedMs = d.updated_at ? new Date(d.updated_at).getTime() : NaN;
-    const isComplete = /complet|complete|all_/i.test(d.dossier_status ?? "");
-    if (!submitted && !isComplete && Number.isFinite(updatedMs) && updatedMs < threeDaysAgoMs) {
-      pending3d += 1;
-    }
+    if (d.submission_ready && !submitted) readyToSubmit++;
+    if (submissionDate && submissionDate >= monthStart) submittedThisMonth++;
   }
 
-  // ── Bloqués 5j+ — dossiers partiels (docs manquants) sans activité ─────
+  // ── Step 7: stalled patients (partiels/aucun-doc, no activity 5j+) ────
   const stalledPatients: NhsStalledPatient[] = [];
-  try {
-    const { data } = await legacy
-      .from("leads_rdv")
-      .select(
-        "nom, numero_telephone, email, qualification, received_documents, last_doc_chase_at, last_response_date, relance_email_date, relance_whatsapp_date, last_call_datetime, last_updated, document_status",
-      )
-      .or("document_status.ilike.%missing%,document_status.ilike.%partial%,document_status.ilike.%partiel%")
-      .limit(2000);
-    for (const r of (data ?? []) as Array<Record<string, unknown>>) {
-      const stamps = [
-        r["last_doc_chase_at"], r["last_response_date"], r["relance_email_date"],
-        r["relance_whatsapp_date"], r["last_call_datetime"], r["last_updated"],
-      ]
-        .map((v) => (v ? new Date(String(v)).getTime() : NaN))
-        .filter((ms) => Number.isFinite(ms)) as number[];
-      const lastMs = stamps.length ? Math.max(...stamps) : null;
-      if (lastMs !== null && lastMs >= fiveDaysAgoMs) continue; // active recently
-      const received = String(r["received_documents"] ?? "")
-        .split(/[,;\n]/)
-        .map((s) => s.trim())
-        .filter(Boolean).length;
-      stalledPatients.push({
-        name: (r["nom"] as string | null) ?? null,
-        phone: (r["numero_telephone"] as string | null) ?? null,
-        email: (r["email"] as string | null) ?? null,
-        docs_filled: received,
-        docs_total: DOCS_TOTAL,
-        qualification: (r["qualification"] as string | null) ?? null,
-        last_activity: lastMs === null ? null : new Date(lastMs).toISOString(),
-        days_stalled: lastMs === null ? null : Math.floor((now.getTime() - lastMs) / 86400_000),
-      });
-    }
-  } catch {
-    /* leads unreachable — empty list */
+  for (const { patient, lead } of entries) {
+    if (patient.status !== "partiels" && patient.status !== "aucun-doc") continue;
+    const lastMs = patient.last_activity ? new Date(patient.last_activity).getTime() : null;
+    if (lastMs !== null && lastMs >= fiveDaysAgoMs) continue;
+    stalledPatients.push({
+      name: patient.name,
+      phone: patient.phone,
+      email: patient.email,
+      docs_filled: patient.docs_received,
+      docs_total: DOCS_TOTAL,
+      qualification: lead.qualification,
+      last_activity: patient.last_activity,
+      days_stalled: lastMs === null ? null : Math.floor((now.getTime() - lastMs) / 86400_000),
+    });
   }
   stalledPatients.sort((a, b) => {
     const am = a.last_activity ? new Date(a.last_activity).getTime() : -Infinity;
@@ -248,7 +218,16 @@ export async function GET(request: Request) {
     return am - bm;
   });
 
-  // ── Files coordinateurs (Summer / Rain / Stormi) ───────────────────────
+  // ── Step 8: pipeline (lead-scoped, matching the 63 population) ─────────
+  const pipeline = {
+    initial_call: uniqueLeads.filter((l) => !!l.last_call_datetime).length,
+    email_reminder: comms.email_j2_sent,
+    response_received: comms.responses_received,
+    file_complete: entries.filter(({ patient: p }) => p.status === "complets" || p.status === "envoye-nhs").length,
+    nhs_submitted: tracking.submitted,
+  };
+
+  // ── Step 9: coordinator queues (independent of dossiers) ──────────────
   const COORDINATORS = ["Summer", "Rain", "Stormi"];
   const queues = new Map<string, NhsCoordinatorQueue>(
     COORDINATORS.map((n) => [n.toLowerCase(), { name: n, patients: [] }]),
@@ -262,27 +241,27 @@ export async function GET(request: Request) {
     type Assign = { lead_id: string; assigned_to: string | null; reason: string | null; assigned_at: string | null; status: string | null };
     const latestPerLead = new Map<string, Assign>();
     for (const a of (assigns ?? []) as Assign[]) {
-      if (!a.lead_id || latestPerLead.has(a.lead_id)) continue; // first = latest
+      if (!a.lead_id || latestPerLead.has(a.lead_id)) continue;
       latestPerLead.set(a.lead_id, a);
     }
     const open = [...latestPerLead.values()].filter(
       (a) => a.assigned_to && (!a.status || a.status === "open"),
     );
-    const ids = open.map((a) => a.lead_id);
-    const leadById = new Map<string, { nom: string | null; numero_telephone: string | null }>();
-    for (let i = 0; i < ids.length; i += 200) {
+    const assignIds = open.map((a) => a.lead_id);
+    const assignLeadById = new Map<string, { nom: string | null; numero_telephone: string | null }>();
+    for (let i = 0; i < assignIds.length; i += 200) {
       const { data: leadRows } = await legacy
         .from("leads_rdv")
         .select("id, nom, numero_telephone")
-        .in("id", ids.slice(i, i + 200));
+        .in("id", assignIds.slice(i, i + 200));
       for (const l of (leadRows ?? []) as Array<{ id: string; nom: string | null; numero_telephone: string | null }>) {
-        leadById.set(String(l.id), { nom: l.nom, numero_telephone: l.numero_telephone });
+        assignLeadById.set(String(l.id), { nom: l.nom, numero_telephone: l.numero_telephone });
       }
     }
     for (const a of open) {
       const queue = queues.get((a.assigned_to ?? "").trim().toLowerCase());
       if (!queue) continue;
-      const lead = leadById.get(String(a.lead_id));
+      const lead = assignLeadById.get(String(a.lead_id));
       queue.patients.push({
         lead_id: String(a.lead_id),
         name: lead?.nom ?? null,
@@ -291,9 +270,7 @@ export async function GET(request: Request) {
         reason: a.reason,
       });
     }
-  } catch {
-    /* assignments unreachable — empty queues */
-  }
+  } catch { /* assignments unreachable — empty queues */ }
 
   const body: NhsSuiviResponse = {
     has_data: hasData,
@@ -304,26 +281,10 @@ export async function GET(request: Request) {
     stalled: { count: stalledPatients.length, patients: stalledPatients.slice(0, 100) },
     coordinators: COORDINATORS.map((n) => queues.get(n.toLowerCase())!),
     clinic_docs: clinicDocs,
-    comms: {
-      email_j0_sent: emailJ0,
-      email_j2_sent: emailJ2,
-      whatsapp_sent: whatsapp,
-      responses_received: responses,
-    },
-    file_status: {
-      no_document: noDocument,
-      partial: partialDocs,
-      complete: completeDocs,
-      no_response_3d: pending3d,
-    },
+    comms,
+    file_status,
     nhs_tracking: tracking,
-    pipeline: {
-      initial_call: initialCall,
-      email_reminder: emailJ2,
-      response_received: responses,
-      file_complete: completeDocs,
-      nhs_submitted: tracking.submitted,
-    },
+    pipeline,
   };
   return NextResponse.json(body);
 }
