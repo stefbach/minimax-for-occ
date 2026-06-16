@@ -706,8 +706,8 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                   >
                     <option value="" style={{ background: "var(--bg-2)", color: "var(--text)" }}>Tous les fournisseurs</option>
                     <option value="cartesia" style={{ background: "var(--bg-2)", color: "var(--text)" }}>Cartesia ({cartesiaVoices.length})</option>
-                    <option value="elevenlabs-flash-direct" style={{ background: "var(--bg-2)", color: "var(--text)" }}>ElevenLabs Flash v2.5 ({replicateVoices.filter((v) => v.family === "elevenlabs-flash-direct").length})</option>
-                    <option value="elevenlabs-turbo-direct" style={{ background: "var(--bg-2)", color: "var(--text)" }}>ElevenLabs Turbo v2.5 ({replicateVoices.filter((v) => v.family === "elevenlabs-turbo-direct").length})</option>
+                    <option value="elevenlabs-flash-direct" style={{ background: "var(--bg-2)", color: "var(--text)" }}>ElevenLabs Flash v2.5 — latence ~75ms ({replicateVoices.filter((v) => v.family === "elevenlabs-flash-direct").length})</option>
+                    <option value="elevenlabs-turbo-direct" style={{ background: "var(--bg-2)", color: "var(--text)" }}>ElevenLabs Turbo v2.5 — qualité équivalente, latence ~100ms ({replicateVoices.filter((v) => v.family === "elevenlabs-turbo-direct").length})</option>
                     <option value="minimax-turbo" style={{ background: "var(--bg-2)", color: "var(--text)" }}>MiniMax Speech 02 Turbo ({replicateVoices.filter((v) => v.family === "minimax-turbo").length})</option>
                     <option value="minimax-hd" style={{ background: "var(--bg-2)", color: "var(--text)" }}>MiniMax Speech 02 HD ({replicateVoices.filter((v) => v.family === "minimax-hd").length})</option>
                   </select>

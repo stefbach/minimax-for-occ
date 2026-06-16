@@ -29,30 +29,27 @@ export async function GET() {
   }
 
   try {
-    const r = await fetch(
+    // 1) Voix du compte (voix personnelles + Pre-Made ajoutees + clonees).
+    const rOwn = await fetch(
       "https://api.elevenlabs.io/v1/voices?show_legacy=true",
       {
         method: "GET",
-        headers: {
-          "xi-api-key": apiKey,
-          Accept: "application/json",
-        },
-        // Cache cote serveur 5 min : la liste change rarement.
+        headers: { "xi-api-key": apiKey, Accept: "application/json" },
         next: { revalidate: 300 },
       },
     );
-    if (!r.ok) {
-      const errBody = await r.text().catch(() => "");
+    if (!rOwn.ok) {
+      const errBody = await rOwn.text().catch(() => "");
       return NextResponse.json(
         {
           voices: [],
-          error: `ElevenLabs HTTP ${r.status}`,
+          error: `ElevenLabs HTTP ${rOwn.status}`,
           detail: errBody.slice(0, 300),
         },
         { status: 502 },
       );
     }
-    const data = (await r.json()) as {
+    const ownData = (await rOwn.json()) as {
       voices?: Array<{
         voice_id: string;
         name: string;
@@ -62,6 +59,57 @@ export async function GET() {
         category?: string | null;
       }>;
     };
+
+    // 2) Voix publiques de la Voice Library (~3000+ voix communautaires).
+    //    /v1/shared-voices est pagine — on prend les premieres ~1000 pour
+    //    pas exploser le payload. Filtre featured pour qualite.
+    type SharedVoice = {
+      voice_id: string;
+      name: string;
+      description?: string | null;
+      labels?: Record<string, string> | null;
+      gender?: string | null;
+      accent?: string | null;
+      language?: string | null;
+      use_case?: string | null;
+      age?: string | null;
+      preview_url?: string | null;
+      category?: string | null;
+    };
+    const shared: SharedVoice[] = [];
+    try {
+      let page_size = 100;
+      let cursor: string | null = null;
+      for (let i = 0; i < 10; i++) {
+        const url = new URL("https://api.elevenlabs.io/v1/shared-voices");
+        url.searchParams.set("page_size", String(page_size));
+        if (cursor) url.searchParams.set("page_token", cursor);
+        const rs = await fetch(url.toString(), {
+          method: "GET",
+          headers: { "xi-api-key": apiKey, Accept: "application/json" },
+          next: { revalidate: 600 },
+        });
+        if (!rs.ok) break;
+        const sd = (await rs.json()) as {
+          voices?: SharedVoice[];
+          has_more?: boolean;
+          last_sort_id?: string | null;
+        };
+        if (Array.isArray(sd.voices)) shared.push(...sd.voices);
+        if (!sd.has_more || !sd.last_sort_id) break;
+        cursor = sd.last_sort_id;
+      }
+    } catch {
+      /* shared est optionnel, on continue avec juste les voix perso */
+    }
+
+    // Fusionne les 2 listes, deduplique par voice_id.
+    const merged = new Map<string, SharedVoice>();
+    for (const v of ownData.voices ?? []) merged.set(v.voice_id, v);
+    for (const v of shared) {
+      if (!merged.has(v.voice_id)) merged.set(v.voice_id, v);
+    }
+    const data = { voices: Array.from(merged.values()) };
 
     type Voice = {
       voice_id: string;
@@ -80,19 +128,21 @@ export async function GET() {
       // ElevenLabs renvoie un sous-set des champs descriptifs sous labels :
       // gender, accent, language, age, descriptive, use_case…
       // On normalise les noms a notre format interne.
+      // Les voix /v1/voices mettent les meta dans labels{}, les voix
+      // /v1/shared-voices les mettent au top level. On supporte les 2.
       const gender = (() => {
-        const raw = (labels.gender ?? "").toLowerCase();
+        const raw = (labels.gender ?? v.gender ?? "").toString().toLowerCase();
         if (raw === "female" || raw === "feminine") return "feminine";
         if (raw === "male" || raw === "masculine") return "masculine";
         if (raw === "neutral" || raw === "neutre") return "neutral";
         return null;
       })();
-      const accent = (labels.accent ?? null) as string | null;
-      const language = (labels.language ?? null) as string | null;
-      const useCase = (labels.use_case ?? labels.useCase ?? null) as
+      const accent = (labels.accent ?? v.accent ?? null) as string | null;
+      const language = (labels.language ?? v.language ?? null) as string | null;
+      const useCase = (labels.use_case ?? labels.useCase ?? v.use_case ?? null) as
         | string
         | null;
-      const age = (labels.age ?? null) as string | null;
+      const age = (labels.age ?? v.age ?? null) as string | null;
       const descriptive = (labels.descriptive ?? null) as string | null;
       // Description finale : on combine description ElevenLabs + descriptifs
       // courts (descriptive, use_case) pour donner un label parlant style
