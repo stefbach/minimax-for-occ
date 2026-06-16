@@ -49,8 +49,22 @@ jobs:
           chmod +x /usr/local/bin/lk
           lk --version
 
-      - name: Deploy to LiveKit Cloud Agents
-        run: lk agent deploy
+      - name: Deploy to LiveKit Cloud Agents (PROD CA_PFUfvaBhC8Wk)
+        run: lk agent deploy --config livekit.toml
+        env:
+          LIVEKIT_URL: ${{ secrets.LIVEKIT_URL }}
+          LIVEKIT_API_KEY: ${{ secrets.LIVEKIT_API_KEY }}
+          LIVEKIT_API_SECRET: ${{ secrets.LIVEKIT_API_SECRET }}
+
+      - name: Deploy to LiveKit Cloud Agents (TEST CA_PbChboVCvPJC)
+        # Wati 16/06 — meme code, mais deploye sur le 2eme LK Cloud Agent
+        # qui sert uniquement les agents OCC dont le nom contient "teste".
+        # Permet d'isoler tests/experimentations de la prod sans branche
+        # separee. Aucune dependance entre les 2 deploys (continue-on-error
+        # pour qu'un crash test ne casse pas la prod).
+        if: always()
+        continue-on-error: true
+        run: lk agent deploy --config livekit-test.toml
         env:
           LIVEKIT_URL: ${{ secrets.LIVEKIT_URL }}
           LIVEKIT_API_KEY: ${{ secrets.LIVEKIT_API_KEY }}
