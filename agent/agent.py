@@ -1284,13 +1284,15 @@ class AxonVoiceAgent(Agent):
                     "greeting: say() interrupted after %.2fs (likely hangup)",
                     _t.monotonic() - _b,
                 )
-            # Arm the opener-response budget: every bare phone-opener
-            # ("Hello?") gets answered WITH the greeting — up to 3 times,
-            # politely varied (the Retell reference pattern). The first
-            # substantive utterance hands over to the LLM for good. No
-            # timers, no VAD disarm races — the 4 morning iterations all
-            # died on those.
-            self._opener_replies_left = 3
+            # Wati 16/06 — DON'T arm the opener-response budget in on-answer
+            # mode. The agent has ALREADY greeted at pickup; re-greeting on
+            # every "Hello?" replays the same canned line and feels like the
+            # agent is shouting it. The opener-budget pattern only makes sense
+            # in speech-first mode where the patient's "Hello?" IS the trigger
+            # for the first greeting. Here, we let the LLM handle the user's
+            # "Hello?" naturally (it'll just say "Yes, hi — am I speaking with
+            # Summer?" or similar) without canned re-greets.
+            self._opener_replies_left = 0
             return
 
         if sp is not None:
