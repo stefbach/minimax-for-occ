@@ -39,12 +39,26 @@ for (const [k, v] of Object.entries({ b64Path, bucket, leadId, dossierId, catego
   if (!v) { console.error(`Missing spec field: ${k}`); process.exit(1); }
 }
 
+// Supabase storage object keys reject non-ASCII chars (e.g. accented "é").
+// Sanitize the filename used in the KEY (strip diacritics, replace remaining non-ASCII),
+// while keeping the original fileName in the registry for display/identifiability.
+function sanitizeKeySeg(s) {
+  return s.normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[^\x20-\x7E]/g, '_');
+}
 const folder = docField || 'doc_other';
-const storagePath = `${leadId}/${folder}/${fileName}`;
+const keyName = sanitizeKeySeg(fileName);
+const storagePath = `${leadId}/${folder}/${keyName}`;
 const encPath = storagePath.split('/').map(encodeURIComponent).join('/');
 const publicUrl = `${url}/storage/v1/object/public/${bucket}/${encPath}`;
 
 const buf = Buffer.from(readFileSync(b64Path, 'utf8').trim(), 'base64');
+// Integrity guard: if the caller passes the Drive-reported size, verify the decoded
+// bytes match before uploading. Catches the concurrent download-race (crossed tool
+// results), truncation, and 0-byte uploads.
+if (spec.expectedSize != null && buf.length !== Number(spec.expectedSize)) {
+  console.error(`FAIL: size mismatch for ${fileName}: got ${buf.length}, expected ${spec.expectedSize}`);
+  process.exit(3);
+}
 
 const restHeaders = {
   apikey: key,
