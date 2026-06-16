@@ -516,10 +516,38 @@ def _tts_for(agent: Optional[AxonAgent], sample_rate: Optional[int] = None):
         is_replicate_voice_id = lambda _v: False
         ReplicateTTS = None  # type: ignore[assignment]
 
+    try:
+        from minimax_tts import is_minimax_voice_id, MinimaxTTS
+    except ImportError:
+        is_minimax_voice_id = lambda _v: False
+        MinimaxTTS = None  # type: ignore[assignment]
+
     _voice_for_routing = (
         (agent.tts_voice_id if agent and agent.tts_voice_id else None)
         or os.getenv("CARTESIA_VOICE_ID")
     )
+
+    # ── MiniMax DIRECT (Wati 16/06) ─────────────────────────────────────────
+    # Streaming SSE natif (~400ms TTFB). Remplace le passage via Replicate
+    # qui était non-streaming (~1-2s). Format voice_id : "minimax:<model>:<voice>".
+    if MinimaxTTS is not None and is_minimax_voice_id(_voice_for_routing):
+        try:
+            logger.info("TTS=minimax-direct voice_id=%s", _voice_for_routing)
+            telephony_sr = int(sample_rate) if sample_rate and int(sample_rate) <= 16000 else 24000
+            return MinimaxTTS(
+                voice_id=_voice_for_routing,  # type: ignore[arg-type]
+                sample_rate=telephony_sr,
+                speed=(float(agent.tts_speed) if agent and agent.tts_speed and agent.tts_speed != 1.0 else None),
+                pitch=(int(agent.tts_pitch) if agent and agent.tts_pitch else None),
+                emotion=(agent.tts_emotion if agent and agent.tts_emotion else None),
+                volume=(float(agent.tts_volume) if agent and agent.tts_volume and agent.tts_volume != 1.0 else None),
+                english_normalization=(agent.tts_english_normalization if agent else None),
+            )
+        except Exception:
+            logger.exception(
+                "minimax direct init failed for voice_id=%s — falling back to Replicate path",
+                _voice_for_routing,
+            )
 
     # ── ElevenLabs DIRECT (Wati 16/06) ──────────────────────────────────────
     # Streaming WebSocket natif, TTFB ~75ms. Active la latence Retell-like.

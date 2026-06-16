@@ -69,9 +69,12 @@ const REPLICATE_FAMILY_LABELS: Record<string, string> = {
   // ElevenLabs direct (Wati 16/06) — WebSocket streaming, TTFB ~75ms.
   "elevenlabs-flash-direct": "ElevenLabs Flash v2.5",
   "elevenlabs-turbo-direct": "ElevenLabs Turbo v2.5",
-  // MiniMax via Replicate (en attendant le compte direct MiniMax).
-  "minimax-turbo": "MiniMax Speech 02 Turbo",
-  "minimax-hd": "MiniMax Speech 02 HD",
+  // MiniMax direct (Wati 16/06) — SSE streaming natif, TTFB ~400ms.
+  "minimax-turbo-direct": "MiniMax Speech 02 Turbo",
+  "minimax-hd-direct": "MiniMax Speech 02 HD",
+  // MiniMax via Replicate — legacy depuis Wati 16/06.
+  "minimax-turbo": "MiniMax Speech 02 Turbo (Replicate)",
+  "minimax-hd": "MiniMax Speech 02 HD (Replicate)",
 };
 
 const LANG_NAMES: Record<string, string> = {
@@ -330,6 +333,40 @@ export function AgentForm({ initial }: { initial?: Agent }) {
             (v) => v.family !== "elevenlabs-flash-direct" && v.family !== "elevenlabs-turbo-direct",
           );
           return [...direct, ...withoutOldDirect];
+        });
+      })
+      .catch(() => {});
+    // Load MiniMax DIRECT catalog (Wati 16/06) — voix system (17 préréglées
+    // Speech 02) + voix clonées sur le compte. Renvoie {voices:[], note:...}
+    // si MINIMAX_API_KEY/GROUP_ID absentes. Format voice_id renvoyé :
+    // "minimax:speech-02-turbo:<voice>" ou "minimax:speech-02-hd:<voice>".
+    fetch("/api/voices/minimax")
+      .then((r) => (r.ok ? r.json() : { voices: [] }))
+      .then((data) => {
+        if (cancelled) return;
+        const list = Array.isArray(data?.voices) ? data.voices : [];
+        const direct: ReplicateVoiceCatalog[] = list.map((v: {
+          voice_id: string;
+          name: string;
+          description: string | null;
+          gender: string | null;
+          language: string | null;
+          family: string;
+          category: string;
+        }) => ({
+          id: v.voice_id,
+          name: v.description ? `${v.name} — ${v.description}` : v.name,
+          description: v.description,
+          language: v.language,
+          gender: v.gender,
+          is_public: v.category === "system",
+          family: `${v.family}-direct`, // "minimax-turbo-direct" | "minimax-hd-direct"
+        }));
+        setReplicateVoices((prev) => {
+          const withoutOldMinimaxDirect = prev.filter(
+            (v) => v.family !== "minimax-turbo-direct" && v.family !== "minimax-hd-direct",
+          );
+          return [...withoutOldMinimaxDirect, ...direct];
         });
       })
       .catch(() => {});
@@ -879,27 +916,33 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                 {(() => {
                   // Detect family from voice_id prefix (Wati 16/06 :
                   // 'elevenlabs:flash:...' / 'elevenlabs:turbo:...' = direct,
+                  // 'minimax:speech-02-turbo:...' / 'minimax:speech-02-hd:...' = direct,
                   // 'replicate:elevenlabs-...' = legacy via Replicate,
                   // 'replicate:minimax-...' = MiniMax via Replicate,
                   // sinon UUID Cartesia).
                   const isElevenLabsDirect = voice.startsWith("elevenlabs:");
+                  const isMinimaxDirect = voice.startsWith("minimax:");
                   const isReplicate = voice.startsWith("replicate:");
                   const family = isElevenLabsDirect
                     ? `elevenlabs-${voice.split(":")[1] ?? "flash"}-direct`
+                    : isMinimaxDirect
+                    ? (voice.split(":")[1] === "speech-02-hd" ? "minimax-hd-direct" : "minimax-turbo-direct")
                     : isReplicate
                     ? voice.split(":")[1] ?? ""
                     : "cartesia";
                   const isElevenLabs = family.startsWith("elevenlabs");
                   const isMiniMax = family.startsWith("minimax");
-                  const isExternal = isElevenLabsDirect || isReplicate;
+                  const isExternal = isElevenLabsDirect || isMinimaxDirect || isReplicate;
                   const familyLabel =
                     family === "cartesia" ? "Cartesia Sonic" :
                     family === "elevenlabs-flash-direct" ? "ElevenLabs Flash v2.5 (direct, ~75ms TTFB)" :
                     family === "elevenlabs-turbo-direct" ? "ElevenLabs Turbo v2.5 (direct, ~100ms TTFB)" :
                     family === "elevenlabs-flash" ? "ElevenLabs Flash v2.5 (via Replicate, legacy)" :
                     family === "elevenlabs-turbo" ? "ElevenLabs Turbo v2.5 (via Replicate, legacy)" :
-                    family === "minimax-turbo" ? "MiniMax Speech 02 Turbo (via Replicate)" :
-                    family === "minimax-hd" ? "MiniMax Speech 02 HD (via Replicate)" :
+                    family === "minimax-turbo-direct" ? "MiniMax Speech 02 Turbo (direct, ~400ms TTFB)" :
+                    family === "minimax-hd-direct" ? "MiniMax Speech 02 HD (direct, streaming SSE)" :
+                    family === "minimax-turbo" ? "MiniMax Speech 02 Turbo (via Replicate, legacy)" :
+                    family === "minimax-hd" ? "MiniMax Speech 02 HD (via Replicate, legacy)" :
                     "Cartesia Sonic";
                   return (
                     <>
