@@ -545,6 +545,19 @@ def _tts_for(agent: Optional[AxonAgent], sample_rate: Optional[int] = None):
             tts_kwargs: dict = {"voice_id": voice_ref, "model": model_id}
             base_tts = _elevenlabs.TTS  # local alias
 
+            # Output encoding for the PSTN leg (Wati 16/06).
+            # Phone calls land in SIP at 8kHz µ-law (G.711). If we synthesize
+            # in 22kHz mp3 then let LiveKit downsample, the resampling chain
+            # creates the "AM radio" timbre Wati spotted. Asking ElevenLabs
+            # for pcm_8000 directly makes the model shape its output for
+            # narrowband — best fidelity achievable on a phone line.
+            # For HD browser sessions (sample_rate unset / >=16k), we keep
+            # the plugin default which is high-quality mp3.
+            if sample_rate and int(sample_rate) <= 8000:
+                tts_kwargs["encoding"] = "pcm_8000"
+            elif sample_rate and int(sample_rate) <= 16000:
+                tts_kwargs["encoding"] = "pcm_16000"
+
             # Optional VoiceSettings (Wati 16/06). The plugin's VoiceSettings
             # dataclass REQUIRES stability + similarity_boost (no defaults);
             # style/speed/use_speaker_boost are optional. So we only build it
@@ -3192,6 +3205,16 @@ async def entrypoint(ctx: JobContext) -> None:
         raise
     try:
         _tun_sr = campaign_tuning.get("tts_sample_rate")
+        # Wati 16/06 — auto-telephony detection. Rooms named "out-*",
+        # "tel-*" or "in-*" carry a SIP/PSTN leg at 8kHz G.711. Force
+        # sample_rate=8000 unless an explicit campaign override exists,
+        # so the TTS produces narrowband-shaped audio (ElevenLabs pcm_8000
+        # / Cartesia 8kHz) instead of letting LiveKit do a lossy downsample
+        # from 22-44kHz. This is what got Charlotte's voice sounding
+        # "trop radiophonique" on a real call.
+        if not _tun_sr and _room_name and _room_name.startswith(("out-", "tel-", "in-")):
+            _tun_sr = 8000
+            clog.info("auto-telephony: forcing tts_sample_rate=8000 for room=%s", _room_name)
         _tts = _tts_for(axon, sample_rate=int(_tun_sr) if _tun_sr else None)
     except Exception:
         clog.exception("BUILD FAILED: TTS (Cartesia). Check CARTESIA_API_KEY on Fly.")
