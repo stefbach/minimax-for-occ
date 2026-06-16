@@ -214,7 +214,7 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
                 const max = Math.max(1, ...data.qualifications.map((x) => x.count));
                 return (
                   <div key={q.key} style={{ display: "grid", gridTemplateColumns: "160px 1fr 40px", gap: 8, alignItems: "center" }}>
-                    <span style={{ fontSize: 12 }}>{q.label}</span>
+                    <span style={{ fontSize: 12 }}>{t(q.label)}</span>
                     <div style={{ background: "var(--bg-2)", borderRadius: 4, overflow: "hidden", height: 14 }}>
                       <div style={{ width: `${(q.count / max) * 100}%`, height: "100%", background: q.count > 0 ? "var(--accent)" : "transparent" }} />
                     </div>
