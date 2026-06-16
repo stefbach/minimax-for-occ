@@ -1,6 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+
+type ScriptOption = { id: string; name: string; mission: string | null };
 
 /**
  * "Make outbound call" modal — Retell-style shortcut. Lets the user dial
@@ -21,9 +23,48 @@ export function OutboundCallModal({
   const [to, setTo] = useState("");
   const [firstname, setFirstname] = useState("");
   const [lastname, setLastname] = useState("");
+  const [scriptId, setScriptId] = useState("");
+  const [scripts, setScripts] = useState<ScriptOption[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+
+  // Load scripts for the org so the user can pick one to follow during the
+  // call. Without a script, the agent improvises from its system_prompt
+  // alone, which gives variable openings (Wati 16/06 — Charlotte n'a pas
+  // suivi son flow habituel "Hi {{firstname}}, this is Charlotte from OCC"
+  // car aucun script_id n'etait passe). Auto-select the script whose name
+  // mentions the agent (e.g. "OCC – Charlotte: …" when launching from
+  // Charlotte/Charlotte - teste).
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/scripts")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((rows: unknown) => {
+        if (cancelled) return;
+        const list: ScriptOption[] = Array.isArray(rows)
+          ? rows
+              .map((r) => r as Record<string, unknown>)
+              .map((r) => ({
+                id: String(r.id ?? ""),
+                name: String(r.name ?? ""),
+                mission: (r.mission as string | null) ?? null,
+              }))
+              .filter((s) => s.id)
+          : [];
+        setScripts(list);
+        // Auto-pick the script that mentions the agent name (without "- teste")
+        const base = agentName.replace(/-?\s*teste?\s*$/i, "").trim().toLowerCase();
+        if (base) {
+          const match = list.find((s) => s.name.toLowerCase().includes(base));
+          if (match) setScriptId(match.id);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [agentName]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -46,6 +87,7 @@ export function OutboundCallModal({
           to_e164: trimmed,
           firstname: firstname.trim() || undefined,
           lastname: lastname.trim() || undefined,
+          script_id: scriptId || undefined,
         }),
       });
       const data = (await r.json().catch(() => ({}))) as {
@@ -141,6 +183,30 @@ export function OutboundCallModal({
             Utilisés pour remplacer <code>{"{{firstname}}"}</code> /{" "}
             <code>{"{{lastname}}"}</code> dans le greeting et le system prompt.
           </p>
+
+          <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <span style={{ fontSize: 12, color: "var(--muted)" }}>
+              Script à suivre (optionnel)
+            </span>
+            <select
+              value={scriptId}
+              onChange={(e) => setScriptId(e.target.value)}
+              disabled={busy}
+              style={{ padding: "8px 10px", borderRadius: 6, border: "1px solid var(--border)" }}
+            >
+              <option value="">— Aucun script (l&apos;agent improvise) —</option>
+              {scripts.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+            <span style={{ fontSize: 11, color: "var(--muted)" }}>
+              Sans script, l&apos;agent suit uniquement son system prompt et peut
+              improviser l&apos;ouverture. Avec script, il suit le déroulé étape
+              par étape (présentation, qualification, transfert).
+            </span>
+          </label>
 
           {error && (
             <div style={{ color: "var(--bad)", fontSize: 13 }} role="alert">
