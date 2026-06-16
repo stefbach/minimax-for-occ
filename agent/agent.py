@@ -252,9 +252,12 @@ def _llm_for(agent: Optional[AxonAgent]):
     )
 
     # Cap the response length so a chatty model can't blow our per-turn budget.
-    # 220 tokens ≈ 160 words ≈ ~40s of TTS audio — plenty for conversational
-    # replies, and bounds the worst-case TTFT→last-chunk latency. Tunable via env.
-    max_tokens = int(os.getenv("LLM_MAX_COMPLETION_TOKENS", "220"))
+    # 150 tokens ≈ 110 words ≈ ~25s of TTS audio (Wati 16/06 latency push).
+    # Coupe ~300-500ms par tour vs l'ancien 220 sans casser les reponses
+    # conversationnelles courtes (Charlotte/Isabelle) — pour les longues
+    # explications on s'appuie sur les RAG retrievals + l'interruption naturelle
+    # par le patient. Override via LLM_MAX_COMPLETION_TOKENS.
+    max_tokens = int(os.getenv("LLM_MAX_COMPLETION_TOKENS", "150"))
 
     if provider == "anthropic":
         try:
@@ -3108,12 +3111,13 @@ async def entrypoint(ctx: JobContext) -> None:
     # speech like "Megan, Claudia, Kenneth / 17 / 1993" got split into 3 turns,
     # wedging the pipeline). 0.80s was safe but added ~250ms perceived lag on
     # every turn (EOU climbed from ~1.4s to ~1.7s in production logs).
-    # 0.55s preserves fragmented-speech grouping for short pauses while
-    # cutting the average response time. Override via MIN_ENDPOINTING_DELAY.
+    # 0.35s (Wati 16/06 latency push) coupe ~200ms par tour vs l'ancien 0.55s,
+    # au prix d'un risque marginal de couper un patient qui marque une longue
+    # pause naturelle (~350ms reste raisonnable). Override via MIN_ENDPOINTING_DELAY.
     # Per-campaign override first (test-campaign latency experiments),
-    # then env, then the measured 0.55s production compromise.
+    # then env, then the latency-tuned 0.35s default.
     _tun_endp = campaign_tuning.get("min_endpointing_delay")
-    min_endp = float(_tun_endp) if _tun_endp else float(os.getenv("MIN_ENDPOINTING_DELAY", "0.55"))
+    min_endp = float(_tun_endp) if _tun_endp else float(os.getenv("MIN_ENDPOINTING_DELAY", "0.35"))
 
     # min_interruption_duration (Wati 2026-06-12 latency review): how long
     # the patient must speak before the agent stops talking. The default
