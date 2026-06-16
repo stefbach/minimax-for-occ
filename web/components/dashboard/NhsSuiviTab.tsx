@@ -633,7 +633,7 @@ function NhsReportListView({
   const q = search.trim().toLowerCase();
   const filtered = active.patients.filter((p) => {
     if (!q) return true;
-    return `${p.name} ${p.situation} ${p.sent_to_nhs ?? ""}`.toLowerCase().includes(q);
+    return `${p.name} ${p.situation} ${t(p.situation)} ${p.sent_to_nhs ?? ""}`.toLowerCase().includes(q);
   });
 
   return (
@@ -706,7 +706,7 @@ function NhsReportListView({
                   </div>
                 </td>
                 <td style={{ padding: "10px 14px", whiteSpace: "nowrap" }} className="muted">{p.sent_to_nhs ?? "—"}</td>
-                <td style={{ padding: "10px 14px" }}>{p.situation}</td>
+                <td style={{ padding: "10px 14px" }}>{t(p.situation)}</td>
                 <td style={{ padding: "10px 14px", textAlign: "right" }}>
                   <button
                     type="button"

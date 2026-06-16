@@ -638,6 +638,71 @@ const EN: Record<string, string> = {
   "Situation": "Situation",
   "Voir les documents": "View documents",
   "Disponible après l'upload des documents": "Available after the document upload",
+  // ── NHS report — per-patient situations (verbatim from the manager's PDF) ──
+  // Approved
+  "Opéré — phases 1 et 2 terminées.": "Operated — phases 1 and 2 complete.",
+  "Opération (phase 2) prévue en juillet 2026.": "Surgery (phase 2) scheduled for July 2026.",
+  "Opération (phase 2) prévue en août 2026.": "Surgery (phase 2) scheduled for August 2026.",
+  "Opération prévue en septembre 2026.": "Surgery scheduled for September 2026.",
+  "Chirurgie du cou préalable — opération prévue en septembre 2026.":
+    "Prior neck surgery — surgery scheduled for September 2026.",
+  "Sorti du parcours — ne souhaite pas continuer.": "Left pathway — does not wish to continue.",
+  "Sorti du parcours — approuvé NHS mais ne peut pas régler les honoraires.":
+    "Left pathway — NHS-approved but cannot pay our fees.",
+  "Sorti du parcours — approuvée le 23/04/2026, n'a pas souhaité continuer.":
+    "Left pathway — approved on 23/04/2026, did not wish to continue.",
+  // Pending NHS
+  "Réévaluation par le service bariatrique local requise avant financement S2.":
+    "Re-evaluation by the local bariatric service required before S2 funding.",
+  "Appel déposé le 22/05/2026 — accusé de réception NHS le 28/05/2026, réponse à venir.":
+    "Appeal filed on 22/05/2026 — NHS acknowledgement on 28/05/2026, reply pending.",
+  "Éléments envoyés au NHS — réponse attendue.": "Items sent to NHS — reply awaited.",
+  // Missing docs
+  "Preuves NHS Tier 3 + 1 justificatif de résidence en Angleterre.":
+    "NHS Tier 3 evidence + 1 proof of residence in England.",
+  "Lettre du GP (orientation Tier 3 → Tier 4) + 2 justificatifs de résidence + relevés bancaires depuis oct. 2025.":
+    "GP letter (Tier 3 → Tier 4 referral) + 2 proofs of residence + bank statements from Oct. 2025.",
+  "Consultation GP + preuves Tier 3 + 1 justificatif de résidence + relevés bancaires.":
+    "GP consultation + Tier 3 evidence + 1 proof of residence + bank statements.",
+  "Preuves Tier 3 + justificatifs de résidence + relevés bancaires.":
+    "Tier 3 evidence + proofs of residence + bank statements.",
+  "Participation Tier 3 + documentation d'achèvement + assiduité / suivi clinique.":
+    "Tier 3 participation + completion documentation + attendance / clinical follow-up.",
+  "Lettre de sortie Tier 3 + preuves complémentaires + 2 justificatifs de résidence + relevés bancaires.":
+    "Tier 3 exit letter + additional evidence + 2 proofs of residence + bank statements.",
+  "Engagement Tier 3/4 + 2 justificatifs de résidence + relevés bancaires + Council Tax.":
+    "Tier 3/4 engagement + 2 proofs of residence + bank statements + Council Tax.",
+  "Engagement Tier 3 depuis mai 2025 + 2 justificatifs de résidence récents + relevés bancaires depuis oct. 2025 + Council Tax récent.":
+    "Tier 3 engagement since May 2025 + 2 recent proofs of residence + bank statements from Oct. 2025 + recent Council Tax.",
+  "En attente du statut de visa du patient.": "Awaiting the patient's visa status.",
+  "Éligible S2, demande suspendue : renouvellement du titre de séjour et preuves médicales NHS attendus.":
+    "S2-eligible, application suspended: residence permit renewal and NHS medical evidence awaited.",
+  "Mise à jour niveau 3 demandée — RDV médecin traitant le 24/06/2026.":
+    "Tier 3 update requested — GP appointment on 24/06/2026.",
+  "Mise à jour niveau 3 — documentation du médecin traitant attendue.":
+    "Tier 3 update — GP documentation awaited.",
+  "Documentation du médecin traitant attendue.": "GP documentation awaited.",
+  // Rejected
+  "Critères ICB non remplis — niveau 3 non complété, approbation refusée.":
+    "ICB criteria not met — Tier 3 not completed, approval refused.",
+  "Aucun document justificatif fourni.": "No supporting document provided.",
+  "Chirurgie privée antérieure — disqualifiée pour la voie S2.":
+    "Prior private surgery — disqualified from the S2 pathway.",
+  "En attente du document patient avant envoi en révision.":
+    "Awaiting the patient document before submission for review.",
+  "Critères ICB non remplis — niveau 2 refusé en 2025. Envisage la Turquie en privé.":
+    "ICB criteria not met — Tier 2 refused in 2025. Considering private surgery in Turkey.",
+  // Drop-outs
+  "Ne souhaite pas continuer.": "Does not wish to continue.",
+  "Documents non fournis — ne souhaite pas continuer.":
+    "Documents not provided — does not wish to continue.",
+  "Pas de justificatif niveau 3 — ne souhaite pas continuer.":
+    "No Tier 3 evidence — does not wish to continue.",
+  "A obtenu une date d'opération au Royaume-Uni (sous 6 mois).":
+    "Has obtained a surgery date in the UK (within 6 months).",
+  // To submit
+  "Voie S2 — dossier prêt, transmission au NHS prévue en fin de semaine.":
+    "S2 pathway — dossier ready, NHS transmission scheduled for end of week.",
 };
 
 function readLang(): Lang {
