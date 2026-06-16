@@ -573,18 +573,14 @@ def _tts_for(agent: Optional[AxonAgent], sample_rate: Optional[int] = None):
             tts_kwargs: dict = {"voice_id": voice_ref, "model": model_id}
             base_tts = _elevenlabs.TTS  # local alias
 
-            # Output encoding for the PSTN leg (Wati 16/06).
-            # Phone calls land in SIP at 8kHz µ-law (G.711). If we synthesize
-            # in 22kHz mp3 then let LiveKit downsample, the resampling chain
-            # creates the "AM radio" timbre Wati spotted. Asking ElevenLabs
-            # for pcm_8000 directly makes the model shape its output for
-            # narrowband — best fidelity achievable on a phone line.
-            # For HD browser sessions (sample_rate unset / >=16k), we keep
-            # the plugin default which is high-quality mp3.
-            if sample_rate and int(sample_rate) <= 8000:
-                tts_kwargs["encoding"] = "pcm_8000"
-            elif sample_rate and int(sample_rate) <= 16000:
-                tts_kwargs["encoding"] = "pcm_16000"
+            # Output encoding : leave plugin default (mp3 22050 32kbps).
+            # Wati 16/06 — earlier attempt to force `pcm_8000` for SIP legs
+            # backfired : the LiveKit elevenlabs plugin derives sample_rate
+            # from the encoding string, but Turbo's streaming WebSocket
+            # apparently doesn't honour pcm_8000 cleanly → audio came out at
+            # ~2.7× speed (chipmunk). We accept the slight "AM radio" timbre
+            # from the default 22kHz → 8kHz µ-law downsample as the lesser
+            # evil. Cartesia still gets explicit 8kHz (it handles it natively).
 
             # Optional VoiceSettings (Wati 16/06). The plugin's VoiceSettings
             # dataclass REQUIRES stability + similarity_boost (no defaults);
