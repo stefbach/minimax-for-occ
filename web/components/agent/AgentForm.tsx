@@ -99,7 +99,22 @@ const LANG_NAMES: Record<string, string> = {
 };
 const GENDER_LABELS: Record<string, string> = {
   feminine: "Féminine", masculine: "Masculine", neutral: "Neutre",
+  // Wati 16/06 — Cartesia + ElevenLabs API renvoient parfois "female"/"male"
+  // bruts au lieu du canonique "feminine"/"masculine". On les remappe pour
+  // eviter les doublons dans le filtre genre.
+  female: "Féminine", male: "Masculine",
+  f: "Féminine", m: "Masculine", n: "Neutre",
 };
+// Wati 16/06 — normalise tous les genres bruts vers le canonique 3-valeurs
+// avant de les afficher / filtrer, pour eliminer les doublons.
+function normalizeGender(g: string | null | undefined): string | null {
+  if (!g) return null;
+  const x = g.toLowerCase();
+  if (x === "female" || x === "feminine" || x === "f") return "feminine";
+  if (x === "male" || x === "masculine" || x === "m") return "masculine";
+  if (x === "neutral" || x === "neutre" || x === "n") return "neutral";
+  return g;
+}
 const COUNTRY_LABELS: Record<string, string> = {
   AF: "Afghanistan", AL: "Albanie", AR: "Argentine", AU: "Australie",
   AT: "Autriche", AZ: "Azerbaïdjan", BD: "Bangladesh", BE: "Belgique",
@@ -463,8 +478,8 @@ export function AgentForm({ initial }: { initial?: Agent }) {
   ].sort();
   const catalogGenders = [
     ...new Set([
-      ...(cartesiaVoices.map((v) => v.gender).filter(Boolean) as string[]),
-      ...(replicateVoices.map((v) => v.gender).filter(Boolean) as string[]),
+      ...(cartesiaVoices.map((v) => normalizeGender(v.gender)).filter(Boolean) as string[]),
+      ...(replicateVoices.map((v) => normalizeGender(v.gender)).filter(Boolean) as string[]),
     ]),
   ].sort();
   const catalogCountries = [...new Set(cartesiaVoices.map((v) => v.country).filter(Boolean) as string[])].sort();
@@ -475,7 +490,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
     ? []
     : cartesiaVoices.filter((v) => {
         if (filterLang && v.language !== filterLang) return false;
-        if (filterGender && v.gender !== filterGender) return false;
+        if (filterGender && normalizeGender(v.gender) !== filterGender) return false;
         if (filterCountry && v.country !== filterCountry) return false;
         return true;
       });
@@ -506,7 +521,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
     : replicateVoices.filter((v) => {
         if (filterProvider && filterProvider !== v.family) return false;
         if (filterLang && v.language !== filterLang) return false;
-        if (filterGender && v.gender !== filterGender) return false;
+        if (filterGender && normalizeGender(v.gender) !== filterGender) return false;
         return true;
       });
   const replicateGroups: [string, ReplicateVoiceCatalog[]][] = (() => {
@@ -651,7 +666,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                 <optgroup key={`cartesia-${lang}`} label={`Cartesia · ${LANG_NAMES[lang] ?? lang.toUpperCase()}`}>
                   {options.map((v) => (
                     <option key={v.id} value={v.id}>
-                      {v.name}{v.gender ? ` (${GENDER_LABELS[v.gender] ?? v.gender})` : ""}
+                      {v.name}{v.gender ? ` (${GENDER_LABELS[normalizeGender(v.gender) ?? v.gender] ?? v.gender})` : ""}
                     </option>
                   ))}
                 </optgroup>
@@ -665,7 +680,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                 <optgroup key={`replicate-${fam}`} label={REPLICATE_FAMILY_LABELS[fam] ?? fam}>
                   {options.map((v) => (
                     <option key={v.id} value={v.id}>
-                      {v.name}{v.gender ? ` (${GENDER_LABELS[v.gender] ?? v.gender})` : ""}
+                      {v.name}{v.gender ? ` (${GENDER_LABELS[normalizeGender(v.gender) ?? v.gender] ?? v.gender})` : ""}
                     </option>
                   ))}
                 </optgroup>

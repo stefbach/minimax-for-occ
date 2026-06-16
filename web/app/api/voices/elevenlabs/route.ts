@@ -80,7 +80,13 @@ export async function GET() {
       // ElevenLabs renvoie un sous-set des champs descriptifs sous labels :
       // gender, accent, language, age, descriptive, use_case…
       // On normalise les noms a notre format interne.
-      const gender = (labels.gender ?? null) as string | null;
+      const gender = (() => {
+        const raw = (labels.gender ?? "").toLowerCase();
+        if (raw === "female" || raw === "feminine") return "feminine";
+        if (raw === "male" || raw === "masculine") return "masculine";
+        if (raw === "neutral" || raw === "neutre") return "neutral";
+        return null;
+      })();
       const accent = (labels.accent ?? null) as string | null;
       const language = (labels.language ?? null) as string | null;
       const useCase = (labels.use_case ?? labels.useCase ?? null) as
