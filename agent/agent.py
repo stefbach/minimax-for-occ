@@ -3427,12 +3427,26 @@ async def entrypoint(ctx: JobContext) -> None:
     _env_on_answer_ids = {
         s.strip() for s in os.getenv("GREETING_ON_ANSWER_CAMPAIGN_IDS", "").split(",") if s.strip()
     }
+    # Wati 16/06 — for non-campaign outbound shortcuts ("Make outbound call"
+    # via /api/outbound-call → room name "out-<call_id>"), default to
+    # agent-speaks-first. Reason: the callee picks up an unknown number and
+    # expects to hear someone IMMEDIATELY, not 7s of silence waiting for
+    # them to say "hello?" twice. Campaign calls still respect the explicit
+    # campaign_tuning.greeting_mode setting so we don't accidentally flip
+    # the proven prod flow.
+    _outbound_shortcut = bool(
+        _room_name and _room_name.startswith("out-") and not campaign_id
+    )
     greet_on_answer = (
         campaign_tuning.get("greeting_mode") == "on_answer"
         or (campaign_id is not None and str(campaign_id) in _env_on_answer_ids)
+        or _outbound_shortcut
     )
     if greet_on_answer:
-        clog.info("greeting mode: ON-ANSWER (experimental, campaign=%s)", campaign_id)
+        clog.info(
+            "greeting mode: ON-ANSWER (campaign=%s outbound_shortcut=%s)",
+            campaign_id, _outbound_shortcut,
+        )
 
     # Phrase d'intro scriptée (latence) — rendue avec les mêmes variables que
     # le greeting ({first_name}, etc.). Vide si la campagne ne la définit pas.

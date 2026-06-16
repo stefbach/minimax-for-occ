@@ -53,11 +53,23 @@ export function OutboundCallModal({
               .filter((s) => s.id)
           : [];
         setScripts(list);
-        // Auto-pick the script that mentions the agent name (without "- teste")
+        // Auto-pick the script dedicated to THIS agent. Strip "- teste"
+        // suffix first, then prefer "<name>:" (e.g. "Charlotte:") over
+        // "<name> →" (e.g. "Charlotte → Isabelle → Victoria") — the
+        // multi-agent parcours overlaps too much with all three test
+        // agents and confuses the LLM (Wati 16/06).
         const base = agentName.replace(/-?\s*teste?\s*$/i, "").trim().toLowerCase();
         if (base) {
-          const match = list.find((s) => s.name.toLowerCase().includes(base));
-          if (match) setScriptId(match.id);
+          const lower = (s: ScriptOption) => s.name.toLowerCase();
+          const dedicated = list.find((s) =>
+            new RegExp(`\\b${base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*:`, "i").test(lower(s)),
+          );
+          if (dedicated) {
+            setScriptId(dedicated.id);
+          } else {
+            const loose = list.find((s) => lower(s).includes(base));
+            if (loose) setScriptId(loose.id);
+          }
         }
       })
       .catch(() => {});
