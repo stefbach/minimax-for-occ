@@ -191,6 +191,25 @@ export function AgentForm({ initial }: { initial?: Agent }) {
   const [voice, setVoice] = useState(initial?.tts_voice_id ?? "");
   const [speed, setSpeed] = useState(initial?.tts_speed ?? 1.0);
   const [volume, setVolume] = useState(initial?.tts_volume ?? 1.0);
+  const [pitch, setPitch] = useState(initial?.tts_pitch ?? 0);
+  const [ttsEmotion, setTtsEmotion] = useState<string>(initial?.tts_emotion ?? "");
+  // Advanced TTS knobs (Wati 16/06). null = "use provider default".
+  const [ttsLanguage, setTtsLanguage] = useState<string>(initial?.tts_language ?? "");
+  const [stability, setStability] = useState<number | null>(
+    initial?.tts_stability ?? null,
+  );
+  const [similarityBoost, setSimilarityBoost] = useState<number | null>(
+    initial?.tts_similarity_boost ?? null,
+  );
+  const [styleVal, setStyleVal] = useState<number | null>(
+    initial?.tts_style ?? null,
+  );
+  const [speakerBoost, setSpeakerBoost] = useState<boolean>(
+    initial?.tts_speaker_boost ?? true,
+  );
+  const [englishNorm, setEnglishNorm] = useState<boolean>(
+    initial?.tts_english_normalization ?? false,
+  );
   const [ttsModel, setTtsModel] = useState(() => {
     const valid = TTS_MODELS.map((m) => m.id);
     const stored = initial?.tts_model ?? "";
@@ -386,11 +405,17 @@ export function AgentForm({ initial }: { initial?: Agent }) {
       llm_provider: provider,
       llm_model: model,
       tts_voice_id: voice || null,
-      tts_emotion: null,
+      tts_emotion: ttsEmotion || null,
       tts_speed: speed,
       tts_volume: volume,
-      tts_pitch: 0,
+      tts_pitch: pitch,
       tts_model: ttsModel || null,
+      tts_stability: stability,
+      tts_similarity_boost: similarityBoost,
+      tts_style: styleVal,
+      tts_speaker_boost: speakerBoost,
+      tts_language: ttsLanguage || null,
+      tts_english_normalization: englishNorm,
       voice_style: voiceStyle || null,
       system_prompt: systemPrompt,
       greeting,
@@ -916,28 +941,185 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                             {isMiniMax ? "Plage MiniMax : 0.5×–2.0×" : isElevenLabs ? "Plage ElevenLabs : 0.7×–1.2×" : "Plage Cartesia : 0.6×–1.5×"}
                           </div>
                         </div>
-                        {/* Volume : Cartesia uniquement. ElevenLabs et
-                            MiniMax ne l'exposent pas via leur API. */}
-                        {!isExternal ? (
+                        {/* Volume : Cartesia + MiniMax exposent. ElevenLabs non. */}
+                        {!isElevenLabs ? (
                           <div>
                             <label>Volume ({volume.toFixed(1)})</label>
                             <input
-                              type="range" min="0.1" max="2" step="0.1"
+                              type="range"
+                              min={isMiniMax ? "0" : "0.1"}
+                              max={isMiniMax ? "10" : "2"}
+                              step={isMiniMax ? "0.5" : "0.1"}
                               value={volume} onChange={(e) => setVolume(Number(e.target.value))}
                             />
                             <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
-                              Plage Cartesia : 0.1–2.0
+                              {isMiniMax ? "Plage MiniMax : 0–10" : "Plage Cartesia : 0.1–2.0"}
                             </div>
                           </div>
                         ) : (
                           <div>
                             <label>Volume</label>
                             <div style={{ padding: "8px 12px", borderRadius: 6, background: "var(--bg-2)", color: "var(--muted)", fontSize: 13 }}>
-                              Non exposé par {isElevenLabs ? "ElevenLabs" : "MiniMax"}
+                              Non exposé par ElevenLabs (utiliser stability / style à la place)
                             </div>
                           </div>
                         )}
                       </div>
+
+                      {/* ── Cartesia : émotion + langue forcée ───────────── */}
+                      {family === "cartesia" && (
+                        <>
+                          <div className="form-row">
+                            <div>
+                              <label>Émotion (Cartesia)</label>
+                              <select
+                                value={ttsEmotion}
+                                onChange={(e) => setTtsEmotion(e.target.value)}
+                              >
+                                <option value="">Aucune (neutre)</option>
+                                <option value="positivity">Positivity (chaleureux)</option>
+                                <option value="curiosity">Curiosity (intéressé)</option>
+                                <option value="sadness">Sadness (triste)</option>
+                                <option value="anger">Anger (colère)</option>
+                                <option value="surprise">Surprise (étonné)</option>
+                              </select>
+                              <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
+                                Module la tonalité affective du modèle Sonic.
+                              </div>
+                            </div>
+                            <div>
+                              <label>Langue forcée</label>
+                              <select
+                                value={ttsLanguage}
+                                onChange={(e) => setTtsLanguage(e.target.value)}
+                              >
+                                <option value="">Auto (depuis le texte)</option>
+                                <option value="fr">Français</option>
+                                <option value="en">Anglais</option>
+                                <option value="es">Espagnol</option>
+                                <option value="de">Allemand</option>
+                                <option value="it">Italien</option>
+                                <option value="pt">Portugais</option>
+                                <option value="nl">Néerlandais</option>
+                              </select>
+                              <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
+                                Force Cartesia à synthétiser dans cette langue (utile en multi-langue).
+                              </div>
+                            </div>
+                          </div>
+                        </>
+                      )}
+
+                      {/* ── ElevenLabs : stability/similarity/style/speaker boost ── */}
+                      {isElevenLabs && (
+                        <>
+                          <div className="form-row">
+                            <div>
+                              <label>
+                                Stability ({stability === null ? "défaut 0.5" : stability.toFixed(2)})
+                              </label>
+                              <input
+                                type="range" min="0" max="1" step="0.05"
+                                value={stability ?? 0.5}
+                                onChange={(e) => setStability(Number(e.target.value))}
+                              />
+                              <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
+                                Bas = expressif/variable · Haut = stable/monotone
+                              </div>
+                            </div>
+                            <div>
+                              <label>
+                                Similarity boost ({similarityBoost === null ? "défaut 0.75" : similarityBoost.toFixed(2)})
+                              </label>
+                              <input
+                                type="range" min="0" max="1" step="0.05"
+                                value={similarityBoost ?? 0.75}
+                                onChange={(e) => setSimilarityBoost(Number(e.target.value))}
+                              />
+                              <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
+                                Fidélité à la voix originale (cloning).
+                              </div>
+                            </div>
+                          </div>
+                          <div className="form-row">
+                            <div>
+                              <label>
+                                Style ({styleVal === null ? "défaut 0" : styleVal.toFixed(2)})
+                              </label>
+                              <input
+                                type="range" min="0" max="1" step="0.05"
+                                value={styleVal ?? 0}
+                                onChange={(e) => setStyleVal(Number(e.target.value))}
+                              />
+                              <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
+                                Exagération du style (&gt;0 augmente la latence).
+                              </div>
+                            </div>
+                            <div>
+                              <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                <input
+                                  type="checkbox"
+                                  checked={speakerBoost}
+                                  onChange={(e) => setSpeakerBoost(e.target.checked)}
+                                />
+                                Speaker boost
+                              </label>
+                              <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
+                                Amplifie la similarité au coût d&apos;un léger surcoût latence.
+                              </div>
+                            </div>
+                          </div>
+                        </>
+                      )}
+
+                      {/* ── MiniMax : pitch + émotion + english_normalization ── */}
+                      {isMiniMax && (
+                        <>
+                          <div className="form-row">
+                            <div>
+                              <label>Pitch ({pitch > 0 ? "+" : ""}{pitch})</label>
+                              <input
+                                type="range" min="-12" max="12" step="1"
+                                value={pitch}
+                                onChange={(e) => setPitch(Number(e.target.value))}
+                              />
+                              <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
+                                Décalage en demi-tons : -12 grave · +12 aigu (MiniMax).
+                              </div>
+                            </div>
+                            <div>
+                              <label>Émotion (MiniMax)</label>
+                              <select
+                                value={ttsEmotion}
+                                onChange={(e) => setTtsEmotion(e.target.value)}
+                              >
+                                <option value="">Aucune (neutre)</option>
+                                <option value="happy">Happy (joyeux)</option>
+                                <option value="sad">Sad (triste)</option>
+                                <option value="angry">Angry (colère)</option>
+                                <option value="fearful">Fearful (apeuré)</option>
+                                <option value="disgusted">Disgusted (dégoûté)</option>
+                                <option value="surprised">Surprised (surpris)</option>
+                                <option value="calm">Calm (calme)</option>
+                                <option value="neutral">Neutral (neutre)</option>
+                              </select>
+                            </div>
+                          </div>
+                          <div>
+                            <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <input
+                                type="checkbox"
+                                checked={englishNorm}
+                                onChange={(e) => setEnglishNorm(e.target.checked)}
+                              />
+                              English normalization
+                            </label>
+                            <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
+                              Normalise nombres/dates/symboles en anglais (recommandé si l&apos;agent parle anglais).
+                            </div>
+                          </div>
+                        </>
+                      )}
                     </>
                   );
                 })()}

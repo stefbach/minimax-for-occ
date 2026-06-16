@@ -539,10 +539,43 @@ def _tts_for(agent: Optional[AxonAgent], sample_rate: Optional[int] = None):
                 "TTS=elevenlabs-direct family=%s voice=%s model=%s",
                 family, voice_ref, model_id,
             )
-            return _elevenlabs.TTS(
-                voice_id=voice_ref,
-                model=model_id,
+            # Build per-agent voice_settings — only include explicit overrides
+            # so the plugin falls back to ElevenLabs defaults otherwise.
+            vs_kwargs: dict = {}
+            if agent and agent.tts_stability is not None:
+                vs_kwargs["stability"] = float(agent.tts_stability)
+            if agent and agent.tts_similarity_boost is not None:
+                vs_kwargs["similarity_boost"] = float(agent.tts_similarity_boost)
+            if agent and agent.tts_style is not None:
+                vs_kwargs["style"] = float(agent.tts_style)
+            if agent and agent.tts_speaker_boost is not None:
+                vs_kwargs["use_speaker_boost"] = bool(agent.tts_speaker_boost)
+            if agent and agent.tts_speed and agent.tts_speed != 1.0:
+                vs_kwargs["speed"] = max(0.7, min(1.2, float(agent.tts_speed)))
+            tts_kwargs: dict = {"voice_id": voice_ref, "model": model_id}
+            if vs_kwargs:
+                try:
+                    voice_settings = _elevenlabs.VoiceSettings(**vs_kwargs)
+                    tts_kwargs["voice_settings"] = voice_settings
+                except Exception:
+                    logger.exception(
+                        "elevenlabs VoiceSettings build failed (kwargs=%s) — using defaults",
+                        sorted(vs_kwargs),
+                    )
+            # Force the language code when the user picked one (or the agent
+            # has a single-language config). Helps multilingual model accuracy.
+            lang_code = (
+                (agent.tts_language if agent and agent.tts_language else None)
+                or (agent.language if agent and agent.language and agent.language not in ("multi", "auto") else None)
             )
+            if lang_code:
+                tts_kwargs["language"] = lang_code
+            try:
+                return _elevenlabs.TTS(**tts_kwargs)
+            except TypeError:
+                # Older plugin versions may not accept `language` — strip and retry.
+                tts_kwargs.pop("language", None)
+                return _elevenlabs.TTS(**tts_kwargs)
         except ImportError:
             logger.warning(
                 "elevenlabs plugin not installed — falling back to Replicate path"
@@ -563,8 +596,19 @@ def _tts_for(agent: Optional[AxonAgent], sample_rate: Optional[int] = None):
             return ReplicateTTS(
                 voice_id=_voice_for_routing,  # type: ignore[arg-type]
                 sample_rate=int(sample_rate) if sample_rate else 22050,
-                language=(agent.language if agent and agent.language else None),
+                language=(
+                    (agent.tts_language if agent and agent.tts_language else None)
+                    or (agent.language if agent and agent.language else None)
+                ),
                 speed=_speed_for_replicate,
+                stability=(agent.tts_stability if agent else None),
+                similarity_boost=(agent.tts_similarity_boost if agent else None),
+                style=(agent.tts_style if agent else None),
+                speaker_boost=(agent.tts_speaker_boost if agent else None),
+                pitch=(agent.tts_pitch if agent and agent.tts_pitch else None),
+                emotion=(agent.tts_emotion if agent and agent.tts_emotion else None),
+                volume=(agent.tts_volume if agent and agent.tts_volume and agent.tts_volume != 1.0 else None),
+                english_normalization=(agent.tts_english_normalization if agent else None),
             )
         except Exception:
             logger.exception(
@@ -592,10 +636,15 @@ def _cartesia_tts_for(agent: Optional[AxonAgent], sample_rate: Optional[int] = N
 
     lang = (agent.language if agent and agent.language else "multi").lower()
     # Cartesia language codes: ISO 639-1. "multi"/unset → None → Cartesia
-    # infers from the text. Override via env for global A/B testing.
-    cartesia_lang = os.getenv(
-        "CARTESIA_LANGUAGE",
-        None if lang in ("multi", "auto", "") else lang,
+    # infers from the text. Per-agent override (tts_language) wins; otherwise
+    # fall back to env (CARTESIA_LANGUAGE) and finally to agent.language.
+    forced = (agent.tts_language if agent and agent.tts_language else None)
+    cartesia_lang = (
+        forced
+        or os.getenv(
+            "CARTESIA_LANGUAGE",
+            None if lang in ("multi", "auto", "") else lang,
+        )
     )
 
     model = (

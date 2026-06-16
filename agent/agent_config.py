@@ -45,6 +45,16 @@ class AxonAgent:
     # When set, the worker uses this URL instead of Twilio's default jingle while
     # the call is on hold. Resolved lazily from Supabase at session start.
     hold_music_url: Optional[str] = None
+    # Advanced TTS knobs (Wati 16/06). None = "use provider default".
+    #   ElevenLabs : tts_stability, tts_similarity_boost, tts_style, tts_speaker_boost
+    #   Cartesia   : tts_language (force ISO code)
+    #   MiniMax    : tts_english_normalization
+    tts_stability: Optional[float] = None
+    tts_similarity_boost: Optional[float] = None
+    tts_style: Optional[float] = None
+    tts_speaker_boost: Optional[bool] = None
+    tts_language: Optional[str] = None
+    tts_english_normalization: Optional[bool] = None
 
 
 DEFAULT_PROMPT = (
@@ -178,6 +188,12 @@ def load_agent(agent_id: str) -> Optional[AxonAgent]:
         tts_pitch=int(a.get("tts_pitch") or 0),
         voice_style=(a.get("voice_style") or None),
         hold_music_url=hold_music_url,
+        tts_stability=(float(a["tts_stability"]) if a.get("tts_stability") is not None else None),
+        tts_similarity_boost=(float(a["tts_similarity_boost"]) if a.get("tts_similarity_boost") is not None else None),
+        tts_style=(float(a["tts_style"]) if a.get("tts_style") is not None else None),
+        tts_speaker_boost=(bool(a["tts_speaker_boost"]) if a.get("tts_speaker_boost") is not None else None),
+        tts_language=(a.get("tts_language") or None),
+        tts_english_normalization=(bool(a["tts_english_normalization"]) if a.get("tts_english_normalization") is not None else None),
     )
 
 
