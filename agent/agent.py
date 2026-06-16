@@ -500,20 +500,19 @@ def _stt_for(agent: Optional[AxonAgent]) -> assemblyai.STT:
 def _tts_for(agent: Optional[AxonAgent], sample_rate: Optional[int] = None):
     """Construit le plugin TTS adapté au voice_id de l'agent.
 
-    Routing (Wati preview 15/06) :
+    Routing (Wati 16/06 — apres la prouve que Replicate etait le bottleneck) :
+      • voice_id commençant par "elevenlabs:" → ElevenLabs DIRECT (WebSocket
+        streaming, ~75ms TTFB). Format : "elevenlabs:<famille>:<voice_id_eleven>"
+        ou "elevenlabs:<famille>:<nom>". Famille : flash | turbo | multilingual.
       • voice_id commençant par "replicate:" → ReplicateTTS (ElevenLabs Flash/
         Turbo + MiniMax Speech 02 Turbo/HD via la passerelle Replicate).
+        Garde pour MiniMax (pas de compte direct) et fallback ElevenLabs si
+        ELEVEN_API_KEY manque.
       • sinon → cartesia.TTS, le chemin par défaut (prod).
-
-    Le wrapper Replicate est non-streaming (l'API renvoie l'audio complet),
-    ce qui ajoute ~1-2s de TTFB côté UX. Acceptable pour valider les voix
-    en campagne test ; switch ElevenLabs/MiniMax direct sans douleur ensuite.
     """
     try:
         from replicate_tts import is_replicate_voice_id, ReplicateTTS
     except ImportError:
-        # Permet à _tts_for de continuer même si le module Replicate n'est
-        # pas vendored (ex : ancien container) — fallback Cartesia.
         is_replicate_voice_id = lambda _v: False
         ReplicateTTS = None  # type: ignore[assignment]
 
@@ -521,6 +520,39 @@ def _tts_for(agent: Optional[AxonAgent], sample_rate: Optional[int] = None):
         (agent.tts_voice_id if agent and agent.tts_voice_id else None)
         or os.getenv("CARTESIA_VOICE_ID")
     )
+
+    # ── ElevenLabs DIRECT (Wati 16/06) ──────────────────────────────────────
+    # Streaming WebSocket natif, TTFB ~75ms. Active la latence Retell-like.
+    if _voice_for_routing and _voice_for_routing.startswith("elevenlabs:"):
+        try:
+            from livekit.plugins import elevenlabs as _elevenlabs
+            parts = _voice_for_routing.split(":", 2)
+            # Format attendu : elevenlabs:<famille>:<voice>
+            family = parts[1] if len(parts) >= 2 else "flash"
+            voice_ref = parts[2] if len(parts) >= 3 else "Rachel"
+            model_id = {
+                "flash": "eleven_flash_v2_5",
+                "turbo": "eleven_turbo_v2_5",
+                "multilingual": "eleven_multilingual_v2",
+            }.get(family, "eleven_flash_v2_5")
+            logger.info(
+                "TTS=elevenlabs-direct family=%s voice=%s model=%s",
+                family, voice_ref, model_id,
+            )
+            return _elevenlabs.TTS(
+                voice_id=voice_ref,
+                model=model_id,
+            )
+        except ImportError:
+            logger.warning(
+                "elevenlabs plugin not installed — falling back to Replicate path"
+            )
+        except Exception:
+            logger.exception(
+                "elevenlabs direct init failed for voice_id=%s — falling back",
+                _voice_for_routing,
+            )
+
     if ReplicateTTS is not None and is_replicate_voice_id(_voice_for_routing):
         try:
             _speed_for_replicate = (

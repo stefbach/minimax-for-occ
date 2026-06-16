@@ -1,6 +1,7 @@
-livekit-agents[assemblyai,cartesia,openai,silero,turn-detector,anthropic]~=1.5
+livekit-agents[assemblyai,cartesia,elevenlabs,openai,silero,turn-detector,anthropic]~=1.5
 # assemblyai → livekit-plugins-assemblyai (Universal Streaming STT, <300ms TTFT)
 # cartesia   → livekit-plugins-cartesia (Sonic TTS, ~90ms TTFB)
+# elevenlabs → livekit-plugins-elevenlabs (Flash v2.5 WebSocket streaming, ~75ms TTFB)
 python-dotenv>=1.0.0
 supabase>=2.7.0
 httpx>=0.27.0
