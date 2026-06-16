@@ -539,8 +539,14 @@ def _tts_for(agent: Optional[AxonAgent], sample_rate: Optional[int] = None):
                 "TTS=elevenlabs-direct family=%s voice=%s model=%s",
                 family, voice_ref, model_id,
             )
-            # Build per-agent voice_settings — only include explicit overrides
-            # so the plugin falls back to ElevenLabs defaults otherwise.
+            # Base kwargs that have always worked. Anything beyond this is
+            # additive and isolated in its own try/except so we NEVER fall
+            # back to Cartesia just because an advanced kwarg was rejected.
+            tts_kwargs: dict = {"voice_id": voice_ref, "model": model_id}
+            base_tts = _elevenlabs.TTS  # local alias
+
+            # Optional VoiceSettings (Wati 16/06). Only build it when the user
+            # explicitly set at least one knob; otherwise leave plugin defaults.
             vs_kwargs: dict = {}
             if agent and agent.tts_stability is not None:
                 vs_kwargs["stability"] = float(agent.tts_stability)
@@ -552,30 +558,42 @@ def _tts_for(agent: Optional[AxonAgent], sample_rate: Optional[int] = None):
                 vs_kwargs["use_speaker_boost"] = bool(agent.tts_speaker_boost)
             if agent and agent.tts_speed and agent.tts_speed != 1.0:
                 vs_kwargs["speed"] = max(0.7, min(1.2, float(agent.tts_speed)))
-            tts_kwargs: dict = {"voice_id": voice_ref, "model": model_id}
             if vs_kwargs:
                 try:
-                    voice_settings = _elevenlabs.VoiceSettings(**vs_kwargs)
-                    tts_kwargs["voice_settings"] = voice_settings
+                    voice_settings_cls = getattr(_elevenlabs, "VoiceSettings", None)
+                    if voice_settings_cls is not None:
+                        tts_kwargs["voice_settings"] = voice_settings_cls(**vs_kwargs)
                 except Exception:
                     logger.exception(
                         "elevenlabs VoiceSettings build failed (kwargs=%s) — using defaults",
                         sorted(vs_kwargs),
                     )
-            # Force the language code when the user picked one (or the agent
-            # has a single-language config). Helps multilingual model accuracy.
-            lang_code = (
-                (agent.tts_language if agent and agent.tts_language else None)
-                or (agent.language if agent and agent.language and agent.language not in ("multi", "auto") else None)
-            )
-            if lang_code:
-                tts_kwargs["language"] = lang_code
+                    tts_kwargs.pop("voice_settings", None)
+
+            # Force language code ONLY when the user explicitly set
+            # tts_language on the agent — do NOT infer from agent.language.
+            # Some plugin versions reject the kwarg or its value, and we
+            # don't want to break ElevenLabs init for the typical case.
+            if agent and agent.tts_language:
+                lang_kwargs = {**tts_kwargs, "language": agent.tts_language}
+                try:
+                    return base_tts(**lang_kwargs)
+                except Exception:
+                    logger.warning(
+                        "elevenlabs TTS rejected language=%s — retrying without",
+                        agent.tts_language,
+                    )
+
+            # The canonical init that always worked.
             try:
-                return _elevenlabs.TTS(**tts_kwargs)
-            except TypeError:
-                # Older plugin versions may not accept `language` — strip and retry.
-                tts_kwargs.pop("language", None)
-                return _elevenlabs.TTS(**tts_kwargs)
+                return base_tts(**tts_kwargs)
+            except Exception:
+                # Last-ditch: strip voice_settings too in case the plugin
+                # version doesn't support that argument, and retry bare.
+                logger.warning(
+                    "elevenlabs TTS init with voice_settings failed — retrying bare"
+                )
+                return base_tts(voice_id=voice_ref, model=model_id)
         except ImportError:
             logger.warning(
                 "elevenlabs plugin not installed — falling back to Replicate path"
