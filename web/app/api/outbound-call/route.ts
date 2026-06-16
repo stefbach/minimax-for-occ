@@ -273,7 +273,18 @@ export async function POST(req: Request) {
   }
 
   const httpUrl = lkUrl.replace(/^wss:/i, "https:").replace(/^ws:/i, "http:");
-  const agentName = process.env.LIVEKIT_AGENT_NAME ?? "axon-voice-agent";
+  // Wati 16/06 — meme routage prod vs test que /api/token : agents dont le
+  // nom contient "teste" tapent sur axon-voice-agent-test (cluster TEST
+  // CA_PbChboVCvPJC, ou ELEVEN_API_KEY est configuree), les autres sur
+  // axon-voice-agent (PROD CA_PFUfvaBhC8Wk). Tant que
+  // LIVEKIT_AGENT_NAME_TEST n'est pas defini, statu quo (tout vers prod).
+  const PROD_AGENT = process.env.LIVEKIT_AGENT_NAME ?? "axon-voice-agent";
+  const TEST_AGENT = process.env.LIVEKIT_AGENT_NAME_TEST ?? null;
+  const agentName = (() => {
+    if (!TEST_AGENT) return PROD_AGENT;
+    const n = (agent.name ?? "").toLowerCase();
+    return n.includes("teste") || n.includes("test") ? TEST_AGENT : PROD_AGENT;
+  })();
   const dispatchMetadata = JSON.stringify({
     agent_id: agent.id,
     call_id: call.id,

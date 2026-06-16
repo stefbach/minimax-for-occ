@@ -545,8 +545,11 @@ def _tts_for(agent: Optional[AxonAgent], sample_rate: Optional[int] = None):
             tts_kwargs: dict = {"voice_id": voice_ref, "model": model_id}
             base_tts = _elevenlabs.TTS  # local alias
 
-            # Optional VoiceSettings (Wati 16/06). Only build it when the user
-            # explicitly set at least one knob; otherwise leave plugin defaults.
+            # Optional VoiceSettings (Wati 16/06). The plugin's VoiceSettings
+            # dataclass REQUIRES stability + similarity_boost (no defaults);
+            # style/speed/use_speaker_boost are optional. So we only build it
+            # when at least one knob is set, and we always provide stability +
+            # similarity_boost (real defaults match ElevenLabs API : 0.5 / 0.75).
             vs_kwargs: dict = {}
             if agent and agent.tts_stability is not None:
                 vs_kwargs["stability"] = float(agent.tts_stability)
@@ -559,6 +562,9 @@ def _tts_for(agent: Optional[AxonAgent], sample_rate: Optional[int] = None):
             if agent and agent.tts_speed and agent.tts_speed != 1.0:
                 vs_kwargs["speed"] = max(0.7, min(1.2, float(agent.tts_speed)))
             if vs_kwargs:
+                # Fill required fields if the user only touched optional knobs.
+                vs_kwargs.setdefault("stability", 0.5)
+                vs_kwargs.setdefault("similarity_boost", 0.75)
                 try:
                     voice_settings_cls = getattr(_elevenlabs, "VoiceSettings", None)
                     if voice_settings_cls is not None:
