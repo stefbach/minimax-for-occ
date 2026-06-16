@@ -9,19 +9,24 @@ import { parsePersona, serializePersona } from "@/lib/personas/parser";
 
 type ModelOption = { id: string; label: string };
 
+// Coût estimé / minute d'appel (≈ 6k input cached + 1k input frais + 500 output
+// tokens par minute de conversation). Prix juin 2026, API directe (pas via
+// Retell ou autre intermédiaire qui rajoute sa marge). Coûts uniquement LLM —
+// la facture totale ajoute TTS + STT + Twilio + LK Cloud (≈ $0.05–0.06/min hors
+// LLM).
 const PROVIDER_MODELS: Record<LlmProvider, ModelOption[]> = {
   deepseek: [
-    { id: "deepseek-v4-flash", label: "deepseek-v4-flash — Ultra rapide (1-2s), cache prefix, 3× moins cher (recommandé appels vocaux)" },
+    { id: "deepseek-v4-flash", label: "deepseek-v4-flash ($0.001/min) — Ultra rapide, 3× moins cher (recommandé appels vocaux)" },
   ],
   openai: [
-    { id: "gpt-4o-mini", label: "gpt-4o-mini — Rapide et économique (recommandé appels vocaux)" },
-    { id: "gpt-4o", label: "gpt-4o — Polyvalent haute qualité" },
-    { id: "gpt-4.1-mini", label: "gpt-4.1-mini — Dernière génération, économique" },
-    { id: "gpt-4.1", label: "gpt-4.1 — Dernière génération" },
+    { id: "gpt-4o-mini",  label: "gpt-4o-mini ($0.002/min) — Rapide et économique (recommandé)" },
+    { id: "gpt-4.1-mini", label: "gpt-4.1-mini ($0.004/min) — Dernière génération, économique" },
+    { id: "gpt-4.1",      label: "gpt-4.1 ($0.016/min) — Dernière génération haute qualité" },
+    { id: "gpt-4o",       label: "gpt-4o ($0.020/min) — Polyvalent haute qualité" },
   ],
   anthropic: [
-    { id: "claude-haiku-4-5-20251001", label: "claude-haiku-4-5 — Ultra rapide, multilingue (recommandé appels vocaux)" },
-    { id: "claude-sonnet-4-6", label: "claude-sonnet-4-6 — Équilibre qualité/vitesse" },
+    { id: "claude-haiku-4-5-20251001", label: "claude-haiku-4-5 ($0.005/min) — Ultra rapide, multilingue (recommandé)" },
+    { id: "claude-sonnet-4-6",         label: "claude-sonnet-4-6 ($0.020/min) — Équilibre qualité/vitesse" },
   ],
   minimax: [
     { id: "MiniMax-M2", label: "MiniMax-M2 — Standard" },
@@ -914,7 +919,8 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                     <select value={provider} onChange={(e) => {
                       const p = e.target.value as LlmProvider;
                       setProvider(p);
-                      setModel(PROVIDER_MODELS[p][0].id);
+                      const first = PROVIDER_MODELS[p][0];
+                      if (first) setModel(first.id);
                     }}>
                       <option value="deepseek">DeepSeek (recommandé)</option>
                       <option value="openai">OpenAI</option>
