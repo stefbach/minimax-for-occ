@@ -6,6 +6,14 @@ import type { NhsPatientsResponse } from "@/app/api/dashboard/nhs-suivi/patients
 import type { NhsPatientDetail } from "@/app/api/dashboard/nhs-suivi/patients/[id]/route";
 import type { NhsPatient, PatientStatus } from "@/lib/nhs-patients";
 import { useT } from "@/lib/i18n";
+import {
+  NHS_REPORT,
+  NHS_REPORT_AS_OF,
+  NHS_REPORT_APPROVED_BREAKDOWN,
+  NHS_REPORT_TOTAL_SUBMITTED,
+  type NhsReportKey,
+  type NhsReportPatient,
+} from "@/lib/nhs-report";
 
 // Clones the OCC demo's "Suivi patient NHS S2" panel in Axon's theme.
 // Visible only for orgs where the feature flag is on (see DashboardClient).
@@ -24,6 +32,8 @@ export function NhsSuiviTab() {
   const [error, setError] = useState<string | null>(null);
   // "Bloqué 5j+" card expands inline into the stalled-patient list.
   const [showStalled, setShowStalled] = useState(false);
+  // Clicking a "NHS dossiers report" card expands the patient list inline.
+  const [openReportCard, setOpenReportCard] = useState<NhsReportKey | "total" | null>(null);
   // Same 3-view navigation as the legacy dashboard: clicking a card opens the
   // patient LIST pre-filtered on the matching status; clicking a patient opens
   // the full dossier (checklist 11 docs, timeline, statut NHS, actions).
@@ -441,49 +451,11 @@ export function NhsSuiviTab() {
         </div>
       </div>
 
-      {/* Suivi NHS S2 (après soumission) */}
-      <div>
-        <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 8 }}>
-          🏥 {t("Suivi NHS S2 (après soumission)")}
-        </div>
-        <div className="grid-kpi">
-          <CommCard
-            label={t("Envoyés NHS")}
-            value={data.nhs_tracking.submitted}
-            hint={t("Dossiers transmis au NHS")}
-            tone="var(--info)"
-            icon="↗"
-            onClick={() => openDrill("sent_nhs", t("Envoyés NHS"))}
-          />
-          <CommCard
-            label={t("In review NHS")}
-            value={data.nhs_tracking.in_review}
-            hint={t("Instruction en cours")}
-            tone="var(--warn)"
-            icon="⌛"
-            onClick={() => openDrill("in_review", t("In review NHS"))}
-          />
-          <CommCard
-            label={t("Acceptés NHS")}
-            value={data.nhs_tracking.accepted}
-            hint={t("Dossiers approuvés")}
-            tone="var(--good)"
-            icon="✓"
-            onClick={() => openDrill("accepted", t("Acceptés NHS"))}
-          />
-          <CommCard
-            label={t("Refusés NHS")}
-            value={data.nhs_tracking.rejected}
-            hint={t("Dossiers refusés")}
-            tone="var(--bad)"
-            icon="✕"
-            onClick={() => openDrill("rejected", t("Refusés NHS"))}
-          />
-        </div>
-      </div>
-
-      {/* Pipeline de conversion */}
-      <PipelinePanel data={data} />
+      {/* Rapport NHS — source : rapport du manager (cf. lib/nhs-report.ts) */}
+      <NhsReportSection
+        openCard={openReportCard}
+        onToggle={(k) => setOpenReportCard((prev) => (prev === k ? null : k))}
+      />
 
       {!data.has_data && (
         <div className="card" style={{ borderColor: "var(--warn)", color: "var(--warn)", fontSize: 13 }}>
@@ -497,94 +469,189 @@ export function NhsSuiviTab() {
 }
 
 
-function PipelinePanel({ data }: { data: NhsSuiviResponse }) {
+// Renders the seven headline cards from the clinic manager's NHS report
+// (total submitted, approved, pending, missing docs, rejected, dropouts, to
+// submit). Each card expands inline into the patient list pulled from
+// lib/nhs-report.ts. The data is intentionally static — it is the
+// authoritative state of the 41 NHS S2 dossiers until backfilled into
+// Supabase.
+function NhsReportSection({
+  openCard,
+  onToggle,
+}: {
+  openCard: NhsReportKey | "total" | null;
+  onToggle: (k: NhsReportKey | "total") => void;
+}) {
   const t = useT();
-  const total = Math.max(1, data.comms.email_j0_sent); // enrolled population base for %
-  const steps = [
+  const asOf = new Date(NHS_REPORT_AS_OF).toLocaleDateString("fr-FR", {
+    day: "2-digit", month: "long", year: "numeric",
+  });
+  const counts = {
+    total: NHS_REPORT_TOTAL_SUBMITTED,
+    approved: NHS_REPORT.approved.patients.length,
+    pending_nhs: NHS_REPORT.pending_nhs.patients.length,
+    missing_docs: NHS_REPORT.missing_docs.patients.length,
+    rejected: NHS_REPORT.rejected.patients.length,
+    dropped_out: NHS_REPORT.dropped_out.patients.length,
+    to_submit: NHS_REPORT.to_submit.patients.length,
+  };
+  const breakdown = NHS_REPORT_APPROVED_BREAKDOWN;
+  const totalPatients = [
+    ...NHS_REPORT.approved.patients,
+    ...NHS_REPORT.pending_nhs.patients,
+    ...NHS_REPORT.missing_docs.patients,
+    ...NHS_REPORT.rejected.patients,
+    ...NHS_REPORT.dropped_out.patients,
+  ];
+
+  const cards: Array<{
+    key: NhsReportKey | "total";
+    label: string;
+    value: number;
+    hint: string;
+    tone: string;
+    icon: string;
+    patients: NhsReportPatient[];
+  }> = [
     {
-      key: "enrolled",
-      label: t("Inscrits au programme"),
-      day: t("PROGRAMME"),
-      value: data.comms.email_j0_sent,
-      pct: 100,
+      key: "total",
+      label: t("Total dossiers"),
+      value: counts.total,
+      hint: t("soumis au NHS"),
+      tone: "var(--info)",
+      icon: "▣",
+      patients: totalPatients,
     },
     {
-      key: "email_reminder",
-      label: t("Relance email + WhatsApp envoyée"),
-      day: t("RELANCE"),
-      value: data.pipeline.email_reminder,
-      pct: Math.round((data.pipeline.email_reminder / total) * 100),
+      key: "approved",
+      label: t("Approuvés"),
+      value: counts.approved,
+      hint: `${breakdown.operated} ${t("opérés")} · ${breakdown.scheduled} ${t("programmés")} · ${breakdown.left_pathway} ${t("sortis du parcours")}`,
+      tone: "var(--good)",
+      icon: "✓",
+      patients: NHS_REPORT.approved.patients,
     },
     {
-      key: "response_received",
-      label: t("Ont renvoyé des documents"),
-      day: t("RÉPONSE"),
-      value: data.pipeline.response_received,
-      pct: Math.round((data.pipeline.response_received / total) * 100),
+      key: "pending_nhs",
+      label: t("En attente NHS"),
+      value: counts.pending_nhs,
+      hint: t("réponse / appel en cours"),
+      tone: "var(--warn)",
+      icon: "⌛",
+      patients: NHS_REPORT.pending_nhs.patients,
     },
     {
-      key: "file_complete",
-      label: t("Dossier complet, prêt NHS"),
-      day: t("COMPLET"),
-      value: data.pipeline.file_complete,
-      pct: Math.round((data.pipeline.file_complete / total) * 100),
+      key: "missing_docs",
+      label: t("Éléments requis"),
+      value: counts.missing_docs,
+      hint: t("documents à fournir"),
+      tone: "var(--warn)",
+      icon: "📄",
+      patients: NHS_REPORT.missing_docs.patients,
     },
     {
-      key: "nhs_submitted",
-      label: t("Soumis à la NHS S2"),
-      day: t("NHS"),
-      value: data.pipeline.nhs_submitted,
-      pct: Math.round((data.pipeline.nhs_submitted / total) * 100),
+      key: "rejected",
+      label: t("Rejetés"),
+      value: counts.rejected,
+      hint: t("critères ICB non remplis"),
+      tone: "var(--bad)",
+      icon: "✕",
+      patients: NHS_REPORT.rejected.patients,
+    },
+    {
+      key: "dropped_out",
+      label: t("Abandons"),
+      value: counts.dropped_out,
+      hint: t("ne souhaitent pas continuer"),
+      tone: "var(--muted)",
+      icon: "↓",
+      patients: NHS_REPORT.dropped_out.patients,
+    },
+    {
+      key: "to_submit",
+      label: t("À soumettre"),
+      value: counts.to_submit,
+      hint: t("transmis au NHS en fin de semaine"),
+      tone: "var(--accent)",
+      icon: "↗",
+      patients: NHS_REPORT.to_submit.patients,
     },
   ];
-  // Color stops: var(--info) → var(--good) interpolated by step index.
-  const colorFor = (i: number) => {
-    const ratio = i / (steps.length - 1);
-    return `color-mix(in srgb, var(--good) ${Math.round(ratio * 100)}%, var(--info))`;
-  };
+
+  const open = cards.find((c) => c.key === openCard);
+
   return (
     <div>
-      <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 8 }}>
-        ⇆ {t("Pipeline de conversion — étapes patient")}
+      <div
+        className="muted"
+        style={{
+          fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4,
+          marginBottom: 8, display: "flex", justifyContent: "space-between",
+          alignItems: "baseline", gap: 8, flexWrap: "wrap",
+        }}
+      >
+        <span>🏥 {t("Rapport NHS — dossiers S2")}</span>
+        <span style={{ fontSize: 10, fontStyle: "italic" }}>{t("Mis à jour le")} {asOf}</span>
       </div>
-      <div className="card" style={{ padding: 16 }}>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))`,
-            gap: 8,
-            alignItems: "stretch",
-          }}
-        >
-          {steps.map((s, i) => {
-            const bg = colorFor(i);
-            return (
-              <div
-                key={s.key}
-                style={{
-                  background: bg,
-                  color: "#fff",
-                  borderRadius: 8,
-                  padding: 14,
-                  display: "flex",
-                  flexDirection: "column",
-                  justifyContent: "space-between",
-                  minHeight: 120,
-                }}
-              >
-                <div style={{ fontSize: 11, opacity: 0.85, textTransform: "uppercase", letterSpacing: 0.4 }}>
-                  {s.day}
-                </div>
-                <div>
-                  <div style={{ fontSize: 28, fontWeight: 700, lineHeight: 1.1 }}>{s.value}</div>
-                  <div style={{ fontSize: 12, opacity: 0.9, marginTop: 2 }}>{s.label}</div>
-                </div>
-                <div style={{ fontSize: 11, opacity: 0.85 }}>{s.pct}%</div>
-              </div>
-            );
-          })}
+      <div
+        className="grid-kpi"
+        style={{ gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))" }}
+      >
+        {cards.map((c) => (
+          <CommCard
+            key={c.key}
+            label={c.label}
+            value={c.value}
+            hint={c.hint}
+            tone={c.tone}
+            icon={c.icon}
+            onClick={() => onToggle(c.key)}
+          />
+        ))}
+      </div>
+      {open && (
+        <div className="card" style={{ padding: 0, overflow: "hidden", marginTop: 10 }}>
+          <div
+            style={{
+              padding: "10px 14px", display: "flex",
+              justifyContent: "space-between", alignItems: "center", gap: 8,
+              borderBottom: "1px solid var(--border)",
+            }}
+          >
+            <div style={{ fontWeight: 600, fontSize: 13 }}>
+              {open.label} · <span className="muted" style={{ fontWeight: 400 }}>{open.value} {t("patient(s)")}</span>
+            </div>
+            <button
+              type="button"
+              className="ghost"
+              onClick={() => onToggle(open.key)}
+              style={{ padding: "2px 10px", fontSize: 12 }}
+            >
+              {t("Masquer la liste")}
+            </button>
+          </div>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4 }}>
+                  <th style={{ textAlign: "left", padding: "10px 12px" }}>{t("Patient")}</th>
+                  <th style={{ textAlign: "left", padding: "10px 12px" }}>{t("Envoi NHS")}</th>
+                  <th style={{ textAlign: "left", padding: "10px 12px" }}>{t("Situation")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {open.patients.map((p, i) => (
+                  <tr key={`${p.name}-${i}`} style={{ borderTop: "1px solid var(--border)" }}>
+                    <td style={{ padding: "8px 12px", fontWeight: 600, whiteSpace: "nowrap" }}>{p.name}</td>
+                    <td style={{ padding: "8px 12px", whiteSpace: "nowrap" }} className="muted">{p.sent_to_nhs ?? "—"}</td>
+                    <td style={{ padding: "8px 12px" }}>{p.situation}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

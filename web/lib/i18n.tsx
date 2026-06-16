@@ -614,6 +614,28 @@ const EN: Record<string, string> = {
   "Facturée": "Billed",
   "Lead": "Lead",
   "Source": "Source",
+  // ── NHS report cards (source: clinic manager's monthly PDF) ──
+  "Rapport NHS — dossiers S2": "NHS report — S2 dossiers",
+  "Mis à jour le": "Updated on",
+  "Total dossiers": "Total dossiers",
+  "soumis au NHS": "submitted to NHS",
+  "Approuvés": "Approved",
+  "opérés": "operated",
+  "programmés": "scheduled",
+  "sortis du parcours": "left pathway",
+  "En attente NHS": "Awaiting NHS",
+  "réponse / appel en cours": "reply / appeal in progress",
+  "Éléments requis": "Items required",
+  "documents à fournir": "documents to provide",
+  "Rejetés": "Rejected",
+  "critères ICB non remplis": "ICB criteria not met",
+  "Abandons": "Drop-outs",
+  "ne souhaitent pas continuer": "do not wish to continue",
+  "À soumettre": "To submit",
+  "transmis au NHS en fin de semaine": "to be sent to NHS this week",
+  "patient(s)": "patient(s)",
+  "Envoi NHS": "Sent to NHS",
+  "Situation": "Situation",
 };
 
 function readLang(): Lang {
