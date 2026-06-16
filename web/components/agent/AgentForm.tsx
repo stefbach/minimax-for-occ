@@ -852,24 +852,37 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                     voice_id "replicate:minimax-hd:..."       → MiniMax HD
                     sinon → Cartesia (defaut historique). */}
                 {(() => {
+                  // Detect family from voice_id prefix (Wati 16/06 :
+                  // 'elevenlabs:flash:...' / 'elevenlabs:turbo:...' = direct,
+                  // 'replicate:elevenlabs-...' = legacy via Replicate,
+                  // 'replicate:minimax-...' = MiniMax via Replicate,
+                  // sinon UUID Cartesia).
+                  const isElevenLabsDirect = voice.startsWith("elevenlabs:");
                   const isReplicate = voice.startsWith("replicate:");
-                  const family = isReplicate ? voice.split(":")[1] ?? "" : "cartesia";
+                  const family = isElevenLabsDirect
+                    ? `elevenlabs-${voice.split(":")[1] ?? "flash"}-direct`
+                    : isReplicate
+                    ? voice.split(":")[1] ?? ""
+                    : "cartesia";
                   const isElevenLabs = family.startsWith("elevenlabs");
                   const isMiniMax = family.startsWith("minimax");
+                  const isExternal = isElevenLabsDirect || isReplicate;
                   const familyLabel =
                     family === "cartesia" ? "Cartesia Sonic" :
-                    family === "elevenlabs-flash" ? "ElevenLabs Flash v2.5" :
-                    family === "elevenlabs-turbo" ? "ElevenLabs Turbo v2.5" :
-                    family === "minimax-turbo" ? "MiniMax Speech 02 Turbo" :
-                    family === "minimax-hd" ? "MiniMax Speech 02 HD" :
+                    family === "elevenlabs-flash-direct" ? "ElevenLabs Flash v2.5 (direct, ~75ms TTFB)" :
+                    family === "elevenlabs-turbo-direct" ? "ElevenLabs Turbo v2.5 (direct, ~100ms TTFB)" :
+                    family === "elevenlabs-flash" ? "ElevenLabs Flash v2.5 (via Replicate, legacy)" :
+                    family === "elevenlabs-turbo" ? "ElevenLabs Turbo v2.5 (via Replicate, legacy)" :
+                    family === "minimax-turbo" ? "MiniMax Speech 02 Turbo (via Replicate)" :
+                    family === "minimax-hd" ? "MiniMax Speech 02 HD (via Replicate)" :
                     "Cartesia Sonic";
                   return (
                     <>
                       {/* Modele TTS : dropdown sonic-3.5/sonic-3 uniquement
-                          quand la voix est Cartesia. Pour Replicate, le modele
-                          est encode dans le voice_id (familyLabel), on l'affiche
-                          en lecture seule. */}
-                      {!isReplicate ? (
+                          pour Cartesia. Pour les autres fournisseurs, le
+                          modele est encode dans le voice_id (familyLabel),
+                          on l'affiche en lecture seule. */}
+                      {!isExternal ? (
                         <div>
                           <label>Modèle TTS</label>
                           <select value={ttsModel} onChange={(e) => setTtsModel(e.target.value)}>
@@ -899,22 +912,28 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                             step="0.05"
                             value={speed} onChange={(e) => setSpeed(Number(e.target.value))}
                           />
+                          <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
+                            {isMiniMax ? "Plage MiniMax : 0.5×–2.0×" : isElevenLabs ? "Plage ElevenLabs : 0.7×–1.2×" : "Plage Cartesia : 0.6×–1.5×"}
+                          </div>
                         </div>
                         {/* Volume : Cartesia uniquement. ElevenLabs et
-                            MiniMax via Replicate ne l'exposent pas. */}
-                        {!isReplicate ? (
+                            MiniMax ne l'exposent pas via leur API. */}
+                        {!isExternal ? (
                           <div>
                             <label>Volume ({volume.toFixed(1)})</label>
                             <input
                               type="range" min="0.1" max="2" step="0.1"
                               value={volume} onChange={(e) => setVolume(Number(e.target.value))}
                             />
+                            <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
+                              Plage Cartesia : 0.1–2.0
+                            </div>
                           </div>
                         ) : (
                           <div>
                             <label>Volume</label>
                             <div style={{ padding: "8px 12px", borderRadius: 6, background: "var(--bg-2)", color: "var(--muted)", fontSize: 13 }}>
-                              Non disponible chez {familyLabel}
+                              Non exposé par {isElevenLabs ? "ElevenLabs" : "MiniMax"}
                             </div>
                           </div>
                         )}
