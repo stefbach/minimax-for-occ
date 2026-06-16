@@ -1,11 +1,49 @@
 import { NextResponse } from "next/server";
 import { AccessToken, RoomConfiguration, RoomAgentDispatch } from "livekit-server-sdk";
 import { rateLimit, clientIp } from "@/lib/rate-limit";
+import { supabaseServer, hasSupabase } from "@/lib/supabase";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const RATE_LIMIT = Number(process.env.TOKEN_RATE_LIMIT_PER_MINUTE ?? 20);
+
+// Wati 16/06 — séparation prod vs test sur LiveKit Cloud Agents.
+//
+// Deux LK Cloud Agents tournent le même code (auto-déployés sur push main) :
+//   • "axon-voice-agent"      → CA_PFUfvaBhC8Wk    (prod, intouchable)
+//   • "axon-voice-agent-test" → 2e agent dédié aux Charlotte-teste/etc
+//
+// Le routage ici décide où LiveKit envoie le dispatch en se basant sur le
+// nom de l'agent OCC qui a été chargé. Tout agent dont le nom contient
+// "teste" tape sur l'agent test. Les autres (Charlotte, Isabelle, Victoria
+// prod) tapent sur la prod. Les env vars LIVEKIT_AGENT_NAME et
+// LIVEKIT_AGENT_NAME_TEST permettent d'override si on veut renommer un jour.
+const PROD_AGENT_NAME = process.env.LIVEKIT_AGENT_NAME ?? "axon-voice-agent";
+// Tant que LIVEKIT_AGENT_NAME_TEST n'est pas défini en env, le routage test
+// est désactivé et tous les dispatches vont sur la prod (statu quo
+// d'aujourd'hui). Wati activera la séparation en ajoutant
+// LIVEKIT_AGENT_NAME_TEST=axon-voice-agent-test sur Vercel quand son nouvel
+// agent LK Cloud sera prêt.
+const TEST_AGENT_NAME = process.env.LIVEKIT_AGENT_NAME_TEST ?? null;
+
+async function resolveAgentName(agentId: string | null): Promise<string> {
+  if (!TEST_AGENT_NAME) return PROD_AGENT_NAME;
+  if (!agentId || !hasSupabase()) return PROD_AGENT_NAME;
+  try {
+    const sb = supabaseServer();
+    const { data } = await sb
+      .from("agents")
+      .select("name")
+      .eq("id", agentId)
+      .maybeSingle();
+    const name = (data?.name ?? "").toLowerCase();
+    if (name.includes("teste") || name.includes("test")) return TEST_AGENT_NAME;
+    return PROD_AGENT_NAME;
+  } catch {
+    return PROD_AGENT_NAME;
+  }
+}
 
 function isAllowedOrigin(req: Request): boolean {
   const origin = req.headers.get("origin");
@@ -107,12 +145,11 @@ export async function GET(request: Request) {
   if (Object.keys(attrs).length > 0) at.attributes = attrs;
   if (Object.keys(meta).length > 0) at.metadata = JSON.stringify(meta);
 
-  // Explicitly dispatch the agent into this room. The worker registers with
-  // agent_name "axon-voice-agent" (rotation Wati 12/06 — l'ancien
-  // "minimax-voice-agent" etait casse cote LiveKit Cloud). Sans dispatch
-  // explicite, aucun agent ne rejoint la room et la simulation echoue
-  // silencieusement (browser connecte, agent absent, disconnect timeout).
-  const agentName = process.env.LIVEKIT_AGENT_NAME ?? "axon-voice-agent";
+  // Explicitly dispatch the agent into this room. Sans dispatch explicite,
+  // aucun agent ne rejoint la room et la simulation echoue silencieusement
+  // (browser connecte, agent absent, disconnect timeout).
+  // Routage prod vs test : voir resolveAgentName plus haut.
+  const agentName = await resolveAgentName(agentId);
   at.roomConfig = new RoomConfiguration({
     agents: [
       new RoomAgentDispatch({
