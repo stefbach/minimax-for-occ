@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { previewCartesiaTTS } from "@/lib/cartesia";
 import { previewReplicateTTS } from "@/lib/replicate";
+import { previewElevenLabsTTS } from "@/lib/elevenlabs";
 import { requestOrgId } from "@/lib/request-org";
 import { recordUsage, estimateCostCents } from "@/lib/billing";
 import { rateLimit, clientIp } from "@/lib/rate-limit";
@@ -45,11 +46,19 @@ export async function POST(req: Request) {
   try {
     const text =
       body.text || "Bonjour, je suis votre nouvel assistant vocal. Comment puis-je vous aider ?";
-    // Routing par provider (Wati preview 15/06) : les voice_id Replicate
-    // sont prefixes "replicate:famille:provider_voice_id". Tout le reste
-    // (UUIDs Cartesia, voix clonees) reste sur le chemin Cartesia.
+    // Routing par provider :
+    //   "elevenlabs:famille:voice"   → ElevenLabs DIRECT (Wati 16/06)
+    //   "replicate:famille:voice"    → Replicate (legacy)
+    //   sinon                        → Cartesia (UUID natif, voix clonees)
+    const isElevenLabs = body.voice_id.startsWith("elevenlabs:");
     const isReplicate = body.voice_id.startsWith("replicate:");
-    const { audio, format } = isReplicate
+    const { audio, format } = isElevenLabs
+      ? await previewElevenLabsTTS({
+          voice_id: body.voice_id,
+          text,
+          speed: body.speed,
+        })
+      : isReplicate
       ? await previewReplicateTTS({
           voice_id: body.voice_id,
           text,

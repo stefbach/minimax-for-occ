@@ -159,11 +159,41 @@ const MINIMAX_VOICES: MiniMaxVoiceSpec[] = [
 export function listReplicateVoices(): ReplicateVoice[] {
   const all: ReplicateVoice[] = [];
 
-  // ElevenLabs Flash v2.5
+  // ElevenLabs Flash v2.5 — DIRECT (Wati 16/06 — apres compte ElevenLabs).
+  // Streaming WebSocket natif, TTFB ~75ms. Le worker route ces voice_id vers
+  // le plugin LiveKit ElevenLabs direct (cf agent.py:_tts_for).
+  for (const v of ELEVENLABS_VOICES) {
+    all.push({
+      id: `elevenlabs:flash:${v.voice_name}`,
+      name: `${v.voice_name} (Flash — direct)`,
+      description: v.description,
+      language: v.language,
+      gender: v.gender,
+      is_public: true,
+      model: "eleven_flash_v2_5",
+      provider_voice_id: v.voice_name,
+      family: "elevenlabs-flash-direct",
+    });
+  }
+  // ElevenLabs Turbo v2.5 — DIRECT
+  for (const v of ELEVENLABS_VOICES) {
+    all.push({
+      id: `elevenlabs:turbo:${v.voice_name}`,
+      name: `${v.voice_name} (Turbo — direct)`,
+      description: v.description,
+      language: v.language,
+      gender: v.gender,
+      is_public: true,
+      model: "eleven_turbo_v2_5",
+      provider_voice_id: v.voice_name,
+      family: "elevenlabs-turbo-direct",
+    });
+  }
+  // ElevenLabs Flash v2.5 — Via Replicate (legacy, plus lent)
   for (const v of ELEVENLABS_VOICES) {
     all.push({
       id: `replicate:elevenlabs-flash:${v.voice_name}`,
-      name: `${v.voice_name} (Flash)`,
+      name: `${v.voice_name} (Flash via Replicate — legacy)`,
       description: v.description,
       language: v.language,
       gender: v.gender,
@@ -173,11 +203,11 @@ export function listReplicateVoices(): ReplicateVoice[] {
       family: "elevenlabs-flash",
     });
   }
-  // ElevenLabs Turbo v2.5
+  // ElevenLabs Turbo v2.5 — Via Replicate (legacy)
   for (const v of ELEVENLABS_VOICES) {
     all.push({
       id: `replicate:elevenlabs-turbo:${v.voice_name}`,
-      name: `${v.voice_name} (Turbo)`,
+      name: `${v.voice_name} (Turbo via Replicate — legacy)`,
       description: v.description,
       language: v.language,
       gender: v.gender,
