@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: "diagnose | restart-agent | list-secrets | probe-dispatch | bench-deepseek | bench-anthropic | bench-lk-inference | check-replicate-schema | test-replicate-predict | tighten-watchdog | probe-replicate-import | check-agent-source"
+        description: "diagnose | restart-agent | list-secrets | probe-dispatch | bench-deepseek | bench-anthropic | bench-lk-inference | check-replicate-schema | test-replicate-predict | tighten-watchdog | probe-replicate-import | check-agent-source | inspect-anthropic"
         required: true
         default: "diagnose"
 
@@ -134,6 +134,12 @@ jobs:
         run: |
           BAS="aW1wb3J0IG9zCndpdGggb3BlbignL2FwcC9hZ2VudC5weScpIGFzIGY6CiAgICBzcmMgPSBmLnJlYWQoKQojIGNoZWNrIGZvciB0aGUgcmVwbGljYXRlIHJvdXRpbmcgYmxvY2sKaGFzX2ltcG9ydCA9ICJmcm9tIHJlcGxpY2F0ZV90dHMgaW1wb3J0IiBpbiBzcmMKaGFzX3JvdXRpbmcgPSAiaXNfcmVwbGljYXRlX3ZvaWNlX2lkKF92b2ljZV9mb3Jfcm91dGluZykiIGluIHNyYwpwcmludCgiYWdlbnQucHkgc2l6ZToiLCBsZW4oc3JjKSwgImJ5dGVzIikKcHJpbnQoImhhcyAnZnJvbSByZXBsaWNhdGVfdHRzIGltcG9ydCc6IiwgaGFzX2ltcG9ydCkKcHJpbnQoImhhcyAnaXNfcmVwbGljYXRlX3ZvaWNlX2lkKF92b2ljZV9mb3Jfcm91dGluZyknOiIsIGhhc19yb3V0aW5nKQojIFByaW50IHRoZSBfdHRzX2ZvciBmdW5jdGlvbgppbXBvcnQgcmUKbSA9IHJlLnNlYXJjaChyImRlZiBfdHRzX2ZvclwoLio/XG5yZXR1cm4gX2NhcnRlc2lhX3R0c19mb3IiLCBzcmMsIHJlLlMpCmlmIG06CiAgICBwcmludCgiXG4tLS0gX3R0c19mb3Igc25pcHBldCAoZmlyc3QgMzAgbGluZXMpIC0tLSIpCiAgICBwcmludCgiXG4iLmpvaW4obS5ncm91cCgwKS5zcGxpdCgiXG4iKVs6MzBdKSkKZWxzZToKICAgIHByaW50KCJcbl90dHNfZm9yIG5vdCBmb3VuZCB2aWEgcmVnZXgiKQo="
           timeout 30 flyctl ssh console -a axon-agent -C "python -c \"import base64;exec(base64.b64decode('$BAS').decode())\"" || true
+
+      - name: Inspect Anthropic plugin signature (debug caching)
+        if: ${{ github.event.inputs.action == 'inspect-anthropic' }}
+        run: |
+          BANT="aW1wb3J0IG9zLCBpbXBvcnRsaWIsIGluc3BlY3QKZnJvbSBsaXZla2l0LnBsdWdpbnMgaW1wb3J0IGFudGhyb3BpYwpwcmludCgibW9kdWxlOiIsIGFudGhyb3BpYy5fX2ZpbGVfXykKc2lnID0gaW5zcGVjdC5zaWduYXR1cmUoYW50aHJvcGljLkxMTS5fX2luaXRfXykKcHJpbnQoImFudGhyb3BpYy5MTE0uX19pbml0X18gc2lnbmF0dXJlOiIpCnByaW50KHNpZykKcHJpbnQoIlxuLS0tIHNvdXJjZSBvZiBfX2luaXRfXyAoZmlyc3QgODAgbGluZXMpIC0tLSIpCnNyYyA9IGluc3BlY3QuZ2V0c291cmNlKGFudGhyb3BpYy5MTE0uX19pbml0X18pCmZvciBsaW5lIGluIHNyYy5zcGxpdCgiXG4iKVs6ODBdOgogICAgcHJpbnQobGluZSkK"
+          timeout 60 flyctl ssh console -a axon-agent -C "python -c \"import base64;exec(base64.b64decode('$BANT').decode())\"" || true
 
       - name: Tighten dispatch watchdog (probe interval 120s -> 30s)
         if: ${{ github.event.inputs.action == 'tighten-watchdog' }}
