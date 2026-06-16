@@ -78,12 +78,14 @@ export async function GET() {
     };
     const shared: SharedVoice[] = [];
     try {
-      let page_size = 100;
-      let cursor: string | null = null;
-      for (let i = 0; i < 10; i++) {
+      // /v1/shared-voices : pagination par numero de page (1, 2, 3…),
+      // 100 voix par page. On boucle jusqu'a has_more=false ou max 30 pages
+      // (~3000 voix, taille de la Library actuelle).
+      const page_size = 100;
+      for (let page = 1; page <= 30; page++) {
         const url = new URL("https://api.elevenlabs.io/v1/shared-voices");
         url.searchParams.set("page_size", String(page_size));
-        if (cursor) url.searchParams.set("page_token", cursor);
+        url.searchParams.set("page", String(page));
         const rs = await fetch(url.toString(), {
           method: "GET",
           headers: { "xi-api-key": apiKey, Accept: "application/json" },
@@ -93,11 +95,12 @@ export async function GET() {
         const sd = (await rs.json()) as {
           voices?: SharedVoice[];
           has_more?: boolean;
-          last_sort_id?: string | null;
         };
-        if (Array.isArray(sd.voices)) shared.push(...sd.voices);
-        if (!sd.has_more || !sd.last_sort_id) break;
-        cursor = sd.last_sort_id;
+        const got = Array.isArray(sd.voices) ? sd.voices : [];
+        if (got.length === 0) break;
+        shared.push(...got);
+        if (sd.has_more === false) break;
+        if (got.length < page_size) break; // securite : pas de page suivante
       }
     } catch {
       /* shared est optionnel, on continue avec juste les voix perso */
