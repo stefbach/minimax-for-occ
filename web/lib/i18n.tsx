@@ -636,6 +636,8 @@ const EN: Record<string, string> = {
   "patient(s)": "patient(s)",
   "Envoi NHS": "Sent to NHS",
   "Situation": "Situation",
+  "Voir les documents": "View documents",
+  "Disponible après l'upload des documents": "Available after the document upload",
 };
 
 function readLang(): Lang {

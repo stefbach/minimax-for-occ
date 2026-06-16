@@ -32,8 +32,6 @@ export function NhsSuiviTab() {
   const [error, setError] = useState<string | null>(null);
   // "Bloqué 5j+" card expands inline into the stalled-patient list.
   const [showStalled, setShowStalled] = useState(false);
-  // Clicking a "NHS dossiers report" card expands the patient list inline.
-  const [openReportCard, setOpenReportCard] = useState<NhsReportKey | "total" | null>(null);
   // Same 3-view navigation as the legacy dashboard: clicking a card opens the
   // patient LIST pre-filtered on the matching status; clicking a patient opens
   // the full dossier (checklist 11 docs, timeline, statut NHS, actions).
@@ -94,6 +92,15 @@ export function NhsSuiviTab() {
         onBack={() => setView({ name: "dashboard" })}
         onChangeFilter={(filter) => setView({ name: "list", filter })}
         onOpenPatient={(id) => setView({ name: "detail", id, from: view.filter })}
+      />
+    );
+  }
+  if (view.name === "report-list") {
+    return (
+      <NhsReportListView
+        reportKey={view.key}
+        onBack={() => setView({ name: "dashboard" })}
+        onChangeKey={(key) => setView({ name: "report-list", key })}
       />
     );
   }
@@ -452,10 +459,7 @@ export function NhsSuiviTab() {
       </div>
 
       {/* Rapport NHS — source : rapport du manager (cf. lib/nhs-report.ts) */}
-      <NhsReportSection
-        openCard={openReportCard}
-        onToggle={(k) => setOpenReportCard((prev) => (prev === k ? null : k))}
-      />
+      <NhsReportSection onOpenCard={(key) => setView({ name: "report-list", key })} />
 
       {!data.has_data && (
         <div className="card" style={{ borderColor: "var(--warn)", color: "var(--warn)", fontSize: 13 }}>
@@ -475,26 +479,20 @@ export function NhsSuiviTab() {
 // lib/nhs-report.ts. The data is intentionally static — it is the
 // authoritative state of the 41 NHS S2 dossiers until backfilled into
 // Supabase.
-function NhsReportSection({
-  openCard,
-  onToggle,
-}: {
-  openCard: NhsReportKey | "total" | null;
-  onToggle: (k: NhsReportKey | "total") => void;
-}) {
+// Card metadata for the 7 report buckets — shared by the dashboard section and
+// the dedicated list view so labels and counts stay in sync.
+type NhsReportCard = {
+  key: NhsReportFilter;
+  label: string;
+  value: number;
+  hint: string;
+  tone: string;
+  icon: string;
+  patients: NhsReportPatient[];
+};
+
+function useNhsReportCards(): NhsReportCard[] {
   const t = useT();
-  const asOf = new Date(NHS_REPORT_AS_OF).toLocaleDateString("fr-FR", {
-    day: "2-digit", month: "long", year: "numeric",
-  });
-  const counts = {
-    total: NHS_REPORT_TOTAL_SUBMITTED,
-    approved: NHS_REPORT.approved.patients.length,
-    pending_nhs: NHS_REPORT.pending_nhs.patients.length,
-    missing_docs: NHS_REPORT.missing_docs.patients.length,
-    rejected: NHS_REPORT.rejected.patients.length,
-    dropped_out: NHS_REPORT.dropped_out.patients.length,
-    to_submit: NHS_REPORT.to_submit.patients.length,
-  };
   const breakdown = NHS_REPORT_APPROVED_BREAKDOWN;
   const totalPatients = [
     ...NHS_REPORT.approved.patients,
@@ -503,20 +501,11 @@ function NhsReportSection({
     ...NHS_REPORT.rejected.patients,
     ...NHS_REPORT.dropped_out.patients,
   ];
-
-  const cards: Array<{
-    key: NhsReportKey | "total";
-    label: string;
-    value: number;
-    hint: string;
-    tone: string;
-    icon: string;
-    patients: NhsReportPatient[];
-  }> = [
+  return [
     {
       key: "total",
       label: t("Total dossiers"),
-      value: counts.total,
+      value: NHS_REPORT_TOTAL_SUBMITTED,
       hint: t("soumis au NHS"),
       tone: "var(--info)",
       icon: "▣",
@@ -525,7 +514,7 @@ function NhsReportSection({
     {
       key: "approved",
       label: t("Approuvés"),
-      value: counts.approved,
+      value: NHS_REPORT.approved.patients.length,
       hint: `${breakdown.operated} ${t("opérés")} · ${breakdown.scheduled} ${t("programmés")} · ${breakdown.left_pathway} ${t("sortis du parcours")}`,
       tone: "var(--good)",
       icon: "✓",
@@ -534,7 +523,7 @@ function NhsReportSection({
     {
       key: "pending_nhs",
       label: t("En attente NHS"),
-      value: counts.pending_nhs,
+      value: NHS_REPORT.pending_nhs.patients.length,
       hint: t("réponse / appel en cours"),
       tone: "var(--warn)",
       icon: "⌛",
@@ -543,7 +532,7 @@ function NhsReportSection({
     {
       key: "missing_docs",
       label: t("Éléments requis"),
-      value: counts.missing_docs,
+      value: NHS_REPORT.missing_docs.patients.length,
       hint: t("documents à fournir"),
       tone: "var(--warn)",
       icon: "📄",
@@ -552,7 +541,7 @@ function NhsReportSection({
     {
       key: "rejected",
       label: t("Rejetés"),
-      value: counts.rejected,
+      value: NHS_REPORT.rejected.patients.length,
       hint: t("critères ICB non remplis"),
       tone: "var(--bad)",
       icon: "✕",
@@ -561,7 +550,7 @@ function NhsReportSection({
     {
       key: "dropped_out",
       label: t("Abandons"),
-      value: counts.dropped_out,
+      value: NHS_REPORT.dropped_out.patients.length,
       hint: t("ne souhaitent pas continuer"),
       tone: "var(--muted)",
       icon: "↓",
@@ -570,16 +559,25 @@ function NhsReportSection({
     {
       key: "to_submit",
       label: t("À soumettre"),
-      value: counts.to_submit,
+      value: NHS_REPORT.to_submit.patients.length,
       hint: t("transmis au NHS en fin de semaine"),
       tone: "var(--accent)",
       icon: "↗",
       patients: NHS_REPORT.to_submit.patients,
     },
   ];
+}
 
-  const open = cards.find((c) => c.key === openCard);
-
+function NhsReportSection({
+  onOpenCard,
+}: {
+  onOpenCard: (key: NhsReportFilter) => void;
+}) {
+  const t = useT();
+  const cards = useNhsReportCards();
+  const asOf = new Date(NHS_REPORT_AS_OF).toLocaleDateString("fr-FR", {
+    day: "2-digit", month: "long", year: "numeric",
+  });
   return (
     <div>
       <div
@@ -605,55 +603,135 @@ function NhsReportSection({
             hint={c.hint}
             tone={c.tone}
             icon={c.icon}
-            onClick={() => onToggle(c.key)}
+            onClick={() => onOpenCard(c.key)}
           />
         ))}
       </div>
-      {open && (
-        <div className="card" style={{ padding: 0, overflow: "hidden", marginTop: 10 }}>
-          <div
-            style={{
-              padding: "10px 14px", display: "flex",
-              justifyContent: "space-between", alignItems: "center", gap: 8,
-              borderBottom: "1px solid var(--border)",
-            }}
-          >
-            <div style={{ fontWeight: 600, fontSize: 13 }}>
-              {open.label} · <span className="muted" style={{ fontWeight: 400 }}>{open.value} {t("patient(s)")}</span>
-            </div>
-            <button
-              type="button"
-              className="ghost"
-              onClick={() => onToggle(open.key)}
-              style={{ padding: "2px 10px", fontSize: 12 }}
-            >
-              {t("Masquer la liste")}
-            </button>
-          </div>
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-              <thead>
-                <tr className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4 }}>
-                  <th style={{ textAlign: "left", padding: "10px 12px" }}>{t("Patient")}</th>
-                  <th style={{ textAlign: "left", padding: "10px 12px" }}>{t("Envoi NHS")}</th>
-                  <th style={{ textAlign: "left", padding: "10px 12px" }}>{t("Situation")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {open.patients.map((p, i) => (
-                  <tr key={`${p.name}-${i}`} style={{ borderTop: "1px solid var(--border)" }}>
-                    <td style={{ padding: "8px 12px", fontWeight: 600, whiteSpace: "nowrap" }}>{p.name}</td>
-                    <td style={{ padding: "8px 12px", whiteSpace: "nowrap" }} className="muted">{p.sent_to_nhs ?? "—"}</td>
-                    <td style={{ padding: "8px 12px" }}>{p.situation}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
     </div>
   );
+}
+
+// Full-page patient list for a single NHS report bucket. Same chrome as
+// PatientListView: breadcrumb, filter chips (one per bucket so the user can
+// jump between them without going back), search, and a table with one row
+// per patient. Per-patient document view will be wired once the Google Drive
+// → Supabase storage migration completes.
+function NhsReportListView({
+  reportKey,
+  onBack,
+  onChangeKey,
+}: {
+  reportKey: NhsReportFilter;
+  onBack: () => void;
+  onChangeKey: (key: NhsReportFilter) => void;
+}) {
+  const t = useT();
+  const [search, setSearch] = useState("");
+  const cards = useNhsReportCards();
+  const active = cards.find((c) => c.key === reportKey) ?? cards[0];
+
+  const q = search.trim().toLowerCase();
+  const filtered = active.patients.filter((p) => {
+    if (!q) return true;
+    return `${p.name} ${p.situation} ${p.sent_to_nhs ?? ""}`.toLowerCase().includes(q);
+  });
+
+  return (
+    <div style={{ display: "grid", gap: 14 }}>
+      <Breadcrumb
+        items={[
+          { label: t("Vue d'ensemble"), onClick: onBack },
+          { label: active.label },
+        ]}
+      />
+      <div className="page-header" style={{ margin: 0 }}>
+        <div>
+          <h2 style={{ margin: 0 }}>{active.label}</h2>
+          <div className="muted" style={{ fontSize: 13 }}>
+            {active.value} {t("patient(s)")} · {active.hint}
+          </div>
+        </div>
+        <button onClick={onBack} className="ghost" style={{ padding: "5px 12px", fontSize: 13 }}>← {t("Retour")}</button>
+      </div>
+
+      {/* Chips for the 7 buckets + search */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+        {cards.map((c) => {
+          const isActive = reportKey === c.key;
+          return (
+            <button
+              key={c.key}
+              type="button"
+              onClick={() => onChangeKey(c.key)}
+              className={isActive ? "" : "ghost"}
+              style={{ padding: "4px 12px", fontSize: 12, borderRadius: 999 }}
+            >
+              {c.label} ({c.value})
+            </button>
+          );
+        })}
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder={t("Rechercher…")}
+          style={{ marginLeft: "auto", padding: "5px 12px", fontSize: 13, borderRadius: 999, width: "auto", minWidth: 180 }}
+        />
+      </div>
+
+      <div className="card" style={{ padding: 0, overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+          <thead>
+            <tr className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4 }}>
+              <th style={{ textAlign: "left", padding: "10px 14px" }}>{t("Patient")}</th>
+              <th style={{ textAlign: "left", padding: "10px 14px" }}>{t("Envoi NHS")}</th>
+              <th style={{ textAlign: "left", padding: "10px 14px" }}>{t("Situation")}</th>
+              <th style={{ textAlign: "right", padding: "10px 14px" }}>{t("Documents")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.length === 0 && (
+              <tr>
+                <td colSpan={4} style={{ padding: "14px", textAlign: "center" }} className="muted">
+                  {t("Aucun patient trouvé pour ce filtre.")}
+                </td>
+              </tr>
+            )}
+            {filtered.map((p, i) => (
+              <tr key={`${p.name}-${i}`} style={{ borderTop: "1px solid var(--border)" }}>
+                <td style={{ padding: "10px 14px", fontWeight: 600, whiteSpace: "nowrap" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <Avatar initials={initialsOfName(p.name)} size={28} />
+                    <span>{p.name}</span>
+                  </div>
+                </td>
+                <td style={{ padding: "10px 14px", whiteSpace: "nowrap" }} className="muted">{p.sent_to_nhs ?? "—"}</td>
+                <td style={{ padding: "10px 14px" }}>{p.situation}</td>
+                <td style={{ padding: "10px 14px", textAlign: "right" }}>
+                  <button
+                    type="button"
+                    className="ghost"
+                    disabled
+                    title={t("Disponible après l'upload des documents")}
+                    style={{ padding: "3px 12px", fontSize: 12, opacity: 0.55, cursor: "not-allowed" }}
+                  >
+                    {t("Voir les documents")}
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function initialsOfName(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  const first = parts[0]?.[0] ?? "";
+  const last = parts.length > 1 ? parts[parts.length - 1][0] : "";
+  return (first + last).toUpperCase() || "—";
 }
 
 function AlertRow({
@@ -753,9 +831,12 @@ function CommCard({
 // ── Patient list + detail (port of the legacy 3-view NHS page) ─────────────
 
 type PatientFilter = PatientStatus | "all" | "has-response" | "no-docs";
+type NhsReportFilter = NhsReportKey | "total";
+
 type NhsView =
   | { name: "dashboard" }
   | { name: "list"; filter: PatientFilter }
+  | { name: "report-list"; key: NhsReportFilter }
   | { name: "detail"; id: string; from: PatientFilter };
 
 const STATUS_TONE: Record<PatientStatus, string> = {
