@@ -703,6 +703,30 @@ const EN: Record<string, string> = {
   // To submit
   "Voie S2 — dossier prêt, transmission au NHS prévue en fin de semaine.":
     "S2 pathway — dossier ready, NHS transmission scheduled for end of week.",
+  // ── NhsReportDetailView ──
+  "Dossier NHS S2": "NHS S2 dossier",
+  "Envoyé le": "Sent on",
+  "Parcours NHS S2": "NHS S2 pathway",
+  "Dossier préparé": "Dossier prepared",
+  "Soumis au NHS": "Submitted to NHS",
+  "En examen NHS": "Under NHS review",
+  "Opération planifiée": "Surgery scheduled",
+  "Opéré": "Operated",
+  "Situation actuelle": "Current situation",
+  "Détails de la soumission NHS": "NHS submission details",
+  "Catégorie": "Category",
+  "Envoi au NHS": "Sent to NHS",
+  "Rapport du": "Report dated",
+  "Les documents seront accessibles ici après l'upload depuis Google Drive.":
+    "Documents will be accessible here after upload from Google Drive.",
+  // Stage labels
+  "Dossier soumis": "Dossier submitted",
+  "Approuvé — voie S2": "Approved — S2 pathway",
+  "En attente de réponse NHS": "Awaiting NHS response",
+  "Éléments manquants requis": "Missing elements required",
+  "Rejeté — critères ICB": "Rejected — ICB criteria",
+  "Abandon du parcours": "Pathway dropout",
+  "Prêt à soumettre": "Ready to submit",
 };
 
 function readLang(): Lang {

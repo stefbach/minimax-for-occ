@@ -101,6 +101,17 @@ export function NhsSuiviTab() {
         reportKey={view.key}
         onBack={() => setView({ name: "dashboard" })}
         onChangeKey={(key) => setView({ name: "report-list", key })}
+        onOpenPatient={(patient) => setView({ name: "report-detail", patient, reportKey: view.key })}
+      />
+    );
+  }
+  if (view.name === "report-detail") {
+    return (
+      <NhsReportDetailView
+        patient={view.patient}
+        reportKey={view.reportKey}
+        onBackDashboard={() => setView({ name: "dashboard" })}
+        onBackList={() => setView({ name: "report-list", key: view.reportKey })}
       />
     );
   }
@@ -620,10 +631,12 @@ function NhsReportListView({
   reportKey,
   onBack,
   onChangeKey,
+  onOpenPatient,
 }: {
   reportKey: NhsReportFilter;
   onBack: () => void;
   onChangeKey: (key: NhsReportFilter) => void;
+  onOpenPatient: (patient: NhsReportPatient) => void;
 }) {
   const t = useT();
   const [search, setSearch] = useState("");
@@ -698,7 +711,11 @@ function NhsReportListView({
               </tr>
             )}
             {filtered.map((p, i) => (
-              <tr key={`${p.name}-${i}`} style={{ borderTop: "1px solid var(--border)" }}>
+              <tr
+                key={`${p.name}-${i}`}
+                onClick={() => onOpenPatient(p)}
+                style={{ borderTop: "1px solid var(--border)", cursor: "pointer" }}
+              >
                 <td style={{ padding: "10px 14px", fontWeight: 600, whiteSpace: "nowrap" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                     <Avatar initials={initialsOfName(p.name)} size={28} />
@@ -707,15 +724,14 @@ function NhsReportListView({
                 </td>
                 <td style={{ padding: "10px 14px", whiteSpace: "nowrap" }} className="muted">{p.sent_to_nhs ?? "—"}</td>
                 <td style={{ padding: "10px 14px" }}>{t(p.situation)}</td>
-                <td style={{ padding: "10px 14px", textAlign: "right" }}>
+                <td style={{ padding: "10px 14px", textAlign: "right" }} onClick={(e) => e.stopPropagation()}>
                   <button
                     type="button"
                     className="ghost"
-                    disabled
-                    title={t("Disponible après l'upload des documents")}
-                    style={{ padding: "3px 12px", fontSize: 12, opacity: 0.55, cursor: "not-allowed" }}
+                    onClick={() => onOpenPatient(p)}
+                    style={{ padding: "3px 12px", fontSize: 12 }}
                   >
-                    {t("Voir les documents")}
+                    {t("Voir")} →
                   </button>
                 </td>
               </tr>
@@ -732,6 +748,183 @@ function initialsOfName(name: string): string {
   const first = parts[0]?.[0] ?? "";
   const last = parts.length > 1 ? parts[parts.length - 1][0] : "";
   return (first + last).toUpperCase() || "—";
+}
+
+// ── Report detail view ──────────────────────────────────────────────────────
+// Shows all available information for a patient from the static NHS report.
+// When Google Drive → Supabase storage migration completes, documents will be
+// linked here. Until then this view shows: header, NHS pathway stage, current
+// situation, and surgery date if scheduled.
+function NhsReportDetailView({
+  patient,
+  reportKey,
+  onBackDashboard,
+  onBackList,
+}: {
+  patient: NhsReportPatient;
+  reportKey: NhsReportFilter;
+  onBackDashboard: () => void;
+  onBackList: () => void;
+}) {
+  const t = useT();
+  const cards = useNhsReportCards();
+  const card = cards.find((c) => c.key === reportKey);
+  const categoryLabel = card?.label ?? t("Rapport NHS");
+
+  // Map category to a descriptive NHS pathway stage label and colour.
+  const STAGE_META: Record<NhsReportFilter, { label: string; color: string }> = {
+    total:        { label: t("Dossier soumis"),             color: "var(--info)" },
+    approved:     { label: t("Approuvé — voie S2"),         color: "var(--good)" },
+    pending_nhs:  { label: t("En attente de réponse NHS"),  color: "var(--warn)" },
+    missing_docs: { label: t("Éléments manquants requis"),  color: "var(--warn)" },
+    rejected:     { label: t("Rejeté — critères ICB"),      color: "var(--bad)"  },
+    dropped_out:  { label: t("Abandon du parcours"),        color: "var(--muted)"},
+    to_submit:    { label: t("Prêt à soumettre"),           color: "var(--accent)"},
+  };
+  const stage = STAGE_META[reportKey] ?? STAGE_META.total;
+
+  const crumbs = [
+    { label: t("Vue d'ensemble"), onClick: onBackDashboard },
+    { label: categoryLabel, onClick: onBackList },
+    { label: patient.name },
+  ];
+
+  // Determine which pathway steps are complete based on the category.
+  const isApproved    = reportKey === "approved";
+  const isPending     = reportKey === "pending_nhs";
+  const isSubmitted   = isApproved || isPending || reportKey === "missing_docs" || reportKey === "rejected";
+  const isOperated    = isApproved && patient.situation.startsWith("Opéré");
+  const isScheduled   = !!patient.surgery_when;
+
+  const journey: Array<{ label: string; done: boolean; active: boolean }> = [
+    { label: t("Dossier préparé"),    done: true,          active: false },
+    { label: t("Soumis au NHS"),      done: isSubmitted,   active: !isSubmitted },
+    { label: t("En examen NHS"),      done: isApproved || reportKey === "rejected", active: isPending },
+    { label: t("Approuvé"),           done: isApproved,    active: false },
+    { label: t("Opération planifiée"), done: isApproved,   active: isApproved && !isOperated },
+    { label: t("Opéré"),              done: isOperated,    active: false },
+  ];
+
+  return (
+    <div style={{ display: "grid", gap: 14 }}>
+      <Breadcrumb items={crumbs} />
+
+      {/* Header */}
+      <div className="card" style={{ padding: 18, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 14, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 14 }}>
+          <Avatar initials={initialsOfName(patient.name)} size={52} />
+          <div>
+            <h3 style={{ margin: 0, fontSize: 20 }}>{patient.name}</h3>
+            <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+              {t("Dossier NHS S2")}
+              {patient.sent_to_nhs && ` · ${t("Envoyé le")} ${patient.sent_to_nhs}`}
+            </div>
+          </div>
+        </div>
+        <span
+          style={{
+            padding: "4px 12px", fontSize: 12, fontWeight: 600, borderRadius: 999,
+            border: `1px solid ${stage.color}`,
+            color: stage.color,
+            background: `color-mix(in srgb, ${stage.color} 12%, transparent)`,
+            whiteSpace: "nowrap",
+          }}
+        >
+          {stage.label}
+        </span>
+      </div>
+
+      {/* NHS S2 Pathway */}
+      <div className="card" style={{ padding: 18 }}>
+        <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 16 }}>
+          {t("Parcours NHS S2")}
+        </div>
+        <div style={{ display: "flex" }}>
+          {journey.map((step, i) => {
+            const dotColor = step.done ? "var(--good)" : step.active ? "var(--warn)" : "var(--border)";
+            return (
+              <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", position: "relative" }}>
+                {i < journey.length - 1 && (
+                  <div style={{ position: "absolute", top: 13, left: "50%", right: "-50%", height: 2, background: step.done ? "var(--good)" : "var(--border)" }} />
+                )}
+                <div
+                  style={{
+                    width: 26, height: 26, borderRadius: "50%", zIndex: 1, fontSize: 12, fontWeight: 700,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    border: `2px solid ${dotColor}`,
+                    background: step.done ? "var(--good)" : "var(--bg)",
+                    color: step.done ? "#fff" : dotColor,
+                  }}
+                >
+                  {step.done ? "✓" : step.active ? "⏳" : ""}
+                </div>
+                <div style={{ fontSize: 11, textAlign: "center", marginTop: 6, color: step.done ? "var(--good)" : "var(--muted)", fontWeight: step.done ? 600 : 400 }}>
+                  {step.label}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Current situation */}
+      <div className="card" style={{ padding: 18 }}>
+        <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 10 }}>
+          {t("Situation actuelle")}
+        </div>
+        <p style={{ margin: 0, fontSize: 14, lineHeight: 1.6 }}>{t(patient.situation)}</p>
+        {patient.surgery_when && (
+          <div
+            style={{
+              marginTop: 12, padding: "10px 14px", borderRadius: 8,
+              background: "color-mix(in srgb, var(--good) 10%, var(--bg-2))",
+              border: "1px solid color-mix(in srgb, var(--good) 30%, transparent)",
+              display: "flex", alignItems: "center", gap: 10,
+            }}
+          >
+            <span style={{ fontSize: 18 }}>📅</span>
+            <div>
+              <div style={{ fontWeight: 600, fontSize: 13, color: "var(--good)" }}>{t("Opération planifiée")}</div>
+              <div className="muted" style={{ fontSize: 12 }}>{patient.surgery_when}</div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* NHS submission details */}
+      <div className="card" style={{ padding: 18 }}>
+        <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 10 }}>
+          {t("Détails de la soumission NHS")}
+        </div>
+        <div style={{ display: "grid", gap: 8, fontSize: 13 }}>
+          <div style={{ display: "flex", gap: 10, alignItems: "baseline" }}>
+            <span className="muted" style={{ minWidth: 120 }}>{t("Catégorie")}</span>
+            <span style={{ fontWeight: 600, color: stage.color }}>{categoryLabel}</span>
+          </div>
+          {patient.sent_to_nhs && (
+            <div style={{ display: "flex", gap: 10, alignItems: "baseline" }}>
+              <span className="muted" style={{ minWidth: 120 }}>{t("Envoi au NHS")}</span>
+              <span>{patient.sent_to_nhs}</span>
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 10, alignItems: "baseline" }}>
+            <span className="muted" style={{ minWidth: 120 }}>{t("Rapport du")}</span>
+            <span>{new Date(NHS_REPORT_AS_OF).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" })}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Documents — placeholder until upload */}
+      <div className="card" style={{ padding: 18 }}>
+        <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 10 }}>
+          {t("Documents")}
+        </div>
+        <p className="muted" style={{ fontSize: 13, margin: 0 }}>
+          {t("Les documents seront accessibles ici après l'upload depuis Google Drive.")}
+        </p>
+      </div>
+    </div>
+  );
 }
 
 function AlertRow({
@@ -837,7 +1030,8 @@ type NhsView =
   | { name: "dashboard" }
   | { name: "list"; filter: PatientFilter }
   | { name: "report-list"; key: NhsReportFilter }
-  | { name: "detail"; id: string; from: PatientFilter };
+  | { name: "detail"; id: string; from: PatientFilter }
+  | { name: "report-detail"; patient: NhsReportPatient; reportKey: NhsReportFilter };
 
 const STATUS_TONE: Record<PatientStatus, string> = {
   "complets": "var(--good)",
