@@ -67,13 +67,11 @@ interface ReplicateVoiceCatalog {
 
 const REPLICATE_FAMILY_LABELS: Record<string, string> = {
   // ElevenLabs direct (Wati 16/06) — WebSocket streaming, TTFB ~75ms.
-  "elevenlabs-flash-direct": "ElevenLabs Flash v2.5 (direct)",
-  "elevenlabs-turbo-direct": "ElevenLabs Turbo v2.5 (direct)",
-  // Replicate (legacy, plus lent — TTFB ~2-3s).
-  "elevenlabs-flash": "ElevenLabs Flash v2.5 (via Replicate)",
-  "elevenlabs-turbo": "ElevenLabs Turbo v2.5 (via Replicate)",
-  "minimax-turbo": "MiniMax Speech 02 Turbo (via Replicate)",
-  "minimax-hd": "MiniMax Speech 02 HD (via Replicate)",
+  "elevenlabs-flash-direct": "ElevenLabs Flash v2.5",
+  "elevenlabs-turbo-direct": "ElevenLabs Turbo v2.5",
+  // MiniMax via Replicate (en attendant le compte direct MiniMax).
+  "minimax-turbo": "MiniMax Speech 02 Turbo",
+  "minimax-hd": "MiniMax Speech 02 HD",
 };
 
 const LANG_NAMES: Record<string, string> = {
@@ -252,11 +250,54 @@ export function AgentForm({ initial }: { initial?: Agent }) {
       .then((r) => (r.ok ? r.json() : []))
       .then((data) => { if (!cancelled) setCartesiaVoices(Array.isArray(data) ? data : []); })
       .catch(() => {});
-    // Load Replicate catalog voices (ElevenLabs Flash/Turbo + MiniMax —
-    // renvoie [] si REPLICATE_API_TOKEN n'est pas configure).
+    // Load Replicate catalog voices (MiniMax surtout — ElevenLabs y est
+    // legacy depuis Wati 16/06, on a ElevenLabs direct maintenant).
+    // Renvoie [] si REPLICATE_API_TOKEN n'est pas configure.
     fetch("/api/voices/replicate")
       .then((r) => (r.ok ? r.json() : []))
       .then((data) => { if (!cancelled) setReplicateVoices(Array.isArray(data) ? data : []); })
+      .catch(() => {});
+    // Load ElevenLabs DIRECT catalog (Wati 16/06) — voix avec UUID + labels
+    // descriptifs ("Jessica - Playful, Bright, Warm"). Necessite ELEVEN_API_KEY
+    // sur Vercel. Renvoie {voices:[], note:...} si absent.
+    fetch("/api/voices/elevenlabs")
+      .then((r) => (r.ok ? r.json() : { voices: [] }))
+      .then((data) => {
+        if (cancelled) return;
+        const list = Array.isArray(data?.voices) ? data.voices : [];
+        // Construit 2 entries pour chaque voix : une Flash, une Turbo.
+        const direct: ReplicateVoiceCatalog[] = [];
+        for (const v of list) {
+          const label = v.description
+            ? `${v.name} - ${v.description}`
+            : v.name;
+          direct.push({
+            id: `elevenlabs:flash:${v.voice_id}`,
+            name: `${label} (Flash)`,
+            description: v.description ?? null,
+            language: v.language ?? null,
+            gender: v.gender ?? null,
+            is_public: v.category === "premade",
+            family: "elevenlabs-flash-direct",
+          });
+          direct.push({
+            id: `elevenlabs:turbo:${v.voice_id}`,
+            name: `${label} (Turbo)`,
+            description: v.description ?? null,
+            language: v.language ?? null,
+            gender: v.gender ?? null,
+            is_public: v.category === "premade",
+            family: "elevenlabs-turbo-direct",
+          });
+        }
+        // Fusionne avec le catalogue Replicate existant (MiniMax surtout).
+        setReplicateVoices((prev) => {
+          const withoutOldDirect = prev.filter(
+            (v) => v.family !== "elevenlabs-flash-direct" && v.family !== "elevenlabs-turbo-direct",
+          );
+          return [...direct, ...withoutOldDirect];
+        });
+      })
       .catch(() => {});
     return () => {
       cancelled = true;
@@ -476,8 +517,8 @@ export function AgentForm({ initial }: { initial?: Agent }) {
       list.push(v);
       map.set(fam, list);
     }
-    // Ordre fixe : Flash (le plus rapide), Turbo, puis MiniMax.
-    const order = ["elevenlabs-flash", "elevenlabs-turbo", "minimax-turbo", "minimax-hd"];
+    // Ordre fixe : ElevenLabs direct (Flash, Turbo) puis MiniMax.
+    const order = ["elevenlabs-flash-direct", "elevenlabs-turbo-direct", "minimax-turbo", "minimax-hd"];
     return Array.from(map.entries()).sort(([a], [b]) => {
       const ia = order.indexOf(a);
       const ib = order.indexOf(b);
@@ -616,8 +657,8 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                 </optgroup>
               ))}
               {replicateGroups.length > 0 && (
-                <optgroup label="━━━ Replicate ━━━" disabled>
-                  <option value="" disabled>↓ ElevenLabs + MiniMax via Replicate</option>
+                <optgroup label="━━━ ElevenLabs / MiniMax ━━━" disabled>
+                  <option value="" disabled>↓ Voix premium streaming</option>
                 </optgroup>
               )}
               {replicateGroups.map(([fam, options]) => (
@@ -650,10 +691,8 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                   >
                     <option value="" style={{ background: "var(--bg-2)", color: "var(--text)" }}>Tous les fournisseurs</option>
                     <option value="cartesia" style={{ background: "var(--bg-2)", color: "var(--text)" }}>Cartesia ({cartesiaVoices.length})</option>
-                    <option value="elevenlabs-flash-direct" style={{ background: "var(--bg-2)", color: "var(--text)" }}>ElevenLabs Flash v2.5 — direct ({replicateVoices.filter((v) => v.family === "elevenlabs-flash-direct").length})</option>
-                    <option value="elevenlabs-turbo-direct" style={{ background: "var(--bg-2)", color: "var(--text)" }}>ElevenLabs Turbo v2.5 — direct ({replicateVoices.filter((v) => v.family === "elevenlabs-turbo-direct").length})</option>
-                    <option value="elevenlabs-flash" style={{ background: "var(--bg-2)", color: "var(--text)" }}>ElevenLabs Flash v2.5 — via Replicate ({replicateVoices.filter((v) => v.family === "elevenlabs-flash").length})</option>
-                    <option value="elevenlabs-turbo" style={{ background: "var(--bg-2)", color: "var(--text)" }}>ElevenLabs Turbo v2.5 — via Replicate ({replicateVoices.filter((v) => v.family === "elevenlabs-turbo").length})</option>
+                    <option value="elevenlabs-flash-direct" style={{ background: "var(--bg-2)", color: "var(--text)" }}>ElevenLabs Flash v2.5 ({replicateVoices.filter((v) => v.family === "elevenlabs-flash-direct").length})</option>
+                    <option value="elevenlabs-turbo-direct" style={{ background: "var(--bg-2)", color: "var(--text)" }}>ElevenLabs Turbo v2.5 ({replicateVoices.filter((v) => v.family === "elevenlabs-turbo-direct").length})</option>
                     <option value="minimax-turbo" style={{ background: "var(--bg-2)", color: "var(--text)" }}>MiniMax Speech 02 Turbo ({replicateVoices.filter((v) => v.family === "minimax-turbo").length})</option>
                     <option value="minimax-hd" style={{ background: "var(--bg-2)", color: "var(--text)" }}>MiniMax Speech 02 HD ({replicateVoices.filter((v) => v.family === "minimax-hd").length})</option>
                   </select>
