@@ -113,20 +113,49 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
-  // Find the AI agent_handle (calls.agent_handle_id FK).
-  const { data: handle, error: handleErr } = await admin
-    .from("agent_handles")
-    .select("id, org_id, display_name")
-    .eq("kind", "ai")
-    .eq("ai_agent_id", agent.id)
-    .eq("active", true)
-    .limit(1)
-    .maybeSingle();
-  if (handleErr || !handle) {
-    return NextResponse.json(
-      { error: "no active AI agent_handle for this agent" },
-      { status: 404 },
-    );
+  // Find the AI agent_handle (calls.agent_handle_id FK). Cloned/duplicated
+  // agents (eg "Charlotte - teste") can land in DB without a matching handle
+  // — the /api/agents POST creates one, but other code paths bypass that.
+  // Auto-heal here so "Make outbound call" works without a manual SQL fix.
+  let handle: { id: string; org_id: string; display_name: string };
+  {
+    const { data: existing, error: handleErr } = await admin
+      .from("agent_handles")
+      .select("id, org_id, display_name")
+      .eq("kind", "ai")
+      .eq("ai_agent_id", agent.id)
+      .eq("active", true)
+      .limit(1)
+      .maybeSingle();
+    if (handleErr) {
+      return NextResponse.json({ error: handleErr.message }, { status: 500 });
+    }
+    if (existing) {
+      handle = existing;
+    } else {
+      const { data: created, error: createErr } = await admin
+        .from("agent_handles")
+        .insert({
+          org_id: agent.org_id,
+          kind: "ai",
+          ai_agent_id: agent.id,
+          display_name: agent.name,
+          active: true,
+        })
+        .select("id, org_id, display_name")
+        .single();
+      if (createErr || !created) {
+        return NextResponse.json(
+          {
+            error:
+              "no active AI agent_handle for this agent and auto-heal failed: " +
+              (createErr?.message ?? "unknown"),
+          },
+          { status: 500 },
+        );
+      }
+      handle = created;
+    }
   }
 
   // DNC enforcement (TCPA), same as /api/desk/dial.
