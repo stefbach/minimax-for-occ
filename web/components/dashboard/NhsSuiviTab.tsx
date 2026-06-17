@@ -980,13 +980,6 @@ function NhsReportDetailView({
 
   const card = cards.find((c) => c.key === realKey);
   const categoryLabel = card?.label ?? t("Rapport NHS");
-  const stage = STAGE_META[realKey] ?? STAGE_META.total;
-
-  const crumbs = [
-    { label: t("Vue d'ensemble"), onClick: onBackDashboard },
-    { label: cards.find((c) => c.key === reportKey)?.label ?? t("Rapport NHS"), onClick: onBackList },
-    { label: patient.name },
-  ];
 
   // Determine which pathway steps are complete based on the patient's real category.
   const isApproved    = realKey === "approved";
@@ -994,6 +987,22 @@ function NhsReportDetailView({
   const isSubmitted   = isApproved || isPending || realKey === "missing_docs" || realKey === "rejected";
   const isOperated    = isApproved && patient.situation.startsWith("Opéré");
   const isScheduled   = !!patient.surgery_when;
+
+  // Refine the badge label for approved patients to show their exact sub-status.
+  const stageBase = STAGE_META[realKey] ?? STAGE_META.total;
+  const stage = isOperated
+    ? { ...stageBase, label: t("Approuvé & Opéré") }
+    : isApproved && isScheduled
+    ? { ...stageBase, label: t("Approuvé — opération planifiée") }
+    : isApproved
+    ? { ...stageBase, label: t("Approuvé — voie S2") }
+    : stageBase;
+
+  const crumbs = [
+    { label: t("Vue d'ensemble"), onClick: onBackDashboard },
+    { label: cards.find((c) => c.key === reportKey)?.label ?? t("Rapport NHS"), onClick: onBackList },
+    { label: patient.name },
+  ];
 
   const journey: Array<{ label: string; done: boolean; active: boolean }> = [
     { label: t("Dossier préparé"),    done: true,          active: false },
