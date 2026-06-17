@@ -916,60 +916,62 @@ function NhsReportDetailView({
       </div>
 
       {/* Current situation */}
-      <div className="card" style={{ padding: 18 }}>
-        <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 10 }}>
+      <div className="card" style={{ padding: "12px 16px" }}>
+        <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>
           {t("Situation actuelle")}
         </div>
-        <p style={{ margin: 0, fontSize: 14, lineHeight: 1.6 }}>{t(patient.situation)}</p>
+        <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5 }}>{t(patient.situation)}</p>
         {patient.surgery_when && (
           <div
             style={{
-              marginTop: 12, padding: "10px 14px", borderRadius: 8,
+              marginTop: 10, padding: "8px 12px", borderRadius: 8,
               background: "color-mix(in srgb, var(--good) 10%, var(--bg-2))",
               border: "1px solid color-mix(in srgb, var(--good) 30%, transparent)",
               display: "flex", alignItems: "center", gap: 10,
             }}
           >
-            <span style={{ fontSize: 18 }}>📅</span>
+            <span style={{ fontSize: 16 }}>📅</span>
             <div>
-              <div style={{ fontWeight: 600, fontSize: 13, color: "var(--good)" }}>{t("Opération planifiée")}</div>
-              <div className="muted" style={{ fontSize: 12 }}>{patient.surgery_when}</div>
+              <div style={{ fontWeight: 600, fontSize: 12, color: "var(--good)" }}>{t("Opération planifiée")}</div>
+              <div className="muted" style={{ fontSize: 11 }}>{patient.surgery_when}</div>
             </div>
           </div>
         )}
       </div>
 
-      {/* NHS submission details */}
-      <div className="card" style={{ padding: 18 }}>
-        <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 10 }}>
-          {t("Détails de la soumission NHS")}
-        </div>
-        <div style={{ display: "grid", gap: 8, fontSize: 13 }}>
-          <div style={{ display: "flex", gap: 10, alignItems: "baseline" }}>
-            <span className="muted" style={{ minWidth: 120 }}>{t("Catégorie")}</span>
-            <span style={{ fontWeight: 600, color: stage.color }}>{categoryLabel}</span>
+      {/* NHS submission details + Documents — side by side */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <div className="card" style={{ padding: "12px 16px" }}>
+          <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 8 }}>
+            {t("Détails de la soumission NHS")}
           </div>
-          {patient.sent_to_nhs && (
-            <div style={{ display: "flex", gap: 10, alignItems: "baseline" }}>
-              <span className="muted" style={{ minWidth: 120 }}>{t("Envoi au NHS")}</span>
-              <span>{patient.sent_to_nhs}</span>
+          <div style={{ display: "grid", gap: 6, fontSize: 12 }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
+              <span className="muted" style={{ minWidth: 110 }}>{t("Catégorie")}</span>
+              <span style={{ fontWeight: 600, color: stage.color }}>{categoryLabel}</span>
             </div>
-          )}
-          <div style={{ display: "flex", gap: 10, alignItems: "baseline" }}>
-            <span className="muted" style={{ minWidth: 120 }}>{t("Rapport du")}</span>
-            <span>{new Date(NHS_REPORT_AS_OF).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" })}</span>
+            {patient.sent_to_nhs && (
+              <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
+                <span className="muted" style={{ minWidth: 110 }}>{t("Envoi au NHS")}</span>
+                <span>{patient.sent_to_nhs}</span>
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
+              <span className="muted" style={{ minWidth: 110 }}>{t("Rapport du")}</span>
+              <span>{new Date(NHS_REPORT_AS_OF).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" })}</span>
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Documents — placeholder until upload */}
-      <div className="card" style={{ padding: 18 }}>
-        <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 10 }}>
-          {t("Documents")}
+        {/* Documents — placeholder until upload */}
+        <div className="card" style={{ padding: "12px 16px" }}>
+          <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 8 }}>
+            {t("Documents")}
+          </div>
+          <p className="muted" style={{ fontSize: 12, margin: 0, lineHeight: 1.5 }}>
+            {t("Les documents seront accessibles ici après l'upload depuis Google Drive.")}
+          </p>
         </div>
-        <p className="muted" style={{ fontSize: 13, margin: 0 }}>
-          {t("Les documents seront accessibles ici après l'upload depuis Google Drive.")}
-        </p>
       </div>
     </div>
   );
