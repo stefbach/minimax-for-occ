@@ -27,7 +27,7 @@ export const dynamic = "force-dynamic";
 // across 33 files) needs the headroom; smaller patients return in seconds.
 export const maxDuration = 300;
 
-const BUCKET = "OCC_Patient";
+const BUCKET = "patient-documents";
 
 type FileResult =
   | { ok: true; fileId: string; fileName: string; docField: string | null; bytes: number; storagePath: string }
@@ -97,6 +97,7 @@ export async function POST(req: Request): Promise<NextResponse> {
         bucket: BUCKET,
         leadId: patient.leadId,
         dossierId: patient.dossierId,
+        slug,
         docField: w.docField,
         category: w.category,
         fileName: w.file.name,

@@ -228,6 +228,7 @@ export async function uploadAndRegister(opts: {
   bucket: string;
   leadId: string;
   dossierId: string;
+  slug: string;
   docField: string | null;
   category: string;
   fileName: string;
@@ -237,7 +238,7 @@ export async function uploadAndRegister(opts: {
   const key = process.env.NHS_LEGACY_SERVICE_KEY!;
   const folder = opts.docField ?? "doc_other";
   const safeName = sanitizeKeySeg(opts.fileName);
-  const storagePath = `${opts.leadId}/${folder}/${safeName}`;
+  const storagePath = `${opts.leadId}/${opts.slug}/${folder}/${safeName}`;
   const encPath = storagePath.split("/").map(encodeURIComponent).join("/");
   const publicUrl = `${url}/storage/v1/object/public/${opts.bucket}/${encPath}`;
 
