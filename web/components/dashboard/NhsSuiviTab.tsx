@@ -1518,45 +1518,38 @@ function PatientDetailView({
         </div>
       </div>
 
-      {/* Parcours — vertical step timeline */}
-      <div className="card" style={{ padding: "18px 20px" }}>
-        <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 18, fontWeight: 600 }}>
+      {/* Parcours — horizontal step timeline */}
+      <div className="card" style={{ padding: "22px 24px" }}>
+        <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 24, fontWeight: 600 }}>
           {t("Progression du parcours patient")}
         </div>
-        <div style={{ display: "flex", flexDirection: "column" }}>
+        <div style={{ display: "flex", paddingBottom: 8 }}>
           {journey.map((step, i) => {
             const isDone = step.done;
             const isActive = step.active;
-            const isLast = i === journey.length - 1;
             const dotBg = isDone ? "var(--good)" : isActive ? "var(--warn)" : "#1e2535";
             const dotBorder = isDone ? "var(--good)" : isActive ? "var(--warn)" : "#3b4560";
             const dotColor = isDone ? "#fff" : isActive ? "#1a1200" : "#6b7a99";
             return (
-              <div key={i} style={{ display: "flex", gap: 14 }}>
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0 }}>
-                  <div style={{
-                    width: 30, height: 30, borderRadius: "50%", fontSize: 12, fontWeight: 700,
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    border: `2px solid ${dotBorder}`, background: dotBg, color: dotColor,
-                    boxShadow: isActive ? "0 0 0 4px rgba(251,191,36,0.15)" : isDone ? "0 0 0 3px rgba(74,222,128,0.1)" : "none",
-                    flexShrink: 0,
-                  }}>
-                    {isDone ? "✓" : isActive ? "●" : String(i + 1)}
-                  </div>
-                  {!isLast && (
-                    <div style={{ width: 2, flex: 1, minHeight: 16, margin: "3px 0", background: isDone ? "var(--good)" : "#2a3248" }} />
-                  )}
+              <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", position: "relative" }}>
+                {i < journey.length - 1 && (
+                  <div style={{ position: "absolute", top: 17, left: "50%", right: "-50%", height: 3, borderRadius: 2, background: isDone ? "var(--good)" : "#2a3248" }} />
+                )}
+                <div style={{
+                  width: 34, height: 34, borderRadius: "50%", zIndex: 1, fontSize: 13, fontWeight: 700,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  border: `2px solid ${dotBorder}`, background: dotBg, color: dotColor,
+                  boxShadow: isActive ? "0 0 0 4px rgba(251,191,36,0.18)" : isDone ? "0 0 0 3px rgba(74,222,128,0.12)" : "none",
+                }}>
+                  {isDone ? "✓" : isActive ? "●" : String(i + 1)}
                 </div>
-                <div style={{ paddingBottom: isLast ? 0 : 14, paddingTop: 4 }}>
-                  <div style={{
-                    fontSize: 13, fontWeight: isDone || isActive ? 600 : 400, lineHeight: 1.3,
-                    color: isDone ? "var(--good)" : isActive ? "var(--warn)" : "#6b7a99",
-                  }}>
-                    {step.label}
-                  </div>
-                  {isActive && (
-                    <div style={{ fontSize: 11, color: "#6b7a99", marginTop: 2 }}>{t("Étape en cours")}</div>
-                  )}
+                <div style={{
+                  fontSize: 12, textAlign: "center", marginTop: 10, lineHeight: 1.3,
+                  color: isDone ? "var(--good)" : isActive ? "var(--warn)" : "#6b7a99",
+                  fontWeight: isDone || isActive ? 600 : 400,
+                  maxWidth: 80,
+                }}>
+                  {step.label}
                 </div>
               </div>
             );
