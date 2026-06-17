@@ -49,6 +49,25 @@ export function NhsSuiviTab() {
   // Retire un patient d'une file coordinateur (ferme l'assignation ouverte
   // dans la table partagée), puis rafraîchit les files.
   const [unassigning, setUnassigning] = useState<string | null>(null);
+
+  // Global patient search — patients are lazy-loaded on first focus.
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchPatients, setSearchPatients] = useState<NhsPatientsResponse["patients"] | null>(null);
+  const loadSearchPatients = async () => {
+    if (searchPatients !== null) return;
+    try {
+      const r = await fetch("/api/dashboard/nhs-suivi/patients", { cache: "no-store" });
+      const j = (await r.json()) as NhsPatientsResponse;
+      if (r.ok) setSearchPatients(j.patients);
+    } catch { /* silently ignore — search just stays empty */ }
+  };
+  const searchQ = searchQuery.trim().toLowerCase();
+  const searchResults = searchQ.length >= 2 && searchPatients
+    ? searchPatients
+        .filter((p) => `${p.name ?? ""} ${p.phone ?? ""} ${p.email ?? ""}`.toLowerCase().includes(searchQ))
+        .slice(0, 6)
+    : [];
   const unassign = async (leadId: string) => {
     setUnassigning(leadId);
     try {
@@ -169,6 +188,68 @@ export function NhsSuiviTab() {
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {/* Global patient search */}
+          <div style={{ position: "relative" }}>
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onFocus={() => { setSearchOpen(true); loadSearchPatients(); }}
+              onBlur={() => setTimeout(() => setSearchOpen(false), 150)}
+              placeholder={t("Rechercher un patient…")}
+              style={{
+                padding: "7px 14px 7px 36px", fontSize: 13, borderRadius: 999, width: 230,
+                background: "rgba(255,255,255,0.06)", border: "1px solid rgba(99,102,241,0.3)",
+                color: "inherit", outline: "none",
+              }}
+            />
+            <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", fontSize: 14, pointerEvents: "none", opacity: 0.5 }}>🔍</span>
+            {searchOpen && searchResults.length > 0 && (
+              <div style={{
+                position: "absolute", top: "calc(100% + 8px)", right: 0, width: 320,
+                background: "var(--bg-2)", border: "1px solid var(--border)", borderRadius: 10,
+                boxShadow: "0 8px 32px rgba(0,0,0,0.5)", zIndex: 100, overflow: "hidden",
+              }}>
+                <div className="muted" style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, padding: "8px 14px 4px" }}>
+                  {searchResults.length} {t("résultat(s)")}
+                </div>
+                {searchResults.map((p) => {
+                  const tone = STATUS_TONE[p.status];
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onMouseDown={() => {
+                        setView({ name: "detail", id: p.id, from: "all" });
+                        setSearchQuery("");
+                        setSearchOpen(false);
+                      }}
+                      style={{
+                        display: "flex", alignItems: "center", gap: 10, width: "100%",
+                        padding: "10px 14px", background: "transparent", border: "none",
+                        borderTop: "1px solid var(--border)", cursor: "pointer", textAlign: "left",
+                      }}
+                    >
+                      <Avatar initials={p.initials} size={30} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, fontSize: 13, color: "#fff" }}>{p.name}</div>
+                        <div style={{ fontSize: 11, color: "#6b7a99", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {p.phone ?? p.email ?? "—"}
+                        </div>
+                      </div>
+                      <span style={{
+                        fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 999, flexShrink: 0,
+                        border: `1px solid ${tone}`, color: tone,
+                        background: `color-mix(in srgb, ${tone} 12%, transparent)`,
+                      }}>
+                        {t(STATUS_LABEL[p.status])}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
           <span style={{ fontSize: 12, color: "#6b7a99" }}>{clock}</span>
           <button onClick={fetchData} className="ghost" style={{ padding: "6px 14px", fontSize: 13 }}>↻ {t("Actualiser")}</button>
         </div>
