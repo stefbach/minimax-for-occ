@@ -1000,7 +1000,7 @@ function NhsReportDetailView({
 
   const crumbs = [
     { label: t("Vue d'ensemble"), onClick: onBackDashboard },
-    { label: cards.find((c) => c.key === reportKey)?.label ?? t("Rapport NHS"), onClick: onBackList },
+    { label: cards.find((c) => c.key === (reportKey === "total" ? realKey : reportKey))?.label ?? t("Rapport NHS"), onClick: onBackList },
     { label: patient.name },
   ];
 
@@ -1122,7 +1122,7 @@ function NhsReportDetailView({
           <div style={{ display: "grid", gap: 6, fontSize: 12 }}>
             <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
               <span className="muted" style={{ minWidth: 110 }}>{t("Catégorie")}</span>
-              <span style={{ fontWeight: 600, color: stage.color }}>{categoryLabel}</span>
+              <span style={{ fontWeight: 600, color: stage.color }}>{stage.label}</span>
             </div>
             {patient.sent_to_nhs && (
               <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
