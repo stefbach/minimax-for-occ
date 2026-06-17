@@ -623,7 +623,7 @@ function NhsReportSection({
       </div>
       <div
         className="grid-kpi"
-        style={{ gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))" }}
+        style={{ gridTemplateColumns: "repeat(7, 1fr)" }}
       >
         {cards.map((c) => (
           <CommCard
