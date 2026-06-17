@@ -181,8 +181,9 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
         </div>
 
         {/* Section header — tells the operator which tab they're in (legacy
-            parity), with the active period for the period-scoped tabs. */}
-        {(() => {
+            parity), with the active period for the period-scoped tabs.
+            Skipped for the NHS tab which renders its own header. */}
+        {tab !== "nhs" && (() => {
           const active = TABS.find((x) => x.id === tab);
           if (!active) return null;
           const periodScoped = tab === "overview" || tab === "stats" || tab === "logs" || tab === "ai";
