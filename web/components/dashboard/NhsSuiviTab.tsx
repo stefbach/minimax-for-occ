@@ -970,10 +970,13 @@ function NhsReportDetailView({
   // Look up the patient's real bucket from NHS_REPORT by name so that the
   // category shown is always correct, regardless of which filter the user
   // drilled in from (e.g. "total" would otherwise hide the real status).
+  // Comparison is case-insensitive + trimmed to survive any whitespace/case
+  // inconsistency between the static data and the patient object passed in.
   const NHS_REAL_KEYS: NhsReportKey[] = ["approved", "pending_nhs", "missing_docs", "rejected", "dropped_out", "to_submit"];
+  const normName = patient.name.trim().toLowerCase();
   const realKey: NhsReportFilter = NHS_REAL_KEYS.find(
-    (k) => NHS_REPORT[k].patients.some((p) => p.name === patient.name)
-  ) ?? reportKey;
+    (k) => NHS_REPORT[k].patients.some((p) => p.name.trim().toLowerCase() === normName)
+  ) ?? (reportKey === "total" ? "approved" : reportKey);
 
   const card = cards.find((c) => c.key === realKey);
   const categoryLabel = card?.label ?? t("Rapport NHS");
