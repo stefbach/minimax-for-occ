@@ -734,7 +734,9 @@ function NhsReportListView({
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
             <tr className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4 }}>
+              <th style={{ width: 4, padding: 0 }} />
               <th style={{ textAlign: "left", padding: "10px 14px" }}>{t("Patient")}</th>
+              <th style={{ textAlign: "left", padding: "10px 14px" }}>{t("Statut")}</th>
               <th style={{ textAlign: "left", padding: "10px 14px" }}>{t("Envoi NHS")}</th>
               <th style={{ textAlign: "left", padding: "10px 14px" }}>{t("Situation")}</th>
               <th style={{ textAlign: "right", padding: "10px 14px" }}>{t("Documents")}</th>
@@ -743,37 +745,55 @@ function NhsReportListView({
           <tbody>
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={4} style={{ padding: "14px", textAlign: "center" }} className="muted">
+                <td colSpan={6} style={{ padding: "14px", textAlign: "center" }} className="muted">
                   {t("Aucun patient trouvé pour ce filtre.")}
                 </td>
               </tr>
             )}
-            {filtered.map((p, i) => (
-              <tr
-                key={`${p.name}-${i}`}
-                onClick={() => onOpenPatient(p)}
-                style={{ borderTop: "1px solid var(--border)", cursor: "pointer" }}
-              >
-                <td style={{ padding: "10px 14px", fontWeight: 600, whiteSpace: "nowrap" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <Avatar initials={initialsOfName(p.name)} size={28} />
-                    <span>{p.name}</span>
-                  </div>
-                </td>
-                <td style={{ padding: "10px 14px", whiteSpace: "nowrap" }} className="muted">{p.sent_to_nhs ?? "—"}</td>
-                <td style={{ padding: "10px 14px" }}>{t(p.situation)}</td>
-                <td style={{ padding: "10px 14px", textAlign: "right" }} onClick={(e) => e.stopPropagation()}>
-                  <button
-                    type="button"
-                    className="ghost"
-                    onClick={() => onOpenPatient(p)}
-                    style={{ padding: "3px 12px", fontSize: 12 }}
-                  >
-                    {t("Voir")} →
-                  </button>
-                </td>
-              </tr>
-            ))}
+            {filtered.map((p, i) => {
+              const realCard = cards.find((c) => c.key !== "total" && c.patients.some((x) => x.name === p.name));
+              const badgeColor = realCard?.tone ?? "var(--muted)";
+              const badgeLabel = realCard?.label ?? "—";
+              return (
+                <tr
+                  key={`${p.name}-${i}`}
+                  onClick={() => onOpenPatient(p)}
+                  style={{ borderTop: "1px solid var(--border)", cursor: "pointer" }}
+                >
+                  <td style={{ padding: 0, width: 4 }}>
+                    <div style={{ width: 4, minHeight: 44, height: "100%", background: badgeColor, borderRadius: "4px 0 0 4px" }} />
+                  </td>
+                  <td style={{ padding: "10px 14px", fontWeight: 600, whiteSpace: "nowrap" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <Avatar initials={initialsOfName(p.name)} size={28} />
+                      <span>{p.name}</span>
+                    </div>
+                  </td>
+                  <td style={{ padding: "10px 14px", whiteSpace: "nowrap" }}>
+                    <span style={{
+                      display: "inline-flex", padding: "2px 9px", fontSize: 11, fontWeight: 600,
+                      borderRadius: 999, whiteSpace: "nowrap",
+                      border: `1px solid ${badgeColor}`, color: badgeColor,
+                      background: `color-mix(in srgb, ${badgeColor} 12%, transparent)`,
+                    }}>
+                      {t(badgeLabel)}
+                    </span>
+                  </td>
+                  <td style={{ padding: "10px 14px", whiteSpace: "nowrap" }} className="muted">{p.sent_to_nhs ?? "—"}</td>
+                  <td style={{ padding: "10px 14px" }}>{t(p.situation)}</td>
+                  <td style={{ padding: "10px 14px", textAlign: "right" }} onClick={(e) => e.stopPropagation()}>
+                    <button
+                      type="button"
+                      className="ghost"
+                      onClick={() => onOpenPatient(p)}
+                      style={{ padding: "3px 12px", fontSize: 12 }}
+                    >
+                      {t("Voir")} →
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
