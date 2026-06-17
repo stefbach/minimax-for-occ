@@ -236,9 +236,8 @@ export async function GET(request: Request) {
   const queuesByLegacyName = new Map<string, NhsCoordinatorQueue>();
   try {
     const { data: coords } = await legacy
-      .from("users")
-      .select("id, full_name, email")
-      .eq("is_nhs_coordinator", true);
+      .from("axon_coordinators_ro")
+      .select("id, full_name, email");
     type CoordRow = { id: string; full_name: string | null; email: string | null };
     for (const c of (coords ?? []) as CoordRow[]) {
       const displayName = (c.full_name ?? c.email ?? "").trim();

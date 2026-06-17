@@ -36,10 +36,12 @@ export async function GET(): Promise<NextResponse<MyQueueResponse>> {
 
   const legacy = nhsLegacyClient();
 
-  // 1. Resolve the modern auth user to a legacy public.users row by email.
+  // 1. Resolve the modern auth user to a legacy coordinator row by email.
+  // axon_coordinators_ro is a SECURITY DEFINER view that exposes only
+  // is_nhs_coordinator=true users to the anon key.
   const { data: legacyUser } = await legacy
-    .from("users")
-    .select("id, full_name, email, is_nhs_coordinator")
+    .from("axon_coordinators_ro")
+    .select("id, full_name, email")
     .ilike("email", email)
     .maybeSingle();
 
@@ -50,7 +52,9 @@ export async function GET(): Promise<NextResponse<MyQueueResponse>> {
       patients: [],
     });
   }
-  const userRow = legacyUser as { id: string; full_name: string | null; email: string | null; is_nhs_coordinator: boolean };
+  // The view only exposes flagged coordinators, so presence == is_coordinator=true.
+  const userRow = legacyUser as { id: string; full_name: string | null; email: string | null };
+  const isCoordinator = true;
 
   // 2. Open assignments for this user. We prefer assigned_to_user_id but fall
   // back to the legacy name string match so older rows still surface.
@@ -82,7 +86,7 @@ export async function GET(): Promise<NextResponse<MyQueueResponse>> {
   if (mine.length === 0) {
     return NextResponse.json({
       ok: true,
-      user: { id: userRow.id, email: userRow.email, full_name: userRow.full_name, is_coordinator: !!userRow.is_nhs_coordinator },
+      user: { id: userRow.id, email: userRow.email, full_name: userRow.full_name, is_coordinator: isCoordinator },
       patients: [],
     });
   }
@@ -143,7 +147,7 @@ export async function GET(): Promise<NextResponse<MyQueueResponse>> {
       id: userRow.id,
       email: userRow.email,
       full_name: userRow.full_name,
-      is_coordinator: !!userRow.is_nhs_coordinator,
+      is_coordinator: isCoordinator,
     },
     patients,
   });
