@@ -806,8 +806,6 @@ function NhsReportDetailView({
 }) {
   const t = useT();
   const cards = useNhsReportCards();
-  const card = cards.find((c) => c.key === reportKey);
-  const categoryLabel = card?.label ?? t("Rapport NHS");
 
   // Map category to a descriptive NHS pathway stage label and colour.
   const STAGE_META: Record<NhsReportFilter, { label: string; color: string }> = {
@@ -819,25 +817,36 @@ function NhsReportDetailView({
     dropped_out:  { label: t("Abandon du parcours"),        color: "var(--muted)"},
     to_submit:    { label: t("Prêt à soumettre"),           color: "var(--accent)"},
   };
-  const stage = STAGE_META[reportKey] ?? STAGE_META.total;
+
+  // Look up the patient's real bucket from NHS_REPORT by name so that the
+  // category shown is always correct, regardless of which filter the user
+  // drilled in from (e.g. "total" would otherwise hide the real status).
+  const NHS_REAL_KEYS: NhsReportKey[] = ["approved", "pending_nhs", "missing_docs", "rejected", "dropped_out", "to_submit"];
+  const realKey: NhsReportFilter = NHS_REAL_KEYS.find(
+    (k) => NHS_REPORT[k].patients.some((p) => p.name === patient.name)
+  ) ?? reportKey;
+
+  const card = cards.find((c) => c.key === realKey);
+  const categoryLabel = card?.label ?? t("Rapport NHS");
+  const stage = STAGE_META[realKey] ?? STAGE_META.total;
 
   const crumbs = [
     { label: t("Vue d'ensemble"), onClick: onBackDashboard },
-    { label: categoryLabel, onClick: onBackList },
+    { label: cards.find((c) => c.key === reportKey)?.label ?? t("Rapport NHS"), onClick: onBackList },
     { label: patient.name },
   ];
 
-  // Determine which pathway steps are complete based on the category.
-  const isApproved    = reportKey === "approved";
-  const isPending     = reportKey === "pending_nhs";
-  const isSubmitted   = isApproved || isPending || reportKey === "missing_docs" || reportKey === "rejected";
+  // Determine which pathway steps are complete based on the patient's real category.
+  const isApproved    = realKey === "approved";
+  const isPending     = realKey === "pending_nhs";
+  const isSubmitted   = isApproved || isPending || realKey === "missing_docs" || realKey === "rejected";
   const isOperated    = isApproved && patient.situation.startsWith("Opéré");
   const isScheduled   = !!patient.surgery_when;
 
   const journey: Array<{ label: string; done: boolean; active: boolean }> = [
     { label: t("Dossier préparé"),    done: true,          active: false },
     { label: t("Soumis au NHS"),      done: isSubmitted,   active: !isSubmitted },
-    { label: t("En examen NHS"),      done: isApproved || reportKey === "rejected", active: isPending },
+    { label: t("En examen NHS"),      done: isApproved || realKey === "rejected", active: isPending },
     { label: t("Approuvé"),           done: isApproved,    active: false },
     { label: t("Opération planifiée"), done: isApproved,   active: isApproved && !isOperated },
     { label: t("Opéré"),              done: isOperated,    active: false },
