@@ -104,6 +104,8 @@ export async function driveList(folderId: string, token: string): Promise<DriveF
       q: `'${folderId}' in parents and trashed = false`,
       fields: "nextPageToken, files(id,name,mimeType,size,parents)",
       pageSize: "200",
+      supportsAllDrives: "true",
+      includeItemsFromAllDrives: "true",
     });
     if (pageToken) params.set("pageToken", pageToken);
     const res = await fetch(`https://www.googleapis.com/drive/v3/files?${params.toString()}`, {
