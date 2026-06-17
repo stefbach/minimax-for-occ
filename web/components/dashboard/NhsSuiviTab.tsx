@@ -835,30 +835,40 @@ function NhsReportDetailView({
       </div>
 
       {/* NHS S2 Pathway */}
-      <div className="card" style={{ padding: 18 }}>
-        <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 16 }}>
+      <div className="card" style={{ padding: "22px 24px" }}>
+        <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 24, fontWeight: 600 }}>
           {t("Parcours NHS S2")}
         </div>
-        <div style={{ display: "flex" }}>
+        <div style={{ display: "flex", paddingBottom: 8 }}>
           {journey.map((step, i) => {
-            const dotColor = step.done ? "var(--good)" : step.active ? "var(--warn)" : "var(--border)";
+            const isDone = step.done;
+            const isActive = step.active;
+            const dotBg = isDone ? "var(--good)" : isActive ? "var(--warn)" : "#1e2535";
+            const dotBorder = isDone ? "var(--good)" : isActive ? "var(--warn)" : "#3b4560";
+            const dotColor = isDone ? "#fff" : isActive ? "#1a1200" : "#6b7a99";
             return (
               <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", position: "relative" }}>
                 {i < journey.length - 1 && (
-                  <div style={{ position: "absolute", top: 13, left: "50%", right: "-50%", height: 2, background: step.done ? "var(--good)" : "var(--border)" }} />
+                  <div style={{ position: "absolute", top: 17, left: "50%", right: "-50%", height: 3, borderRadius: 2, background: isDone ? "var(--good)" : "#2a3248" }} />
                 )}
                 <div
                   style={{
-                    width: 26, height: 26, borderRadius: "50%", zIndex: 1, fontSize: 12, fontWeight: 700,
+                    width: 34, height: 34, borderRadius: "50%", zIndex: 1, fontSize: 13, fontWeight: 700,
                     display: "flex", alignItems: "center", justifyContent: "center",
-                    border: `2px solid ${dotColor}`,
-                    background: step.done ? "var(--good)" : "var(--bg)",
-                    color: step.done ? "#fff" : dotColor,
+                    border: `2px solid ${dotBorder}`,
+                    background: dotBg,
+                    color: dotColor,
+                    boxShadow: isActive ? `0 0 0 4px rgba(251,191,36,0.18)` : isDone ? `0 0 0 3px rgba(74,222,128,0.12)` : "none",
                   }}
                 >
-                  {step.done ? "✓" : step.active ? "⏳" : ""}
+                  {isDone ? "✓" : isActive ? "●" : String(i + 1)}
                 </div>
-                <div style={{ fontSize: 11, textAlign: "center", marginTop: 6, color: step.done ? "var(--good)" : "var(--muted)", fontWeight: step.done ? 600 : 400 }}>
+                <div style={{
+                  fontSize: 12, textAlign: "center", marginTop: 10, lineHeight: 1.3,
+                  color: isDone ? "var(--good)" : isActive ? "var(--warn)" : "#6b7a99",
+                  fontWeight: isDone ? 600 : isActive ? 600 : 400,
+                  maxWidth: 80,
+                }}>
                   {step.label}
                 </div>
               </div>
@@ -1443,30 +1453,40 @@ function PatientDetailView({
       </div>
 
       {/* Parcours */}
-      <div className="card" style={{ padding: 18 }}>
-        <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 16 }}>
+      <div className="card" style={{ padding: "22px 24px" }}>
+        <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 24, fontWeight: 600 }}>
           {t("Progression du parcours patient")}
         </div>
-        <div style={{ display: "flex" }}>
+        <div style={{ display: "flex", paddingBottom: 8 }}>
           {journey.map((step, i) => {
-            const dotColor = step.done ? "var(--good)" : step.active ? "var(--warn)" : "var(--border)";
+            const isDone = step.done;
+            const isActive = step.active;
+            const dotBg = isDone ? "var(--good)" : isActive ? "var(--warn)" : "#1e2535";
+            const dotBorder = isDone ? "var(--good)" : isActive ? "var(--warn)" : "#3b4560";
+            const dotColor = isDone ? "#fff" : isActive ? "#1a1200" : "#6b7a99";
             return (
               <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", position: "relative" }}>
                 {i < journey.length - 1 && (
-                  <div style={{ position: "absolute", top: 13, left: "50%", right: "-50%", height: 2, background: step.done ? "var(--good)" : "var(--border)" }} />
+                  <div style={{ position: "absolute", top: 17, left: "50%", right: "-50%", height: 3, borderRadius: 2, background: isDone ? "var(--good)" : "#2a3248" }} />
                 )}
                 <div
                   style={{
-                    width: 26, height: 26, borderRadius: "50%", zIndex: 1, fontSize: 12, fontWeight: 700,
+                    width: 34, height: 34, borderRadius: "50%", zIndex: 1, fontSize: 13, fontWeight: 700,
                     display: "flex", alignItems: "center", justifyContent: "center",
-                    border: `2px solid ${dotColor}`,
-                    background: step.done ? "var(--good)" : "var(--bg)",
-                    color: step.done ? "#fff" : dotColor,
+                    border: `2px solid ${dotBorder}`,
+                    background: dotBg,
+                    color: dotColor,
+                    boxShadow: isActive ? `0 0 0 4px rgba(251,191,36,0.18)` : isDone ? `0 0 0 3px rgba(74,222,128,0.12)` : "none",
                   }}
                 >
-                  {step.done ? "✓" : step.active ? "⏳" : ""}
+                  {isDone ? "✓" : isActive ? "●" : String(i + 1)}
                 </div>
-                <div style={{ fontSize: 11, textAlign: "center", marginTop: 6, color: step.done ? "var(--good)" : "var(--muted)", fontWeight: step.done ? 600 : 400 }}>
+                <div style={{
+                  fontSize: 12, textAlign: "center", marginTop: 10, lineHeight: 1.3,
+                  color: isDone ? "var(--good)" : isActive ? "var(--warn)" : "#6b7a99",
+                  fontWeight: isDone ? 600 : isActive ? 600 : 400,
+                  maxWidth: 80,
+                }}>
                   {step.label}
                 </div>
               </div>
