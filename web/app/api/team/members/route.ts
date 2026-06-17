@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 // merge in Node. 'status' is derived from profiles.is_active until Wave B
 // introduces the org_invites table (which will surface "invited" state).
 
-const MANAGER_ROLES = new Set(["super_admin", "owner", "admin"]);
+const MANAGER_ROLES = new Set(["super_admin", "owner", "admin", "manager"]);
 
 export type TeamMember = {
   user_id: string;
