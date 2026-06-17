@@ -142,16 +142,35 @@ export function NhsSuiviTab() {
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
-      <div className="page-header" style={{ margin: 0 }}>
-        <div>
-          <h2 style={{ margin: 0 }}>{t("Suivi patient NHS S2")}</h2>
-          <div className="muted" style={{ fontSize: 13 }}>
-            {t("Pipeline complet · De l'appel initial à la soumission NHS S2")}
+      <div style={{
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        padding: "18px 22px", borderRadius: 12,
+        background: "linear-gradient(135deg, rgba(99,102,241,0.09) 0%, rgba(59,130,246,0.05) 100%)",
+        border: "1px solid rgba(99,102,241,0.18)",
+        borderLeft: "4px solid #6366f1",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <div style={{
+            width: 42, height: 42, borderRadius: 10, flexShrink: 0,
+            background: "linear-gradient(135deg, #6366f1 0%, #3b82f6 100%)",
+            display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20,
+          }}>🗂️</div>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+              <h2 style={{ margin: 0, fontSize: 19, fontWeight: 700, color: "#fff" }}>{t("Suivi patient NHS S2")}</h2>
+              <span style={{
+                fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 999, letterSpacing: 0.6,
+                background: "rgba(99,102,241,0.22)", color: "#a5b4fc",
+              }}>NHS S2</span>
+            </div>
+            <div style={{ fontSize: 12, color: "#6b7a99" }}>
+              {t("Pipeline complet · De l'appel initial à la soumission NHS S2")}
+            </div>
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span className="muted" style={{ fontSize: 12 }}>{clock}</span>
-          <button onClick={fetchData} className="ghost" style={{ padding: "5px 12px", fontSize: 13 }}>↻ {t("Actualiser")}</button>
+          <span style={{ fontSize: 12, color: "#6b7a99" }}>{clock}</span>
+          <button onClick={fetchData} className="ghost" style={{ padding: "6px 14px", fontSize: 13 }}>↻ {t("Actualiser")}</button>
         </div>
       </div>
 
@@ -657,14 +676,33 @@ function NhsReportListView({
           { label: active.label },
         ]}
       />
-      <div className="page-header" style={{ margin: 0 }}>
-        <div>
-          <h2 style={{ margin: 0 }}>{active.label}</h2>
-          <div className="muted" style={{ fontSize: 13 }}>
-            {active.value} {t("patient(s)")} · {active.hint}
+      <div style={{
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        padding: "16px 20px", borderRadius: 12,
+        background: "rgba(15,18,30,0.6)",
+        border: "1px solid rgba(251,191,36,0.18)",
+        borderLeft: "4px solid #f59e0b",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{
+            width: 38, height: 38, borderRadius: 9, flexShrink: 0,
+            background: "rgba(245,158,11,0.12)",
+            display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18,
+          }}>📋</div>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
+              <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: "#fff" }}>{active.label}</h2>
+              <span style={{
+                fontSize: 11, fontWeight: 700, padding: "2px 10px", borderRadius: 999, letterSpacing: 0.4,
+                background: "rgba(245,158,11,0.18)", color: "#fcd34d",
+              }}>{active.value} {t("patient(s)")}</span>
+            </div>
+            <div style={{ fontSize: 12, color: "#6b7a99" }}>{active.hint}</div>
           </div>
         </div>
-        <button onClick={onBack} className="ghost" style={{ padding: "5px 12px", fontSize: 13 }}>← {t("Retour")}</button>
+        <button onClick={onBack} className="ghost" style={{ padding: "6px 14px", fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ fontSize: 15 }}>←</span> {t("Retour")}
+        </button>
       </div>
 
       {/* Chips for the 7 buckets + search */}
@@ -1201,12 +1239,33 @@ function PatientListView({
           { label: t(FILTER_LABEL[filter]) },
         ]}
       />
-      <div className="page-header" style={{ margin: 0 }}>
-        <div>
-          <h2 style={{ margin: 0 }}>{t("Liste des patients")}</h2>
-          <div className="muted" style={{ fontSize: 13 }}>{t("Cliquer sur un patient pour accéder à la fiche dossier complète")}</div>
+      <div style={{
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        padding: "16px 20px", borderRadius: 12,
+        background: "rgba(15,18,30,0.6)",
+        border: "1px solid rgba(59,130,246,0.18)",
+        borderLeft: "4px solid #3b82f6",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{
+            width: 38, height: 38, borderRadius: 9, flexShrink: 0,
+            background: "rgba(59,130,246,0.15)",
+            display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18,
+          }}>👥</div>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
+              <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: "#fff" }}>{t("Liste des patients")}</h2>
+              <span style={{
+                fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 999, letterSpacing: 0.5,
+                background: "rgba(59,130,246,0.18)", color: "#93c5fd",
+              }}>NHS S2</span>
+            </div>
+            <div style={{ fontSize: 12, color: "#6b7a99" }}>{t("Cliquer sur un patient pour accéder à la fiche dossier complète")}</div>
+          </div>
         </div>
-        <button onClick={onBack} className="ghost" style={{ padding: "5px 12px", fontSize: 13 }}>← {t("Retour")}</button>
+        <button onClick={onBack} className="ghost" style={{ padding: "6px 14px", fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ fontSize: 15 }}>←</span> {t("Retour")}
+        </button>
       </div>
 
       {/* Filter chips + search */}
