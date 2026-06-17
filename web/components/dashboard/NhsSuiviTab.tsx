@@ -857,7 +857,12 @@ function NhsReportDetailView({
       <Breadcrumb items={crumbs} />
 
       {/* Header */}
-      <div className="card" style={{ padding: 18, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 14, flexWrap: "wrap" }}>
+      <div className="card" style={{
+        padding: 18,
+        display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 14, flexWrap: "wrap",
+        borderLeft: `4px solid ${stage.color}`,
+        background: `color-mix(in srgb, ${stage.color} 6%, var(--bg-2))`,
+      }}>
         <div style={{ display: "flex", alignItems: "flex-start", gap: 14 }}>
           <Avatar initials={initialsOfName(patient.name)} size={52} />
           <div>
