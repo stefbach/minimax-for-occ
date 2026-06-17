@@ -36,7 +36,7 @@ type FileResult =
 export async function POST(req: Request): Promise<NextResponse> {
   if (!authOk(req)) return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
 
-  let body: { patient?: string; dryRun?: boolean };
+  let body: { patient?: string; dryRun?: boolean; accessToken?: string };
   try {
     body = await req.json();
   } catch {
@@ -52,7 +52,9 @@ export async function POST(req: Request): Promise<NextResponse> {
   }
   const patient = PATIENTS[slug];
 
-  const token = await googleAccessToken();
+  // Allow caller to supply a pre-minted access token (e.g. from OAuth Playground)
+  // so the migration can proceed even when the stored refresh token is broken.
+  const token = body.accessToken ? String(body.accessToken) : await googleAccessToken();
   let walked: WalkedFile[];
   try {
     walked = await walkPatientFolder(patient.folderId, token);
