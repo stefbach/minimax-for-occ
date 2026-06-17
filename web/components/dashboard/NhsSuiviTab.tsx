@@ -50,7 +50,9 @@ export function NhsSuiviTab() {
   // dans la table partagée), puis rafraîchit les files.
   const [unassigning, setUnassigning] = useState<string | null>(null);
 
-  // Global patient search — patients are lazy-loaded on first focus.
+  // Global patient search — API patients are lazy-loaded on first focus.
+  // NHS_REPORT patients (static) are always included so names like "Mark Griffith"
+  // (who only exist in the static report) are always found.
   const [searchQuery, setSearchQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchPatients, setSearchPatients] = useState<NhsPatientsResponse["patients"] | null>(null);
@@ -60,14 +62,51 @@ export function NhsSuiviTab() {
       const r = await fetch("/api/dashboard/nhs-suivi/patients", { cache: "no-store" });
       const j = (await r.json()) as NhsPatientsResponse;
       if (r.ok) setSearchPatients(j.patients);
-    } catch { /* silently ignore — search just stays empty */ }
+    } catch { setSearchPatients([]); }
   };
+
+  const NHS_REAL_KEYS_SEARCH: NhsReportKey[] = ["approved", "pending_nhs", "missing_docs", "rejected", "dropped_out", "to_submit"];
+
+  type SearchResult =
+    | { kind: "patient"; patient: NhsPatientsResponse["patients"][number] }
+    | { kind: "report"; patient: NhsReportPatient; reportKey: NhsReportKey };
+
   const searchQ = searchQuery.trim().toLowerCase();
-  const searchResults = searchQ.length >= 2 && searchPatients
-    ? searchPatients
-        .filter((p) => `${p.name ?? ""} ${p.phone ?? ""} ${p.email ?? ""}`.toLowerCase().includes(searchQ))
-        .slice(0, 6)
-    : [];
+  const searchResults: SearchResult[] = (() => {
+    if (searchQ.length < 2) return [];
+    const results: SearchResult[] = [];
+    const seen = new Set<string>();
+
+    // 1. API patients (have phone + email)
+    for (const p of searchPatients ?? []) {
+      if (`${p.name ?? ""} ${p.phone ?? ""} ${p.email ?? ""}`.toLowerCase().includes(searchQ)) {
+        results.push({ kind: "patient", patient: p });
+        seen.add((p.name ?? "").toLowerCase());
+      }
+    }
+    // 2. NHS_REPORT patients (static — always searched even before API loads)
+    for (const k of NHS_REAL_KEYS_SEARCH) {
+      for (const p of NHS_REPORT[k].patients) {
+        if (p.name.toLowerCase().includes(searchQ) && !seen.has(p.name.toLowerCase())) {
+          results.push({ kind: "report", patient: p, reportKey: k });
+          seen.add(p.name.toLowerCase());
+        }
+      }
+    }
+    return results.slice(0, 6);
+  })();
+
+  const openFirstSearchResult = () => {
+    const first = searchResults[0];
+    if (!first) return;
+    if (first.kind === "patient") {
+      setView({ name: "detail", id: first.patient.id, from: "all" });
+    } else {
+      setView({ name: "report-detail", patient: first.patient, reportKey: first.reportKey });
+    }
+    setSearchQuery("");
+    setSearchOpen(false);
+  };
   const unassign = async (leadId: string) => {
     setUnassigning(leadId);
     try {
@@ -196,6 +235,7 @@ export function NhsSuiviTab() {
               onChange={(e) => setSearchQuery(e.target.value)}
               onFocus={() => { setSearchOpen(true); loadSearchPatients(); }}
               onBlur={() => setTimeout(() => setSearchOpen(false), 150)}
+              onKeyDown={(e) => { if (e.key === "Enter") openFirstSearchResult(); if (e.key === "Escape") { setSearchQuery(""); setSearchOpen(false); } }}
               placeholder={t("Rechercher un patient…")}
               style={{
                 padding: "7px 14px 7px 36px", fontSize: 13, borderRadius: 999, width: 230,
@@ -213,14 +253,24 @@ export function NhsSuiviTab() {
                 <div className="muted" style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, padding: "8px 14px 4px" }}>
                   {searchResults.length} {t("résultat(s)")}
                 </div>
-                {searchResults.map((p) => {
-                  const tone = STATUS_TONE[p.status];
+                {searchResults.map((r, idx) => {
+                  const name = r.kind === "patient" ? (r.patient.name ?? "—") : r.patient.name;
+                  const sub = r.kind === "patient"
+                    ? (r.patient.phone ?? r.patient.email ?? "Dossier patient")
+                    : `NHS · ${r.patient.sent_to_nhs ? `Envoyé ${r.patient.sent_to_nhs}` : "Rapport statique"}`;
+                  const tone = r.kind === "patient" ? STATUS_TONE[r.patient.status] : "var(--info)";
+                  const badge = r.kind === "patient" ? t(STATUS_LABEL[r.patient.status]) : t("Rapport NHS");
+                  const initials = initialsOfName(name);
                   return (
                     <button
-                      key={p.id}
+                      key={idx}
                       type="button"
                       onMouseDown={() => {
-                        setView({ name: "detail", id: p.id, from: "all" });
+                        if (r.kind === "patient") {
+                          setView({ name: "detail", id: r.patient.id, from: "all" });
+                        } else {
+                          setView({ name: "report-detail", patient: r.patient, reportKey: r.reportKey });
+                        }
                         setSearchQuery("");
                         setSearchOpen(false);
                       }}
@@ -230,19 +280,17 @@ export function NhsSuiviTab() {
                         borderTop: "1px solid var(--border)", cursor: "pointer", textAlign: "left",
                       }}
                     >
-                      <Avatar initials={p.initials} size={30} />
+                      <Avatar initials={initials} size={30} />
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontWeight: 600, fontSize: 13, color: "#fff" }}>{p.name}</div>
-                        <div style={{ fontSize: 11, color: "#6b7a99", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {p.phone ?? p.email ?? "—"}
-                        </div>
+                        <div style={{ fontWeight: 600, fontSize: 13, color: "#fff" }}>{name}</div>
+                        <div style={{ fontSize: 11, color: "#6b7a99", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub}</div>
                       </div>
                       <span style={{
                         fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 999, flexShrink: 0,
                         border: `1px solid ${tone}`, color: tone,
                         background: `color-mix(in srgb, ${tone} 12%, transparent)`,
                       }}>
-                        {t(STATUS_LABEL[p.status])}
+                        {badge}
                       </span>
                     </button>
                   );
