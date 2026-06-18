@@ -73,10 +73,13 @@ export default async function WorkflowsPage() {
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <Link href="/workflows/approvals"><button className="ghost">À valider</button></Link>
+          <Link href="/workflows/connections"><button className="ghost">⚙️ Connexions</button></Link>
           <Link href="/workflows/n8n">
-            <button className="ghost">Voir les flows n8n ({n8nCount}) →</button>
+            <button className="ghost">Flows n8n ({n8nCount}) →</button>
           </Link>
-          <Link href="/workflows/new"><button>+ Nouveau workflow</button></Link>
+          <Link href="/workflows/agent/new"><button>+ Workflow IA</button></Link>
+          <Link href="/workflows/new"><button className="ghost">Workflow n8n</button></Link>
           <HelpButton contextKey="workflows" />
         </div>
       </div>

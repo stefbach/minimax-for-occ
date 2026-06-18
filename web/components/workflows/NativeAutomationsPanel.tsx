@@ -30,6 +30,9 @@ const STEP_LABELS: Record<string, string> = {
   send_email_smtp: "✉️ Email",
   send_wati_template: "💬 WhatsApp",
   update_row: "✎ MAJ ligne",
+  ai_email: "🤖✉️ Email IA",
+  ai_whatsapp: "🤖💬 WhatsApp IA",
+  ai_update_row: "🤖✎ MAJ IA",
 };
 
 export function NativeAutomationsPanel() {
