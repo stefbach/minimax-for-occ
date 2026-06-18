@@ -228,8 +228,14 @@ def _shared_openai_client(base_url: str, api_key: str):
     return client
 
 
-def _llm_for(agent: Optional[AxonAgent]):
+def _llm_for(agent: Optional[AxonAgent], _force_direct: bool = False):
     """Build a LiveKit-Agents-compatible LLM from the agent's provider/model.
+
+    _force_direct=True skips the colocalized LiveKit Inference route and builds
+    the provider's DIRECT API client instead. Used to build the secondary LLM
+    for the resilient FallbackAdapter: same model, different transport, so an
+    Inference hiccup falls back to the direct API (Claude stays Claude) rather
+    than dropping the call.
 
     Worker-wide A/B knobs (env): set these to swap LLM provider/model for
     EVERY call without touching any agent row in DB. Unset to return to the
@@ -295,8 +301,28 @@ def _llm_for(agent: Optional[AxonAgent]):
             pass
         _caching_pref = os.getenv("ANTHROPIC_PROMPT_CACHING", _caching_pref).lower()
         _use_caching = _caching_pref not in ("off", "none", "false", "0", "disabled", "")
+        # Prefer LiveKit Inference (colocalized) for Claude too: on a real call,
+        # Claude direct to api.anthropic.com measured ~2000ms TTFT from the EU
+        # vs ~500ms for OpenAI via Inference. Same model, served next to the
+        # media servers. Catalog ids drop the date suffix
+        # (claude-haiku-4-5-20251001 -> anthropic/claude-haiku-4-5). Skipped when
+        # _force_direct (the resilient fallback wants the direct API). A wrong
+        # catalog id surfaces at runtime and is caught by the FallbackAdapter,
+        # which retries the same turn on the direct Anthropic API.
+        if not _force_direct and os.getenv("LLM_USE_INFERENCE", "true").lower() in ("1", "true", "yes"):
+            _inf_model = anth_model
+            _p = anth_model.rsplit("-", 1)
+            if len(_p) == 2 and _p[1].isdigit() and len(_p[1]) == 8:
+                _inf_model = _p[0]
+            try:
+                from livekit.agents import inference as _lk_inf
+                lk_model = f"anthropic/{_inf_model}"
+                logger.info("LLM=anthropic via livekit-inference model=%s max_tokens=%d", lk_model, max_tokens)
+                return _build_llm_with_max_tokens(_lk_inf.LLM, max_tokens, model=lk_model)
+            except ImportError:
+                logger.warning("LiveKit Inference unavailable — falling back to direct Anthropic API")
         logger.info(
-            "LLM=anthropic model=%s key_src=%s key_len=%d key_prefix=%s max_tokens=%d caching=%s",
+            "LLM=anthropic (direct) model=%s key_src=%s key_len=%d key_prefix=%s max_tokens=%d caching=%s",
             anth_model, key_src, len(anth_key), anth_key[:14], max_tokens,
             ("ephemeral" if _use_caching else "off"),
         )
@@ -344,7 +370,7 @@ def _llm_for(agent: Optional[AxonAgent]):
         # API when Inference is unavailable (SDK missing) or explicitly disabled
         # with LLM_USE_INFERENCE=false. Billed within the LiveKit plan's
         # inference credits (no per-token surcharge vs the direct API).
-        if os.getenv("LLM_USE_INFERENCE", "true").lower() in ("1", "true", "yes"):
+        if not _force_direct and os.getenv("LLM_USE_INFERENCE", "true").lower() in ("1", "true", "yes"):
             try:
                 from livekit.agents import inference as _lk_inf
                 lk_model = f"openai/{oai_model}"
@@ -381,6 +407,51 @@ def _llm_for(agent: Optional[AxonAgent]):
         api_key=api_key,
         client=_shared_openai_client(base_url, api_key),
     )
+
+
+def _llm_for_resilient(agent: Optional[AxonAgent]):
+    """Build the agent's LLM wrapped in a FallbackAdapter so a single provider
+    hiccup (timeout, API error, or the transient empty completion we saw on a
+    real Claude call) never dead-airs the call — livekit-agents retries the
+    SAME turn on a secondary LLM.
+
+    Secondary selection keeps the model identity wherever possible:
+      • openai / anthropic primary  → same model via the DIRECT API (skips the
+        colocalized Inference path), so an Inference hiccup degrades to the
+        provider's own API instead of switching brand.
+      • deepseek / minimax primary  → cross-provider net via OpenAI/Inference.
+
+    Any failure to build the secondary (e.g. missing key) is non-fatal: we just
+    return the primary LLM, exactly as before.
+    """
+    primary = _llm_for(agent)
+    provider = (
+        os.getenv("LLM_PROVIDER_FORCE", "").strip().lower()
+        or (agent.llm_provider.lower() if agent and agent.llm_provider else "")
+        or os.getenv("LLM_PROVIDER", "deepseek").lower()
+    )
+    max_tokens = int(os.getenv("LLM_MAX_COMPLETION_TOKENS", "150"))
+    secondary = None
+    try:
+        if provider in ("openai", "anthropic"):
+            secondary = _llm_for(agent, _force_direct=True)
+        else:
+            from livekit.agents import inference as _lk_inf
+            secondary = _build_llm_with_max_tokens(_lk_inf.LLM, max_tokens, model="openai/gpt-4o-mini")
+    except Exception:
+        logger.warning("LLM fallback secondary build failed — primary only", exc_info=True)
+        secondary = None
+
+    if secondary is None:
+        return primary
+    try:
+        from livekit.agents import llm as _lk_llm
+        adapter = _lk_llm.FallbackAdapter([primary, secondary])
+        logger.info("LLM resilient: FallbackAdapter active (primary provider=%s + secondary)", provider or "deepseek")
+        return adapter
+    except Exception:
+        logger.warning("FallbackAdapter unavailable in this SDK — primary LLM only", exc_info=True)
+        return primary
 
 
 def _build_llm_with_max_tokens(cls, max_tokens: int, **kwargs):
@@ -1465,7 +1536,7 @@ async def _watch_handoff(ctx: JobContext, session: AgentSession) -> None:
             logger.warning("handoff: agent %s not found", target)
             return
         try:
-            session.llm = _llm_for(axon_next)
+            session.llm = _llm_for_resilient(axon_next)
             session.tts = _tts_for(axon_next)
             logger.info("handoff: swapped persona -> %s (%s)", axon_next.id, axon_next.name)
         except Exception:
@@ -1632,7 +1703,7 @@ def _install_team_handoff_watcher(
             call_id=call_id,
         )
         try:
-            next_llm = _llm_for(axon_next)
+            next_llm = _llm_for_resilient(axon_next)
             next_tts = _tts_for(axon_next)
             # Belt-and-suspenders: also set on the session (no-op on some
             # versions, but harmless). The authoritative swap is the per-agent
@@ -3437,7 +3508,7 @@ async def entrypoint(ctx: JobContext) -> None:
             clog.exception("BUILD FAILED: STT (AssemblyAI). Check ASSEMBLYAI_API_KEY on Fly.")
             raise
     try:
-        _llm = _llm_for(axon)
+        _llm = _llm_for_resilient(axon)
     except Exception:
         clog.exception(
             "BUILD FAILED: LLM (provider=%s model=%s). Check the matching *_API_KEY on Fly.",
