@@ -591,7 +591,10 @@ export function AgentForm({ initial }: { initial?: Agent }) {
     ? []
     : replicateVoices.filter((v) => {
         if (filterProvider && filterProvider !== v.family) return false;
-        if (filterLang && v.language !== filterLang) return false;
+        // Voices with no declared language (e.g. MiniMax system voices, which
+        // are multilingual) must NOT be hidden by a language filter — only
+        // exclude a voice that HAS a language and it doesn't match.
+        if (filterLang && v.language && v.language !== filterLang) return false;
         if (filterGender && normalizeGender(v.gender) !== filterGender) return false;
         return true;
       });
