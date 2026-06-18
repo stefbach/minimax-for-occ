@@ -956,6 +956,26 @@ function NhsReportDetailView({
   const t = useT();
   const cards = useNhsReportCards();
 
+  // Fetch the matching API patient record by name so we can show the full
+  // dossier (checklist, comms, actions) below the NHS report sections.
+  const [apiDetail, setApiDetail] = useState<NhsPatientDetail | null>(null);
+  const [apiLoading, setApiLoading] = useState(true);
+  useEffect(() => {
+    let alive = true;
+    const normName = patient.name.trim().toLowerCase();
+    fetch("/api/dashboard/nhs-suivi/patients", { cache: "no-store" })
+      .then((r) => r.json())
+      .then(async (j: NhsPatientsResponse) => {
+        const match = j.patients.find((p) => (p.name ?? "").trim().toLowerCase() === normName);
+        if (!match || !alive) { if (alive) setApiLoading(false); return; }
+        const r2 = await fetch(`/api/dashboard/nhs-suivi/patients/${encodeURIComponent(match.lead_id)}`, { cache: "no-store" });
+        const detail = (await r2.json()) as NhsPatientDetail;
+        if (alive) { setApiDetail(detail); setApiLoading(false); }
+      })
+      .catch(() => alive && setApiLoading(false));
+    return () => { alive = false; };
+  }, [patient.name]);
+
   // Map category to a descriptive NHS pathway stage label and colour.
   const STAGE_META: Record<NhsReportFilter, { label: string; color: string }> = {
     total:        { label: t("Dossier soumis"),             color: "var(--info)" },
@@ -1147,6 +1167,176 @@ function NhsReportDetailView({
           {t("Les documents seront accessibles ici après l'upload depuis Google Drive.")}
         </p>
       </div>
+
+      {/* ── API dossier sections ── loaded by name lookup from nhs-suivi/patients */}
+      {apiLoading && (
+        <div className="card" style={{ padding: "12px 16px" }}>
+          <p className="muted" style={{ fontSize: 12, margin: 0 }}>{t("Chargement du dossier…")}</p>
+        </div>
+      )}
+      {!apiLoading && apiDetail && (() => {
+        const { patient: ap, documents, timeline } = apiDetail;
+        const docPct = ap.docs_required > 0 ? Math.round((ap.docs_received / ap.docs_required) * 100) : 0;
+        const docComplete = ap.docs_received >= ap.docs_required;
+        const TLTONE: Record<string, string> = {
+          call: "var(--info)", email: "var(--warn)", whatsapp: "var(--good)", doc: "var(--muted)", response: "var(--good)",
+        };
+
+        const docJourney: Array<{ label: string; done: boolean; active: boolean }> = [
+          { label: t("Appel initial"),      done: !!ap.last_activity, active: false },
+          { label: t("Email explicatif"),   done: ap.status !== "aucun-doc" || timeline.some((x) => x.kind === "email"), active: false },
+          { label: t("Relance J+2"),        done: timeline.some((x) => x.title_key === "Email relance J+2"), active: false },
+          { label: t("Documents en cours"), done: docComplete, active: ap.status === "partiels" || ap.status === "aucun-doc" },
+          { label: t("Dossier complet"),    done: ap.status === "complets" || ap.status === "envoye-nhs", active: ap.status === "complets" },
+          { label: t("Envoyé NHS"),         done: ap.status === "envoye-nhs", active: ap.status === "envoye-nhs" && !ap.nhs_status },
+        ];
+
+        return (
+          <>
+            {/* Document-collection journey */}
+            <div className="card" style={{ padding: "22px 24px" }}>
+              <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 24, fontWeight: 600 }}>
+                {t("Progression du parcours patient")}
+              </div>
+              <div style={{ display: "flex", paddingBottom: 8 }}>
+                {docJourney.map((step, i) => {
+                  const isDone = step.done;
+                  const isActive = step.active;
+                  const dotBg     = isDone ? "var(--good)" : isActive ? "var(--warn)" : "#1e2535";
+                  const dotBorder = isDone ? "var(--good)" : isActive ? "var(--warn)" : "#3b4560";
+                  const dotColor  = isDone ? "#fff"        : isActive ? "#1a1200"    : "#6b7a99";
+                  return (
+                    <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", position: "relative" }}>
+                      {i < docJourney.length - 1 && (
+                        <div style={{ position: "absolute", top: 17, left: "50%", right: "-50%", height: 3, borderRadius: 2, background: isDone ? "var(--good)" : "#2a3248" }} />
+                      )}
+                      <div style={{
+                        width: 34, height: 34, borderRadius: "50%", zIndex: 1, fontSize: 13, fontWeight: 700,
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        border: `2px solid ${dotBorder}`, background: dotBg, color: dotColor,
+                        boxShadow: isActive ? "0 0 0 4px rgba(251,191,36,0.18)" : isDone ? "0 0 0 3px rgba(74,222,128,0.12)" : "none",
+                      }}>
+                        {isDone ? "✓" : isActive ? "●" : String(i + 1)}
+                      </div>
+                      <div style={{ fontSize: 12, textAlign: "center", marginTop: 10, lineHeight: 1.3, color: isDone ? "var(--good)" : isActive ? "var(--warn)" : "#6b7a99", fontWeight: isDone || isActive ? 600 : 400, maxWidth: 80 }}>
+                        {step.label}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Checklist + Communications */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 14 }}>
+              <div className="card" style={{ padding: 18 }}>
+                <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 10 }}>
+                  {t("Checklist — 11 documents NHS S2")}
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                  <div style={{ flex: 1, height: 6, background: "var(--bg-2)", borderRadius: 6, overflow: "hidden" }}>
+                    <div style={{ width: `${docPct}%`, height: "100%", background: docComplete ? "var(--good)" : docPct < 50 ? "var(--bad)" : "var(--warn)" }} />
+                  </div>
+                  <span className="muted" style={{ fontSize: 12, fontVariantNumeric: "tabular-nums" }}>
+                    {ap.docs_received} / {ap.docs_required} {t("obligatoires")}
+                  </span>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: docComplete ? "var(--good)" : "var(--warn)" }}>
+                    {docComplete ? t("Complet") : t("Incomplet")}
+                  </span>
+                </div>
+                <div style={{ display: "grid", gap: 6 }}>
+                  {documents.map((doc) => {
+                    const tag = !doc.required ? "optional" : doc.received ? "received" : "pending";
+                    const tone = tag === "received" ? "var(--good)" : tag === "optional" ? "var(--warn)" : "var(--muted)";
+                    const tagLabel = tag === "received" ? t("Reçu") : tag === "optional" ? t("Optionnel") : t("En attente");
+                    return (
+                      <div key={doc.key} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 10px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--bg-2)" }}>
+                        <span style={{ width: 18, textAlign: "center", color: tone, fontWeight: 700 }}>
+                          {tag === "received" ? "✓" : tag === "optional" ? "○" : "·"}
+                        </span>
+                        <span style={{ flex: 1, fontSize: 12 }}>{t(DOC_LABEL[doc.key] ?? doc.key)}</span>
+                        <span style={{ fontSize: 10, fontWeight: 600, color: tone }}>{tagLabel}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="card" style={{ padding: 18 }}>
+                <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 10 }}>
+                  {t("Historique des communications")}
+                </div>
+                {timeline.length === 0 ? (
+                  <p className="muted" style={{ fontSize: 12, margin: 0 }}>{t("Aucune communication enregistrée.")}</p>
+                ) : (
+                  <div style={{ display: "grid", gap: 2 }}>
+                    {timeline.map((item, i) => (
+                      <div key={i} style={{ display: "flex", gap: 10, padding: "8px 0", borderTop: i > 0 ? "1px solid var(--border)" : "none", fontSize: 12 }}>
+                        <span aria-hidden style={{ width: 8, height: 8, borderRadius: 99, marginTop: 5, flexShrink: 0, background: TLTONE[item.kind] ?? "var(--muted)" }} />
+                        <span className="muted" style={{ whiteSpace: "nowrap", minWidth: 95 }}>
+                          {new Date(item.date).toLocaleString("fr-FR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+                        </span>
+                        <span style={{ flex: 1 }}>
+                          <span style={{ fontWeight: 600 }}>{t(item.title_key)}</span>
+                          {item.detail && <span className="muted"> · {item.detail}</span>}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* NHS S2 Status */}
+            <div className="card" style={{ padding: 18 }}>
+              <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 10 }}>
+                {t("Statut NHS S2")}
+              </div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {["envoye-nhs", "in_review", "additional_info", "accepted", "refused"].map((s) => {
+                  const isActive = ap.nhs_status === s || (s === "envoye-nhs" && ap.status === "envoye-nhs");
+                  const label = s === "envoye-nhs" ? t("Envoyé NHS") : t(NHS_BADGE_LABEL[s] ?? s);
+                  return (
+                    <span key={s} style={{
+                      padding: "4px 12px", fontSize: 11, fontWeight: 600, borderRadius: 999,
+                      border: `1px solid ${isActive ? "var(--info)" : "var(--border)"}`,
+                      color: isActive ? "var(--info)" : "var(--muted)",
+                      background: isActive ? "color-mix(in srgb, var(--info) 12%, transparent)" : "transparent",
+                    }}>
+                      {label}
+                    </span>
+                  );
+                })}
+              </div>
+              {ap.status !== "envoye-nhs" && (
+                <p className="muted" style={{ fontSize: 12, marginTop: 10, marginBottom: 0 }}>
+                  {t("Dossier pas encore soumis à la NHS.")}
+                </p>
+              )}
+            </div>
+
+            {/* Quick Actions */}
+            <div className="card" style={{ padding: 18 }}>
+              <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 10 }}>
+                {t("Actions rapides")}
+              </div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button type="button" className="ghost" disabled style={{ padding: "6px 12px", fontSize: 12, opacity: 0.6 }}>✉ {t("Relancer par email")}</button>
+                <button type="button" className="ghost" disabled style={{ padding: "6px 12px", fontSize: 12, opacity: 0.6 }}>◐ {t("Relancer WhatsApp")}</button>
+                <button type="button" disabled={!docComplete} style={{ padding: "6px 12px", fontSize: 12, opacity: docComplete ? 1 : 0.5 }}>↗ {t("Soumettre à la NHS")}</button>
+              </div>
+            </div>
+
+            {/* Escalation */}
+            {ap.escalade && (
+              <div className="card" style={{ padding: 18, borderColor: "var(--bad)", background: "color-mix(in srgb, var(--bad) 8%, var(--panel))" }}>
+                <div style={{ fontWeight: 600, color: "var(--bad)" }}>{t("Escalade requise — Aucune réponse depuis 3 jours+")}</div>
+                <p className="muted" style={{ fontSize: 12, margin: "4px 0 8px" }}>{t("Assigner ce patient à un coordinateur pour un suivi humain.")}</p>
+              </div>
+            )}
+          </>
+        );
+      })()}
     </div>
   );
 }
