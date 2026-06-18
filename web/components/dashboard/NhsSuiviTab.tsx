@@ -54,9 +54,12 @@ export function NhsSuiviTab() {
   // Global patient search — API patients are lazy-loaded on first focus.
   // NHS_REPORT patients (static) are always included so names like "Mark Griffith"
   // (who only exist in the static report) are always found.
+  // Axon contacts are fetched via debounced search so patients like Lorraine Turner
+  // (in CRM but not in the NHS programme) are also searchable.
   const [searchQuery, setSearchQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchPatients, setSearchPatients] = useState<NhsPatientsResponse["patients"] | null>(null);
+  const [deskContacts, setDeskContacts] = useState<Array<{ id: string; display_name: string | null; e164: string | null }>>([]);
   const loadSearchPatients = async () => {
     if (searchPatients !== null) return;
     try {
@@ -65,12 +68,26 @@ export function NhsSuiviTab() {
       if (r.ok) setSearchPatients(j.patients);
     } catch { setSearchPatients([]); }
   };
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (q.length < 2) { setDeskContacts([]); return; }
+    const timer = setTimeout(() => {
+      fetch(`/api/desk/search-contacts?q=${encodeURIComponent(q)}&limit=4`, { cache: "no-store" })
+        .then((r) => r.json())
+        .then((j: { contacts?: Array<{ id: string; display_name: string | null; e164: string | null }> }) => {
+          setDeskContacts(j.contacts ?? []);
+        })
+        .catch(() => {});
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   const NHS_REAL_KEYS_SEARCH: NhsReportKey[] = ["approved", "pending_nhs", "missing_docs", "rejected", "dropped_out", "to_submit"];
 
   type SearchResult =
     | { kind: "patient"; patient: NhsPatientsResponse["patients"][number] }
-    | { kind: "report"; patient: NhsReportPatient; reportKey: NhsReportKey };
+    | { kind: "report"; patient: NhsReportPatient; reportKey: NhsReportKey }
+    | { kind: "contact"; id: string; name: string; phone: string | null };
 
   const searchQ = searchQuery.trim().toLowerCase();
   const searchResults: SearchResult[] = (() => {
@@ -78,7 +95,7 @@ export function NhsSuiviTab() {
     const results: SearchResult[] = [];
     const seen = new Set<string>();
 
-    // 1. API patients (have phone + email)
+    // 1. API patients (NHS programme — email_sent + whatsapp_sent)
     for (const p of searchPatients ?? []) {
       if (`${p.name ?? ""} ${p.phone ?? ""} ${p.email ?? ""}`.toLowerCase().includes(searchQ)) {
         results.push({ kind: "patient", patient: p });
@@ -94,7 +111,16 @@ export function NhsSuiviTab() {
         }
       }
     }
-    return results.slice(0, 6);
+    // 3. Axon CRM contacts (fetched by debounced desk search — finds patients
+    //    who are in Supervision but not in the NHS programme)
+    for (const c of deskContacts) {
+      const name = c.display_name ?? "";
+      if (!seen.has(name.toLowerCase())) {
+        results.push({ kind: "contact", id: c.id, name, phone: c.e164 });
+        seen.add(name.toLowerCase());
+      }
+    }
+    return results.slice(0, 8);
   })();
 
   const openFirstSearchResult = () => {
@@ -102,8 +128,10 @@ export function NhsSuiviTab() {
     if (!first) return;
     if (first.kind === "patient") {
       setView({ name: "detail", id: first.patient.id, from: "all" });
-    } else {
+    } else if (first.kind === "report") {
       setView({ name: "report-detail", patient: first.patient, reportKey: first.reportKey });
+    } else {
+      setView({ name: "contact-detail", contactId: first.id, displayName: first.name });
     }
     setSearchQuery("");
     setSearchOpen(false);
@@ -184,6 +212,15 @@ export function NhsSuiviTab() {
       />
     );
   }
+  if (view.name === "contact-detail") {
+    return (
+      <ContactDetailView
+        contactId={view.contactId}
+        displayName={view.displayName}
+        onBackDashboard={() => setView({ name: "dashboard" })}
+      />
+    );
+  }
 
   if (loading && !data) return <div className="card"><p className="muted" style={{ margin: 0 }}>{t("Chargement…")}</p></div>;
   if (error) return <div className="card" style={{ borderColor: "var(--bad)", color: "var(--bad)" }}>{error}</div>;
@@ -255,12 +292,14 @@ export function NhsSuiviTab() {
                   {searchResults.length} {t("résultat(s)")}
                 </div>
                 {searchResults.map((r, idx) => {
-                  const name = r.kind === "patient" ? (r.patient.name ?? "—") : r.patient.name;
+                  const name = r.kind === "patient" ? (r.patient.name ?? "—") : r.kind === "report" ? r.patient.name : r.name;
                   const sub = r.kind === "patient"
                     ? (r.patient.phone ?? r.patient.email ?? "Dossier patient")
-                    : `NHS · ${r.patient.sent_to_nhs ? `Envoyé ${r.patient.sent_to_nhs}` : "Rapport statique"}`;
-                  const tone = r.kind === "patient" ? STATUS_TONE[r.patient.status] : "var(--info)";
-                  const badge = r.kind === "patient" ? t(STATUS_LABEL[r.patient.status]) : t("Rapport NHS");
+                    : r.kind === "report"
+                    ? `NHS · ${r.patient.sent_to_nhs ? `Envoyé ${r.patient.sent_to_nhs}` : "Rapport statique"}`
+                    : (r.phone ?? t("Fiche CRM"));
+                  const tone = r.kind === "patient" ? STATUS_TONE[r.patient.status] : r.kind === "report" ? "var(--info)" : "var(--muted)";
+                  const badge = r.kind === "patient" ? t(STATUS_LABEL[r.patient.status]) : r.kind === "report" ? t("Rapport NHS") : t("CRM");
                   const initials = initialsOfName(name);
                   return (
                     <button
@@ -269,8 +308,10 @@ export function NhsSuiviTab() {
                       onMouseDown={() => {
                         if (r.kind === "patient") {
                           setView({ name: "detail", id: r.patient.id, from: "all" });
-                        } else {
+                        } else if (r.kind === "report") {
                           setView({ name: "report-detail", patient: r.patient, reportKey: r.reportKey });
+                        } else {
+                          setView({ name: "contact-detail", contactId: r.id, displayName: r.name });
                         }
                         setSearchQuery("");
                         setSearchOpen(false);
@@ -1456,7 +1497,8 @@ type NhsView =
   | { name: "list"; filter: PatientFilter }
   | { name: "report-list"; key: NhsReportFilter }
   | { name: "detail"; id: string; from: PatientFilter }
-  | { name: "report-detail"; patient: NhsReportPatient; reportKey: NhsReportFilter };
+  | { name: "report-detail"; patient: NhsReportPatient; reportKey: NhsReportFilter }
+  | { name: "contact-detail"; contactId: string; displayName: string };
 
 const STATUS_TONE: Record<PatientStatus, string> = {
   "complets": "var(--good)",
@@ -2303,5 +2345,39 @@ function PatientFullProfile({ leadId }: { leadId: string }) {
         </div>
       )}
     </>
+  );
+}
+
+// ── Contact detail view ───────────────────────────────────────────────────────
+// For patients found via the Axon CRM contact search who are not in the NHS
+// programme (email_sent/whatsapp_sent). Shows their full CRM profile from
+// leads_rdv / calls via the Supervision desk endpoints.
+function ContactDetailView({
+  contactId,
+  displayName,
+  onBackDashboard,
+}: {
+  contactId: string;
+  displayName: string;
+  onBackDashboard: () => void;
+}) {
+  const t = useT();
+  return (
+    <div style={{ display: "grid", gap: 14 }}>
+      <Breadcrumb
+        items={[
+          { label: t("Vue d'ensemble"), onClick: onBackDashboard },
+          { label: displayName },
+        ]}
+      />
+      <div className="card" style={{ padding: 18, display: "flex", alignItems: "flex-start", gap: 14 }}>
+        <Avatar initials={initialsOfName(displayName)} size={52} />
+        <div>
+          <h3 style={{ margin: 0, fontSize: 20 }}>{displayName}</h3>
+          <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>{t("Fiche patient CRM")}</div>
+        </div>
+      </div>
+      <PatientFullProfile leadId={contactId} />
+    </div>
   );
 }
