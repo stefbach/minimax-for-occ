@@ -3476,26 +3476,47 @@ async def entrypoint(ctx: JobContext) -> None:
     _env_on_answer_ids = {
         s.strip() for s in os.getenv("GREETING_ON_ANSWER_CAMPAIGN_IDS", "").split(",") if s.strip()
     }
-    # Wati 16/06 — for non-campaign outbound shortcuts ("Make outbound call"
-    # via /api/outbound-call → room name "out-<call_id>"), default to
-    # agent-speaks-first. Reason: the callee picks up an unknown number and
-    # expects to hear someone IMMEDIATELY, not 7s of silence waiting for
-    # them to say "hello?" twice. Campaign calls still respect the explicit
-    # campaign_tuning.greeting_mode setting so we don't accidentally flip
-    # the proven prod flow.
+    # Wati 18/06 — outbound shortcut ("Make outbound call" via
+    # /api/outbound-call → room "out-<call_id>") now uses SPEECH-FIRST, NOT
+    # on-answer. ROOT CAUSE of the 2-week silent-call saga (research 18/06):
+    # on real outbound SIP, sip.callStatus flips to "active" BEFORE the RTP
+    # media path is actually carrying audio (LiveKit livekit#3841, closed
+    # "won't fix" — must be designed around). Speaking the greeting at that
+    # moment plays it into a dead leg: TTS succeeds, say() returns, but the
+    # callee hears nothing AND no inbound audio is transcribed (stt_secs=0),
+    # so the idle watchdog hangs up as "voicemail". This is the exact open
+    # bug livekit/livekit#4378 ("say() audio not heard by callee despite
+    # successful TTS; once the callee speaks first, all subsequent responses
+    # are heard perfectly"). LiveKit's OWN outbound guide prescribes the fix:
+    # wait for the user to speak first — the caller's "hello" establishes the
+    # media path, then the greeting is heard. Campaigns already default to
+    # speech-first (which is why prod leads work); the outbound shortcut was
+    # the one path forcing on-answer, hence the only one that failed.
     _outbound_shortcut = bool(
         _room_name and _room_name.startswith("out-") and not campaign_id
     )
     greet_on_answer = (
         campaign_tuning.get("greeting_mode") == "on_answer"
         or (campaign_id is not None and str(campaign_id) in _env_on_answer_ids)
-        or _outbound_shortcut
     )
     if greet_on_answer:
         clog.info(
             "greeting mode: ON-ANSWER (campaign=%s outbound_shortcut=%s)",
             campaign_id, _outbound_shortcut,
         )
+    elif _outbound_shortcut:
+        clog.info("greeting mode: SPEECH-FIRST (outbound shortcut — media-ready gate)")
+
+    # Speech-first fallback wait. For the outbound shortcut we WANT to wait
+    # for the caller's "hello" (it establishes the media path — see the
+    # greet_on_answer note above), but not the 45s default: if the line is
+    # genuinely silent we still want to speak first within a reasonable
+    # window. 12s is long enough to let a normal pickup say "hello" first,
+    # short enough that a silent line isn't dead for 45s. Campaign calls keep
+    # their own greeting_wait_secs (or the 45s env default).
+    _greeting_wait = campaign_tuning.get("greeting_wait_secs")
+    if _greeting_wait is None and _outbound_shortcut and not greet_on_answer:
+        _greeting_wait = float(os.getenv("OUTBOUND_GREETING_WAIT_SECONDS", "12.0"))
 
     # Phrase d'intro scriptée (latence) — rendue avec les mêmes variables que
     # le greeting ({first_name}, etc.). Vide si la campagne ne la définit pas.
@@ -3515,7 +3536,7 @@ async def entrypoint(ctx: JobContext) -> None:
             greet_on_answer=greet_on_answer,
             quick_ack=bool(campaign_tuning.get("quick_ack")),
             confirm_reply=confirm_reply,
-            greeting_wait_secs=campaign_tuning.get("greeting_wait_secs"),
+            greeting_wait_secs=_greeting_wait,
             # Pass the SIP participant already resolved by
             # ctx.wait_for_participant() so on_enter can poll its
             # sip.callStatus directly. None for browser/desk sessions.
