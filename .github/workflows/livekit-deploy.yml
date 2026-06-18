@@ -49,22 +49,28 @@ jobs:
           chmod +x /usr/local/bin/lk
           lk --version
 
-      - name: Deploy to LiveKit Cloud Agents (PROD CA_PFUfvaBhC8Wk)
-        run: lk agent deploy --config livekit.toml
+      # ── Phase de TEST (Wati 18/06) ─────────────────────────────────────────
+      # Un push sur main redeploie UNIQUEMENT l'agent test ci-dessous. La prod
+      # n'est PAS touchee : elle continue de tourner sur son code deja valide.
+      # On deploie le test EN PREMIER pour qu'il soit toujours vivant sous son
+      # nom (axon-voice-agent-test) avant que le routage Vercel ne l'adresse.
+      - name: Deploy to LiveKit Cloud Agents (TEST CA_PbChboVCvPJC)
+        run: lk agent deploy --config livekit-test.toml
         env:
           LIVEKIT_URL: ${{ secrets.LIVEKIT_URL }}
           LIVEKIT_API_KEY: ${{ secrets.LIVEKIT_API_KEY }}
           LIVEKIT_API_SECRET: ${{ secrets.LIVEKIT_API_SECRET }}
 
-      - name: Deploy to LiveKit Cloud Agents (TEST CA_PbChboVCvPJC)
-        # Wati 16/06 — meme code, mais deploye sur le 2eme LK Cloud Agent
-        # qui sert uniquement les agents OCC dont le nom contient "teste".
-        # Permet d'isoler tests/experimentations de la prod sans branche
-        # separee. Aucune dependance entre les 2 deploys (continue-on-error
-        # pour qu'un crash test ne casse pas la prod).
-        if: always()
-        continue-on-error: true
-        run: lk agent deploy --config livekit-test.toml
+      # ── PROD : VERROUILLEE par defaut (Wati 18/06) ─────────────────────────
+      # Ne se redeploie QUE si la variable de repo DEPLOY_PROD == 'true', ou
+      # via un run manuel (Actions → Run workflow = workflow_dispatch). Tant
+      # qu'on valide les tests, la prod (CA_PFUfvaBhC8Wk) reste figee sur son
+      # code actuel. Pour repasser en deploiement prod auto : poser la variable
+      # de repo DEPLOY_PROD=true (Settings → Secrets and variables → Actions →
+      # Variables), ou supprimer ce garde-fou.
+      - name: Deploy to LiveKit Cloud Agents (PROD CA_PFUfvaBhC8Wk)
+        if: vars.DEPLOY_PROD == 'true' || github.event_name == 'workflow_dispatch'
+        run: lk agent deploy --config livekit.toml
         env:
           LIVEKIT_URL: ${{ secrets.LIVEKIT_URL }}
           LIVEKIT_API_KEY: ${{ secrets.LIVEKIT_API_KEY }}

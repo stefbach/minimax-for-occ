@@ -283,7 +283,9 @@ export async function POST(req: Request) {
   const agentName = (() => {
     if (!TEST_AGENT) return PROD_AGENT;
     const n = (agent.name ?? "").toLowerCase();
-    return n.includes("teste") || n.includes("test") ? TEST_AGENT : PROD_AGENT;
+    // Match STRICT sur "teste" (Wati 18/06) : voir /api/token. Evite qu'un
+    // nom prod contenant "test" parte par erreur sur le cluster test.
+    return n.includes("teste") ? TEST_AGENT : PROD_AGENT;
   })();
   const dispatchMetadata = JSON.stringify({
     agent_id: agent.id,

@@ -38,7 +38,12 @@ async function resolveAgentName(agentId: string | null): Promise<string> {
       .eq("id", agentId)
       .maybeSingle();
     const name = (data?.name ?? "").toLowerCase();
-    if (name.includes("teste") || name.includes("test")) return TEST_AGENT_NAME;
+    // Match STRICT sur "teste" uniquement (Wati 18/06). L'ancien `|| "test"`
+    // etait trop large : tout agent prod dont le nom contiendrait "test"
+    // (ex. "Test final", "Latest") serait parti sur le cluster test. Les
+    // agents OCC de test sont nommes "<Prenom> - teste", donc "teste" suffit
+    // et garantit que la prod (Charlotte/Isabelle/Victoria) reste sur prod.
+    if (name.includes("teste")) return TEST_AGENT_NAME;
     return PROD_AGENT_NAME;
   } catch {
     return PROD_AGENT_NAME;
