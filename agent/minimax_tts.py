@@ -21,6 +21,7 @@ Required env :
 from __future__ import annotations
 
 import asyncio
+import base64
 import binascii
 import json
 import logging
@@ -68,6 +69,23 @@ def is_minimax_voice_id(voice_id: Optional[str]) -> bool:
     return bool(voice_id and voice_id.startswith("minimax:"))
 
 
+def group_id_from_api_key(api_key: Optional[str]) -> Optional[str]:
+    """MiniMax API keys are JWTs whose payload carries the GroupID. Extract it
+    so a SEPARATE MINIMAX_GROUP_ID env var isn't required — the original OCC
+    setup (and every MiniMax account) ships the GroupID inside the key itself.
+    Returns None if the key isn't a JWT or has no GroupID claim."""
+    if not api_key or api_key.count(".") != 2:
+        return None
+    try:
+        payload_b64 = api_key.split(".")[1]
+        payload_b64 += "=" * (-len(payload_b64) % 4)  # base64url padding
+        data = json.loads(base64.urlsafe_b64decode(payload_b64).decode("utf-8"))
+        gid = data.get("GroupID") or data.get("GroupId") or data.get("group_id")
+        return str(gid) if gid else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
 class MinimaxTTS(tts.TTS):
     """LiveKit-compatible TTS that streams MiniMax t2a_v2 audio chunks."""
 
@@ -94,11 +112,21 @@ class MinimaxTTS(tts.TTS):
         )
         self._spec = spec
         self._api_key = api_key or os.getenv("MINIMAX_API_KEY")
-        self._group_id = group_id or os.getenv("MINIMAX_GROUP_ID")
+        # GroupID: explicit arg → env → extracted from the API-key JWT. The last
+        # path means MiniMax direct works with just MINIMAX_API_KEY (the GroupID
+        # is embedded in the key), exactly like the original OCC setup.
+        self._group_id = (
+            group_id
+            or os.getenv("MINIMAX_GROUP_ID")
+            or group_id_from_api_key(self._api_key)
+        )
         if not self._api_key:
             raise RuntimeError("MINIMAX_API_KEY missing — set on LK Cloud Agent secrets")
         if not self._group_id:
-            raise RuntimeError("MINIMAX_GROUP_ID missing — set on LK Cloud Agent secrets")
+            raise RuntimeError(
+                "MINIMAX GroupID unavailable — set MINIMAX_GROUP_ID or use a JWT "
+                "MINIMAX_API_KEY that carries the GroupID claim."
+            )
         self._base = os.getenv("MINIMAX_BASE_URL", _DEFAULT_BASE).rstrip("/")
         self._speed = speed
         self._pitch = pitch

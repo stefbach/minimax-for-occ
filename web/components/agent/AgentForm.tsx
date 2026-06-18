@@ -287,12 +287,18 @@ export function AgentForm({ initial }: { initial?: Agent }) {
       .then((r) => (r.ok ? r.json() : []))
       .then((data) => { if (!cancelled) setCartesiaVoices(Array.isArray(data) ? data : []); })
       .catch(() => {});
-    // Load Replicate catalog voices (MiniMax surtout — ElevenLabs y est
-    // legacy depuis Wati 16/06, on a ElevenLabs direct maintenant).
+    // Load Replicate catalog voices. ElevenLabs y est legacy depuis Wati 16/06
+    // (on a ElevenLabs direct). MiniMax via Replicate est ÉCARTÉ ici (Wati
+    // 18/06) — on ne veut QUE MiniMax DIRECT (/api/voices/minimax), pas le hop
+    // Replicate. On filtre donc les familles "minimax*" du catalogue Replicate.
     // Renvoie [] si REPLICATE_API_TOKEN n'est pas configure.
     fetch("/api/voices/replicate")
       .then((r) => (r.ok ? r.json() : []))
-      .then((data) => { if (!cancelled) setReplicateVoices(Array.isArray(data) ? data : []); })
+      .then((data) => {
+        if (cancelled) return;
+        const arr = Array.isArray(data) ? data : [];
+        setReplicateVoices(arr.filter((v) => !String(v?.family || "").startsWith("minimax")));
+      })
       .catch(() => {});
     // Load ElevenLabs DIRECT catalog (Wati 16/06) — voix avec UUID + labels
     // descriptifs ("Jessica - Playful, Bright, Warm"). Necessite ELEVEN_API_KEY
@@ -598,7 +604,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
       map.set(fam, list);
     }
     // Ordre fixe : ElevenLabs direct (Flash, Turbo) puis MiniMax.
-    const order = ["elevenlabs-flash-direct", "elevenlabs-turbo-direct", "minimax-turbo", "minimax-hd"];
+    const order = ["elevenlabs-flash-direct", "elevenlabs-turbo-direct", "minimax-turbo-direct", "minimax-hd-direct"];
     return Array.from(map.entries()).sort(([a], [b]) => {
       const ia = order.indexOf(a);
       const ib = order.indexOf(b);
@@ -773,8 +779,8 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                     <option value="cartesia" style={{ background: "var(--bg-2)", color: "var(--text)" }}>Cartesia ({cartesiaVoices.length})</option>
                     <option value="elevenlabs-flash-direct" style={{ background: "var(--bg-2)", color: "var(--text)" }}>ElevenLabs Flash v2.5 — latence ~75ms ({replicateVoices.filter((v) => v.family === "elevenlabs-flash-direct").length})</option>
                     <option value="elevenlabs-turbo-direct" style={{ background: "var(--bg-2)", color: "var(--text)" }}>ElevenLabs Turbo v2.5 — qualité équivalente, latence ~100ms ({replicateVoices.filter((v) => v.family === "elevenlabs-turbo-direct").length})</option>
-                    <option value="minimax-turbo" style={{ background: "var(--bg-2)", color: "var(--text)" }}>MiniMax Speech 02 Turbo ({replicateVoices.filter((v) => v.family === "minimax-turbo").length})</option>
-                    <option value="minimax-hd" style={{ background: "var(--bg-2)", color: "var(--text)" }}>MiniMax Speech 02 HD ({replicateVoices.filter((v) => v.family === "minimax-hd").length})</option>
+                    <option value="minimax-turbo-direct" style={{ background: "var(--bg-2)", color: "var(--text)" }}>MiniMax Speech 02 Turbo ({replicateVoices.filter((v) => v.family === "minimax-turbo-direct").length})</option>
+                    <option value="minimax-hd-direct" style={{ background: "var(--bg-2)", color: "var(--text)" }}>MiniMax Speech 02 HD ({replicateVoices.filter((v) => v.family === "minimax-hd-direct").length})</option>
                   </select>
                 )}
                 <select
