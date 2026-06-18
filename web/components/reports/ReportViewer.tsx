@@ -81,7 +81,7 @@ const ANNEX_LETTER_BG: Record<string, string> = {
   neutral: "#5A6B82",
 };
 
-export function ReportViewer({ report }: { report: ReportPayload }) {
+export function ReportViewer({ report, hideToolbar }: { report: ReportPayload; hideToolbar?: boolean }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const u = UI[report.lang ?? "fr"];
 
@@ -111,7 +111,7 @@ export function ReportViewer({ report }: { report: ReportPayload }) {
 
   return (
     <div>
-      <div className="rp-toolbar">
+      {!hideToolbar && <div className="rp-toolbar">
         <div>
           <div className="rp-toolbar-title">{report.title}</div>
           <div className="rp-toolbar-sub">{report.subtitle} · généré le {report.generatedAt}</div>
@@ -124,7 +124,7 @@ export function ReportViewer({ report }: { report: ReportPayload }) {
         >
           {u.downloadPdf}
         </button>
-      </div>
+      </div>}
 
       <div className="rp-sheet" ref={containerRef}>
         {/* MASTHEAD */}
