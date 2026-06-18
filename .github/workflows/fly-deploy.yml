@@ -8,19 +8,24 @@ on:
       - 'dialer/**'
       - '.github/workflows/fly-deploy.yml'
   workflow_dispatch:
+    inputs:
+      deploy_prod:
+        description: "Deployer la PROD Fly (axon-agent worker + dialer) ? A cocher uniquement quand les tests sont valides."
+        type: boolean
+        default: false
 
 # PROD VERROUILLEE par defaut (Wati 18/06). Les apps Fly (axon-agent worker +
 # dialer) sont de la PROD : pendant la phase de test on ne les redeploie pas.
 # Les deux jobs ne tournent QUE si la variable de repo DEPLOY_PROD == 'true',
-# ou via un run manuel (Actions → Run workflow). Les tests passent par l'agent
-# LiveKit Cloud test (voir livekit-deploy.yml), pas par Fly. Pour repasser en
-# deploiement prod auto : poser DEPLOY_PROD=true (Settings → Secrets and
-# variables → Actions → Variables).
+# ou via un run manuel AVEC la case deploy_prod cochee. Les tests passent par
+# l'agent LiveKit Cloud test (voir livekit-deploy.yml), pas par Fly. Pour
+# repasser en deploiement prod auto : poser DEPLOY_PROD=true (Settings →
+# Secrets and variables → Actions → Variables).
 jobs:
   deploy-agent:
     name: Deploy axon-agent
     runs-on: ubuntu-latest
-    if: vars.DEPLOY_PROD == 'true' || github.event_name == 'workflow_dispatch'
+    if: vars.DEPLOY_PROD == 'true' || github.event.inputs.deploy_prod == 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: superfly/flyctl-actions/setup-flyctl@master
@@ -32,7 +37,7 @@ jobs:
   deploy-dialer:
     name: Deploy dialer (minimax-for-occ)
     runs-on: ubuntu-latest
-    if: vars.DEPLOY_PROD == 'true' || github.event_name == 'workflow_dispatch'
+    if: vars.DEPLOY_PROD == 'true' || github.event.inputs.deploy_prod == 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: superfly/flyctl-actions/setup-flyctl@master

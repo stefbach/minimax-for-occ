@@ -7,6 +7,11 @@ on:
       - 'agent/**'
       - '.github/workflows/livekit-deploy.yml'
   workflow_dispatch:
+    inputs:
+      deploy_prod:
+        description: "Inclure la PROD (CA_PFUfvaBhC8Wk) dans ce run ? Laisser decoche pour ne deployer QUE l'agent test."
+        type: boolean
+        default: false
 
 jobs:
   deploy:
@@ -69,7 +74,7 @@ jobs:
       # de repo DEPLOY_PROD=true (Settings → Secrets and variables → Actions →
       # Variables), ou supprimer ce garde-fou.
       - name: Deploy to LiveKit Cloud Agents (PROD CA_PFUfvaBhC8Wk)
-        if: vars.DEPLOY_PROD == 'true' || github.event_name == 'workflow_dispatch'
+        if: vars.DEPLOY_PROD == 'true' || github.event.inputs.deploy_prod == 'true'
         run: lk agent deploy --config livekit.toml
         env:
           LIVEKIT_URL: ${{ secrets.LIVEKIT_URL }}
