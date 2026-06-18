@@ -1,0 +1,50 @@
+name: LiveKit — Probe Inference (vérifie si c'est ON)
+
+# Lance UN test de LiveKit Inference (LLM colocalisé) avec les credentials du
+# projet LiveKit Cloud, SANS passer d'appel téléphonique. Sert à répondre à la
+# question "est-ce qu'Inference est utilisable sur notre compte ?" avant de
+# basculer charlotte-teste dessus.
+#
+# A déclencher à la main (Actions → ce workflow → Run workflow).
+# Lis les logs du job :
+#   • "OK — Inference répond" + un TTFT en ms  => c'est ON, on peut tester.
+#   • une erreur EXACTE (auth/quota/région)     => c'est OFF/bloqué, détail fourni.
+#
+# Zéro impact prod : aucun appel, aucune campagne modifiée, juste un ping LLM.
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: "Modèle Inference à tester (format fournisseur/modele)"
+        required: true
+        default: "openai/gpt-4o-mini"
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agent
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install livekit-agents (Inference path only)
+        run: |
+          python -m pip install --upgrade pip
+          # Même contrainte de version que requirements.txt (~=1.5), extra openai
+          # pour la passerelle. Pas besoin des plugins média pour un ping LLM.
+          pip install "livekit-agents[openai]~=1.5"
+
+      - name: Run inference probe
+        env:
+          LIVEKIT_URL: ${{ secrets.LIVEKIT_URL }}
+          LIVEKIT_API_KEY: ${{ secrets.LIVEKIT_API_KEY }}
+          LIVEKIT_API_SECRET: ${{ secrets.LIVEKIT_API_SECRET }}
+        run: |
+          python probe_inference.py "${{ github.event.inputs.model }}"
