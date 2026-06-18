@@ -1,9 +1,15 @@
 export type LlmProvider = "deepseek" | "openai" | "anthropic" | "minimax";
 
+/** Telephony agents speak on calls (campaigns); management agents run
+ *  automations (workflows: email/WhatsApp follow-ups, row updates). */
+export type AgentPurpose = "telephony" | "management";
+
 export interface Agent {
   id: string;
   name: string;
   description: string | null;
+  /** Defaults to 'telephony' for every existing agent (column default). */
+  purpose: AgentPurpose;
   language: string;
   llm_provider: LlmProvider;
   llm_model: string;
