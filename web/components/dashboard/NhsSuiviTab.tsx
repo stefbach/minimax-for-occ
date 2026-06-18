@@ -1007,6 +1007,7 @@ function NhsReportDetailView({
   // dossier (checklist, comms, actions) below the NHS report sections.
   const [apiDetail, setApiDetail] = useState<NhsPatientDetail | null>(null);
   const [apiLeadId, setApiLeadId] = useState<string | null>(null);
+  const [apiContactId, setApiContactId] = useState<string | null>(null);
   const [apiLoading, setApiLoading] = useState(true);
   useEffect(() => {
     let alive = true;
@@ -1017,6 +1018,16 @@ function NhsReportDetailView({
         const match = j.patients.find((p) => (p.name ?? "").trim().toLowerCase() === normName);
         if (!match || !alive) { if (alive) setApiLoading(false); return; }
         if (alive) setApiLeadId(match.lead_id);
+        // Resolve the Axon contact_id from phone so PatientFullProfile can load
+        // CRM data from the main DB (legacy lead_id is from a different database).
+        if (match.phone) {
+          fetch(`/api/desk/contact-by-phone?e164=${encodeURIComponent(match.phone)}`, { cache: "no-store" })
+            .then((r) => r.json())
+            .then((j2: { contact?: { id: string } | null }) => {
+              if (alive && j2.contact?.id) setApiContactId(j2.contact.id);
+            })
+            .catch(() => {});
+        }
         const r2 = await fetch(`/api/dashboard/nhs-suivi/patients/${encodeURIComponent(match.lead_id)}`, { cache: "no-store" });
         const detail = (await r2.json()) as NhsPatientDetail;
         if (alive) { setApiDetail(detail); setApiLoading(false); }
@@ -1387,8 +1398,8 @@ function NhsReportDetailView({
         );
       })()}
 
-      {/* Full CRM profile from leads_rdv */}
-      {apiLeadId && <PatientFullProfile leadId={apiLeadId} />}
+      {/* Full CRM profile — loaded via Axon contact_id resolved from phone */}
+      {apiContactId && <PatientFullProfile contactId={apiContactId} />}
     </div>
   );
 }
@@ -1830,6 +1841,7 @@ function PatientDetailView({
   const [error, setError] = useState<string | null>(null);
   const [assigning, setAssigning] = useState<string | null>(null);
   const [assignedMsg, setAssignedMsg] = useState<string | null>(null);
+  const [contactId, setContactId] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -1844,6 +1856,20 @@ function PatientDetailView({
       .finally(() => alive && setLoading(false));
     return () => { alive = false; };
   }, [id]);
+
+  // Resolve Axon contact_id from phone so PatientFullProfile can show CRM data.
+  // The NHS patient id is from the legacy DB; patient-row expects main DB contact_id.
+  useEffect(() => {
+    if (!detail?.patient.phone) return;
+    let alive = true;
+    fetch(`/api/desk/contact-by-phone?e164=${encodeURIComponent(detail.patient.phone)}`, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((j: { contact?: { id: string } | null }) => {
+        if (alive && j.contact?.id) setContactId(j.contact.id);
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [detail?.patient.phone]);
 
   // coordinator = null → désassignation (ferme l'assignation ouverte).
   const assign = async (coordinator: string | null) => {
@@ -2224,8 +2250,8 @@ function PatientDetailView({
         </div>
       )}
 
-      {/* Full CRM profile — fetched from /api/desk/patient-row */}
-      <PatientFullProfile leadId={id} />
+      {/* Full CRM profile — loaded via Axon contact_id resolved from phone */}
+      {contactId && <PatientFullProfile contactId={contactId} />}
     </div>
   );
 }
@@ -2248,7 +2274,7 @@ const FP_LONG_KEYS = new Set(["note", "call_1_note", "call_2_note", "call_3_note
 interface FpCol { key: string; label: string; type: string; }
 interface FpCall { id: string; started_at: string; duration_secs: number | null; direction: string | null; qualification: string | null; summary: string | null; }
 
-function PatientFullProfile({ leadId }: { leadId: string }) {
+function PatientFullProfile({ contactId }: { contactId: string }) {
   const t = useT();
   const [row, setRow] = useState<Record<string, unknown> | null>(null);
   const [cols, setCols] = useState<FpCol[]>([]);
@@ -2258,8 +2284,8 @@ function PatientFullProfile({ leadId }: { leadId: string }) {
   useEffect(() => {
     let alive = true;
     Promise.all([
-      fetch(`/api/desk/patient-row/${encodeURIComponent(leadId)}`, { cache: "no-store" }).then((r) => r.json()),
-      fetch(`/api/desk/contact-calls/${encodeURIComponent(leadId)}?limit=10`, { cache: "no-store" }).then((r) => r.json()),
+      fetch(`/api/desk/patient-row/${encodeURIComponent(contactId)}`, { cache: "no-store" }).then((r) => r.json()),
+      fetch(`/api/desk/contact-calls/${encodeURIComponent(contactId)}?limit=10`, { cache: "no-store" }).then((r) => r.json()),
     ])
       .then(([rowJ, callsJ]) => {
         if (!alive) return;
@@ -2377,7 +2403,7 @@ function ContactDetailView({
           <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>{t("Fiche patient CRM")}</div>
         </div>
       </div>
-      <PatientFullProfile leadId={contactId} />
+      <PatientFullProfile contactId={contactId} />
     </div>
   );
 }
