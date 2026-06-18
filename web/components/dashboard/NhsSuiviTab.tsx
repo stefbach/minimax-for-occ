@@ -965,6 +965,7 @@ function NhsReportDetailView({
   // Fetch the matching API patient record by name so we can show the full
   // dossier (checklist, comms, actions) below the NHS report sections.
   const [apiDetail, setApiDetail] = useState<NhsPatientDetail | null>(null);
+  const [apiLeadId, setApiLeadId] = useState<string | null>(null);
   const [apiLoading, setApiLoading] = useState(true);
   useEffect(() => {
     let alive = true;
@@ -974,6 +975,7 @@ function NhsReportDetailView({
       .then(async (j: NhsPatientsResponse) => {
         const match = j.patients.find((p) => (p.name ?? "").trim().toLowerCase() === normName);
         if (!match || !alive) { if (alive) setApiLoading(false); return; }
+        if (alive) setApiLeadId(match.lead_id);
         const r2 = await fetch(`/api/dashboard/nhs-suivi/patients/${encodeURIComponent(match.lead_id)}`, { cache: "no-store" });
         const detail = (await r2.json()) as NhsPatientDetail;
         if (alive) { setApiDetail(detail); setApiLoading(false); }
@@ -1343,6 +1345,9 @@ function NhsReportDetailView({
           </>
         );
       })()}
+
+      {/* Full CRM profile from leads_rdv */}
+      {apiLeadId && <PatientFullProfile leadId={apiLeadId} />}
     </div>
   );
 }
@@ -2176,6 +2181,127 @@ function PatientDetailView({
           </div>
         </div>
       )}
+
+      {/* Full CRM profile — fetched from /api/desk/patient-row */}
+      <PatientFullProfile leadId={id} />
     </div>
+  );
+}
+
+// ── Full CRM profile (read-only) ─────────────────────────────────────────────
+// Mirrors the PatientDrawer used in Supervision — fetches all leads_rdv columns
+// and contact-calls and renders them grouped by section. Shown at the bottom of
+// every patient detail page so coordinators have the complete picture.
+
+const FP_SECTIONS: Array<{ title: string; cols: string[] }> = [
+  { title: "Identité",       cols: ["nom", "email", "patient_dob", "numero_telephone"] },
+  { title: "Suivi",          cols: ["qualification", "current_phase", "cycle_status", "rappel_rdv", "next_call_at", "do_not_call", "voicemail_detected", "call_count", "last_call_datetime", "last_qualification_update"] },
+  { title: "Clinique",       cols: ["bmi", "poids", "taille", "allergies", "anesthesia_allergies", "current_medications", "past_surgeries", "other_chronic_conditions"] },
+  { title: "NHS / Documents", cols: ["nhs_wmp_status", "nhs_wmp_details", "document_status", "received_documents", "missing_documents"] },
+  { title: "Cadence",        cols: ["date_j1", "date_j3", "date_j5", "j1_attempts", "j3_attempts", "j5_attempts"] },
+  { title: "Notes & Source", cols: ["note", "call_1_note", "call_2_note", "call_3_note", "raison_ne_pas_rappeler", "source_lead", "form_facebook"] },
+];
+const FP_LONG_KEYS = new Set(["note", "call_1_note", "call_2_note", "call_3_note", "raison_ne_pas_rappeler", "nhs_wmp_details", "received_documents", "missing_documents", "other_chronic_conditions", "past_surgeries", "current_medications", "allergies", "anesthesia_allergies"]);
+
+interface FpCol { key: string; label: string; type: string; }
+interface FpCall { id: string; started_at: string; duration_secs: number | null; direction: string | null; qualification: string | null; summary: string | null; }
+
+function PatientFullProfile({ leadId }: { leadId: string }) {
+  const t = useT();
+  const [row, setRow] = useState<Record<string, unknown> | null>(null);
+  const [cols, setCols] = useState<FpCol[]>([]);
+  const [calls, setCalls] = useState<FpCall[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    Promise.all([
+      fetch(`/api/desk/patient-row/${encodeURIComponent(leadId)}`, { cache: "no-store" }).then((r) => r.json()),
+      fetch(`/api/desk/contact-calls/${encodeURIComponent(leadId)}?limit=10`, { cache: "no-store" }).then((r) => r.json()),
+    ])
+      .then(([rowJ, callsJ]) => {
+        if (!alive) return;
+        setRow((rowJ as { row?: Record<string, unknown> }).row ?? null);
+        setCols((rowJ as { columns?: FpCol[] }).columns ?? []);
+        setCalls(((callsJ as { calls?: FpCall[] }).calls) ?? []);
+        setLoading(false);
+      })
+      .catch(() => alive && setLoading(false));
+    return () => { alive = false; };
+  }, [leadId]);
+
+  if (loading) return <div className="card" style={{ padding: "12px 16px" }}><p className="muted" style={{ fontSize: 12, margin: 0 }}>{t("Chargement…")}</p></div>;
+  if (!row) return null;
+
+  const byKey = new Map(cols.map((c) => [c.key, c]));
+  const usedKeys = new Set(FP_SECTIONS.flatMap((s) => s.cols));
+  const otherCols = cols.filter((c) => !usedKeys.has(c.key) && c.key !== "id" && c.key !== "created_at" && row[c.key] != null && row[c.key] !== "");
+
+  function renderVal(c: FpCol) {
+    const raw = row![c.key];
+    if (raw == null || raw === "") return <span className="muted">—</span>;
+    if (c.key === "do_not_call" || c.key === "voicemail_detected") {
+      const on = raw === true || raw === "true" || raw === 1;
+      return <span style={{ color: on ? "var(--warn)" : "var(--muted)", fontWeight: 600 }}>{on ? "✓ Oui" : "Non"}</span>;
+    }
+    const str = typeof raw === "object" ? JSON.stringify(raw) : String(raw);
+    if ((c.key.includes("date") || c.key.includes("_at") || c.key.includes("datetime")) && /^\d{4}-\d{2}-\d{2}/.test(str)) {
+      const d = new Date(str);
+      if (!isNaN(d.getTime())) return <span>{d.toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}</span>;
+    }
+    if (FP_LONG_KEYS.has(c.key)) return <span style={{ whiteSpace: "pre-wrap", fontSize: 12 }}>{str}</span>;
+    return <span style={{ fontWeight: 500 }}>{str}</span>;
+  }
+
+  return (
+    <>
+      {FP_SECTIONS.map((sec) => {
+        const secCols = sec.cols.map((k) => byKey.get(k)).filter((c): c is FpCol => !!c && row[c.key] != null && row[c.key] !== "");
+        if (secCols.length === 0) return null;
+        return (
+          <div key={sec.title} className="card" style={{ padding: 16 }}>
+            <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 12 }}>{t(sec.title)}</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10 }}>
+              {secCols.map((c) => (
+                <div key={c.key} style={FP_LONG_KEYS.has(c.key) ? { gridColumn: "1 / -1" } : undefined}>
+                  <div style={{ fontSize: 10, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 3 }}>{c.label}</div>
+                  <div style={{ fontSize: 13 }}>{renderVal(c)}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+      {otherCols.length > 0 && (
+        <div className="card" style={{ padding: 16 }}>
+          <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 12 }}>{t("Autres champs")}</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10 }}>
+            {otherCols.map((c) => (
+              <div key={c.key}>
+                <div style={{ fontSize: 10, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 3 }}>{c.label}</div>
+                <div style={{ fontSize: 13 }}>{renderVal(c)}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {calls.length > 0 && (
+        <div className="card" style={{ padding: 16 }}>
+          <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 }}>{t("Derniers appels")}</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {calls.map((c) => (
+              <div key={c.id} style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: 10, padding: 8, fontSize: 12, border: "1px solid var(--border)", borderRadius: 6 }}>
+                <div>
+                  <div style={{ fontVariantNumeric: "tabular-nums" }}>{new Date(c.started_at).toLocaleString("fr-FR")}</div>
+                  {c.summary && <div className="muted" style={{ marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.summary}</div>}
+                </div>
+                <div className="muted">{c.direction === "in" ? "↘" : "↗"} {c.duration_secs ?? 0}s</div>
+                {c.qualification && <span className="tag" style={{ fontSize: 10 }}>{c.qualification}</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
   );
 }
