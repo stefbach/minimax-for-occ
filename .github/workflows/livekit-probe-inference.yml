@@ -16,9 +16,9 @@ on:
   workflow_dispatch:
     inputs:
       model:
-        description: "Modèle Inference à tester (format fournisseur/modele)"
-        required: true
-        default: "openai/gpt-4o-mini"
+        description: "Descripteurs à tester (séparés par des virgules). Vide = liste par défaut (témoin OpenAI + tous les candidats Claude)."
+        required: false
+        default: ""
 
 jobs:
   probe:
