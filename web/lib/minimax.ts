@@ -39,11 +39,9 @@ export async function previewMinimaxTTS(opts: {
   english_normalization?: boolean;
 }): Promise<{ audio: ArrayBuffer; format: string }> {
   const apiKey = process.env.MINIMAX_API_KEY;
-  const groupId = minimaxGroupId();
-  if (!apiKey || !groupId) {
-    throw new Error(
-      "MINIMAX_API_KEY missing (or its JWT has no GroupID) — configure on Vercel pour activer la preview MiniMax.",
-    );
+  const groupId = minimaxGroupId(); // optional on the current MiniMax API
+  if (!apiKey) {
+    throw new Error("MINIMAX_API_KEY missing — configure on Vercel pour activer la preview MiniMax.");
   }
 
   const parts = opts.voice_id.split(":", 3);
@@ -69,7 +67,9 @@ export async function previewMinimaxTTS(opts: {
   }
 
   const base = (process.env.MINIMAX_BASE_URL || MINIMAX_DEFAULT_BASE).replace(/\/+$/, "");
-  const url = `${base}/v1/t2a_v2?GroupId=${encodeURIComponent(groupId)}`;
+  const url = groupId
+    ? `${base}/v1/t2a_v2?GroupId=${encodeURIComponent(groupId)}`
+    : `${base}/v1/t2a_v2`;
   const body = {
     model,
     text: opts.text,

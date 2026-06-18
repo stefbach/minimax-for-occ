@@ -122,11 +122,9 @@ class MinimaxTTS(tts.TTS):
         )
         if not self._api_key:
             raise RuntimeError("MINIMAX_API_KEY missing — set on LK Cloud Agent secrets")
-        if not self._group_id:
-            raise RuntimeError(
-                "MINIMAX GroupID unavailable — set MINIMAX_GROUP_ID or use a JWT "
-                "MINIMAX_API_KEY that carries the GroupID claim."
-            )
+        # GroupID is OPTIONAL on MiniMax's current API (sk-api-* keys authenticate
+        # via Bearer alone; GroupId is just a query param). We DON'T raise when it's
+        # absent — the request omits ?GroupId=. Only older JWT accounts embed/need it.
         self._base = os.getenv("MINIMAX_BASE_URL", _DEFAULT_BASE).rstrip("/")
         self._speed = speed
         self._pitch = pitch
@@ -203,7 +201,9 @@ class _MinimaxChunkedStream(tts.ChunkedStream):
 
     async def _run(self, output_emitter: tts.AudioEmitter) -> None:  # type: ignore[override]
         session = await self._mtts._ensure_session()
-        url = f"{self._mtts._base}/v1/t2a_v2?GroupId={self._mtts._group_id}"
+        url = f"{self._mtts._base}/v1/t2a_v2"
+        if self._mtts._group_id:
+            url += f"?GroupId={self._mtts._group_id}"
         payload = self._build_payload()
 
         try:

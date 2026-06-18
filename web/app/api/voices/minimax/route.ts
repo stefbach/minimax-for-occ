@@ -92,28 +92,17 @@ async function fetchClonedVoices(): Promise<ClonedVoiceRow[]> {
 
 export async function GET() {
   const apiKey = process.env.MINIMAX_API_KEY;
+  // GroupId is OPTIONAL on the current MiniMax API — the 17 system voices need
+  // only the key. A GroupId is only needed to list the account's CLONED voices.
   const groupId = minimaxGroupId();
-  if (!apiKey || !groupId) {
-    // SAFE diagnostic (no secret): is the key present, is it JWT-shaped
-    // (3 dot-parts), did a GroupID resolve, and is MINIMAX_GROUP_ID set?
-    const rawKey = process.env.MINIMAX_API_KEY || "";
-    const diag = {
-      keyPresent: !!rawKey,
-      keyLen: rawKey.length,
-      dotParts: rawKey ? rawKey.split(".").length : 0,
-      jwtShaped: rawKey.split(".").length === 3,
-      groupIdEnvSet: !!process.env.MINIMAX_GROUP_ID,
-      groupIdResolved: !!groupId,
-    };
-    console.warn("[minimax-catalog] diag", JSON.stringify(diag));
+  if (!apiKey) {
     return NextResponse.json({
       voices: [],
-      note: "MINIMAX direct catalog disabled — GroupID unresolved",
-      diag,
+      note: "MINIMAX_API_KEY missing on Vercel — direct catalog disabled",
     });
   }
 
-  const cloned = await fetchClonedVoices();
+  const cloned = groupId ? await fetchClonedVoices() : [];
   const voices: MinimaxVoice[] = [];
   const families: Array<{ slug: string; family: string; label: string }> = [
     { slug: "speech-02-turbo", family: "minimax-turbo", label: "Turbo" },
