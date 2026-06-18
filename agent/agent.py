@@ -3197,6 +3197,24 @@ async def entrypoint(ctx: JobContext) -> None:
         template_vars.setdefault("agent_name", axon.name)
     instructions = render_template(instructions, template_vars)
     greeting = render_template(greeting, template_vars)
+    # Safety net (Wati 18/06): never let a raw {{placeholder}} reach the
+    # caller. render_template intentionally leaves unknown tokens visible so
+    # missing campaign data is loud in logs — but on a test call placed
+    # without a firstname that meant the agent literally said
+    # "Hi, am I speaking with {{firstname}}?", which sounds broken. Strip any
+    # unresolved token from the spoken greeting and tidy the leftover spacing
+    # / punctuation so the line stays natural. (The proper fix for real calls
+    # is still to pass the name; this only guards the no-name case.)
+    if "{{" in greeting:
+        clog.warning(
+            "[call_id=%s] greeting had unresolved placeholders — stripping for the caller "
+            "(pass firstname to avoid this)", call_id,
+        )
+        greeting = re.sub(r"\s*\{\{[^}]*\}\}", "", greeting)
+        greeting = re.sub(r"\s{2,}", " ", greeting)
+        greeting = greeting.replace(" ?", "?").replace(" .", ".").replace(" ,", ",").strip()
+        # "Hi, am I speaking with?" → natural professional fallback.
+        greeting = re.sub(r"\bwith\s*\?", "with the right person?", greeting, flags=re.IGNORECASE)
     if template_vars:
         clog.info(
             "[call_id=%s] template vars resolved (%d keys: %s)",
@@ -3477,46 +3495,38 @@ async def entrypoint(ctx: JobContext) -> None:
         s.strip() for s in os.getenv("GREETING_ON_ANSWER_CAMPAIGN_IDS", "").split(",") if s.strip()
     }
     # Wati 18/06 — outbound shortcut ("Make outbound call" via
-    # /api/outbound-call → room "out-<call_id>") now uses SPEECH-FIRST, NOT
-    # on-answer. ROOT CAUSE of the 2-week silent-call saga (research 18/06):
-    # on real outbound SIP, sip.callStatus flips to "active" BEFORE the RTP
-    # media path is actually carrying audio (LiveKit livekit#3841, closed
-    # "won't fix" — must be designed around). Speaking the greeting at that
-    # moment plays it into a dead leg: TTS succeeds, say() returns, but the
-    # callee hears nothing AND no inbound audio is transcribed (stt_secs=0),
-    # so the idle watchdog hangs up as "voicemail". This is the exact open
-    # bug livekit/livekit#4378 ("say() audio not heard by callee despite
-    # successful TTS; once the callee speaks first, all subsequent responses
-    # are heard perfectly"). LiveKit's OWN outbound guide prescribes the fix:
-    # wait for the user to speak first — the caller's "hello" establishes the
-    # media path, then the greeting is heard. Campaigns already default to
-    # speech-first (which is why prod leads work); the outbound shortcut was
-    # the one path forcing on-answer, hence the only one that failed.
+    # /api/outbound-call → room "out-<call_id>") uses ON-ANSWER: the agent
+    # greets the INSTANT the callee picks up, like Retell — no waiting, no
+    # dead air at pickup.
+    #
+    # History (important — don't re-flip this without reading): for two weeks
+    # the greeting was SILENT in on-answer mode. The cause was NOT the greeting
+    # timing — it was that /api/outbound-call brought the PSTN leg in at the
+    # same instant it dispatched the agent, so the callee connected before the
+    # agent was in the room publishing audio. The media path was never warm, so
+    # the greeting (and all audio) was lost (livekit#4378). The real fix landed
+    # in /api/outbound-call: "Agent First" sequencing — dispatch the agent and
+    # WAIT until it's in the room with audio armed BEFORE createSipParticipant
+    # (mirrors the production dialer). With a warm room, speaking immediately on
+    # pickup IS heard. A brief speech-first detour was tried in between but it
+    # produced ~13s of pickup silence (agent waited for the caller's "hello",
+    # which STT detected ~9s late) — exactly the unprofessional dead air we're
+    # eliminating. So: on-answer + warm room = immediate, audible greeting.
     _outbound_shortcut = bool(
         _room_name and _room_name.startswith("out-") and not campaign_id
     )
     greet_on_answer = (
         campaign_tuning.get("greeting_mode") == "on_answer"
         or (campaign_id is not None and str(campaign_id) in _env_on_answer_ids)
+        or _outbound_shortcut
     )
     if greet_on_answer:
         clog.info(
             "greeting mode: ON-ANSWER (campaign=%s outbound_shortcut=%s)",
             campaign_id, _outbound_shortcut,
         )
-    elif _outbound_shortcut:
-        clog.info("greeting mode: SPEECH-FIRST (outbound shortcut — media-ready gate)")
 
-    # Speech-first fallback wait. For the outbound shortcut we WANT to wait
-    # for the caller's "hello" (it establishes the media path — see the
-    # greet_on_answer note above), but not the 45s default: if the line is
-    # genuinely silent we still want to speak first within a reasonable
-    # window. 12s is long enough to let a normal pickup say "hello" first,
-    # short enough that a silent line isn't dead for 45s. Campaign calls keep
-    # their own greeting_wait_secs (or the 45s env default).
     _greeting_wait = campaign_tuning.get("greeting_wait_secs")
-    if _greeting_wait is None and _outbound_shortcut and not greet_on_answer:
-        _greeting_wait = float(os.getenv("OUTBOUND_GREETING_WAIT_SECONDS", "12.0"))
 
     # Phrase d'intro scriptée (latence) — rendue avec les mêmes variables que
     # le greeting ({first_name}, etc.). Vide si la campagne ne la définit pas.
