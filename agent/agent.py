@@ -27,7 +27,7 @@ from typing import Optional
 
 from dotenv import load_dotenv
 from livekit import agents
-from livekit.agents import Agent, AgentSession, JobContext, WorkerOptions, cli
+from livekit.agents import Agent, AgentSession, AutoSubscribe, JobContext, WorkerOptions, cli
 from livekit.agents.voice.background_audio import (
     AudioConfig,
     BackgroundAudioPlayer,
@@ -2584,6 +2584,67 @@ def _install_call_hygiene(
     )
 
 
+def _wire_track_diagnostics(ctx: JobContext, clog) -> None:
+    """Log inbound-audio track lifecycle so we can tell, in ONE test call,
+    whether the caller's audio actually reaches the agent.
+
+    Wati 18/06 — the puzzle: agent speaks fine but stt_secs=0.0 and zero STT
+    transcripts, yet the caller's audio is clearly present in LiveKit's
+    session recording. Two very different root causes produce that symptom:
+      (a) the agent never SUBSCRIBES to the caller's audio track (Agent-First
+          race — track publishes after RoomInput links), or
+      (b) the agent subscribes fine but the frames never reach AssemblyAI
+          (sample-rate / STT-node issue).
+    These lines disambiguate: if we see "track_subscribed kind=audio" for the
+    SIP participant, cause (a) is ruled out and it's (b). If we DON'T, it's (a).
+    """
+    room = getattr(ctx, "room", None)
+    if room is None:
+        return
+
+    def _is_sip(participant) -> bool:
+        try:
+            attrs = dict(getattr(participant, "attributes", None) or {})
+            ident = str(getattr(participant, "identity", "") or "")
+            return ident.startswith("pstn-") or any(
+                str(k).startswith("sip.") for k in attrs.keys()
+            )
+        except Exception:
+            return False
+
+    def _on_subscribed(track, publication, participant):
+        try:
+            clog.info(
+                "audio-path: track_subscribed kind=%s source=%s from identity=%s (sip=%s)",
+                getattr(track, "kind", "?"),
+                getattr(publication, "source", "?"),
+                getattr(participant, "identity", "?"),
+                _is_sip(participant),
+            )
+        except Exception:
+            clog.debug("track_subscribed log failed", exc_info=True)
+
+    def _on_published(publication, participant):
+        try:
+            clog.info(
+                "audio-path: track_published kind=%s from identity=%s (sip=%s) — awaiting subscribe",
+                getattr(publication, "kind", "?"),
+                getattr(participant, "identity", "?"),
+                _is_sip(participant),
+            )
+        except Exception:
+            clog.debug("track_published log failed", exc_info=True)
+
+    for ev_name, fn in (
+        ("track_subscribed", _on_subscribed),
+        ("track_published", _on_published),
+    ):
+        try:
+            room.on(ev_name, fn)
+        except Exception:
+            clog.debug("room.on(%s) unavailable", ev_name)
+
+
 def _wire_debug_logs(session: AgentSession, clog) -> None:
     """Log every STT transcript and every assistant turn — runs for ALL sessions,
     not just calls with a call_id. Helps diagnose silent LLM/TTS failures."""
@@ -2916,7 +2977,22 @@ async def entrypoint(ctx: JobContext) -> None:
             pass
         return
 
-    await ctx.connect()
+    # Wati 18/06 — explicit SUBSCRIBE_ALL.
+    # Symptom we're chasing: outbound calls where the agent SPEAKS fine but
+    # hears nothing (stt_secs=0.0, zero STT transcripts) even though the
+    # caller's audio is visibly present in LiveKit's session recording. The
+    # "Agent First" sequencing means the agent joins the room and links its
+    # RoomInput to the SIP participant WHILE that participant is still
+    # 'dialing' — i.e. before it has published its audio track. If the room
+    # isn't explicitly subscribing to all tracks, the audio track that
+    # publishes a beat later (callStatus→active) can go unsubscribed, so its
+    # frames never reach the STT node. Forcing SUBSCRIBE_ALL guarantees the
+    # late-published inbound track is subscribed the moment it appears.
+    try:
+        await ctx.connect(auto_subscribe=AutoSubscribe.SUBSCRIBE_ALL)
+    except TypeError:
+        # Older/newer signature without the kwarg — fall back to default.
+        await ctx.connect()
 
     # Flow runtime path — if room metadata carries flow_id, drive the IVR
     # state machine instead of running a single-agent persona.
@@ -2924,6 +3000,10 @@ async def entrypoint(ctx: JobContext) -> None:
     call_id = call_id_from_metadata(ctx.room.metadata)
     # Per-call logger: every line carries [call_id=…] for traceability.
     clog = _logger_for_call(call_id)
+    # Audio-path diagnostics: logs when the caller's inbound audio track is
+    # published/subscribed, so a single test call tells us whether the agent
+    # actually receives the caller's audio (see _wire_track_diagnostics).
+    _wire_track_diagnostics(ctx, clog)
     if flow_id:
         clog.info("flow_id=%s detected — booting FlowRuntime", flow_id)
         runtime = FlowRuntime(call_id=call_id)
