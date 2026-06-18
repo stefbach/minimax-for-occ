@@ -3274,6 +3274,16 @@ async def entrypoint(ctx: JobContext) -> None:
         if not _tun_sr and _room_name and _room_name.startswith(("out-", "tel-", "in-")):
             _tun_sr = 8000
             clog.info("auto-telephony: forcing tts_sample_rate=8000 for room=%s", _room_name)
+        # Also detect SIP participant by attributes, in case the room name
+        # doesn't match the pattern (e.g. simulation mode with SIP participant).
+        if not _tun_sr and participant is not None:
+            has_sip_attrs = any(
+                str(k).startswith("sip.")
+                for k in (getattr(participant, "attributes", None) or {}).keys()
+            )
+            if has_sip_attrs:
+                _tun_sr = 8000
+                clog.info("auto-telephony: detected SIP participant — forcing tts_sample_rate=8000")
         _tts = _tts_for(axon, sample_rate=int(_tun_sr) if _tun_sr else None)
     except Exception:
         clog.exception("BUILD FAILED: TTS (Cartesia). Check CARTESIA_API_KEY on Fly.")
