@@ -1317,15 +1317,23 @@ class AxonVoiceAgent(Agent):
                     "greeting: say() interrupted after %.2fs (likely hangup)",
                     _t.monotonic() - _b,
                 )
-            # Wati 16/06 — DON'T arm the opener-response budget in on-answer
-            # mode. The agent has ALREADY greeted at pickup; re-greeting on
-            # every "Hello?" replays the same canned line and feels like the
-            # agent is shouting it. The opener-budget pattern only makes sense
-            # in speech-first mode where the patient's "Hello?" IS the trigger
-            # for the first greeting. Here, we let the LLM handle the user's
-            # "Hello?" naturally (it'll just say "Yes, hi — am I speaking with
-            # Summer?" or similar) without canned re-greets.
-            self._opener_replies_left = 0
+            # Wati 18/06 — ARM the opener-response budget in on-answer mode too.
+            # History: it used to be 0 here, on the theory that the agent had
+            # ALREADY greeted at pickup so any "Hello?" came from someone who
+            # DID hear it. Real outbound calls disproved that: the carrier's
+            # early-answer / ringback connects the callee's audio a beat AFTER
+            # sip.callStatus flips to "active", so the greeting routinely plays
+            # into a dead leg and the patient hears NOTHING. They then say
+            # "Hello?" — and with the budget at 0 that bare opener fell straight
+            # through to the LLM, which improvised generic assistant-speak
+            # ("I just wanted to confirm the identity. How can I assist you
+            # today?") — absurd on a call WE placed. Arming the budget makes a
+            # bare opener re-fire the identity question (politely varied via
+            # _say_regreet prefixes) instead. _BARE_OPENER_RE only matches pure
+            # openers (hello/hi/hey/who's this), so a real "Yes" / substantive
+            # answer from someone who DID hear the greeting still goes to the
+            # LLM — no double-greeting for them.
+            self._opener_replies_left = 2
             return
 
         if sp is not None:
