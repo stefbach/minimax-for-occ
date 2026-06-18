@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Optional
 
 import httpx
@@ -55,6 +55,14 @@ class AxonAgent:
     tts_speaker_boost: Optional[bool] = None
     tts_language: Optional[str] = None
     tts_english_normalization: Optional[bool] = None
+    # Free-form per-agent JSON (agents.metadata). Used to carry call-tuning
+    # overrides (latency/STT/turn-detection) on a single agent — e.g. the test
+    # agent — without needing a campaign. Read by the worker as a fallback layer
+    # under campaigns.metadata so an agent can be tuned in isolation.
+    #   metadata.call_tuning = { "stt_provider": "...", "min_turn_silence": 60,
+    #                            "max_turn_silence": 280, "eot_threshold": 0.3,
+    #                            "min_endpointing_delay": 0.35, ... }
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 DEFAULT_PROMPT = (
@@ -194,6 +202,7 @@ def load_agent(agent_id: str) -> Optional[AxonAgent]:
         tts_speaker_boost=(bool(a["tts_speaker_boost"]) if a.get("tts_speaker_boost") is not None else None),
         tts_language=(a.get("tts_language") or None),
         tts_english_normalization=(bool(a["tts_english_normalization"]) if a.get("tts_english_normalization") is not None else None),
+        metadata=(a.get("metadata") if isinstance(a.get("metadata"), dict) else {}),
     )
 
 

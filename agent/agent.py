@@ -379,7 +379,7 @@ def _build_llm_with_max_tokens(cls, max_tokens: int, **kwargs):
     return cls(**kwargs)
 
 
-def _stt_for(agent: Optional[AxonAgent]) -> assemblyai.STT:
+def _stt_for(agent: Optional[AxonAgent], tuning: Optional[dict] = None) -> assemblyai.STT:
     """AssemblyAI Universal Streaming STT — honors the per-agent language.
 
     Replaced Deepgram nova-3: AssemblyAI Universal Streaming targets
@@ -397,6 +397,32 @@ def _stt_for(agent: Optional[AxonAgent]) -> assemblyai.STT:
         250ms is aggressive but paired with quick-ack prompt trick.
     """
     import inspect
+
+    # Per-agent / per-campaign endpointing override (tuning) takes precedence
+    # over the global env default, which itself overrides the hard-coded value.
+    # Lets the TEST agent push end-of-turn detection faster (lower STT-delay /
+    # EOU) without touching prod, which carries no such tuning. CAREFUL: lower
+    # silence thresholds reduce latency but raise the risk of cutting a patient
+    # off mid-sentence.
+    _t = tuning or {}
+
+    def _tune_int(key: str, env: str, default: int) -> int:
+        v = _t.get(key)
+        if v is not None:
+            try:
+                return int(v)
+            except (TypeError, ValueError):
+                pass
+        return int(os.getenv(env, str(default)))
+
+    def _tune_float(key: str, env: str, default: float) -> float:
+        v = _t.get(key)
+        if v is not None:
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                pass
+        return float(os.getenv(env, str(default)))
 
     lang = (agent.language if agent and agent.language else "multi").lower()
     # Default: u3-rt-pro is AssemblyAI's lowest-latency real-time model and
@@ -422,10 +448,10 @@ def _stt_for(agent: Optional[AxonAgent]) -> assemblyai.STT:
         "base_url": os.getenv(
             "ASSEMBLYAI_BASE_URL", "wss://streaming.eu.assemblyai.com"
         ),
-        "end_of_turn_confidence_threshold": float(
-            os.getenv("ASSEMBLYAI_EOT_THRESHOLD", "0.3")
+        "end_of_turn_confidence_threshold": _tune_float(
+            "eot_threshold", "ASSEMBLYAI_EOT_THRESHOLD", 0.3
         ),
-        "min_turn_silence": int(os.getenv("ASSEMBLYAI_MIN_TURN_SILENCE", "100")),
+        "min_turn_silence": _tune_int("min_turn_silence", "ASSEMBLYAI_MIN_TURN_SILENCE", 100),
         # Skip the formatted-final pass (punctuation/casing). It adds ~1s of
         # end-of-turn latency for zero benefit — the LLM reads raw text fine.
         # Override with ASSEMBLYAI_FORMAT_TURNS=true if a clean transcript is
@@ -434,13 +460,15 @@ def _stt_for(agent: Optional[AxonAgent]) -> assemblyai.STT:
         in ("1", "true", "yes"),
         # Hard cap on how long AssemblyAI may wait before forcing a turn end,
         # even when it isn't fully confident. Bounds worst-case STT-delay.
-        "max_turn_silence": int(os.getenv("ASSEMBLYAI_MAX_TURN_SILENCE", "400")),
+        "max_turn_silence": _tune_int("max_turn_silence", "ASSEMBLYAI_MAX_TURN_SILENCE", 400),
     }
     # u3-rt-pro exclusives: continuous_partials + interruption_delay improve
     # responsiveness (faster commit on short answers + lower barge-in cost).
     if model == "u3-rt-pro":
         candidate["continuous_partials"] = True
-        candidate["interruption_delay"] = int(os.getenv("ASSEMBLYAI_INTERRUPTION_DELAY", "200"))
+        candidate["interruption_delay"] = _tune_int(
+            "interruption_delay", "ASSEMBLYAI_INTERRUPTION_DELAY", 200
+        )
     api_key = os.getenv("ASSEMBLYAI_API_KEY")
     if api_key:
         candidate["api_key"] = api_key
@@ -3168,8 +3196,21 @@ async def entrypoint(ctx: JobContext) -> None:
         _load(_load_campaign_call_tuning, campaign_id),
     )
     campaign_tuning = campaign_tuning or {}
+    # Per-AGENT call-tuning fallback (agents.metadata.call_tuning). Lets a single
+    # agent — e.g. the TEST agent on outbound shortcut calls where campaign=None —
+    # carry latency/STT/turn-detection overrides without a campaign. Campaign
+    # tuning still wins on any key both set. Prod agents carry no such metadata,
+    # so this layer is a no-op for them (zero behaviour change).
+    _agent_tuning: dict = {}
+    if axon is not None and isinstance(getattr(axon, "metadata", None), dict):
+        _ct = axon.metadata.get("call_tuning")
+        if isinstance(_ct, dict):
+            _agent_tuning = _ct
+    if _agent_tuning:
+        campaign_tuning = {**_agent_tuning, **campaign_tuning}
+        clog.info("agent-level call-tuning merged (agents.metadata.call_tuning): %s", _agent_tuning)
     if campaign_tuning:
-        clog.info("campaign call-tuning: %s", campaign_tuning)
+        clog.info("effective call-tuning: %s", campaign_tuning)
     # Per-campaign LLM override — only applied when the matching API key is
     # present on the worker, so a typo'd provider can't kill a whole slot.
     _tun_provider = str(campaign_tuning.get("llm_provider") or "").lower()
@@ -3363,7 +3404,7 @@ async def entrypoint(ctx: JobContext) -> None:
             _stt = None
     if _stt is None:
         try:
-            _stt = _stt_for(axon)
+            _stt = _stt_for(axon, tuning=campaign_tuning)
         except Exception:
             clog.exception("BUILD FAILED: STT (AssemblyAI). Check ASSEMBLYAI_API_KEY on Fly.")
             raise
