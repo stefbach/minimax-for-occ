@@ -14,6 +14,7 @@ import {
   type NhsReportKey,
   type NhsReportPatient,
 } from "@/lib/nhs-report";
+import { MyNhsAssignmentsCard } from "./MyNhsAssignmentsCard";
 
 // Clones the OCC demo's "Suivi patient NHS S2" panel in Axon's theme.
 // Visible only for orgs where the feature flag is on (see DashboardClient).
@@ -431,7 +432,12 @@ export function NhsSuiviTab() {
         )}
       </div>
 
-      {/* Files coordinateurs — mêmes 3 files que le dashboard legacy. */}
+      {/* "My assignments" — visible only to flagged coordinators (or anyone
+          who currently has open assignments). Clicking a row opens the same
+          patient detail the queue cards do, so the action surface is identical. */}
+      <MyNhsAssignmentsCard onOpenPatient={(id) => setView({ name: "detail", id, from: "all" })} />
+
+      {/* Files coordinateurs — driven by users.is_nhs_coordinator. */}
       <div>
         <h3 style={{ margin: "0 0 10px", fontSize: 13, textTransform: "uppercase", letterSpacing: 0.5 }} className="muted">
           👥 {t("Files coordinateurs")}
