@@ -3179,7 +3179,15 @@ async def entrypoint(ctx: JobContext) -> None:
     # blob of variables via participant attributes instead of going through a
     # campaign target row. These override anything from the target (so a
     # tester can poke specific values without touching the DB).
-    sim_raw = p_attrs.get("simulation_vars")
+    #
+    # KEY MISMATCH BUG (Wati 18/06): the browser sim (/api/token) sets the bare
+    # attribute `simulation_vars`, but the outbound phone path
+    # (/api/outbound-call) forwards it as `axon.simulation_vars` — the SIP
+    # convention for custom attributes. The worker only read the bare key, so a
+    # "Make outbound call" with a firstname filled in still rendered
+    # "{{firstname}}" because the name was sitting under the axon.* key the
+    # whole time. Read BOTH so the name lands whichever path placed the call.
+    sim_raw = p_attrs.get("simulation_vars") or p_attrs.get("axon.simulation_vars")
     if sim_raw:
         try:
             import json as _json_sim
