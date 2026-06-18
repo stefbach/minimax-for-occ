@@ -62,12 +62,34 @@ export async function POST(req: Request) {
     trigger?: unknown;
     steps?: unknown;
     active?: boolean;
+    agent_id?: string | null;
+    approval_mode?: string | null;
   } | null;
   if (!body?.name || !body.trigger || !Array.isArray(body.steps)) {
     return NextResponse.json({ error: "name, trigger, steps required" }, { status: 400 });
   }
 
   const admin = supabaseServer();
+
+  // If a management agent is bound, verify it belongs to this org and is a
+  // management agent (telephony agents must not drive workflows).
+  let agentId: string | null = null;
+  if (body.agent_id) {
+    const { data: ag } = await admin
+      .from("agents")
+      .select("id, purpose")
+      .eq("id", body.agent_id)
+      .eq("org_id", orgId)
+      .maybeSingle();
+    if (!ag) return NextResponse.json({ error: "agent introuvable" }, { status: 400 });
+    if ((ag as { purpose?: string }).purpose !== "management") {
+      return NextResponse.json({ error: "l'agent lié doit être un agent de gestion" }, { status: 400 });
+    }
+    agentId = ag.id as string;
+  }
+
+  const approvalMode = body.approval_mode === "review" ? "review" : "auto";
+
   const { data, error } = await admin
     .from("org_workflows")
     .insert({
@@ -77,6 +99,8 @@ export async function POST(req: Request) {
       trigger: body.trigger,
       steps: body.steps,
       active: body.active ?? false,
+      agent_id: agentId,
+      approval_mode: approvalMode,
     })
     .select("id, name, active")
     .single();
