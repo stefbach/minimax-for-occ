@@ -15,9 +15,9 @@ interface ChatContext {
   org_category?: string | null;
 }
 
-// Shared with the client panel: the directives the assistant drafts for the
-// management agent it's helping configure.
-export const directivesProposalSchema = z.object({
+// The directives the assistant drafts for the management agent it's helping
+// configure. Local to this route — Next.js rejects non-route exports here.
+const directivesProposalSchema = z.object({
   system_prompt: z
     .string()
     .min(20)
