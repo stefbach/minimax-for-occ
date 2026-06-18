@@ -2296,7 +2296,7 @@ function PatientFullProfile({ contactId }: { contactId: string }) {
       })
       .catch(() => alive && setLoading(false));
     return () => { alive = false; };
-  }, [leadId]);
+  }, [contactId]);
 
   if (loading) return <div className="card" style={{ padding: "12px 16px" }}><p className="muted" style={{ fontSize: 12, margin: 0 }}>{t("Chargement…")}</p></div>;
   if (!row) return null;
