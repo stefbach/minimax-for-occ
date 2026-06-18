@@ -301,22 +301,26 @@ def _llm_for(agent: Optional[AxonAgent], _force_direct: bool = False):
             pass
         _caching_pref = os.getenv("ANTHROPIC_PROMPT_CACHING", _caching_pref).lower()
         _use_caching = _caching_pref not in ("off", "none", "false", "0", "disabled", "")
-        # Prefer LiveKit Inference (colocalized) for Claude too: on a real call,
-        # Claude direct to api.anthropic.com measured ~2000ms TTFT from the EU
-        # vs ~500ms for OpenAI via Inference. Same model, served next to the
-        # media servers. Catalog ids drop the date suffix
-        # (claude-haiku-4-5-20251001 -> anthropic/claude-haiku-4-5). Skipped when
-        # _force_direct (the resilient fallback wants the direct API). A wrong
-        # catalog id surfaces at runtime and is caught by the FallbackAdapter,
-        # which retries the same turn on the direct Anthropic API.
-        if not _force_direct and os.getenv("LLM_USE_INFERENCE", "true").lower() in ("1", "true", "yes"):
-            _inf_model = anth_model
-            _p = anth_model.rsplit("-", 1)
-            if len(_p) == 2 and _p[1].isdigit() and len(_p[1]) == 8:
-                _inf_model = _p[0]
+        # OPT-IN LiveKit Inference for Claude. We tried auto-routing via
+        # "anthropic/<model>" but the LiveKit catalog id is NOT that — it 404s
+        # ("Error getting model definition") and every turn wastefully fails over
+        # to the direct API (orange error band in the console). So we only use
+        # the Inference path when an EXACT catalog id is supplied, via
+        # agents.metadata.call_tuning.anthropic_inference_model or env
+        # ANTHROPIC_INFERENCE_MODEL. With no override → direct Anthropic API
+        # (clean, ~2s TTFT, no 404s). Skipped entirely when _force_direct.
+        _inf_override = None
+        try:
+            if agent is not None and isinstance(getattr(agent, "metadata", None), dict):
+                _ct2 = agent.metadata.get("call_tuning") or {}
+                _inf_override = _ct2.get("anthropic_inference_model")
+        except Exception:
+            _inf_override = None
+        _inf_override = os.getenv("ANTHROPIC_INFERENCE_MODEL", _inf_override or "") or None
+        if not _force_direct and _inf_override:
             try:
                 from livekit.agents import inference as _lk_inf
-                lk_model = f"anthropic/{_inf_model}"
+                lk_model = str(_inf_override)
                 logger.info("LLM=anthropic via livekit-inference model=%s max_tokens=%d", lk_model, max_tokens)
                 return _build_llm_with_max_tokens(_lk_inf.LLM, max_tokens, model=lk_model)
             except ImportError:
