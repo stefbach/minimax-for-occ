@@ -10,7 +10,8 @@ export const maxDuration = 60;
 const ALLOWED_ROLES = new Set(["super_admin", "owner", "admin", "manager"]);
 const ALLOWED_TYPES: ReportType[] = [
   "pilotage_hebdo",
-  // v2: bilan_mensuel, perf_par_agent, funnel_campagne, nhs_s2
+  "bilan_mensuel",
+  // v2: perf_par_agent, funnel_campagne, nhs_s2
 ];
 
 interface RequestBody {
@@ -19,6 +20,7 @@ interface RequestBody {
   from?: string;
   /** ISO to (UTC). Exclusive. */
   to?: string;
+  lang?: "fr" | "en";
 }
 
 function defaultWeekPeriod(): ReportPeriod {
@@ -64,6 +66,8 @@ export async function POST(req: Request): Promise<NextResponse<ReportPayload | {
     return NextResponse.json({ error: `template not available yet: ${type}` }, { status: 400 });
   }
 
+  const lang = body.lang ?? "fr";
+
   let period: ReportPeriod;
   if (body.from && body.to) {
     const fromDate = new Date(body.from);
@@ -81,7 +85,10 @@ export async function POST(req: Request): Promise<NextResponse<ReportPayload | {
     let payload: ReportPayload;
     switch (type) {
       case "pilotage_hebdo":
-        payload = await buildPilotageHebdo({ orgId, period });
+        payload = await buildPilotageHebdo({ orgId, period, lang });
+        break;
+      case "bilan_mensuel":
+        payload = await buildPilotageHebdo({ orgId, period, lang, type: "bilan_mensuel" });
         break;
       default:
         return NextResponse.json({ error: "not implemented" }, { status: 501 });

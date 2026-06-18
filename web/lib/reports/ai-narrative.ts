@@ -3,8 +3,8 @@
  *
  * We give DeepSeek v4-flash the raw aggregates and ask it to write the lead
  * paragraph, the three exec messages (good / warn / info), the vigilance
- * flags and one-line recommendations — in French, in the same crisp tone
- * as the NHS pilotage report Wati uses as a reference.
+ * flags and one-line recommendations — in French (or English), in the same
+ * crisp tone as the NHS pilotage report Wati uses as a reference.
  *
  * Strict JSON output (response_format json_object) so we never have to parse
  * prose. On failure we return a deterministic fallback so the report still
@@ -13,7 +13,6 @@
 
 import type {
   CallAggregates,
-  LeadActionRow,
 } from "./data";
 import type { ExecMessage, VigilanceFlag } from "./types";
 
@@ -28,7 +27,7 @@ export interface NarrativeOutput {
   methodNote: string;
 }
 
-interface NarrativeContext {
+export interface NarrativeContext {
   reportTitle: string;
   periodLabel: string;
   agg: CallAggregates;
@@ -36,15 +35,26 @@ interface NarrativeContext {
   overDialed: number;
   /** Sample of names the AI can cite (top 5). */
   topCallbackNames: string[];
+  lang?: "fr" | "en";
 }
 
-const SYSTEM_PROMPT = [
-  "Tu rédiges les sections narratives d'un rapport de pilotage opérationnel",
-  "pour un centre d'appels santé (Obesity Care Clinic). Ton : factuel, dense,",
-  "francais soutenu, phrases courtes. Pas de mots vagues. Pas d'emoji. Cite",
-  "des chiffres exacts quand ils sont fournis. Réponds UNIQUEMENT en JSON",
-  "strict, conforme au schéma fourni.",
-].join(" ");
+function buildSystemPrompt(lang?: "fr" | "en"): string {
+  if (lang === "en") {
+    return [
+      "You write the narrative sections of an operational management report",
+      "for a health call centre (Obesity Care Clinic). Tone: factual, dense, formal English, short sentences.",
+      "No vague words. No emoji. Cite exact figures when provided. Reply ONLY in strict",
+      "JSON conforming to the provided schema.",
+    ].join(" ");
+  }
+  return [
+    "Tu rédiges les sections narratives d'un rapport de pilotage opérationnel",
+    "pour un centre d'appels santé (Obesity Care Clinic). Ton : factuel, dense,",
+    "francais soutenu, phrases courtes. Pas de mots vagues. Pas d'emoji. Cite",
+    "des chiffres exacts quand ils sont fournis. Réponds UNIQUEMENT en JSON",
+    "strict, conforme au schéma fourni.",
+  ].join(" ");
+}
 
 const RESPONSE_SCHEMA = {
   type: "object",
@@ -101,7 +111,8 @@ function buildUserPrompt(ctx: NarrativeContext): string {
       : 0;
   const sampleNames = ctx.topCallbackNames.slice(0, 5).join(", ") || "—";
 
-  return [
+  const lines = [
+    ...(ctx.lang === "en" ? ["Output language: English", ""] : []),
     `Rapport demandé : "${ctx.reportTitle}" · Période : ${ctx.periodLabel}`,
     "",
     "DONNÉES OBSERVÉES (ne pas inventer) :",
@@ -130,7 +141,9 @@ function buildUserPrompt(ctx: NarrativeContext): string {
     "2. execMessages : 3 messages factuels — un 'good' (succès), un 'warn' (goulot), un 'info' (point d'attention récupérable).",
     "3. vigilance : 2 à 4 alertes — anomalies à corriger (taux décroché bas? sur-appel? cadence? coût?).",
     "4. methodNote : 2-3 phrases sur la méthode de calcul et les hypothèses.",
-  ].join("\n");
+  ];
+
+  return lines.join("\n");
 }
 
 export async function generateNarrative(ctx: NarrativeContext): Promise<NarrativeOutput> {
@@ -149,7 +162,7 @@ export async function generateNarrative(ctx: NarrativeContext): Promise<Narrativ
         temperature: 0.2,
         response_format: { type: "json_object" },
         messages: [
-          { role: "system", content: SYSTEM_PROMPT },
+          { role: "system", content: buildSystemPrompt(ctx.lang) },
           {
             role: "user",
             content: [
@@ -190,6 +203,54 @@ function fallbackNarrative(ctx: NarrativeContext): NarrativeOutput {
     a.answered > 0
       ? Math.round((100 * (a.rappel + a.rdvConfirme + a.passerHumain)) / a.answered)
       : 0;
+
+  if (ctx.lang === "en") {
+    return {
+      synthese:
+        `Over the period ${ctx.periodLabel}, ${a.total} calls were made. ` +
+        `The answer rate was ${pctDecroche}% and productive qualification (CALLBACK + APPT + human) reached ` +
+        `${pctProductif}% of answered calls. ` +
+        `The active callback pipeline contains ${ctx.callbacksDue} overdue entries.`,
+      execMessages: [
+        {
+          tone: "good",
+          heading: "What's working",
+          big: `${a.rdvConfirme + a.passerHumain}`,
+          body: `${a.rdvConfirme} confirmed appointments and ${a.passerHumain} cases transferred to a human agent — productive conversion is measurable.`,
+        },
+        {
+          tone: "warn",
+          heading: "The bottleneck",
+          big: `${ctx.callbacksDue}`,
+          body: `Overdue callbacks pending action. Without an active cadence, they degrade conversion.`,
+        },
+        {
+          tone: "info",
+          heading: "Watch point",
+          big: `${pctDecroche}%`,
+          body: `Answer rate. Compare against the best-performing hourly slots to re-optimise scheduling.`,
+        },
+      ],
+      vigilance: [
+        ...(ctx.overDialed > 0 ? [{
+          tone: "warn" as const,
+          heading: "Over-dialled leads without qualification",
+          body: `${ctx.overDialed} contacts have 8+ attempts without result. Risk of complaint and carrier flagging.`,
+          fix: "Auto-switch to PAS INTERESSE after N attempts.",
+        }] : []),
+        ...(a.withRecording < a.answered * 0.5 && a.answered > 5 ? [{
+          tone: "info" as const,
+          heading: "Audio missing on most calls",
+          body: `${a.withRecording} recordings out of ${a.answered} answered calls. Cuts quality audit and listening review.`,
+          fix: "Check Twilio SIP trunk config (RecordingStatusCallback).",
+        }] : []),
+      ],
+      methodNote:
+        `Period ${ctx.periodLabel}. Counters read directly from the calls table (org_id). ` +
+        `Qualifications are sourced from calls.metadata.qualification written by the agent or auto-inferred at end of call.`,
+    };
+  }
+
   return {
     synthese:
       `Sur la période ${ctx.periodLabel}, ${a.total} appels ont été passés. ` +

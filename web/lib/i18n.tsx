@@ -358,6 +358,16 @@ const EN: Record<string, string> = {
   "Instruction en cours": "Under review",
   "Dossiers approuvés": "Files approved",
   "Dossiers refusés": "Files rejected",
+  // ── PatientFullProfile section titles ──
+  "Identité": "Identity",
+  "Suivi": "Tracking",
+  "Clinique": "Clinical",
+  "NHS / Documents": "NHS / Documents",
+  "Cadence": "Cadence",
+  "Notes & Source": "Notes & Source",
+  "Autres champs": "Other fields",
+  "Derniers appels": "Recent calls",
+  "✓ Enregistré": "✓ Saved",
   // ── Team page ──
   "Équipe": "Team",
   "Gérez les utilisateurs de votre organisation, leurs rôles et leurs accès.":
@@ -710,8 +720,11 @@ const EN: Record<string, string> = {
   "Dossier préparé": "Dossier prepared",
   "Soumis au NHS": "Submitted to NHS",
   "En examen NHS": "Under NHS review",
+  "Approuvé": "Approved",
   "Opération planifiée": "Surgery scheduled",
   "Opéré": "Operated",
+  "Approuvé & Opéré": "Approved & Operated",
+  "Approuvé — opération planifiée": "Approved — surgery scheduled",
   "Situation actuelle": "Current situation",
   "Détails de la soumission NHS": "NHS submission details",
   "Catégorie": "Category",
