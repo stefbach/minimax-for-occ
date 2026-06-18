@@ -3582,37 +3582,43 @@ async def entrypoint(ctx: JobContext) -> None:
     _env_on_answer_ids = {
         s.strip() for s in os.getenv("GREETING_ON_ANSWER_CAMPAIGN_IDS", "").split(",") if s.strip()
     }
-    # Wati 18/06 — outbound shortcut ("Make outbound call" via
-    # /api/outbound-call → room "out-<call_id>") uses ON-ANSWER: the agent
-    # greets the INSTANT the callee picks up, like Retell — no waiting, no
-    # dead air at pickup.
+    # Wati 18/06 — the outbound shortcut ("Make outbound call" via
+    # /api/outbound-call → room "out-<call_id>") now uses SPEECH-FIRST,
+    # exactly like the production dialer. Don't re-flip to on-answer without
+    # reading this:
     #
-    # History (important — don't re-flip this without reading): for two weeks
-    # the greeting was SILENT in on-answer mode. The cause was NOT the greeting
-    # timing — it was that /api/outbound-call brought the PSTN leg in at the
-    # same instant it dispatched the agent, so the callee connected before the
-    # agent was in the room publishing audio. The media path was never warm, so
-    # the greeting (and all audio) was lost (livekit#4378). The real fix landed
-    # in /api/outbound-call: "Agent First" sequencing — dispatch the agent and
-    # WAIT until it's in the room with audio armed BEFORE createSipParticipant
-    # (mirrors the production dialer). With a warm room, speaking immediately on
-    # pickup IS heard. A brief speech-first detour was tried in between but it
-    # produced ~13s of pickup silence (agent waited for the caller's "hello",
-    # which STT detected ~9s late) — exactly the unprofessional dead air we're
-    # eliminating. So: on-answer + warm room = immediate, audible greeting.
+    # on-answer greets the instant sip.callStatus flips to "active". On this
+    # Twilio trunk "active" fires during EARLY MEDIA (~0.2s, while the carrier
+    # still plays ringback) — NOT at the real human pickup (~12s later;
+    # confirmed by Wati hearing Twilio hold-music until 12s and the call
+    # arriving on the handset only then). So the greeting played into a
+    # dead/ringback leg every time: the callee picked up to silence, said
+    # "Hello?", which 8kHz STT misheard as "No" (conf 50.7%), and the LLM
+    # said goodbye and hung up (call 2f580644). Production NEVER hit this
+    # because it runs speech-first: it ignores the premature "active" and
+    # greets only after the callee's first real utterance — the only reliable
+    # pickup signal on a trunk that reports "active" on ringback. That also
+    # matches the Retell experience Wati described ("I pick up, say Hello,
+    # the agent answers within a second"). The earlier "13s of pickup
+    # silence" blamed on speech-first was in fact the real ring time — the
+    # callee simply hadn't answered yet; the agent was waiting correctly.
+    #
+    # on-answer remains available as an explicit opt-in (campaign metadata
+    # greeting_mode="on_answer" or GREETING_ON_ANSWER_CAMPAIGN_IDS) for
+    # trunks that DO signal a true answer — but the outbound shortcut no
+    # longer forces it.
     _outbound_shortcut = bool(
         _room_name and _room_name.startswith("out-") and not campaign_id
     )
     greet_on_answer = (
         campaign_tuning.get("greeting_mode") == "on_answer"
         or (campaign_id is not None and str(campaign_id) in _env_on_answer_ids)
-        or _outbound_shortcut
     )
-    if greet_on_answer:
-        clog.info(
-            "greeting mode: ON-ANSWER (campaign=%s outbound_shortcut=%s)",
-            campaign_id, _outbound_shortcut,
-        )
+    clog.info(
+        "greeting mode: %s (campaign=%s outbound_shortcut=%s)",
+        "ON-ANSWER" if greet_on_answer else "SPEECH-FIRST",
+        campaign_id, _outbound_shortcut,
+    )
 
     _greeting_wait = campaign_tuning.get("greeting_wait_secs")
 
