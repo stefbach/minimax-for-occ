@@ -31,6 +31,15 @@ const PROVIDER_MODELS: Record<LlmProvider, ModelOption[]> = {
   minimax: [
     { id: "MiniMax-M2", label: "MiniMax-M2 — Standard" },
   ],
+  // LiveKit Inference — le LLM est servi depuis l'infra LiveKit Cloud,
+  // colocalisé avec les serveurs média (latence réduite). Modèle au format
+  // catalogue "fournisseur/modele". Facturé via les crédits d'inférence du
+  // plan LiveKit (pas de surcoût token vs l'API directe).
+  livekit: [
+    { id: "openai/gpt-4o-mini",  label: "openai/gpt-4o-mini (LiveKit Inference) — Colocalisé, latence réduite (recommandé)" },
+    { id: "openai/gpt-4.1-mini", label: "openai/gpt-4.1-mini (LiveKit Inference) — Dernière génération" },
+    { id: "openai/gpt-4.1",      label: "openai/gpt-4.1 (LiveKit Inference) — Haute qualité" },
+  ],
 };
 
 const PROVIDER_MODEL_IDS: Record<LlmProvider, string[]> = Object.fromEntries(
@@ -525,7 +534,10 @@ export function AgentForm({ initial }: { initial?: Agent }) {
     }
   }
 
-  const llmModels = PROVIDER_MODELS[provider];
+  // Fallback to [] so an agent whose llm_provider isn't in PROVIDER_MODELS
+  // (e.g. a value added on the worker before the UI knew about it) renders the
+  // dropdown via the "(personnalisé)" option instead of crashing on .map().
+  const llmModels = PROVIDER_MODELS[provider] ?? [];
 
   // ── Voice catalog (from API + cloned in Supabase) ──────────────────────
   const customCloned = voices.filter((v) => v.source === "cloned");
@@ -1223,12 +1235,13 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                     <select value={provider} onChange={(e) => {
                       const p = e.target.value as LlmProvider;
                       setProvider(p);
-                      const first = PROVIDER_MODELS[p][0];
+                      const first = PROVIDER_MODELS[p]?.[0];
                       if (first) setModel(first.id);
                     }}>
                       <option value="deepseek">DeepSeek (recommandé)</option>
                       <option value="openai">OpenAI</option>
                       <option value="anthropic">Anthropic Claude</option>
+                      <option value="livekit">LiveKit Inference (colocalisé, latence réduite)</option>
                     </select>
                   </div>
                   <div>
