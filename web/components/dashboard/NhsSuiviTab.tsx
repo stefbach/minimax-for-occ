@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { NhsSuiviResponse } from "@/app/api/dashboard/nhs-suivi/route";
 import type { NhsPatientsResponse } from "@/app/api/dashboard/nhs-suivi/patients/route";
 import type { NhsPatientDetail } from "@/app/api/dashboard/nhs-suivi/patients/[id]/route";
+import type { ReportPatientResponse } from "@/app/api/dashboard/nhs-suivi/report-patient/route";
 import type { NhsPatient, PatientStatus } from "@/lib/nhs-patients";
 import { useT } from "@/lib/i18n";
 import {
@@ -761,6 +762,51 @@ function initialsOfName(name: string): string {
 // When Google Drive → Supabase storage migration completes, documents will be
 // linked here. Until then this view shows: header, NHS pathway stage, current
 // situation, and surgery date if scheduled.
+// Human-readable labels for each doc_field category
+const DOC_FIELD_LABEL: Record<string, string> = {
+  doc_nhs_s2_form: "NHS S2 Form",
+  doc_s2_provider_declaration: "S2 Provider Declaration",
+  doc_cpam_certificate: "CPAM Certificate",
+  doc_clinical_justification_gp: "Clinical Justification (GP)",
+  doc_medical_report: "Medical Report",
+  doc_undue_delay_letter: "Undue Delay Letter",
+  doc_patient_authorisation: "Patient Authorisation",
+  doc_identity_document: "Identity Document",
+  doc_proof_of_residence: "Proof of Residence",
+  doc_bank_statements: "Bank Statements",
+  doc_detailed_medical_estimate: "Medical Estimate",
+};
+
+const DOC_FIELD_ICON: Record<string, string> = {
+  doc_nhs_s2_form: "📋",
+  doc_s2_provider_declaration: "📝",
+  doc_cpam_certificate: "🏥",
+  doc_clinical_justification_gp: "👨‍⚕️",
+  doc_medical_report: "📊",
+  doc_undue_delay_letter: "⏱",
+  doc_patient_authorisation: "✍️",
+  doc_identity_document: "🪪",
+  doc_proof_of_residence: "🏠",
+  doc_bank_statements: "🏦",
+  doc_detailed_medical_estimate: "💷",
+};
+
+function fileIcon(mime: string | null): string {
+  if (!mime) return "📄";
+  if (mime.includes("pdf")) return "📕";
+  if (mime.includes("image")) return "🖼";
+  if (mime.includes("word") || mime.includes("document")) return "📝";
+  if (mime.includes("spreadsheet") || mime.includes("excel")) return "📊";
+  return "📄";
+}
+
+function formatBytes(bytes: number | null): string {
+  if (!bytes) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 function NhsReportDetailView({
   patient,
   reportKey,
@@ -777,7 +823,39 @@ function NhsReportDetailView({
   const card = cards.find((c) => c.key === reportKey);
   const categoryLabel = card?.label ?? t("Rapport NHS");
 
-  // Map category to a descriptive NHS pathway stage label and colour.
+  // Fetch real documents from Supabase
+  const [docData, setDocData] = useState<ReportPatientResponse | null>(null);
+  const [docLoading, setDocLoading] = useState(true);
+  const [docError, setDocError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    setDocLoading(true);
+    fetch(`/api/dashboard/nhs-suivi/report-patient?name=${encodeURIComponent(patient.name)}`, { cache: "no-store" })
+      .then(async (r) => {
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
+        if (alive) { setDocData(j); setDocError(null); }
+      })
+      .catch((e) => alive && setDocError(e instanceof Error ? e.message : "error"))
+      .finally(() => alive && setDocLoading(false));
+    return () => { alive = false; };
+  }, [patient.name]);
+
+  // Group documents by doc_field
+  const docsByField: Record<string, typeof docData extends null ? never : ReportPatientResponse["docs"]> = {};
+  if (docData) {
+    for (const doc of docData.docs) {
+      const key = doc.doc_field ?? "other";
+      if (!docsByField[key]) docsByField[key] = [];
+      docsByField[key].push(doc);
+    }
+  }
+  const docFieldKeys = Object.keys(docsByField).sort((a, b) => {
+    const order = Object.keys(DOC_FIELD_LABEL);
+    return (order.indexOf(a) ?? 99) - (order.indexOf(b) ?? 99);
+  });
+
   const STAGE_META: Record<NhsReportFilter, { label: string; color: string }> = {
     total:        { label: t("Dossier soumis"),             color: "var(--info)" },
     approved:     { label: t("Approuvé — voie S2"),         color: "var(--good)" },
@@ -795,20 +873,18 @@ function NhsReportDetailView({
     { label: patient.name },
   ];
 
-  // Determine which pathway steps are complete based on the category.
-  const isApproved    = reportKey === "approved";
-  const isPending     = reportKey === "pending_nhs";
-  const isSubmitted   = isApproved || isPending || reportKey === "missing_docs" || reportKey === "rejected";
-  const isOperated    = isApproved && patient.situation.startsWith("Opéré");
-  const isScheduled   = !!patient.surgery_when;
+  const isApproved  = reportKey === "approved";
+  const isPending   = reportKey === "pending_nhs";
+  const isSubmitted = isApproved || isPending || reportKey === "missing_docs" || reportKey === "rejected";
+  const isOperated  = isApproved && patient.situation.startsWith("Opéré");
 
   const journey: Array<{ label: string; done: boolean; active: boolean }> = [
-    { label: t("Dossier préparé"),    done: true,          active: false },
-    { label: t("Soumis au NHS"),      done: isSubmitted,   active: !isSubmitted },
-    { label: t("En examen NHS"),      done: isApproved || reportKey === "rejected", active: isPending },
-    { label: t("Approuvé"),           done: isApproved,    active: false },
-    { label: t("Opération planifiée"), done: isApproved,   active: isApproved && !isOperated },
-    { label: t("Opéré"),              done: isOperated,    active: false },
+    { label: t("Dossier préparé"),     done: true,          active: false },
+    { label: t("Soumis au NHS"),       done: isSubmitted,   active: !isSubmitted },
+    { label: t("En examen NHS"),       done: isApproved || reportKey === "rejected", active: isPending },
+    { label: t("Approuvé"),            done: isApproved,    active: false },
+    { label: t("Opération planifiée"), done: isApproved,    active: isApproved && !isOperated },
+    { label: t("Opéré"),               done: isOperated,    active: false },
   ];
 
   return (
@@ -824,27 +900,18 @@ function NhsReportDetailView({
             <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
               {t("Dossier NHS S2")}
               {patient.sent_to_nhs && ` · ${t("Envoyé le")} ${patient.sent_to_nhs}`}
+              {docData && ` · ${docData.docs.length} ${t("fichiers")}`}
             </div>
           </div>
         </div>
-        <span
-          style={{
-            padding: "4px 12px", fontSize: 12, fontWeight: 600, borderRadius: 999,
-            border: `1px solid ${stage.color}`,
-            color: stage.color,
-            background: `color-mix(in srgb, ${stage.color} 12%, transparent)`,
-            whiteSpace: "nowrap",
-          }}
-        >
+        <span style={{ padding: "4px 12px", fontSize: 12, fontWeight: 600, borderRadius: 999, border: `1px solid ${stage.color}`, color: stage.color, background: `color-mix(in srgb, ${stage.color} 12%, transparent)`, whiteSpace: "nowrap" }}>
           {stage.label}
         </span>
       </div>
 
       {/* NHS S2 Pathway */}
       <div className="card" style={{ padding: 18 }}>
-        <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 16 }}>
-          {t("Parcours NHS S2")}
-        </div>
+        <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 16 }}>{t("Parcours NHS S2")}</div>
         <div style={{ display: "flex" }}>
           {journey.map((step, i) => {
             const dotColor = step.done ? "var(--good)" : step.active ? "var(--warn)" : "var(--border)";
@@ -853,81 +920,126 @@ function NhsReportDetailView({
                 {i < journey.length - 1 && (
                   <div style={{ position: "absolute", top: 13, left: "50%", right: "-50%", height: 2, background: step.done ? "var(--good)" : "var(--border)" }} />
                 )}
-                <div
-                  style={{
-                    width: 26, height: 26, borderRadius: "50%", zIndex: 1, fontSize: 12, fontWeight: 700,
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    border: `2px solid ${dotColor}`,
-                    background: step.done ? "var(--good)" : "var(--bg)",
-                    color: step.done ? "#fff" : dotColor,
-                  }}
-                >
+                <div style={{ width: 26, height: 26, borderRadius: "50%", zIndex: 1, fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", border: `2px solid ${dotColor}`, background: step.done ? "var(--good)" : "var(--bg)", color: step.done ? "#fff" : dotColor }}>
                   {step.done ? "✓" : step.active ? "⏳" : ""}
                 </div>
-                <div style={{ fontSize: 11, textAlign: "center", marginTop: 6, color: step.done ? "var(--good)" : "var(--muted)", fontWeight: step.done ? 600 : 400 }}>
-                  {step.label}
-                </div>
+                <div style={{ fontSize: 11, textAlign: "center", marginTop: 6, color: step.done ? "var(--good)" : "var(--muted)", fontWeight: step.done ? 600 : 400 }}>{step.label}</div>
               </div>
             );
           })}
         </div>
       </div>
 
-      {/* Current situation */}
-      <div className="card" style={{ padding: 18 }}>
-        <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 10 }}>
-          {t("Situation actuelle")}
-        </div>
-        <p style={{ margin: 0, fontSize: 14, lineHeight: 1.6 }}>{t(patient.situation)}</p>
-        {patient.surgery_when && (
-          <div
-            style={{
-              marginTop: 12, padding: "10px 14px", borderRadius: 8,
-              background: "color-mix(in srgb, var(--good) 10%, var(--bg-2))",
-              border: "1px solid color-mix(in srgb, var(--good) 30%, transparent)",
-              display: "flex", alignItems: "center", gap: 10,
-            }}
-          >
-            <span style={{ fontSize: 18 }}>📅</span>
-            <div>
-              <div style={{ fontWeight: 600, fontSize: 13, color: "var(--good)" }}>{t("Opération planifiée")}</div>
-              <div className="muted" style={{ fontSize: 12 }}>{patient.surgery_when}</div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* NHS submission details */}
-      <div className="card" style={{ padding: 18 }}>
-        <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 10 }}>
-          {t("Détails de la soumission NHS")}
-        </div>
-        <div style={{ display: "grid", gap: 8, fontSize: 13 }}>
-          <div style={{ display: "flex", gap: 10, alignItems: "baseline" }}>
-            <span className="muted" style={{ minWidth: 120 }}>{t("Catégorie")}</span>
-            <span style={{ fontWeight: 600, color: stage.color }}>{categoryLabel}</span>
-          </div>
-          {patient.sent_to_nhs && (
-            <div style={{ display: "flex", gap: 10, alignItems: "baseline" }}>
-              <span className="muted" style={{ minWidth: 120 }}>{t("Envoi au NHS")}</span>
-              <span>{patient.sent_to_nhs}</span>
+      {/* Situation + details — 2 columns */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14 }}>
+        <div className="card" style={{ padding: 18 }}>
+          <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 10 }}>{t("Situation actuelle")}</div>
+          <p style={{ margin: 0, fontSize: 14, lineHeight: 1.6 }}>{t(patient.situation)}</p>
+          {patient.surgery_when && (
+            <div style={{ marginTop: 12, padding: "10px 14px", borderRadius: 8, background: "color-mix(in srgb, var(--good) 10%, var(--bg-2))", border: "1px solid color-mix(in srgb, var(--good) 30%, transparent)", display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 18 }}>📅</span>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 13, color: "var(--good)" }}>{t("Opération planifiée")}</div>
+                <div className="muted" style={{ fontSize: 12 }}>{patient.surgery_when}</div>
+              </div>
             </div>
           )}
-          <div style={{ display: "flex", gap: 10, alignItems: "baseline" }}>
-            <span className="muted" style={{ minWidth: 120 }}>{t("Rapport du")}</span>
-            <span>{new Date(NHS_REPORT_AS_OF).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" })}</span>
+        </div>
+
+        <div className="card" style={{ padding: 18 }}>
+          <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 10 }}>{t("Détails de la soumission NHS")}</div>
+          <div style={{ display: "grid", gap: 8, fontSize: 13 }}>
+            <div style={{ display: "flex", gap: 10 }}>
+              <span className="muted" style={{ minWidth: 110 }}>{t("Catégorie")}</span>
+              <span style={{ fontWeight: 600, color: stage.color }}>{categoryLabel}</span>
+            </div>
+            {patient.sent_to_nhs && (
+              <div style={{ display: "flex", gap: 10 }}>
+                <span className="muted" style={{ minWidth: 110 }}>{t("Envoi au NHS")}</span>
+                <span>{patient.sent_to_nhs}</span>
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 10 }}>
+              <span className="muted" style={{ minWidth: 110 }}>{t("Rapport du")}</span>
+              <span>{new Date(NHS_REPORT_AS_OF).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" })}</span>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Documents — placeholder until upload */}
+      {/* Documents */}
       <div className="card" style={{ padding: 18 }}>
-        <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 10 }}>
-          {t("Documents")}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+          <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4 }}>{t("Documents")}</div>
+          {docData && (
+            <span className="muted" style={{ fontSize: 12 }}>
+              {docFieldKeys.length} {t("catégories")} · {docData.docs.length} {t("fichiers")}
+            </span>
+          )}
         </div>
-        <p className="muted" style={{ fontSize: 13, margin: 0 }}>
-          {t("Les documents seront accessibles ici après l'upload depuis Google Drive.")}
-        </p>
+
+        {docLoading && (
+          <p className="muted" style={{ fontSize: 13, margin: 0 }}>{t("Chargement des documents…")}</p>
+        )}
+
+        {docError && !docLoading && (
+          <p style={{ fontSize: 13, margin: 0, color: "var(--bad)" }}>
+            {t("Aucun dossier trouvé dans Supabase pour ce patient.")}
+          </p>
+        )}
+
+        {!docLoading && !docError && docData && docFieldKeys.length === 0 && (
+          <p className="muted" style={{ fontSize: 13, margin: 0 }}>{t("Aucun document disponible.")}</p>
+        )}
+
+        {!docLoading && !docError && docFieldKeys.length > 0 && (
+          <div style={{ display: "grid", gap: 12 }}>
+            {docFieldKeys.map((field) => {
+              const files = docsByField[field];
+              const label = DOC_FIELD_LABEL[field] ?? field;
+              const icon = DOC_FIELD_ICON[field] ?? "📁";
+              return (
+                <div key={field}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                    <span style={{ fontSize: 15 }}>{icon}</span>
+                    <span style={{ fontWeight: 600, fontSize: 13 }}>{label}</span>
+                    <span className="muted" style={{ fontSize: 11 }}>({files.length})</span>
+                  </div>
+                  <div style={{ display: "grid", gap: 4, paddingLeft: 24 }}>
+                    {files.map((doc) => (
+                      <a
+                        key={doc.id}
+                        href={doc.public_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          display: "flex", alignItems: "center", gap: 8,
+                          padding: "7px 10px", borderRadius: 8,
+                          border: "1px solid var(--border)",
+                          background: "var(--bg-2)",
+                          textDecoration: "none", color: "inherit",
+                          fontSize: 12, cursor: "pointer",
+                          transition: "border-color 0.15s",
+                        }}
+                        onMouseEnter={(e) => (e.currentTarget.style.borderColor = "var(--accent)")}
+                        onMouseLeave={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
+                      >
+                        <span style={{ fontSize: 14, flexShrink: 0 }}>{fileIcon(doc.mime_type)}</span>
+                        <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {doc.file_name}
+                        </span>
+                        {doc.file_size && (
+                          <span className="muted" style={{ fontSize: 11, flexShrink: 0 }}>{formatBytes(doc.file_size)}</span>
+                        )}
+                        <span style={{ fontSize: 11, color: "var(--accent)", flexShrink: 0 }}>↗</span>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );

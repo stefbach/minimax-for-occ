@@ -727,6 +727,12 @@ const EN: Record<string, string> = {
   "Rejeté — critères ICB": "Rejected — ICB criteria",
   "Abandon du parcours": "Pathway dropout",
   "Prêt à soumettre": "Ready to submit",
+  // NhsReportDetailView — documents section
+  "fichiers": "files",
+  "catégories": "categories",
+  "Chargement des documents…": "Loading documents…",
+  "Aucun dossier trouvé dans Supabase pour ce patient.": "No dossier found in Supabase for this patient.",
+  "Aucun document disponible.": "No documents available.",
 };
 
 function readLang(): Lang {
