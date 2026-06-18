@@ -277,23 +277,33 @@ def _llm_for(agent: Optional[AxonAgent]):
                 "CLAUDE_API_KEY is set on the worker."
             )
         key_src = "ANTHROPIC_API_KEY" if os.getenv("ANTHROPIC_API_KEY") else "CLAUDE_API_KEY"
+        # Prompt caching toggle. caching="ephemeral" activates Anthropic prompt
+        # cache (system prompt + tools + history) → TTFT ~400-600ms, cached
+        # tokens billed at 0.1x. BUT on a real outbound call to Charlotte (Haiku
+        # 4.5, ~5500-token prompt) Claude returned an EMPTY completion with no
+        # error — caching is the prime suspect. Make it per-agent / env
+        # toggleable so we can A/B it: agents.metadata.call_tuning.anthropic_caching
+        # = "off" (or env ANTHROPIC_PROMPT_CACHING=off) disables it. Default
+        # stays "ephemeral" so nothing changes for agents that already work.
+        _caching_pref = "ephemeral"
+        try:
+            if agent is not None and isinstance(getattr(agent, "metadata", None), dict):
+                _ct = agent.metadata.get("call_tuning") or {}
+                if _ct.get("anthropic_caching") is not None:
+                    _caching_pref = str(_ct.get("anthropic_caching")).lower()
+        except Exception:
+            pass
+        _caching_pref = os.getenv("ANTHROPIC_PROMPT_CACHING", _caching_pref).lower()
+        _use_caching = _caching_pref not in ("off", "none", "false", "0", "disabled", "")
         logger.info(
-            "LLM=anthropic model=%s key_src=%s key_len=%d key_prefix=%s max_tokens=%d caching=ephemeral",
+            "LLM=anthropic model=%s key_src=%s key_len=%d key_prefix=%s max_tokens=%d caching=%s",
             anth_model, key_src, len(anth_key), anth_key[:14], max_tokens,
+            ("ephemeral" if _use_caching else "off"),
         )
-        # Wati 16/06 — caching="ephemeral" active le prompt cache cote Anthropic
-        # (system prompt + tools + chat history). Sans ca, le prompt complet
-        # de Charlotte (~4500 tokens) etait re-envoye fresh a chaque tour,
-        # TTFT 2-3s et facture full. Avec cache : TTFT ~400-600ms et facture
-        # cached tokens a 0.1x. Implementation cote plugin :
-        # livekit/plugins/anthropic/__init__.py kwarg `caching: Literal["ephemeral"]`.
-        return _build_llm_with_max_tokens(
-            anthropic.LLM,
-            max_tokens,
-            model=anth_model,
-            api_key=anth_key,
-            caching="ephemeral",
-        )
+        anth_kwargs = {"model": anth_model, "api_key": anth_key}
+        if _use_caching:
+            anth_kwargs["caching"] = "ephemeral"
+        return _build_llm_with_max_tokens(anthropic.LLM, max_tokens, **anth_kwargs)
 
     if provider == "livekit":
         # LiveKit Inference — le LLM est servi par la passerelle LiveKit
