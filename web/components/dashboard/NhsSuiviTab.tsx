@@ -1731,6 +1731,122 @@ function PatientDetailView({
         </div>
       </div>
 
+      {/* NHS S2 Pathway — injected when this patient has a record in the static NHS report */}
+      {(() => {
+        const NHS_KEYS: NhsReportKey[] = ["approved", "pending_nhs", "missing_docs", "rejected", "dropped_out", "to_submit"];
+        const normName = (patient.name ?? "").trim().toLowerCase();
+        const nhsKey = NHS_KEYS.find((k) => NHS_REPORT[k].patients.some((p) => p.name.trim().toLowerCase() === normName));
+        if (!nhsKey) return null;
+        const nhsPt = NHS_REPORT[nhsKey].patients.find((p) => p.name.trim().toLowerCase() === normName)!;
+
+        const nhsApproved  = nhsKey === "approved";
+        const nhsPending   = nhsKey === "pending_nhs";
+        const nhsSubmitted = nhsApproved || nhsPending || nhsKey === "missing_docs" || nhsKey === "rejected";
+        const nhsOperated  = nhsApproved && nhsPt.situation.startsWith("Opéré");
+        const nhsScheduled = !!nhsPt.surgery_when;
+
+        const TONE: Record<string, string> = {
+          approved: "var(--good)", pending_nhs: "var(--warn)", missing_docs: "var(--warn)",
+          rejected: "var(--bad)", dropped_out: "var(--muted)", to_submit: "var(--accent)",
+        };
+        const nhsColor = TONE[nhsKey] ?? "var(--muted)";
+        const nhsLabel = nhsApproved && nhsOperated
+          ? t("Approuvé & Opéré")
+          : nhsApproved && nhsScheduled
+          ? t("Approuvé — opération planifiée")
+          : nhsApproved
+          ? t("Approuvé — voie S2")
+          : nhsKey === "pending_nhs"  ? t("En attente de réponse NHS")
+          : nhsKey === "missing_docs" ? t("Éléments manquants requis")
+          : nhsKey === "rejected"     ? t("Rejeté — critères ICB")
+          : nhsKey === "dropped_out"  ? t("Abandon du parcours")
+          : t("Prêt à soumettre");
+
+        const nhsJourney = [
+          { label: t("Dossier préparé"),     done: true,         active: false },
+          { label: t("Soumis au NHS"),       done: nhsSubmitted, active: !nhsSubmitted },
+          { label: t("En examen NHS"),       done: nhsApproved || nhsKey === "rejected", active: nhsPending },
+          { label: t("Approuvé"),            done: nhsApproved,  active: false },
+          { label: t("Opération planifiée"), done: nhsApproved,  active: nhsApproved && !nhsOperated },
+          { label: t("Opéré"),               done: nhsOperated,  active: false },
+        ];
+
+        return (
+          <div className="card" style={{
+            padding: "18px 24px",
+            borderLeft: `4px solid ${nhsColor}`,
+            background: `color-mix(in srgb, ${nhsColor} 5%, var(--bg-2))`,
+          }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 8 }}>
+              <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 600 }}>
+                🏥 {t("Parcours NHS S2")}
+              </div>
+              <span style={{
+                padding: "3px 10px", fontSize: 11, fontWeight: 600, borderRadius: 999,
+                border: `1px solid ${nhsColor}`, color: nhsColor,
+                background: `color-mix(in srgb, ${nhsColor} 12%, transparent)`,
+              }}>
+                {nhsLabel}
+              </span>
+            </div>
+            <div style={{ display: "flex", paddingBottom: 8 }}>
+              {nhsJourney.map((step, i) => {
+                const isDone = step.done;
+                const isActive = step.active;
+                const dotBg     = isDone ? "var(--good)" : isActive ? "var(--warn)" : "#1e2535";
+                const dotBorder = isDone ? "var(--good)" : isActive ? "var(--warn)" : "#3b4560";
+                const dotColor  = isDone ? "#fff"        : isActive ? "#1a1200"    : "#6b7a99";
+                return (
+                  <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", position: "relative" }}>
+                    {i < nhsJourney.length - 1 && (
+                      <div style={{ position: "absolute", top: 17, left: "50%", right: "-50%", height: 3, borderRadius: 2, background: isDone ? "var(--good)" : "#2a3248" }} />
+                    )}
+                    <div style={{
+                      width: 34, height: 34, borderRadius: "50%", zIndex: 1, fontSize: 13, fontWeight: 700,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      border: `2px solid ${dotBorder}`, background: dotBg, color: dotColor,
+                      boxShadow: isActive ? "0 0 0 4px rgba(251,191,36,0.18)" : isDone ? "0 0 0 3px rgba(74,222,128,0.12)" : "none",
+                    }}>
+                      {isDone ? "✓" : isActive ? "●" : String(i + 1)}
+                    </div>
+                    <div style={{ fontSize: 12, textAlign: "center", marginTop: 10, lineHeight: 1.3, color: isDone ? "var(--good)" : isActive ? "var(--warn)" : "#6b7a99", fontWeight: isDone || isActive ? 600 : 400, maxWidth: 80 }}>
+                      {step.label}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 16 }}>
+              <div style={{ background: "var(--bg-2)", borderRadius: 8, padding: "12px 14px" }}>
+                <div className="muted" style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>{t("Situation actuelle")}</div>
+                <div style={{ fontSize: 13 }}>{t(nhsPt.situation)}</div>
+              </div>
+              <div style={{ background: "var(--bg-2)", borderRadius: 8, padding: "12px 14px" }}>
+                <div className="muted" style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>{t("Détails de la soumission NHS")}</div>
+                <div style={{ display: "grid", gap: 5, fontSize: 12 }}>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <span className="muted" style={{ minWidth: 90 }}>{t("Catégorie")}</span>
+                    <span style={{ fontWeight: 600, color: nhsColor }}>{nhsLabel}</span>
+                  </div>
+                  {nhsPt.sent_to_nhs && (
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <span className="muted" style={{ minWidth: 90 }}>{t("Envoi au NHS")}</span>
+                      <span>{nhsPt.sent_to_nhs}</span>
+                    </div>
+                  )}
+                  {nhsPt.surgery_when && (
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <span className="muted" style={{ minWidth: 90 }}>{t("Opération planifiée")}</span>
+                      <span style={{ color: "var(--good)", fontWeight: 600 }}>{nhsPt.surgery_when}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 14 }}>
         {/* Checklist 11 documents */}
         <div className="card" style={{ padding: 18 }}>
