@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { DynamicEngineConfig, defaultEngineConfig, type EngineConfig } from "./DynamicEngineConfig";
 import { PreflightPanel } from "./PreflightPanel";
@@ -260,6 +260,7 @@ export function CampaignWizard({
   teams = [],
   contactLists = [],
   dataTables = [],
+  orgCategory = null,
 }: {
   template?: import("@/lib/campaign-templates").CampaignTemplate | null;
   agents: AgentHandleOption[];
@@ -269,6 +270,9 @@ export function CampaignWizard({
   teams?: TeamOption[];
   contactLists?: ContactListOption[];
   dataTables?: DataTableOption[];
+  /** Business vertical of the org — lets the scheduling assistant speak the
+   *  client's language (Hôtel, Restaurant, Clinique, Call Center, …). */
+  orgCategory?: string | null;
 }) {
   const router = useRouter();
 
@@ -368,6 +372,36 @@ export function CampaignWizard({
   // Step 3 "Quand" is chat-first: the operator describes their cadence to the
   // assistant. They can flip to the classic form to fine-tune by hand.
   const [manualSchedule, setManualSchedule] = useState(false);
+  // Real distinct values of the selected table's status column — loaded so the
+  // scheduling assistant maps the operator's wording onto THIS client's exact
+  // stored values (works for any tenant: hôtel, resto, call center, …).
+  const [tableStatusValues, setTableStatusValues] = useState<string[]>([]);
+
+  const statusColumn = engineConfig?.selection.status_column ?? "";
+  useEffect(() => {
+    if (!dataTableId || !dynamicMode || !statusColumn) {
+      setTableStatusValues([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/campaigns/table-statuses?data_table_id=${encodeURIComponent(dataTableId)}&column=${encodeURIComponent(statusColumn)}`,
+        );
+        if (!res.ok) return;
+        const json = (await res.json()) as { values?: unknown };
+        if (!cancelled && Array.isArray(json.values)) {
+          setTableStatusValues(json.values.filter((v): v is string => typeof v === "string"));
+        }
+      } catch {
+        /* non-blocking: the assistant falls back to asking for statuses */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [dataTableId, dynamicMode, statusColumn]);
 
   const selectedAgent = agents.find((a) => a.id === agentHandleId) ?? null;
   const selectedNumber = numbers.find((n) => n.id === phoneNumberId) ?? null;
@@ -690,11 +724,13 @@ export function CampaignWizard({
       default_timezone: TPL_DEFAULTS.timezone,
       table_label: selectedDataTable?.label ?? null,
       status_column: statusCol,
+      status_values: tableStatusValues,
       detected_relance_phases: selectedDataTable ? relancePhases : null,
       concurrency_limit: PLAN_CONCURRENCY_LIMIT,
+      org_category: orgCategory,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dynamicMode, dataTableId, selectedDataTable]);
+  }, [dynamicMode, dataTableId, selectedDataTable, tableStatusValues, orgCategory]);
 
   const STEPS: { n: 1 | 2 | 3; label: string; icon: string }[] = [
     { n: 1, label: "Qui appelle ?", icon: "🎙" },

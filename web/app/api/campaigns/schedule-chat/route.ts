@@ -20,13 +20,19 @@ interface ChatContext {
   default_timezone?: string | null;
   table_label?: string | null;
   status_column?: string | null;
+  status_values?: string[];
   detected_relance_phases?: number | null;
   concurrency_limit?: number | null;
+  org_category?: string | null;
 }
 
 function buildSystem(ctx: ChatContext): string {
   const dynamic = ctx.mode === "dynamic";
-  return `Tu es l'assistant de planification de campagnes d'appels d'Axon. L'opérateur a déjà choisi QUI appelle (le numéro émetteur) et QUI appeler (la base de contacts). Ton SEUL rôle est de définir le « QUAND » : jours, fuseau horaire, plages horaires, et — pour les campagnes continues — la cadence de relances, les statuts ciblés et le volume.
+  const statusValues = ctx.status_values ?? [];
+  const sectorLine = ctx.org_category
+    ? `\nSecteur du client : ${ctx.org_category}. Adapte ton vocabulaire à ce métier (ex. « réservations » pour un restaurant/hôtel, « relances » pour un recouvrement, « rappels » pour une clinique), mais ne change RIEN à la mécanique de planification.`
+    : "";
+  return `Tu es l'assistant de planification de campagnes d'appels d'Axon. L'opérateur a déjà choisi QUI appelle (le numéro émetteur) et QUI appeler (la base de contacts). Ton SEUL rôle est de définir le « QUAND » : jours, fuseau horaire, plages horaires, et — pour les campagnes continues — la cadence de relances, les statuts ciblés et le volume.${sectorLine}
 
 Déroulé attendu :
 1. Discute avec l'opérateur en français, naturel et concis. Pose des questions seulement si une information indispensable manque (jours, heures, fuseau).
@@ -39,7 +45,10 @@ Règles de planification :
 - Les heures sont saisies en heure LOCALE du fuseau choisi.
 - Jours : 0=Dimanche, 1=Lundi … 6=Samedi. « En semaine » = [1,2,3,4,5].
 ${dynamic
-  ? `- Cette campagne est CONTINUE (tirée de la table « ${ctx.table_label ?? "sélectionnée"} »). Tu PEUX définir include_statuses (colonne statut : ${ctx.status_column ?? "inconnue"}), max_new_per_day, wave_size et relance_days_after_first (ex. [1,3,5] = relances à J+1, J+3, J+5).${typeof ctx.detected_relance_phases === "number" ? ` La table expose ${ctx.detected_relance_phases} phase(s) de relance détectée(s) ; n'en propose pas davantage.` : ""}`
+  ? `- Cette campagne est CONTINUE (tirée de la table « ${ctx.table_label ?? "sélectionnée"} »). Tu PEUX définir include_statuses (colonne statut : ${ctx.status_column ?? "inconnue"}), max_new_per_day, wave_size et relance_days_after_first (ex. [1,3,5] = relances à J+1, J+3, J+5).${typeof ctx.detected_relance_phases === "number" ? ` La table expose ${ctx.detected_relance_phases} phase(s) de relance détectée(s) ; n'en propose pas davantage.` : ""}
+- STATUTS CIBLÉS — RÈGLE STRICTE : ${statusValues.length > 0
+      ? `les seules valeurs valides présentes dans cette table sont : ${statusValues.map((v) => `« ${v} »`).join(", ")}. Quand l'opérateur décrit une cible (« les nouveaux », « les no-shows », « les annulés »…), traduis-la UNIQUEMENT vers ces valeurs exactes (respecte la casse). Si aucune valeur ne correspond clairement, demande des précisions au lieu d'inventer — ne mets jamais include_statuses à une valeur qui n'est pas dans cette liste.`
+      : `aucune valeur de statut n'a pu être lue dans la table. Demande à l'opérateur les statuts exacts à cibler avant de remplir include_statuses, ou laisse include_statuses vide (= tous).`}`
   : `- Cette campagne est en mode APPEL UNIQUE (liste fixe). N'utilise PAS include_statuses, max_new_per_day, wave_size ni relance_days_after_first : les relances et le volume ne s'appliquent qu'aux campagnes continues basées sur une table. Si l'opérateur demande des relances, explique qu'il faut repasser à l'étape « Qui appeler » et choisir une table de contacts en mode continu.`}
 - La concurrence (appels simultanés) au-delà de ${ctx.concurrency_limit ?? 5} dépasse le plan actuel : préviens l'opérateur si on monte plus haut.
 

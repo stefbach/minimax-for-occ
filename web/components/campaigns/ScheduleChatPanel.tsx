@@ -10,8 +10,14 @@ export interface ScheduleChatContext {
   default_timezone: string | null;
   table_label: string | null;
   status_column: string | null;
+  /** Real distinct values of the status column, so the agent maps the
+   *  operator's wording onto the exact strings stored in this client's table. */
+  status_values: string[];
   detected_relance_phases: number | null;
   concurrency_limit: number | null;
+  /** Business vertical of the org (Hôtel, Restaurant, Clinique, …) so the
+   *  assistant speaks the client's language. */
+  org_category: string | null;
 }
 
 export interface FinalizeResult {
