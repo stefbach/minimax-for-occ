@@ -220,11 +220,19 @@ class _MinimaxChunkedStream(tts.ChunkedStream):
                     mime_type="audio/pcm",
                 )
                 # SSE-style stream : lines prefixed with `data: ` carrying JSON.
-                # Each event has {data: {audio: "<hex>"}, ...}. The final event
-                # carries trace_id + status; we just look for audio fragments.
+                # Each event has {data: {audio: "<hex>"}, ...}. On auth/param
+                # failures MiniMax answers HTTP 200 with a single JSON body
+                # {"base_resp":{"status_code":N,"status_msg":"..."}} — NOT SSE.
+                # We keep a bounded tail of the raw body so that, if no audio was
+                # produced, we can surface the REAL MiniMax error instead of the
+                # opaque "no audio frames were pushed".
+                pushed = False
+                raw_tail = bytearray()
                 async for raw in resp.content:
                     if not raw:
                         continue
+                    if len(raw_tail) < 4096:
+                        raw_tail += raw[: 4096 - len(raw_tail)]
                     line = raw.strip()
                     if not line or not line.startswith(b"data:"):
                         continue
@@ -245,6 +253,22 @@ class _MinimaxChunkedStream(tts.ChunkedStream):
                         continue
                     if chunk:
                         output_emitter.push(chunk)
+                        pushed = True
+                if not pushed:
+                    detail = raw_tail.decode("utf-8", "replace").strip()
+                    base_resp = None
+                    try:
+                        if detail.startswith("{"):
+                            base_resp = json.loads(detail).get("base_resp")
+                    except Exception:  # noqa: BLE001
+                        pass
+                    logger.error(
+                        "MiniMax t2a_v2 returned NO audio. base_resp=%s body=%s",
+                        base_resp, detail[:400],
+                    )
+                    raise RuntimeError(
+                        f"MiniMax t2a_v2 no audio — base_resp={base_resp} body={detail[:200]}"
+                    )
                 output_emitter.flush()
         except asyncio.TimeoutError as e:
             raise APITimeoutError(str(e)) from e
