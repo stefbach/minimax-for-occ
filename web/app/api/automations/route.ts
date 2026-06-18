@@ -26,10 +26,20 @@ export async function GET(req: Request) {
   const admin = supabaseServer();
   const { data: wfs, error } = await admin
     .from("org_workflows")
-    .select("id, name, description, active, trigger, steps, last_run_at, last_status, created_at")
+    .select("id, name, description, active, trigger, steps, last_run_at, last_status, created_at, agent_id, approval_mode")
     .eq("org_id", orgId)
     .order("created_at", { ascending: true });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Resolve management-agent names for the cards.
+  const agentIds = Array.from(
+    new Set((wfs ?? []).map((w) => w.agent_id).filter(Boolean)),
+  ) as string[];
+  const agentNames: Record<string, string> = {};
+  if (agentIds.length > 0) {
+    const { data: ags } = await admin.from("agents").select("id, name").in("id", agentIds);
+    for (const a of ags ?? []) agentNames[a.id as string] = a.name as string;
+  }
 
   const ids = (wfs ?? []).map((w) => w.id);
   let runs: unknown[] = [];
@@ -42,7 +52,11 @@ export async function GET(req: Request) {
       .limit(50);
     runs = r ?? [];
   }
-  return NextResponse.json({ workflows: wfs ?? [], runs });
+  const decorated = (wfs ?? []).map((w) => ({
+    ...w,
+    agent_name: w.agent_id ? agentNames[w.agent_id as string] ?? null : null,
+  }));
+  return NextResponse.json({ workflows: decorated, runs });
 }
 
 export async function POST(req: Request) {

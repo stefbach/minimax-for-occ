@@ -30,7 +30,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const admin = supabaseServer();
   const { data: wf, error } = await admin
     .from("org_workflows")
-    .select("id, org_id, name, active, trigger, steps, last_run_at")
+    .select("id, org_id, name, active, trigger, steps, last_run_at, agent_id, approval_mode")
     .eq("id", id)
     .eq("org_id", orgId)
     .maybeSingle();
