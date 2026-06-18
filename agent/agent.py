@@ -573,14 +573,32 @@ def _tts_for(agent: Optional[AxonAgent], sample_rate: Optional[int] = None):
             tts_kwargs: dict = {"voice_id": voice_ref, "model": model_id}
             base_tts = _elevenlabs.TTS  # local alias
 
-            # Output encoding : leave plugin default (mp3 22050 32kbps).
-            # Wati 16/06 — earlier attempt to force `pcm_8000` for SIP legs
-            # backfired : the LiveKit elevenlabs plugin derives sample_rate
-            # from the encoding string, but Turbo's streaming WebSocket
-            # apparently doesn't honour pcm_8000 cleanly → audio came out at
-            # ~2.7× speed (chipmunk). We accept the slight "AM radio" timbre
-            # from the default 22kHz → 8kHz µ-law downsample as the lesser
-            # evil. Cartesia still gets explicit 8kHz (it handles it natively).
+            # Output encoding for the telephony (SIP/PSTN) leg (Wati 18/06).
+            # SYMPTOM : on a real outbound call charlotte-teste was SILENT —
+            # say() completed, TTS-TTFB=747ms logged, tts_chars=37, yet the
+            # patient heard nothing. ROOT CAUSE : the plugin was left at its
+            # default mp3_22050 output while the room is a SIP leg forced to
+            # 8000 Hz (auto-telephony). The 22 kHz mp3 → 8 kHz SIP path did
+            # not produce audible audio on the PSTN side.
+            # The plugin derives its sample_rate from the `encoding` string,
+            # so we must hand it a rate the ElevenLabs WebSocket actually
+            # honours. `pcm_8000` was NOT honoured by flash/turbo (commit
+            # 2043d56 : audio came out ~2.75× = chipmunk, the 22050/8000
+            # mislabel). `pcm_16000` IS honoured and gives LiveKit a clean
+            # integer 2:1 downsample to the 8 kHz leg — narrowband but
+            # audible and correct-speed. Off-telephony (web/preview, no
+            # sample_rate forced) keeps the default mp3 22050.
+            _tel_encoding = (
+                "pcm_16000"
+                if (sample_rate and int(sample_rate) <= 16000)
+                else None
+            )
+            if _tel_encoding:
+                tts_kwargs["encoding"] = _tel_encoding
+                logger.info(
+                    "elevenlabs-direct: telephony encoding=%s (sample_rate=%s)",
+                    _tel_encoding, sample_rate,
+                )
 
             # Optional VoiceSettings (Wati 16/06). The plugin's VoiceSettings
             # dataclass REQUIRES stability + similarity_boost (no defaults);
@@ -631,11 +649,26 @@ def _tts_for(agent: Optional[AxonAgent], sample_rate: Optional[int] = None):
             try:
                 return base_tts(**tts_kwargs)
             except Exception:
-                # Last-ditch: strip voice_settings too in case the plugin
-                # version doesn't support that argument, and retry bare.
+                # Last-ditch: strip voice_settings in case the plugin version
+                # rejects that argument, but KEEP the telephony encoding —
+                # dropping it is exactly what makes the SIP leg silent. Retry
+                # with encoding first, then fully bare as the final resort.
                 logger.warning(
                     "elevenlabs TTS init with voice_settings failed — retrying bare"
                 )
+                if _tel_encoding:
+                    try:
+                        return base_tts(
+                            voice_id=voice_ref,
+                            model=model_id,
+                            encoding=_tel_encoding,
+                        )
+                    except Exception:
+                        logger.warning(
+                            "elevenlabs TTS bare+encoding=%s failed — retrying "
+                            "without encoding (SIP leg may be silent)",
+                            _tel_encoding,
+                        )
                 return base_tts(voice_id=voice_ref, model=model_id)
         except ImportError:
             logger.warning(
