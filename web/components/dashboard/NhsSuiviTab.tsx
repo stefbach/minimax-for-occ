@@ -16,18 +16,24 @@ import {
   type NhsReportPatient,
 } from "@/lib/nhs-report";
 import { MyNhsAssignmentsCard } from "./MyNhsAssignmentsCard";
+import { AssignmentsProvider, COORDINATOR_TONES } from "./assignments";
+import AssignMenu from "./AssignMenu";
 
 // Clones the OCC demo's "Suivi patient NHS S2" panel in Axon's theme.
 // Visible only for orgs where the feature flag is on (see DashboardClient).
 
-// Queue dot colors — same trio as the legacy dashboard's coordinator cards.
-const COORDINATOR_TONES: Record<string, string> = {
-  Summer: "#f59e0b",
-  Rain: "#3b82f6",
-  Stormi: "#8b5cf6",
-};
-
 export function NhsSuiviTab() {
+  // One AssignmentsProvider wraps the whole tab (and all its sub-views) so the
+  // reusable <AssignMenu> can sit next to any patient name and share a single
+  // load of the coordinator roster + current assignments.
+  return (
+    <AssignmentsProvider>
+      <NhsSuiviTabInner />
+    </AssignmentsProvider>
+  );
+}
+
+function NhsSuiviTabInner() {
   const t = useT();
   const [data, setData] = useState<NhsSuiviResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -302,40 +308,55 @@ export function NhsSuiviTab() {
                   const tone = r.kind === "patient" ? STATUS_TONE[r.patient.status] : r.kind === "report" ? "var(--info)" : "var(--muted)";
                   const badge = r.kind === "patient" ? t(STATUS_LABEL[r.patient.status]) : r.kind === "report" ? t("Rapport NHS") : t("CRM");
                   const initials = initialsOfName(name);
+                  // Identify the patient for assignment: live patients carry a
+                  // phone, report patients only a name. CRM contacts have neither
+                  // resolvable here, so the menu self-hides for them.
+                  const assignTarget =
+                    r.kind === "patient" ? { name: r.patient.name, phone: r.patient.phone }
+                    : r.kind === "report" ? { name: r.patient.name }
+                    : { name: null };
                   return (
-                    <button
+                    <div
                       key={idx}
-                      type="button"
-                      onMouseDown={() => {
-                        if (r.kind === "patient") {
-                          setView({ name: "detail", id: r.patient.id, from: "all" });
-                        } else if (r.kind === "report") {
-                          setView({ name: "report-detail", patient: r.patient, reportKey: r.reportKey });
-                        } else {
-                          setView({ name: "contact-detail", contactId: r.id, displayName: r.name });
-                        }
-                        setSearchQuery("");
-                        setSearchOpen(false);
-                      }}
                       style={{
-                        display: "flex", alignItems: "center", gap: 10, width: "100%",
-                        padding: "10px 14px", background: "transparent", border: "none",
-                        borderTop: "1px solid var(--border)", cursor: "pointer", textAlign: "left",
+                        display: "flex", alignItems: "center", gap: 8, width: "100%",
+                        padding: "6px 10px 6px 14px", borderTop: "1px solid var(--border)",
                       }}
                     >
-                      <Avatar initials={initials} size={30} />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontWeight: 600, fontSize: 13, color: "#fff" }}>{name}</div>
-                        <div style={{ fontSize: 11, color: "#6b7a99", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub}</div>
-                      </div>
-                      <span style={{
-                        fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 999, flexShrink: 0,
-                        border: `1px solid ${tone}`, color: tone,
-                        background: `color-mix(in srgb, ${tone} 12%, transparent)`,
-                      }}>
-                        {badge}
-                      </span>
-                    </button>
+                      <button
+                        type="button"
+                        onMouseDown={() => {
+                          if (r.kind === "patient") {
+                            setView({ name: "detail", id: r.patient.id, from: "all" });
+                          } else if (r.kind === "report") {
+                            setView({ name: "report-detail", patient: r.patient, reportKey: r.reportKey });
+                          } else {
+                            setView({ name: "contact-detail", contactId: r.id, displayName: r.name });
+                          }
+                          setSearchQuery("");
+                          setSearchOpen(false);
+                        }}
+                        style={{
+                          display: "flex", alignItems: "center", gap: 10, flex: 1, minWidth: 0,
+                          padding: "4px 0", background: "transparent", border: "none",
+                          cursor: "pointer", textAlign: "left",
+                        }}
+                      >
+                        <Avatar initials={initials} size={30} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontWeight: 600, fontSize: 13, color: "#fff" }}>{name}</div>
+                          <div style={{ fontSize: 11, color: "#6b7a99", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub}</div>
+                        </div>
+                        <span style={{
+                          fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 999, flexShrink: 0,
+                          border: `1px solid ${tone}`, color: tone,
+                          background: `color-mix(in srgb, ${tone} 12%, transparent)`,
+                        }}>
+                          {badge}
+                        </span>
+                      </button>
+                      <AssignMenu name={assignTarget.name} phone={assignTarget.phone ?? null} compact />
+                    </div>
                   );
                 })}
               </div>
@@ -916,13 +937,14 @@ function NhsReportListView({
               <th style={{ textAlign: "left", padding: "10px 14px" }}>{t("Statut")}</th>
               <th style={{ textAlign: "left", padding: "10px 14px" }}>{t("Envoi NHS")}</th>
               <th style={{ textAlign: "left", padding: "10px 14px" }}>{t("Situation")}</th>
+              <th style={{ textAlign: "left", padding: "10px 14px" }}>{t("Assigné à")}</th>
               <th style={{ textAlign: "right", padding: "10px 14px" }}>{t("Documents")}</th>
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={6} style={{ padding: "14px", textAlign: "center" }} className="muted">
+                <td colSpan={7} style={{ padding: "14px", textAlign: "center" }} className="muted">
                   {t("Aucun patient trouvé pour ce filtre.")}
                 </td>
               </tr>
@@ -958,6 +980,9 @@ function NhsReportListView({
                   </td>
                   <td style={{ padding: "10px 14px", whiteSpace: "nowrap" }} className="muted">{p.sent_to_nhs ?? "—"}</td>
                   <td style={{ padding: "10px 14px" }}>{t(p.situation)}</td>
+                  <td style={{ padding: "10px 14px", whiteSpace: "nowrap" }} onClick={(e) => e.stopPropagation()}>
+                    <AssignMenu name={p.name} compact stopPropagation />
+                  </td>
                   <td style={{ padding: "10px 14px", textAlign: "right" }} onClick={(e) => e.stopPropagation()}>
                     <button
                       type="button"
@@ -1190,9 +1215,12 @@ function NhsReportDetailView({
             </div>
           </div>
         </div>
-        <span style={{ padding: "4px 12px", fontSize: 12, fontWeight: 600, borderRadius: 999, border: `1px solid ${stage.color}`, color: stage.color, background: `color-mix(in srgb, ${stage.color} 12%, transparent)`, whiteSpace: "nowrap" }}>
-          {stage.label}
-        </span>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <AssignMenu name={patient.name} leadId={docData?.lead_id ?? null} />
+          <span style={{ padding: "4px 12px", fontSize: 12, fontWeight: 600, borderRadius: 999, border: `1px solid ${stage.color}`, color: stage.color, background: `color-mix(in srgb, ${stage.color} 12%, transparent)`, whiteSpace: "nowrap" }}>
+            {stage.label}
+          </span>
+        </div>
       </div>
 
       {/* NHS S2 Pathway */}
@@ -1937,7 +1965,8 @@ function PatientListView({
                     ) : <span className="muted">—</span>}
                   </td>
                   <td style={{ padding: "10px 14px" }} onClick={(e) => e.stopPropagation()}>
-                    <div style={{ display: "flex", gap: 6 }}>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <AssignMenu name={p.name} phone={p.phone} compact stopPropagation />
                       {p.escalade && (
                         <button type="button" className="ghost" onClick={() => onOpenPatient(p.id)} style={{ padding: "3px 9px", fontSize: 11, color: "var(--bad)", borderColor: "var(--bad)" }}>
                           {t("Escalade")}
@@ -2082,6 +2111,7 @@ function PatientDetailView({
           </div>
         </div>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+          <AssignMenu leadId={patient.lead_id} name={patient.name} phone={patient.phone} />
           <StatusBadge status={patient.status} />
           {patient.bank_exception && (
             <span style={{ fontSize: 11, color: "var(--warn)" }}>⚑ {t("Exception relevés bancaires")}</span>
