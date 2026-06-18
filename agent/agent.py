@@ -325,11 +325,29 @@ def _llm_for(agent: Optional[AxonAgent]):
         )
 
     if provider == "openai":
+        oai_model = model if (model and model.startswith(("gpt", "o1", "o3", "o4", "chatgpt"))) else "gpt-4o-mini"
+        # Prefer the colocalized LiveKit Inference route for OpenAI models: SAME
+        # model, served from LiveKit Cloud next to the media servers, so TTFT
+        # drops from ~1300ms (direct api.openai.com from the EU) to ~500ms. This
+        # is transparent to the user — the UI only ever exposes "OpenAI"; the
+        # fast path is an internal optimisation. Falls back to the direct OpenAI
+        # API when Inference is unavailable (SDK missing) or explicitly disabled
+        # with LLM_USE_INFERENCE=false. Billed within the LiveKit plan's
+        # inference credits (no per-token surcharge vs the direct API).
+        if os.getenv("LLM_USE_INFERENCE", "true").lower() in ("1", "true", "yes"):
+            try:
+                from livekit.agents import inference as _lk_inf
+                lk_model = f"openai/{oai_model}"
+                logger.info("LLM=openai via livekit-inference model=%s max_tokens=%d", lk_model, max_tokens)
+                return _build_llm_with_max_tokens(_lk_inf.LLM, max_tokens, model=lk_model)
+            except ImportError:
+                logger.warning(
+                    "LiveKit Inference unavailable (SDK missing) — falling back to direct OpenAI API"
+                )
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             raise RuntimeError("OpenAI selected but OPENAI_API_KEY is not set on the worker.")
-        oai_model = model if (model and model.startswith(("gpt", "o1", "o3", "o4", "chatgpt"))) else "gpt-4o-mini"
-        logger.info("LLM=openai model=%s key_len=%d max_tokens=%d", oai_model, len(api_key), max_tokens)
+        logger.info("LLM=openai (direct) model=%s key_len=%d max_tokens=%d", oai_model, len(api_key), max_tokens)
         return _build_llm_with_max_tokens(
             openai.LLM,
             max_tokens,

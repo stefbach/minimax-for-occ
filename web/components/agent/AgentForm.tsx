@@ -31,15 +31,6 @@ const PROVIDER_MODELS: Record<LlmProvider, ModelOption[]> = {
   minimax: [
     { id: "MiniMax-M2", label: "MiniMax-M2 — Standard" },
   ],
-  // LiveKit Inference — le LLM est servi depuis l'infra LiveKit Cloud,
-  // colocalisé avec les serveurs média (latence réduite). Modèle au format
-  // catalogue "fournisseur/modele". Facturé via les crédits d'inférence du
-  // plan LiveKit (pas de surcoût token vs l'API directe).
-  livekit: [
-    { id: "openai/gpt-4o-mini",  label: "openai/gpt-4o-mini (LiveKit Inference) — Colocalisé, latence réduite (recommandé)" },
-    { id: "openai/gpt-4.1-mini", label: "openai/gpt-4.1-mini (LiveKit Inference) — Dernière génération" },
-    { id: "openai/gpt-4.1",      label: "openai/gpt-4.1 (LiveKit Inference) — Haute qualité" },
-  ],
 };
 
 const PROVIDER_MODEL_IDS: Record<LlmProvider, string[]> = Object.fromEntries(
@@ -1241,7 +1232,6 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                       <option value="deepseek">DeepSeek (recommandé)</option>
                       <option value="openai">OpenAI</option>
                       <option value="anthropic">Anthropic Claude</option>
-                      <option value="livekit">LiveKit Inference (colocalisé, latence réduite)</option>
                     </select>
                   </div>
                   <div>
