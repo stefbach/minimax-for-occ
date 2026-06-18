@@ -50,7 +50,8 @@ export async function GET(req: Request) {
   const sheetName = isFr ? "Patients" : "Patients";
   XLSX.utils.book_append_sheet(wb, ws, sheetName);
 
-  const buf = XLSX.write(wb, { type: "array", bookType: "xlsx" }) as Uint8Array;
+  const raw = XLSX.write(wb, { type: "array", bookType: "xlsx" }) as Uint8Array;
+  const buf = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength);
   const dateStr = new Date().toISOString().slice(0, 10);
   const filename = `patients-export-${dateStr}.xlsx`;
 
