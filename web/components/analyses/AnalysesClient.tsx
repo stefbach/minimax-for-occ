@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { HelpButton } from "@/components/help/HelpButton";
 import { useToast } from "@/lib/use-toast";
+import { useT } from "@/lib/i18n";
 
 type Policy = {
   id: string;

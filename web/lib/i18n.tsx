@@ -687,6 +687,59 @@ const EN: Record<string, string> = {
   "Une table doit d'abord vous être attribuée par un administrateur Axon (après import dans Supabase).":
     "A table must first be assigned to you by an Axon administrator (after import into Supabase).",
   "Aucune table disponible à connecter pour le moment.": "No table available to connect right now.",
+  // ── Flows ──
+  "+ Nouveau flow": "+ New flow",
+  "Supprimer cette étape ?": "Delete this step?",
+  "Supprimer cette étape": "Delete this step",
+  "Libellé": "Label",
+  // ── AgentForm ──
+  "Supprimer l'agent": "Delete agent",
+  "✕ Effacer": "✕ Clear",
+  "Annuler le clonage": "Cancel cloning",
+  "+ Cloner une nouvelle voix": "+ Clone a new voice",
+  // ── Softphone ──
+  "⌫ Effacer": "⌫ Clear",
+  "Se connecter à la salle": "Connect to room",
+  "Aucun appel récent. Passez en available...": "No recent calls. Switch to available to receive calls.",
+  "Réactiver micro": "Unmute",
+  "Mute": "Mute",
+  // ── Scripts ──
+  "Supprimer ce script ?": "Delete this script?",
+  "Créer le script": "Create script",
+  // ── Teams ──
+  "Supprimer cette team et tous ses membres ?": "Delete this team and all its members?",
+  "Créer une team": "Create a team",
+  "+ Créer une team": "+ Create a team",
+  // ── Queues ──
+  "Supprimer cette file et tous ses membres ?": "Delete this queue and all its members?",
+  "Créer une file": "Create a queue",
+  "Créer la file": "Create queue",
+  // ── Workflows ──
+  "Supprimer le webhook...?": "Delete webhook?",
+  "+ Ajouter un déclencheur": "+ Add a trigger",
+  "Aucun déclencheur...": "No triggers yet. Add one to link a qualification (e.g. confirmed appointment) to an n8n workflow.",
+  // ── Analyses ──
+  "Supprimer cette policy ?": "Delete this policy?",
+  "+ Créer une politique": "+ Create a policy",
+  // ── GDPR ──
+  "Renseignez au moins un identifiant": "Please provide at least one identifier (contact, user or organisation).",
+  "Supprimer DÉFINITIVEMENT": "Permanently delete",
+  "Anonymiser": "Anonymise",
+  "Effacement en cours…": "Erasing…",
+  "Effacer": "Erase",
+  // ── OrgsAdmin ──
+  "actif": "active",
+  "suspendu": "suspended",
+  "archivé": "archived",
+  "suppression dans Xj": "deletion in Xd",
+  "+ Créer un nouveau client": "+ Create new client",
+  "Créer un nouveau client": "Create new client",
+  "Confirmer la suppression": "Confirm deletion",
+  "Slug": "Slug",
+  "Catégorie": "Category",
+  "Membres": "Members",
+  "Appels (7j)": "Calls (7d)",
+  "Créé le": "Created on",
 };
 
 function readLang(): Lang {

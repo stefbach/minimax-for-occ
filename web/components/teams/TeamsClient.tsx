@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useState } from "react";
+import { useT } from "@/lib/i18n";
 
 export interface TeamRow {
   id: string;

@@ -2,6 +2,7 @@
 
 import { useState, useTransition, type ReactElement } from "react";
 import { useRouter } from "next/navigation";
+import { useT } from "@/lib/i18n";
 
 export interface OrgRow {
   id: string;
@@ -53,27 +54,27 @@ function daysUntil(iso: string | null): number | null {
   return Math.max(0, Math.ceil(ms / (24 * 3600 * 1000)));
 }
 
-function statusBadge(s: Status, deletionAt: string | null): ReactElement {
+function statusBadge(s: Status, deletionAt: string | null, t: (s: string) => string): ReactElement {
   switch (s) {
     case "active":
-      return <span className="tag">actif</span>;
+      return <span className="tag">{t("actif")}</span>;
     case "suspended":
       return (
         <span className="tag" style={{ background: "#b58105", color: "white" }}>
-          suspendu
+          {t("suspendu")}
         </span>
       );
     case "archived":
       return (
         <span className="tag" style={{ background: "#555", color: "white" }}>
-          archivé
+          {t("archivé")}
         </span>
       );
     case "pending_deletion": {
       const d = daysUntil(deletionAt);
       return (
         <span className="tag" style={{ background: "var(--bad)", color: "white" }}>
-          suppression dans {d ?? "?"}j
+          {t("suppression dans Xj").replace("X", String(d ?? "?"))}
         </span>
       );
     }
@@ -82,6 +83,7 @@ function statusBadge(s: Status, deletionAt: string | null): ReactElement {
 
 export function OrgsAdminClient({ initial }: { initial: OrgRow[] }) {
   const router = useRouter();
+  const t = useT();
   const [rows, setRows] = useState<OrgRow[]>(initial);
 
   // Wizard form state
@@ -202,7 +204,7 @@ export function OrgsAdminClient({ initial }: { initial: OrgRow[] }) {
         </div>
         {!showForm && (
           <button className="primary" onClick={() => setShowForm(true)}>
-            + Créer un nouveau client
+            {t("+ Créer un nouveau client")}
           </button>
         )}
       </div>
@@ -211,14 +213,14 @@ export function OrgsAdminClient({ initial }: { initial: OrgRow[] }) {
       {showForm && (
         <form onSubmit={createOrg} className="card" style={{ padding: 16, display: "grid", gap: 12 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-            <div style={{ fontWeight: 600, fontSize: 16 }}>Créer un nouveau client</div>
+            <div style={{ fontWeight: 600, fontSize: 16 }}>{t("Créer un nouveau client")}</div>
             <button
               type="button"
               className="ghost"
               onClick={resetForm}
               style={{ fontSize: 12 }}
             >
-              Annuler
+              {t("Annuler")}
             </button>
           </div>
 
@@ -333,14 +335,14 @@ export function OrgsAdminClient({ initial }: { initial: OrgRow[] }) {
           <table className="list">
             <thead>
               <tr>
-                <th>Nom</th>
-                <th>Slug</th>
-                <th>Catégorie</th>
-                <th style={{ textAlign: "right" }}>Membres</th>
-                <th style={{ textAlign: "right" }}>Appels (7j)</th>
-                <th>Créé le</th>
-                <th>Statut</th>
-                <th style={{ textAlign: "right" }}>Actions</th>
+                <th>{t("Nom")}</th>
+                <th>{t("Slug")}</th>
+                <th>{t("Catégorie")}</th>
+                <th style={{ textAlign: "right" }}>{t("Membres")}</th>
+                <th style={{ textAlign: "right" }}>{t("Appels (7j)")}</th>
+                <th>{t("Créé le")}</th>
+                <th>{t("Statut")}</th>
+                <th style={{ textAlign: "right" }}>{t("Actions")}</th>
               </tr>
             </thead>
             <tbody>
@@ -354,7 +356,7 @@ export function OrgsAdminClient({ initial }: { initial: OrgRow[] }) {
                   <td style={{ textAlign: "right" }}>{r.members}</td>
                   <td style={{ textAlign: "right" }}>{r.calls_7d}</td>
                   <td style={{ color: "var(--muted)", fontSize: 13 }}>{fmt(r.created_at)}</td>
-                  <td>{statusBadge(r.status, r.deletion_scheduled_at)}</td>
+                  <td>{statusBadge(r.status, r.deletion_scheduled_at, t)}</td>
                   <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                     <button
                       className="ghost"
@@ -403,7 +405,7 @@ export function OrgsAdminClient({ initial }: { initial: OrgRow[] }) {
                           disabled={pending}
                           style={{ fontSize: 12, marginRight: 6 }}
                         >
-                          Réactiver
+                          {t("Réactiver")}
                         </button>
                         <button
                           className="ghost"
@@ -471,7 +473,7 @@ export function OrgsAdminClient({ initial }: { initial: OrgRow[] }) {
       {pendingAction && (
         <Modal
           onClose={() => setPendingAction(null)}
-          title="Confirmer la suppression"
+          title={t("Confirmer la suppression")}
         >
           <p>
             Le client <strong>{pendingAction.name}</strong> sera marqué pour suppression. Pendant{" "}

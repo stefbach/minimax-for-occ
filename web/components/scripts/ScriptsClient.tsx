@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useT } from "@/lib/i18n";
 import dynamic from "next/dynamic";
 import { ScriptEditor, type ScriptGraph, type AgentHandleLite, emptyGraph, toGraph } from "./ScriptEditor";
 
