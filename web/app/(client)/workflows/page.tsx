@@ -5,6 +5,7 @@ import { hasSupabase, supabaseServer } from "@/lib/supabase";
 import { currentOrgIdForServer } from "@/lib/supabase-auth";
 import { OrgWebhooksPanel, type WebhookRow, type DataTableOption } from "@/components/workflows/OrgWebhooksPanel";
 import { NativeAutomationsPanel } from "@/components/workflows/NativeAutomationsPanel";
+import { CredentialsPanel } from "@/components/workflows/CredentialsPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -85,6 +86,8 @@ export default async function WorkflowsPage() {
       </div>
 
       <NativeAutomationsPanel />
+
+      <CredentialsPanel />
 
       <OrgWebhooksPanel initial={webhooks} dataTables={dataTables} />
     </>
