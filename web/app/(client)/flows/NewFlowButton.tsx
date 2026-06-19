@@ -12,7 +12,7 @@ export function NewFlowButton() {
   const [busy, setBusy] = useState(false);
 
   async function onClick() {
-    const name = window.prompt("Nom du flow ?", "Nouveau flow");
+    const name = window.prompt(t("Nom du flow ?"), t("Nouveau flow"));
     if (!name) return;
     setBusy(true);
     try {
@@ -23,7 +23,7 @@ export function NewFlowButton() {
       });
       if (!res.ok) {
         const err = (await res.json().catch(() => ({}))) as { error?: string };
-        toast.error("Erreur : " + (err.error ?? res.statusText));
+        toast.error(t("Erreur : ") + (err.error ?? res.statusText));
         return;
       }
       const flow = (await res.json()) as { id: string };

@@ -454,12 +454,12 @@ function InnerEditor({ flow }: { flow: FlowFull }) {
       dbEdgeIds.current = new Set(edges.map((e) => newEdgeRemap[e.id] ?? e.id));
 
       setSavedAt(new Date());
-      toast.success("Flow enregistré.");
+      toast.success(t("Flow enregistré."));
       router.refresh();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setError(msg);
-      toast.error(`Enregistrement échoué : ${msg}`);
+      toast.error(t("Enregistrement échoué : ") + msg);
     } finally {
       setSaving(false);
     }
@@ -492,7 +492,7 @@ function InnerEditor({ flow }: { flow: FlowFull }) {
             padding: "4px 6px 10px",
           }}
         >
-          Palette
+          {t("Palette")}
         </div>
         {STEP_DEFS.map((d) => (
           <div
@@ -515,7 +515,7 @@ function InnerEditor({ flow }: { flow: FlowFull }) {
               background: "var(--panel)",
               fontSize: 13,
             }}
-            title={d.description}
+            title={t(d.description)}
           >
             <span style={{ color: d.color, fontSize: 14 }}>{d.icon}</span>
             <div>
@@ -525,8 +525,7 @@ function InnerEditor({ flow }: { flow: FlowFull }) {
           </div>
         ))}
         <div style={{ marginTop: 16, fontSize: 11, color: "var(--muted-2)", lineHeight: 1.5 }}>
-          Glissez une étape sur le canvas pour l&apos;ajouter. Reliez les étapes en tirant depuis
-          le point inférieur d&apos;un nœud vers le point supérieur d&apos;un autre.
+          {t("Glissez une étape sur le canvas pour l'ajouter. Reliez les étapes en tirant depuis le point inférieur d'un nœud vers le point supérieur d'un autre.")}
         </div>
       </aside>
 
@@ -586,11 +585,11 @@ function InnerEditor({ flow }: { flow: FlowFull }) {
           )}
           {savedAt && !error && (
             <span style={{ color: "var(--muted)", fontSize: 12 }}>
-              Enregistré · {savedAt.toLocaleTimeString()}
+              {t("Enregistré · ")}{savedAt.toLocaleTimeString()}
             </span>
           )}
           <button onClick={save} disabled={saving}>
-            {saving ? "Enregistrement…" : "Enregistrer"}
+            {saving ? t("Enregistrement…") : t("Enregistrer")}
           </button>
         </div>
       </div>
@@ -615,10 +614,9 @@ function InnerEditor({ flow }: { flow: FlowFull }) {
                 marginBottom: 8,
               }}
             >
-              Inspecteur
+              {t("Inspecteur")}
             </div>
-            Sélectionnez une étape pour modifier sa configuration, ou glissez une étape depuis la
-            palette de gauche pour l&apos;ajouter.
+            {t("Sélectionnez une étape pour modifier sa configuration, ou glissez une étape depuis la palette de gauche pour l'ajouter.")}
           </div>
         ) : (
           <NodeInspector
@@ -673,7 +671,7 @@ function NodeInspector({
           marginBottom: 8,
         }}
       >
-        Inspecteur
+        {t("Inspecteur")}
       </div>
       <div
         style={{
@@ -710,7 +708,7 @@ function NodeInspector({
           disabled={isStart}
           style={{ width: "100%" }}
         >
-          {isStart ? "✓ Étape de départ" : "Définir comme étape de départ"}
+          {isStart ? t("✓ Étape de départ") : t("Définir comme étape de départ")}
         </button>
         <button className="danger" onClick={onDelete} style={{ width: "100%" }}>
           {t("Supprimer cette étape")}
@@ -757,10 +755,10 @@ function KindConfig({
   if (kind === "welcome") {
     return (
       <>
-        <label>Texte d&apos;accueil (TTS)</label>
+        <label>{t("Texte d'accueil (TTS)")}</label>
         <textarea value={str("text")} onChange={(e) => onChange({ text: e.target.value })} />
         <div style={{ height: 10 }} />
-        <label>Voice ID (optionnel)</label>
+        <label>{t("Voice ID (optionnel)")}</label>
         <input value={str("voice_id")} onChange={(e) => onChange({ voice_id: e.target.value })} />
       </>
     );
@@ -772,7 +770,7 @@ function KindConfig({
         <label>Prompt</label>
         <textarea value={str("prompt")} onChange={(e) => onChange({ prompt: e.target.value })} />
         <div style={{ height: 10 }} />
-        <label>Options DTMF</label>
+        <label>{t("Options DTMF")}</label>
         {options.map((opt, i) => (
           <div key={i} style={{ display: "flex", gap: 6, marginBottom: 6 }}>
             <input
@@ -812,10 +810,10 @@ function KindConfig({
             })
           }
         >
-          + Ajouter option
+          {t("+ Ajouter option")}
         </button>
         <div style={{ height: 10 }} />
-        <label>Timeout (s)</label>
+        <label>{t("Timeout (s)")}</label>
         <input
           type="number"
           value={num("timeout_s")}
@@ -830,10 +828,10 @@ function KindConfig({
         <label>Prompt</label>
         <textarea value={str("prompt")} onChange={(e) => onChange({ prompt: e.target.value })} />
         <div style={{ height: 10 }} />
-        <label>Langue</label>
+        <label>{t("Langue")}</label>
         <input value={str("language")} onChange={(e) => onChange({ language: e.target.value })} />
         <div style={{ height: 10 }} />
-        <label>Timeout (s)</label>
+        <label>{t("Timeout (s)")}</label>
         <input
           type="number"
           value={num("timeout_s")}
@@ -864,7 +862,7 @@ function KindConfig({
   if (kind === "transfer") {
     return (
       <>
-        <label>Numéro de destination (E.164)</label>
+        <label>{t("Numéro de destination (E.164)")}</label>
         <input
           value={str("to_e164")}
           onChange={(e) => onChange({ to_e164: e.target.value })}
@@ -886,7 +884,7 @@ function KindConfig({
         <label>Queue ID</label>
         <input value={str("queue_id")} onChange={(e) => onChange({ queue_id: e.target.value })} />
         <div style={{ height: 10 }} />
-        <label>Priorité</label>
+        <label>{t("Priorité")}</label>
         <input
           type="number"
           value={num("priority")}
@@ -901,7 +899,7 @@ function KindConfig({
         <label>Prompt</label>
         <textarea value={str("prompt")} onChange={(e) => onChange({ prompt: e.target.value })} />
         <div style={{ height: 10 }} />
-        <label>Durée max (s)</label>
+        <label>{t("Durée max (s)")}</label>
         <input
           type="number"
           value={num("max_duration_s")}

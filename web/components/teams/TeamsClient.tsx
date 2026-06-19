@@ -141,13 +141,13 @@ export function TeamsClient({ initial, agents }: { initial: TeamRow[]; agents: A
         <form onSubmit={createTeam} style={{ display: "grid", gap: 10 }}>
           <div className="form-row">
             <div>
-              <label>Nom</label>
+              <label>{tr("Nom")}</label>
               <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Concierge digital · multi-spécialistes" required />
             </div>
             <div>
-              <label>Agent lead (router)</label>
+              <label>{tr("Agent lead (router)")}</label>
               <select value={leadAgentId} onChange={(e) => setLeadAgentId(e.target.value)}>
-                <option value="">— aucun (premier membre ajouté servira) —</option>
+                <option value="">{tr("— aucun (premier membre ajouté servira) —")}</option>
                 {agents.map((a) => (
                   <option key={a.id} value={a.id}>{a.name}</option>
                 ))}
@@ -155,12 +155,12 @@ export function TeamsClient({ initial, agents }: { initial: TeamRow[]; agents: A
             </div>
           </div>
           <div>
-            <label>Description</label>
+            <label>{tr("Description")}</label>
             <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Ex: facturation, support technique, ventes" />
           </div>
           {error && <div style={{ color: "var(--bad)", fontSize: 13 }}>{error}</div>}
           <div>
-            <button type="submit" disabled={busy || !name}>{busy ? "…" : "Créer la team"}</button>
+            <button type="submit" disabled={busy || !name}>{busy ? "…" : tr("Créer la team")}</button>
           </div>
         </form>
       </div>
@@ -197,10 +197,10 @@ export function TeamsClient({ initial, agents }: { initial: TeamRow[]; agents: A
               </tr>
             </thead>
             <tbody>
-              {teams.map((t) => {
-                const lead = agents.find((a) => a.id === t.lead_agent_id);
-                const ms = members[t.id] ?? [];
-                const d = getDraft(t.id);
+              {teams.map((team) => {
+                const lead = agents.find((a) => a.id === team.lead_agent_id);
+                const ms = members[team.id] ?? [];
+                const d = getDraft(team.id);
                 return (
                   <Fragment key={t.id}>
                     <tr>

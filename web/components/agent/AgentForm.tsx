@@ -188,7 +188,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
       const r = await fetch("/api/voices", { method: "POST", body: fd, credentials: "same-origin" });
       const body = await r.json().catch(() => ({}));
       if (!r.ok) {
-        setError(body.error || `Échec du clonage (${r.status})`);
+        setError(body.error || t("Échec du clonage (") + r.status + ")");
         return;
       }
       // Refresh the catalog and auto-select the freshly cloned voice.
@@ -246,7 +246,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
         // MiniMax voice_id format.
         setError(null);
       } catch {
-        setError("Impossible de parser le fichier .md");
+        setError(t("Impossible de parser le fichier .md"));
       }
     };
     reader.readAsText(file);
@@ -411,7 +411,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
     <form onSubmit={onSubmit} style={{ display: "grid", gap: 18 }}>
       <div className="card" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "space-between" }}>
         <div style={{ fontSize: 13, color: "var(--muted)" }}>
-          Importez un persona <span className="kbd">.md</span> pour remplir ce formulaire, ou exportez la configuration actuelle.
+          {t("Importez un persona")} <span className="kbd">.md</span> {t("pour remplir ce formulaire, ou exportez la configuration actuelle.")}
         </div>
         <div style={{ display: "flex", gap: 6 }}>
           <input
@@ -430,14 +430,14 @@ export function AgentForm({ initial }: { initial?: Agent }) {
             className="ghost"
             onClick={() => fileInputRef.current?.click()}
           >
-            ⬆ Importer .md
+            {t("⬆ Importer .md")}
           </button>
           <button type="button" className="ghost" onClick={onExportMd}>
-            ⬇ Exporter .md
+            {t("⬇ Exporter .md")}
           </button>
           <Link href="/agents/library">
             <button type="button" className="ghost">
-              ⊕ Bibliothèque
+              {t("⊕ Bibliothèque")}
             </button>
           </Link>
         </div>
@@ -449,23 +449,23 @@ export function AgentForm({ initial }: { initial?: Agent }) {
           { id: "identite", label: "🪪 Identité" },
           { id: "voix", label: "🎙️ Voix" },
           { id: "cerveau", label: "🧠 Cerveau & comportement" },
-        ] as const).map((t) => (
+        ] as const).map((tab_item) => (
           <button
-            key={t.id}
+            key={tab_item.id}
             type="button"
-            onClick={() => setTab(t.id)}
+            onClick={() => setTab(tab_item.id)}
             style={{
               padding: "8px 16px",
               fontSize: 14,
-              fontWeight: tab === t.id ? 600 : 400,
-              background: tab === t.id ? "var(--surface-2, rgba(255,255,255,0.06))" : "transparent",
-              color: tab === t.id ? "var(--fg)" : "var(--muted)",
+              fontWeight: tab === tab_item.id ? 600 : 400,
+              background: tab === tab_item.id ? "var(--surface-2, rgba(255,255,255,0.06))" : "transparent",
+              color: tab === tab_item.id ? "var(--fg)" : "var(--muted)",
               border: "none",
-              borderBottom: tab === t.id ? "2px solid var(--accent, #ff6b35)" : "2px solid transparent",
+              borderBottom: tab === tab_item.id ? "2px solid var(--accent, #ff6b35)" : "2px solid transparent",
               cursor: "pointer",
             }}
           >
-            {t.label}
+            {t(tab_item.label)}
           </button>
         ))}
       </div>
@@ -473,22 +473,22 @@ export function AgentForm({ initial }: { initial?: Agent }) {
       {/* ═══ IDENTITÉ : qui est l'agent ═══ */}
       {tab === "identite" && (
         <div className="card" style={{ display: "grid", gap: 14 }}>
-          <h3 style={{ margin: 0 }}>Identité</h3>
+          <h3 style={{ margin: 0 }}>{t("Identité")}</h3>
           <div className="form-row">
             <div>
-              <label>Nom</label>
+              <label>{t("Nom")}</label>
               <input value={name} onChange={(e) => setName(e.target.value)} required placeholder="Réceptionniste Tibok" />
             </div>
             <div>
-              <label>Langue principale</label>
+              <label>{t("Langue principale")}</label>
               <select value={language} onChange={(e) => setLanguage(e.target.value)}>
                 {LANGUAGES.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
               </select>
             </div>
           </div>
           <div>
-            <label>Description</label>
-            <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="À quoi sert cet agent ?" />
+            <label>{t("Description")}</label>
+            <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t("À quoi sert cet agent ?")} />
           </div>
         </div>
       )}
@@ -496,12 +496,12 @@ export function AgentForm({ initial }: { initial?: Agent }) {
       {/* ═══ VOIX : comment l'agent sonne (tout le voice ici) ═══ */}
       {tab === "voix" && (
         <div className="card" style={{ display: "grid", gap: 14 }}>
-          <h3 style={{ margin: 0 }}>Voix</h3>
+          <h3 style={{ margin: 0 }}>{t("Voix")}</h3>
 
           <div>
-            <label>Voix de l&apos;agent</label>
+            <label>{t("Voix de l'agent")}</label>
             <select value={voice} onChange={(e) => setVoice(e.target.value)}>
-              <option value="">— voix par défaut —</option>
+              <option value="">{t("— voix par défaut —")}</option>
               {customCloned.length > 0 && (
                 <optgroup label="Mes voix clonées">
                   {customCloned.map((v) => (
@@ -541,7 +541,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                   onChange={(e) => setFilterGender(e.target.value)}
                   style={{ width: "auto", fontSize: 13, padding: "6px 12px", borderRadius: 20, background: "var(--bg-2)", color: "var(--text)" }}
                 >
-                  <option value="" style={{ background: "var(--bg-2)", color: "var(--text)" }}>Tous les genres</option>
+                  <option value="" style={{ background: "var(--bg-2)", color: "var(--text)" }}>{t("Tous les genres")}</option>
                   {catalogGenders.map((g) => (
                     <option key={g} value={g} style={{ background: "var(--bg-2)", color: "var(--text)" }}>{GENDER_LABELS[g] ?? g}</option>
                   ))}
@@ -551,7 +551,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                   onChange={(e) => setFilterLang(e.target.value)}
                   style={{ width: "auto", fontSize: 13, padding: "6px 12px", borderRadius: 20, background: "var(--bg-2)", color: "var(--text)" }}
                 >
-                  <option value="" style={{ background: "var(--bg-2)", color: "var(--text)" }}>Toutes les langues</option>
+                  <option value="" style={{ background: "var(--bg-2)", color: "var(--text)" }}>{t("Toutes les langues")}</option>
                   {catalogLangs.map((l) => (
                     <option key={l} value={l} style={{ background: "var(--bg-2)", color: "var(--text)" }}>{LANG_NAMES[l] ?? l.toUpperCase()}</option>
                   ))}
@@ -561,7 +561,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                   onChange={(e) => setFilterCountry(e.target.value)}
                   style={{ width: "auto", fontSize: 13, padding: "6px 12px", borderRadius: 20, background: "var(--bg-2)", color: "var(--text)" }}
                 >
-                  <option value="" style={{ background: "var(--bg-2)", color: "var(--text)" }}>Tous les accents</option>
+                  <option value="" style={{ background: "var(--bg-2)", color: "var(--text)" }}>{t("Tous les accents")}</option>
                   {catalogCountries.map((c) => (
                     <option key={c} value={c} style={{ background: "var(--bg-2)", color: "var(--text)" }}>{COUNTRY_LABELS[c] ?? c}</option>
                   ))}
@@ -577,7 +577,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                   </button>
                 )}
                 <span style={{ fontSize: 12, color: "var(--muted)", marginLeft: 4 }}>
-                  {filteredCatalog.length} voix
+                  {filteredCatalog.length}{t(" voix")}
                 </span>
               </div>
             )}
@@ -585,7 +585,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
 
           {/* Manual UUID entry */}
           <div>
-            <label>ID de voix manuel (UUID)</label>
+            <label>{t("ID de voix manuel (UUID)")}</label>
             <input
               value={voice}
               onChange={(e) => setVoice(e.target.value)}
@@ -593,12 +593,12 @@ export function AgentForm({ initial }: { initial?: Agent }) {
               style={{ fontFamily: "monospace", fontSize: 13 }}
             />
             <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
-              Collez ici l&apos;identifiant UUID d&apos;une voix spécifique.
+              {t("Collez ici l'identifiant UUID d'une voix spécifique.")}
             </div>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
             <button type="button" className="ghost" disabled={previewing} onClick={onPreviewVoice}>
-              {previewing ? "Synthèse en cours…" : "▶ Écouter cette voix"}
+              {previewing ? t("Synthèse en cours…") : t("▶ Écouter cette voix")}
             </button>
             <button type="button" className="ghost" onClick={() => setShowClone((v) => !v)}>
               {showClone ? t("Annuler le clonage") : t("+ Cloner une nouvelle voix")}
@@ -614,7 +614,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
               </div>
               <div className="form-row">
                 <div>
-                  <label>Fichier audio</label>
+                  <label>{t("Fichier audio")}</label>
                   <input
                     type="file"
                     accept=".mp3,.wav,.m4a,audio/mpeg,audio/wav,audio/x-m4a,audio/mp4"
@@ -636,7 +636,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                   )}
                 </div>
                 <div>
-                  <label>Nom affiché</label>
+                  <label>{t("Nom affiché")}</label>
                   <input value={cloneName} onChange={(e) => setCloneName(e.target.value)} placeholder="Voix Dr Coste" />
                 </div>
               </div>
@@ -646,7 +646,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                   onClick={doClone}
                   disabled={cloning || !cloneFile || !cloneName.trim()}
                 >
-                  {cloning ? "Clonage en cours…" : "Cloner et utiliser cette voix"}
+                  {cloning ? t("Clonage en cours…") : t("Cloner et utiliser cette voix")}
                 </button>
               </div>
             </div>
@@ -664,12 +664,12 @@ export function AgentForm({ initial }: { initial?: Agent }) {
               aria-expanded={showVoiceAdvanced}
             >
               <span style={{ transition: "transform 0.15s", transform: showVoiceAdvanced ? "rotate(90deg)" : "none" }}>›</span>
-              ⚙ Réglages avancés (modèle TTS, vitesse, volume)
+              {t("⚙ Réglages avancés (modèle TTS, vitesse, volume)")}
             </button>
             {showVoiceAdvanced && (
               <div style={{ display: "grid", gap: 14, marginTop: 12 }}>
                 <div>
-                  <label>Modèle TTS</label>
+                  <label>{t("Modèle TTS")}</label>
                   <select value={ttsModel} onChange={(e) => setTtsModel(e.target.value)}>
                     {TTS_MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
                   </select>
@@ -711,9 +711,9 @@ export function AgentForm({ initial }: { initial?: Agent }) {
       {/* ═══ CERVEAU & COMPORTEMENT : comment l'agent pense/parle ═══ */}
       {tab === "cerveau" && (
         <div className="card" style={{ display: "grid", gap: 14 }}>
-          <h3 style={{ margin: 0 }}>Cerveau & comportement</h3>
+          <h3 style={{ margin: 0 }}>{t("Cerveau & comportement")}</h3>
           <div>
-            <label>Salutation à l&apos;entrée en session</label>
+            <label>{t("Salutation à l'entrée en session")}</label>
             <input value={greeting} onChange={(e) => setGreeting(e.target.value)} />
           </div>
           <PromptEditor
@@ -737,25 +737,25 @@ export function AgentForm({ initial }: { initial?: Agent }) {
               aria-expanded={showBrainAdvanced}
             >
               <span style={{ transition: "transform 0.15s", transform: showBrainAdvanced ? "rotate(90deg)" : "none" }}>›</span>
-              ⚙ Réglages avancés (modèle LLM, base de connaissances)
+              {t("⚙ Réglages avancés (modèle LLM, base de connaissances)")}
             </button>
             {showBrainAdvanced && (
               <div style={{ display: "grid", gap: 14, marginTop: 12 }}>
                 <div className="form-row">
                   <div>
-                    <label>Fournisseur LLM</label>
+                    <label>{t("Fournisseur LLM")}</label>
                     <select value={provider} onChange={(e) => {
                       const p = e.target.value as LlmProvider;
                       setProvider(p);
                       setModel(PROVIDER_MODELS[p][0].id);
                     }}>
-                      <option value="deepseek">DeepSeek (recommandé)</option>
+                      <option value="deepseek">{t("DeepSeek (recommandé)")}</option>
                       <option value="openai">OpenAI</option>
                       <option value="anthropic">Anthropic Claude</option>
                     </select>
                   </div>
                   <div>
-                    <label>Modèle</label>
+                    <label>{t("Modèle")}</label>
                     <select value={model} onChange={(e) => setModel(e.target.value)}>
                       {llmModels.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
                       {!llmModels.some((m) => m.id === model) && <option value={model}>{model} (personnalisé)</option>}
@@ -770,10 +770,10 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                       checked={rag}
                       onChange={(e) => setRag(e.target.checked)}
                     />
-                    Base de connaissances (RAG)
+                    {t("Base de connaissances (RAG)")}
                   </label>
                   <div>
-                    <label>Top-K passages à injecter</label>
+                    <label>{t("Top-K passages à injecter")}</label>
                     <input
                       type="number" min="1" max="12"
                       value={ragK} onChange={(e) => setRagK(Number(e.target.value))}
@@ -791,7 +791,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
 
       <div style={{ display: "flex", gap: 10, justifyContent: "space-between" }}>
         <button type="submit" disabled={busy || !name}>
-          {busy ? "…" : initial ? "Enregistrer" : "Créer l'agent"}
+          {busy ? "…" : initial ? t("Enregistrer") : t("Créer l'agent")}
         </button>
         {initial && (
           <button type="button" className="danger" onClick={onDelete} disabled={busy}>

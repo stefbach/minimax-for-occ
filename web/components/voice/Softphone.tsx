@@ -732,7 +732,7 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
                   className="ghost"
                   onClick={toggleTwilioMute}
                   style={{ padding: "4px 9px", fontSize: 12 }}
-                  aria-label={twilioMuted ? "Démute" : "Mute"}
+                  aria-label={twilioMuted ? t("🔈 Démute") : t("🔇 Mute")}
                 >
                   {twilioMuted ? "🔈" : "🔇"}
                 </button>
@@ -747,7 +747,7 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
                     borderRadius: 5,
                   }}
                 >
-                  ☎ Raccrocher
+                  {t("Raccrocher")}
                 </button>
               </>
             )}
@@ -925,8 +925,7 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
           {!conn ? (
             <>
               <p className="muted" style={{ margin: 0 }}>
-                Connectez-vous à votre salle LiveKit pour recevoir les appels routés
-                vers ce poste.
+                {t("Connectez-vous à votre salle LiveKit pour recevoir les appels routés vers ce poste.")}
               </p>
               <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
                 <button onClick={() => void connect()} disabled={connecting}>
@@ -1058,7 +1057,7 @@ function CallsList({
       <h3>Appels</h3>
       {calls.length === 0 && (
         <p className="muted" style={{ margin: 0 }}>
-          {t("Aucun appel récent. Passez en available...")}
+          {t("Aucun appel récent. Passez en « available » pour recevoir les appels.")}
         </p>
       )}
 
@@ -1081,7 +1080,7 @@ function CallsList({
       {others.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 12 }}>
           <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>
-            Récents
+            {t("Récents")}
           </div>
           {others.map((c) => (
             <CallRowView
@@ -1128,7 +1127,7 @@ function CallRowView({
         </span>
       </div>
       <div className="muted" style={{ fontSize: 11 }}>
-        {call.direction === "in" ? "← entrant" : "→ sortant"} · il y a {formatRelative(call.started_at)}
+        {call.direction === "in" ? t("← entrant") : t("→ sortant")} · {t("il y a ")}{formatRelative(call.started_at)}
       </div>
     </button>
   );
@@ -1163,22 +1162,22 @@ function CallActions({
         disabled={!onHold || onHold_busy}
         title={
           onHold_active
-            ? "Reprendre la conversation"
-            : "Mettre l'appel en attente avec musique"
+            ? t("Reprendre la conversation")
+            : t("Mettre l'appel en attente avec musique")
         }
       >
-        {onHold_busy ? "…" : onHold_active ? "Reprendre" : "Hold"}
+        {onHold_busy ? "…" : onHold_active ? t("Reprendre") : "Hold"}
       </button>
       <button
         className="ghost"
         onClick={onTransfer}
         disabled={!onTransfer}
-        title="Transférer cet appel vers un autre agent"
+        title={t("Transférer cet appel vers un autre agent")}
       >
-        Transférer
+        {t("Transférer")}
       </button>
       <button className="danger" onClick={onHangup}>
-        Raccrocher
+        {t("Raccrocher")}
       </button>
     </div>
   );
