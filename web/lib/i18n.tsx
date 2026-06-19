@@ -528,7 +528,6 @@ const EN: Record<string, string> = {
   "Aucun appel terminé sur la période.": "No completed calls in this period.",
   "Pair": "Peer",
   "Direction": "Direction",
-  "Terminé": "Ended",
   "Entrant": "Inbound",
   "Sortant": "Outbound",
   "En sonnerie": "Ringing",
@@ -548,7 +547,6 @@ const EN: Record<string, string> = {
   "Transcript en attente.": "Transcript pending.",
   "Enregistrement": "Recording",
   "Résumé LLM": "LLM Summary",
-  "Génération…": "Generating…",
   "Régénérer": "Regenerate",
   "Générer le résumé": "Generate summary",
   "Analyse…": "Analysing…",
@@ -586,20 +584,16 @@ const EN: Record<string, string> = {
   "File": "Queue",
   "Attente moy.": "Avg wait",
   "Aucune file utilisée sur la période.": "No queue used in this period.",
-  "Performance par agent": "Per-agent performance",
   "humains et agents IA confondus": "humans and AI agents combined",
   "Trier par appels": "Sort by calls",
   "Trier par DMT": "Sort by AHT",
-  "Type": "Type",
   "Aucun appel attribué à un agent sur la période.": "No calls attributed to an agent in this period.",
   "IA": "AI",
   "humain": "human",
-  "Campagnes": "Campaigns",
   "taux de réussite par campagne": "success rate by campaign",
   "Campagne": "Campaign",
   "Cibles": "Targets",
   "Réussies": "Succeeded",
-  "Échecs": "Failures",
   "Taux de réussite": "Success rate",
   "Aucune campagne avec cibles.": "No campaigns with targets.",
   // ── DataTablesClient ──
@@ -631,9 +625,7 @@ const EN: Record<string, string> = {
   "Aucun contact pour l'instant. Ajoute-en un manuellement ci-dessus.":
     "No contacts yet. Add one manually above.",
   "Aucun contact ne correspond à ta recherche.": "No contact matches your search.",
-  "Téléphone": "Phone",
   "Appeler ce contact depuis le softphone": "Call this contact from the softphone",
-  "Appeler": "Call",
   "Supprimer": "Delete",
   // ── DataTableDetail ──
   "Supprimer ce contact": "Delete this contact",
@@ -656,7 +648,6 @@ const EN: Record<string, string> = {
   "Composer ce numéro depuis Mon poste": "Dial this number from My desk",
   "Voir la fiche complète": "View full record",
   "Fiche complète du contact": "Full contact record",
-  "Enregistrement…": "Saving…",
   "Enregistrer": "Save",
   // ── CreateDataTableModal ──
   "Créer une table de contacts": "Create a contact table",
@@ -672,7 +663,6 @@ const EN: Record<string, string> = {
   "Description (optionnel)": "Description (optional)",
   "Créer la base": "Create base",
   // ── ConnectTableModal ──
-  "Connecter une table existante": "Connect an existing table",
   "Choisissez une table mise à votre disposition. Axon lira ses colonnes automatiquement.":
     "Choose a table made available to you. Axon will read its columns automatically.",
   "Analyse des colonnes…": "Analysing columns…",
@@ -682,7 +672,6 @@ const EN: Record<string, string> = {
   "choisir": "choose",
   "Colonne « nom » (optionnel)": "Name column (optional)",
   "aucune": "none",
-  "Connexion…": "Connecting…",
   "Connecter la table": "Connect table",
   "Une table doit d'abord vous être attribuée par un administrateur Axon (après import dans Supabase).":
     "A table must first be assigned to you by an Axon administrator (after import into Supabase).",
@@ -934,7 +923,6 @@ const EN: Record<string, string> = {
   "16 caractères aléatoires si vide": "16 random characters if empty",
   "Créer le client": "Create client",
   "Aucun client. Créez-en un ci-dessus.": "No clients. Create one above.",
-  "Se connecter": "Sign in as",
   "Suspendre": "Suspend",
   "Archiver": "Archive",
   "Annuler la suppression": "Cancel deletion",
