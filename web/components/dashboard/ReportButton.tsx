@@ -106,10 +106,19 @@ export function ReportButton({
 }) {
   const t = useT();
   const ref = useRef<HTMLDetailsElement>(null);
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [preview, setPreview] = useState<ReportPayload | null>(null);
   const [hoveredGroup, setHoveredGroup] = useState<ExtFrequency | null>(null);
+
+  const enterGroup = (freq: ExtFrequency) => {
+    if (hoverTimer.current) clearTimeout(hoverTimer.current);
+    setHoveredGroup(freq);
+  };
+  const leaveGroup = () => {
+    hoverTimer.current = setTimeout(() => setHoveredGroup(null), 220);
+  };
 
   const todayStr = new Date().toISOString().slice(0, 10);
   const [customFrom, setCustomFrom] = useState(todayStr);
@@ -123,6 +132,7 @@ export function ReportButton({
       const el = ref.current;
       if (el?.open && e.target instanceof Node && !el.contains(e.target)) {
         el.open = false;
+        if (hoverTimer.current) clearTimeout(hoverTimer.current);
         setHoveredGroup(null);
       }
     };
@@ -271,8 +281,8 @@ export function ReportButton({
             <div
               key={g.freq}
               style={{ position: "relative" }}
-              onMouseEnter={() => setHoveredGroup(g.freq)}
-              onMouseLeave={() => setHoveredGroup(null)}
+              onMouseEnter={() => enterGroup(g.freq)}
+              onMouseLeave={leaveGroup}
             >
               <button
                 type="button"
