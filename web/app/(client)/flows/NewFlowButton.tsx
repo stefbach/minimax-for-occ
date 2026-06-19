@@ -3,10 +3,12 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useToast } from "@/lib/use-toast";
+import { useT } from "@/lib/i18n";
 
 export function NewFlowButton() {
   const router = useRouter();
   const toast = useToast();
+  const t = useT();
   const [busy, setBusy] = useState(false);
 
   async function onClick() {
@@ -33,7 +35,7 @@ export function NewFlowButton() {
 
   return (
     <button onClick={onClick} disabled={busy}>
-      {busy ? "Création…" : "+ Nouveau flow"}
+      {busy ? t("Création…") : t("+ Nouveau flow")}
     </button>
   );
 }

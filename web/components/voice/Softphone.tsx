@@ -15,6 +15,7 @@ import { ScriptPanel } from "./ScriptPanel";
 import { useToast } from "@/lib/use-toast";
 import { COUNTRIES, countryFor, countryFromE164 } from "@/lib/country-prefixes";
 import { CallNotePanel } from "./CallNotePanel";
+import { useT } from "@/lib/i18n";
 
 type PresenceStatus = "offline" | "available" | "busy" | "away";
 
@@ -83,6 +84,7 @@ export interface SoftphoneProps {
 
 export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
   const toast = useToast();
+  const t = useT();
   const searchParams = useSearchParams();
   const [bootstrapping, setBootstrapping] = useState(true);
   const [handle, setHandle] = useState<Handle | null>(null);
@@ -870,7 +872,7 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
               onClick={() => setDialNumber((n) => n.slice(0, -1) || "+")}
               style={{ padding: "6px 10px", fontSize: 13 }}
             >
-              ⌫ Effacer
+              {t("⌫ Effacer")}
             </button>
             <button
               className="ghost"
@@ -928,7 +930,7 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
               </p>
               <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
                 <button onClick={() => void connect()} disabled={connecting}>
-                  {connecting ? "Connexion…" : "Se connecter à la salle"}
+                  {connecting ? t("Connexion…") : t("Se connecter à la salle")}
                 </button>
               </div>
               {connError && (
@@ -1041,6 +1043,7 @@ function CallsList({
   activeId: string | null;
   onSelect: (c: CallRow) => void;
 }) {
+  const t = useT();
   const live = useMemo(
     () => calls.filter((c) => c.state === "ringing" || c.state === "in_progress"),
     [calls],
@@ -1055,7 +1058,7 @@ function CallsList({
       <h3>Appels</h3>
       {calls.length === 0 && (
         <p className="muted" style={{ margin: 0 }}>
-          Aucun appel récent. Passez en « available » pour recevoir les appels.
+          {t("Aucun appel récent. Passez en available...")}
         </p>
       )}
 
@@ -1148,10 +1151,11 @@ function CallActions({
   onHold_busy?: boolean;
   onHold_active?: boolean;
 }) {
+  const t = useT();
   return (
     <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
       <button className="ghost" onClick={onToggleMute}>
-        {muted ? "Réactiver micro" : "Mute"}
+        {muted ? t("Réactiver micro") : t("Mute")}
       </button>
       <button
         className="ghost"

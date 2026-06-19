@@ -25,6 +25,7 @@ export function OrgWebhooksPanel({
   initial: WebhookRow[];
   dataTables: DataTableOption[];
 }) {
+  const t = useT();
   const [rows, setRows] = useState<WebhookRow[]>(initial);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -88,7 +89,7 @@ export function OrgWebhooksPanel({
   }
 
   async function remove(row: WebhookRow) {
-    if (!confirm(`Supprimer le webhook « ${row.name} » ?`)) return;
+    if (!confirm(`${t("Supprimer le webhook...?")} « ${row.name} »`)) return;
     setRows((r) => r.filter((x) => x.id !== row.id));
     await fetch(`/api/webhooks?id=${row.id}`, { method: "DELETE" }).catch(() => {});
   }
@@ -107,7 +108,7 @@ export function OrgWebhooksPanel({
           </div>
         </div>
         <button onClick={() => setOpen((v) => !v)} className={open ? "ghost" : undefined}>
-          {open ? "Annuler" : "+ Ajouter un déclencheur"}
+          {open ? t("Annuler") : t("+ Ajouter un déclencheur")}
         </button>
       </div>
 
@@ -166,7 +167,7 @@ export function OrgWebhooksPanel({
       {rows.length === 0 ? (
         <div className="card">
           <p className="muted" style={{ margin: 0 }}>
-            Aucun déclencheur. Ajoutez-en un pour relier une qualification (ex : RDV confirmé) à un workflow n8n.
+            {t("Aucun déclencheur...")}
           </p>
         </div>
       ) : (
@@ -203,7 +204,7 @@ export function OrgWebhooksPanel({
                   </td>
                   <td style={{ textAlign: "right" }}>
                     <button className="danger" style={{ padding: "3px 8px" }} onClick={() => remove(r)}>
-                      Supprimer
+                      {t("Supprimer")}
                     </button>
                   </td>
                 </tr>

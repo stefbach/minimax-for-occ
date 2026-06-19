@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import type { Agent, AgentInput, LlmProvider, Voice } from "@/lib/types";
 import { PromptEditor } from "@/components/agents/PromptEditor";
 import { parsePersona, serializePersona } from "@/lib/personas/parser";
+import { useT } from "@/lib/i18n";
 
 type ModelOption = { id: string; label: string };
 
@@ -123,6 +124,7 @@ const CARTESIA_LANGUAGE: Record<string, string> = {
 
 export function AgentForm({ initial }: { initial?: Agent }) {
   const router = useRouter();
+  const t = useT();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [voices, setVoices] = useState<Voice[]>([]);
@@ -316,7 +318,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
 
   async function onDelete() {
     if (!initial) return;
-    if (!confirm(`Supprimer l'agent « ${initial.name} » ? Cette action est irréversible.`)) return;
+    if (!confirm(`${t("Supprimer l'agent")} « ${initial.name} » ? ${t("Cette action est irréversible.")}`)) return;
     setBusy(true);
     const res = await fetch(`/api/agents/${initial.id}`, { method: "DELETE" });
     setBusy(false);
@@ -571,7 +573,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                     style={{ fontSize: 12, padding: "6px 12px", borderRadius: 20 }}
                     onClick={() => { setFilterLang(""); setFilterGender(""); setFilterCountry(""); }}
                   >
-                    ✕ Effacer
+                    {t("✕ Effacer")}
                   </button>
                 )}
                 <span style={{ fontSize: 12, color: "var(--muted)", marginLeft: 4 }}>
@@ -599,7 +601,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
               {previewing ? "Synthèse en cours…" : "▶ Écouter cette voix"}
             </button>
             <button type="button" className="ghost" onClick={() => setShowClone((v) => !v)}>
-              {showClone ? "Annuler le clonage" : "+ Cloner une nouvelle voix"}
+              {showClone ? t("Annuler le clonage") : t("+ Cloner une nouvelle voix")}
             </button>
           </div>
 
@@ -793,7 +795,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
         </button>
         {initial && (
           <button type="button" className="danger" onClick={onDelete} disabled={busy}>
-            Supprimer l&apos;agent
+            {t("Supprimer l'agent")}
           </button>
         )}
       </div>

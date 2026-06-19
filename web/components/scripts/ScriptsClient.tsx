@@ -50,6 +50,7 @@ type ScriptDetail = ScriptRow & {
 const MISSIONS = ["qualification", "closing", "rappel", "sav", "autre"];
 
 export function ScriptsClient({ handles = [] }: { handles?: AgentHandleLite[] }) {
+  const t = useT();
   const [scripts, setScripts] = useState<ScriptRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -109,7 +110,7 @@ export function ScriptsClient({ handles = [] }: { handles?: AgentHandleLite[] })
 
   const remove = useCallback(
     async (id: string) => {
-      if (!confirm("Supprimer ce script ?")) return;
+      if (!confirm(t("Supprimer ce script ?"))) return;
       const r = await fetch(`/api/scripts/${id}`, { method: "DELETE" });
       if (!r.ok) {
         const d = await r.json().catch(() => ({}));
@@ -148,7 +149,7 @@ export function ScriptsClient({ handles = [] }: { handles?: AgentHandleLite[] })
           />
           <div>
             <button onClick={create} disabled={creating || !name.trim()}>
-              {creating ? "Création…" : "Créer le script"}
+              {creating ? t("Création…") : t("Créer le script")}
             </button>
           </div>
           {error && (
@@ -234,7 +235,7 @@ export function ScriptsClient({ handles = [] }: { handles?: AgentHandleLite[] })
                       padding: "2px 8px",
                     }}
                   >
-                    Supprimer
+                    {t("Supprimer")}
                   </button>
                 </div>
               </div>

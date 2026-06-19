@@ -26,6 +26,7 @@ interface QueueMember {
 }
 
 export function QueuesClient({ initial, handles }: { initial: QueueRow[]; handles: AgentHandleOption[] }) {
+  const t = useT();
   const [queues, setQueues] = useState<QueueRow[]>(initial);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [members, setMembers] = useState<Record<string, QueueMember[]>>({});
@@ -81,7 +82,7 @@ export function QueuesClient({ initial, handles }: { initial: QueueRow[]; handle
   }
 
   async function delQueue(id: string) {
-    if (!confirm("Supprimer cette file et tous ses membres ?")) return;
+    if (!confirm(t("Supprimer cette file et tous ses membres ?"))) return;
     await fetch(`/api/queues/${id}`, { method: "DELETE" });
     refresh();
     if (expanded === id) setExpanded(null);
@@ -105,7 +106,7 @@ export function QueuesClient({ initial, handles }: { initial: QueueRow[]; handle
   return (
     <div style={{ display: "grid", gap: 16 }}>
       <div className="card">
-        <h3 style={{ marginTop: 0 }}>Créer une file</h3>
+        <h3 style={{ marginTop: 0 }}>{t("Créer une file")}</h3>
         <form onSubmit={createQueue} style={{ display: "grid", gap: 10 }}>
           <div className="form-row">
             <div>
@@ -137,7 +138,7 @@ export function QueuesClient({ initial, handles }: { initial: QueueRow[]; handle
           </label>
           {error && <div style={{ color: "var(--bad)", fontSize: 13 }}>{error}</div>}
           <div>
-            <button type="submit" disabled={busy || !name}>{busy ? "…" : "Créer la file"}</button>
+            <button type="submit" disabled={busy || !name}>{busy ? "…" : t("Créer la file")}</button>
           </div>
         </form>
       </div>
@@ -170,7 +171,7 @@ export function QueuesClient({ initial, handles }: { initial: QueueRow[]; handle
                     <td>{q.max_wait_secs ?? "—"} s</td>
                     <td>{q.fallback_voicemail ? <span className="tag good">oui</span> : <span className="tag">non</span>}</td>
                     <td style={{ textAlign: "right" }}>
-                      <button className="danger" style={{ padding: "5px 9px" }} onClick={() => delQueue(q.id)}>Supprimer</button>
+                      <button className="danger" style={{ padding: "5px 9px" }} onClick={() => delQueue(q.id)}>{t("Supprimer")}</button>
                     </td>
                   </tr>
                   {expanded === q.id && (

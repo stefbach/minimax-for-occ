@@ -11,6 +11,7 @@ type ErasePayload = {
 };
 
 export default function GdprPage() {
+  const t = useT();
   const [contactId, setContactId] = useState("");
   const [userId, setUserId] = useState("");
   const [orgId, setOrgId] = useState("");
@@ -26,15 +27,15 @@ export default function GdprPage() {
     if (userId.trim()) payload.user_id = userId.trim();
     if (orgId.trim()) payload.org_id = orgId.trim();
     if (Object.keys(payload).length === 0) {
-      setError("Renseignez au moins un identifiant (contact, utilisateur ou organisation).");
+      setError(t("Renseignez au moins un identifiant"));
       return;
     }
     const confirmMsg =
       payload.org_id
-        ? `Supprimer DÉFINITIVEMENT l'organisation ${payload.org_id} et tout son contenu ?`
+        ? `${t("Supprimer DÉFINITIVEMENT")} l'organisation ${payload.org_id} et tout son contenu ?`
         : payload.user_id
-          ? `Anonymiser l'utilisateur ${payload.user_id} (email scramble + memberships purgées) ?`
-          : `Supprimer le contact ${payload.contact_id} ?`;
+          ? `${t("Anonymiser")} l'utilisateur ${payload.user_id} (email scramble + memberships purgées) ?`
+          : `${t("Supprimer")} le contact ${payload.contact_id} ?`;
     if (!confirm(confirmMsg)) return;
 
     setBusy(true);
@@ -119,7 +120,7 @@ export default function GdprPage() {
 
         <div style={{ display: "flex", gap: 12, marginTop: 12 }}>
           <button type="button" className="btn btn-danger" onClick={submit} disabled={busy}>
-            {busy ? "Effacement en cours…" : "Effacer"}
+            {busy ? t("Effacement en cours…") : t("Effacer")}
           </button>
         </div>
 

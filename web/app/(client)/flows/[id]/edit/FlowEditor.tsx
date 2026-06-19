@@ -21,6 +21,7 @@ import "@xyflow/react/dist/style.css";
 import { useCallback, useMemo, useRef, useState, type DragEvent } from "react";
 import { useRouter } from "next/navigation";
 import { useToast } from "@/lib/use-toast";
+import { useT } from "@/lib/i18n";
 
 export type StepKind =
   | "welcome"
@@ -236,6 +237,7 @@ function InnerEditor({ flow }: { flow: FlowFull }) {
   const selectedNode = nodes.find((n) => n.id === selectedNodeId) ?? null;
 
   const [startStepId, setStartStepId] = useState<string | null>(flow.start_step_id);
+  const t = useT();
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -329,7 +331,7 @@ function InnerEditor({ flow }: { flow: FlowFull }) {
 
   const deleteSelected = useCallback(() => {
     if (!selectedNodeId) return;
-    if (!window.confirm("Supprimer cette étape ?")) return;
+    if (!window.confirm(t("Supprimer cette étape ?"))) return;
     setNodes((ns) => ns.filter((n) => n.id !== selectedNodeId));
     setEdges((es) => es.filter((e) => e.source !== selectedNodeId && e.target !== selectedNodeId));
     if (startStepId === selectedNodeId) setStartStepId(null);
@@ -657,6 +659,7 @@ function NodeInspector({
   onDelete: () => void;
   onSetAsStart: () => void;
 }) {
+  const t = useT();
   const d = node.data as unknown as NodeData;
   const def = KIND_BY[d.kind];
   return (
@@ -710,7 +713,7 @@ function NodeInspector({
           {isStart ? "✓ Étape de départ" : "Définir comme étape de départ"}
         </button>
         <button className="danger" onClick={onDelete} style={{ width: "100%" }}>
-          Supprimer cette étape
+          {t("Supprimer cette étape")}
         </button>
       </div>
     </div>
@@ -747,6 +750,7 @@ function KindConfig({
   config: Record<string, unknown>;
   onChange: (patch: Record<string, unknown>) => void;
 }) {
+  const t = useT();
   const str = (k: string) => (config[k] as string) ?? "";
   const num = (k: string) => (typeof config[k] === "number" ? (config[k] as number) : "");
 
@@ -783,7 +787,7 @@ function KindConfig({
             />
             <input
               value={opt.label}
-              placeholder="Libellé"
+              placeholder={t("Libellé")}
               onChange={(e) => {
                 const next = [...options];
                 next[i] = { ...opt, label: e.target.value };

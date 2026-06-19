@@ -26,6 +26,7 @@ interface TeamMember {
 }
 
 export function TeamsClient({ initial, agents }: { initial: TeamRow[]; agents: AgentOption[] }) {
+  const tr = useT();
   const [teams, setTeams] = useState<TeamRow[]>(initial);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [members, setMembers] = useState<Record<string, TeamMember[]>>({});
@@ -82,7 +83,7 @@ export function TeamsClient({ initial, agents }: { initial: TeamRow[]; agents: A
   }
 
   async function deleteTeam(id: string) {
-    if (!confirm("Supprimer cette team et tous ses membres ?")) return;
+    if (!confirm(tr("Supprimer cette team et tous ses membres ?"))) return;
     await fetch(`/api/teams/${id}`, { method: "DELETE" });
     refresh();
     if (expanded === id) setExpanded(null);
@@ -135,7 +136,7 @@ export function TeamsClient({ initial, agents }: { initial: TeamRow[]; agents: A
   return (
     <div style={{ display: "grid", gap: 16 }}>
       <div className="card">
-        <h3 style={{ marginTop: 0 }}>Créer une team</h3>
+        <h3 style={{ marginTop: 0 }}>{tr("Créer une team")}</h3>
         <form onSubmit={createTeam} style={{ display: "grid", gap: 10 }}>
           <div className="form-row">
             <div>
@@ -180,7 +181,7 @@ export function TeamsClient({ initial, agents }: { initial: TeamRow[]; agents: A
                   el?.focus();
                 }}
               >
-                + Créer une team
+                {tr("+ Créer une team")}
               </button>
             </div>
           </div>
@@ -224,7 +225,7 @@ export function TeamsClient({ initial, agents }: { initial: TeamRow[]; agents: A
                         >
                           Voir le parcours →
                         </a>
-                        <button className="danger" style={{ padding: "5px 9px" }} onClick={() => deleteTeam(t.id)}>Supprimer</button>
+                        <button className="danger" style={{ padding: "5px 9px" }} onClick={() => deleteTeam(t.id)}>{tr("Supprimer")}</button>
                       </td>
                     </tr>
                     {expanded === t.id && (

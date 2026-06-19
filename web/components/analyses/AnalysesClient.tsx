@@ -41,6 +41,7 @@ function emptyPolicy(): Partial<Policy> {
 
 export function AnalysesClient() {
   const toast = useToast();
+  const t = useT();
   const [list, setList] = useState<Policy[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -122,7 +123,7 @@ export function AnalysesClient() {
 
   const remove = useCallback(
     async (id: string) => {
-      if (!confirm("Supprimer cette policy ?")) return;
+      if (!confirm(t("Supprimer cette policy ?"))) return;
       try {
         const r = await fetch(`/api/analysis-policies/${id}`, { method: "DELETE" });
         if (!r.ok) {
@@ -256,7 +257,7 @@ export function AnalysesClient() {
                 {saving ? "Enregistrement…" : "Enregistrer"}
               </button>
               <button className="ghost" onClick={cancel} disabled={saving}>
-                Annuler
+                {t("Annuler")}
               </button>
             </div>
           </div>
@@ -277,7 +278,7 @@ export function AnalysesClient() {
               ensuite aux alertes, à l&apos;analytics et au scoring.
             </div>
             <div>
-              <button onClick={startNew}>+ Créer une politique</button>
+              <button onClick={startNew}>{t("+ Créer une politique")}</button>
             </div>
           </div>
         ) : (
