@@ -46,7 +46,7 @@ export async function GET(req: Request) {
     r.taille ?? "",
     r.bmi ?? "",
     r.other_chronic_conditions ?? "",
-    r.current_phase ?? "",
+    "",
     r.call_count ?? 0,
     r.qualification ?? "",
     r.last_call_datetime
