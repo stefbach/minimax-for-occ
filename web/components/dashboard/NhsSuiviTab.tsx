@@ -26,7 +26,15 @@ const COORDINATOR_TONES: Record<string, string> = {
   Stormi: "#8b5cf6",
 };
 
-export function NhsSuiviTab() {
+export function NhsSuiviTab({
+  openPatientId,
+  openContactId,
+  onOpened,
+}: {
+  openPatientId?: string | null;
+  openContactId?: string | null;
+  onOpened?: () => void;
+} = {}) {
   const t = useT();
   const [data, setData] = useState<NhsSuiviResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -47,6 +55,18 @@ export function NhsSuiviTab() {
   };
   const openDrill = (metric: string, _title?: string) =>
     setView({ name: "list", filter: METRIC_FILTER[metric] ?? "all" });
+  // Open a patient or contact passed from the Overview search bar.
+  useEffect(() => {
+    if (openPatientId) {
+      setView({ name: "detail", id: openPatientId, from: "all" });
+      onOpened?.();
+    } else if (openContactId) {
+      setView({ name: "contact-detail", contactId: openContactId, displayName: "" });
+      onOpened?.();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openPatientId, openContactId]);
+
   // Retire un patient d'une file coordinateur (ferme l'assignation ouverte
   // dans la table partagée), puis rafraîchit les files.
   const [unassigning, setUnassigning] = useState<string | null>(null);

@@ -930,6 +930,10 @@ const EN: Record<string, string> = {
   "Copier les credentials": "Copy credentials",
   "Le nom est requis.": "Name is required.",
   "suppression dans ": "deletion in ",
+  "Rechercher un patient…": "Search for a patient…",
+  "Dossier patient": "Patient record",
+  "Fiche CRM": "CRM record",
+  "résultat(s)": "result(s)",
 };
 
 function readLang(): Lang {

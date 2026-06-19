@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { DashboardOverviewResponse } from "@/app/api/dashboard/overview/route";
+import type { NhsPatientsResponse } from "@/app/api/dashboard/nhs-suivi/patients/route";
 import { KpiGrid } from "./KpiGrid";
 import { VolumeChart } from "./VolumeChart";
 import { DispositionsList } from "./DispositionsList";
@@ -76,6 +77,61 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
   // stale).
   const [refreshKey, setRefreshKey] = useState(0);
 
+  // ── Patient search bar ──────────────────────────────────────────────────
+  const [patientSearchQuery, setPatientSearchQuery] = useState("");
+  const [patientSearchOpen, setPatientSearchOpen] = useState(false);
+  const [nhsPatients, setNhsPatients] = useState<NhsPatientsResponse["patients"] | null>(null);
+  const [searchContacts, setSearchContacts] = useState<Array<{ id: string; display_name: string | null; e164: string | null }>>([]);
+  const [nhsOpenPatientId, setNhsOpenPatientId] = useState<string | null>(null);
+  const [nhsOpenContactId, setNhsOpenContactId] = useState<string | null>(null);
+
+  const loadNhsPatients = async () => {
+    if (nhsPatients !== null) return;
+    try {
+      const r = await fetch("/api/dashboard/nhs-suivi/patients", { cache: "no-store" });
+      const j = (await r.json()) as NhsPatientsResponse;
+      if (r.ok) setNhsPatients(j.patients);
+    } catch { setNhsPatients([]); }
+  };
+
+  useEffect(() => {
+    const q = patientSearchQuery.trim();
+    if (q.length < 2) { setSearchContacts([]); return; }
+    const timer = setTimeout(() => {
+      fetch(`/api/desk/search-contacts?q=${encodeURIComponent(q)}&limit=6`, { cache: "no-store" })
+        .then((r) => r.json())
+        .then((j: { contacts?: Array<{ id: string; display_name: string | null; e164: string | null }> }) => setSearchContacts(j.contacts ?? []))
+        .catch(() => {});
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [patientSearchQuery]);
+
+  type PatientSearchResult =
+    | { kind: "patient"; patient: NhsPatientsResponse["patients"][number] }
+    | { kind: "contact"; id: string; name: string; phone: string | null };
+
+  const patientSearchQ = patientSearchQuery.trim().toLowerCase();
+  const patientSearchResults: PatientSearchResult[] = (() => {
+    if (patientSearchQ.length < 2) return [];
+    const results: PatientSearchResult[] = [];
+    const seen = new Set<string>();
+    for (const p of nhsPatients ?? []) {
+      if (`${p.name ?? ""} ${p.phone ?? ""} ${p.email ?? ""}`.toLowerCase().includes(patientSearchQ)) {
+        results.push({ kind: "patient", patient: p });
+        seen.add((p.name ?? "").toLowerCase());
+      }
+    }
+    for (const c of searchContacts) {
+      const name = c.display_name ?? "";
+      if (!seen.has(name.toLowerCase())) {
+        results.push({ kind: "contact", id: c.id, name, phone: c.e164 });
+        seen.add(name.toLowerCase());
+      }
+    }
+    return results.slice(0, 8);
+  })();
+  // ────────────────────────────────────────────────────────────────────────
+
   const fetchData = useCallback(async () => {
     try {
       setRefreshing(true);
@@ -137,6 +193,86 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
           {/* page-header is already flex-wrap; the inner button cluster also
               wraps so Actualiser + Help stack cleanly on phones. */}
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            {/* Patient search bar */}
+            <div style={{ position: "relative" }}>
+              <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", fontSize: 14, pointerEvents: "none", opacity: 0.5 }}>🔍</span>
+              <input
+                type="search"
+                value={patientSearchQuery}
+                onChange={(e) => setPatientSearchQuery(e.target.value)}
+                onFocus={() => { setPatientSearchOpen(true); loadNhsPatients(); }}
+                onBlur={() => setTimeout(() => setPatientSearchOpen(false), 150)}
+                onKeyDown={(e) => { if (e.key === "Escape") { setPatientSearchQuery(""); setPatientSearchOpen(false); } }}
+                placeholder={t("Rechercher un patient…")}
+                style={{
+                  padding: "7px 14px 7px 36px", fontSize: 13, borderRadius: 999, width: 230,
+                  background: "rgba(255,255,255,0.06)", border: "1px solid rgba(99,102,241,0.3)",
+                  color: "inherit", outline: "none",
+                }}
+              />
+              {patientSearchOpen && patientSearchResults.length > 0 && (
+                <div style={{
+                  position: "absolute", top: "calc(100% + 8px)", right: 0, width: 340,
+                  background: "var(--bg-2)", border: "1px solid var(--border)", borderRadius: 10,
+                  boxShadow: "0 8px 32px rgba(0,0,0,0.5)", zIndex: 200, overflow: "hidden",
+                }}>
+                  <div className="muted" style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, padding: "8px 14px 4px" }}>
+                    {patientSearchResults.length} {t("résultat(s)")}
+                  </div>
+                  {patientSearchResults.map((r, idx) => {
+                    const name = r.kind === "patient" ? (r.patient.name ?? "—") : r.name;
+                    const sub = r.kind === "patient"
+                      ? (r.patient.phone ?? r.patient.email ?? t("Dossier patient"))
+                      : (r.phone ?? t("Fiche CRM"));
+                    const isNhs = r.kind === "patient";
+                    const initials = name.split(" ").filter(Boolean).map((w: string) => w[0]).slice(0, 2).join("").toUpperCase();
+                    return (
+                      <button
+                        key={idx}
+                        type="button"
+                        onMouseDown={() => {
+                          if (r.kind === "patient") {
+                            setNhsOpenPatientId(r.patient.id);
+                          } else {
+                            setNhsOpenContactId(r.id);
+                          }
+                          setTab("nhs");
+                          setPatientSearchQuery("");
+                          setPatientSearchOpen(false);
+                        }}
+                        style={{
+                          display: "flex", alignItems: "center", gap: 10, width: "100%",
+                          padding: "10px 14px", background: "transparent", border: "none",
+                          borderTop: "1px solid var(--border)", cursor: "pointer", textAlign: "left",
+                        }}
+                      >
+                        <div style={{
+                          width: 30, height: 30, borderRadius: "50%",
+                          background: isNhs ? "rgba(99,102,241,0.2)" : "rgba(100,116,139,0.2)",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          fontSize: 11, fontWeight: 700,
+                          color: isNhs ? "#a5b4fc" : "var(--muted)", flexShrink: 0,
+                        }}>
+                          {initials}
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontWeight: 600, fontSize: 13, color: "#fff" }}>{name}</div>
+                          <div style={{ fontSize: 11, color: "#6b7a99", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub}</div>
+                        </div>
+                        <span style={{
+                          fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 999, flexShrink: 0,
+                          border: `1px solid ${isNhs ? "#a5b4fc" : "var(--border)"}`,
+                          color: isNhs ? "#a5b4fc" : "var(--muted)",
+                          background: isNhs ? "rgba(99,102,241,0.12)" : "transparent",
+                        }}>
+                          {isNhs ? "NHS" : t("CRM")}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
             <ApiStatusPill />
             <ReportButton
               from={period.from}
@@ -258,7 +394,13 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
 
         {tab === "errors" && <ErrorsAlertsTab />}
 
-        {tab === "nhs" && showNhs && <NhsSuiviTab />}
+        {tab === "nhs" && showNhs && (
+          <NhsSuiviTab
+            openPatientId={nhsOpenPatientId}
+            openContactId={nhsOpenContactId}
+            onOpened={() => { setNhsOpenPatientId(null); setNhsOpenContactId(null); }}
+          />
+        )}
       </div>
     </div>
   );
