@@ -47,6 +47,26 @@ export type ReportData = {
   bestSlotOverall: string;
 };
 
+export type PatientRow = {
+  nom: string | null;
+  email: string | null;
+  numero_telephone: string | null;
+  patient_dob: string | null;
+  poids: number | null;
+  taille: number | null;
+  bmi: number | null;
+  other_chronic_conditions: string | null;
+  current_phase: string | null;
+  call_count: number | null;
+  qualification: string | null;
+  last_call_datetime: string | null;
+};
+
+export type PatientSections = {
+  rdvConfirme: PatientRow[];
+  passerHumain: PatientRow[];
+};
+
 const DAYS_FR = ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"];
 
 const isAnswered = (c: ReportCall) => Boolean(c.answered_at);
@@ -250,7 +270,41 @@ function escapeCsv(v: string | number): string {
   return s;
 }
 
-export function generateCsv(data: ReportData, frequency: ReportFrequency): Blob {
+function calcAge(dob: string | null): string {
+  if (!dob) return "";
+  const birth = new Date(dob);
+  if (isNaN(birth.getTime())) return "";
+  const today = new Date();
+  let age = today.getFullYear() - birth.getFullYear();
+  const m = today.getMonth() - birth.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+  return String(age);
+}
+
+function patientCsvSection(title: string, patients: PatientRow[]): string[] {
+  if (patients.length === 0) return [];
+  const lines: string[] = ["", escapeCsv(title)];
+  lines.push("Nom complet;Email;Téléphone;Âge;Poids (kg);Taille (cm);IMC;Comorbidités;Palier;Total appels;Qualification;Dernier appel");
+  for (const p of patients) {
+    lines.push([
+      escapeCsv(p.nom ?? ""),
+      escapeCsv(p.email ?? ""),
+      escapeCsv(p.numero_telephone ?? ""),
+      calcAge(p.patient_dob),
+      p.poids ?? "",
+      p.taille ?? "",
+      p.bmi ?? "",
+      escapeCsv(p.other_chronic_conditions ?? ""),
+      escapeCsv(p.current_phase ?? ""),
+      p.call_count ?? 0,
+      escapeCsv(p.qualification ?? ""),
+      p.last_call_datetime ? new Date(p.last_call_datetime).toLocaleDateString("fr-FR") : "",
+    ].join(";"));
+  }
+  return lines;
+}
+
+export function generateCsv(data: ReportData, frequency: ReportFrequency, patients?: PatientSections): Blob {
   const lines: string[] = [];
   lines.push("Rapport d'activité — Appels");
   lines.push(`Période;${escapeCsv(data.periodLabel)}`);
@@ -281,6 +335,10 @@ export function generateCsv(data: ReportData, frequency: ReportFrequency): Blob 
       `${r.answerRate.toFixed(1)}%`, r.rdvConfirmed, `${r.conversionRate.toFixed(1)}%`,
       `$${r.costDollars.toFixed(2)}`, escapeCsv(r.bestSlot),
     ].join(";"));
+  }
+  if (patients) {
+    lines.push(...patientCsvSection("=== RDV CONFIRMÉ (" + patients.rdvConfirme.length + " patients) ===", patients.rdvConfirme));
+    lines.push(...patientCsvSection("=== À PASSER À L'HUMAIN (" + patients.passerHumain.length + " patients) ===", patients.passerHumain));
   }
   // BOM so Excel opens UTF-8 accents correctly.
   return new Blob(["﻿" + lines.join("\n")], { type: "text/csv;charset=utf-8" });
