@@ -601,7 +601,8 @@ async function communicatePatient(rc: RunCtx, step: Record<string, unknown>, ctx
   const dossierTable = String(step.table_dossier ?? "nhs_dossiers");
   const stdTable = String(step.table_standard_documents ?? "nhs_standard_documents");
   const clinicEmail = String(step.clinic_email ?? "customer.service@obesity-care-clinic.com");
-  const patientEmailOverride = step.patient_email_override ? String(step.patient_email_override) : null;
+  const draftMode = step.draft_mode === true;
+  const mail = draftMode ? createDraft : sendEmail;
 
   const patientId = String(ctx.patient_id ?? "");
   const dossierId = String(ctx.dossier_id ?? "");
@@ -610,7 +611,7 @@ async function communicatePatient(rc: RunCtx, step: Record<string, unknown>, ctx
   const L = (lead as Record<string, unknown>) ?? {};
   const D = (dossier as Record<string, unknown>) ?? {};
   const nom = String(ctx.nom ?? L.nom ?? D.nom ?? "");
-  const email = patientEmailOverride ?? String(ctx.email ?? L.email ?? "");
+  const email = String(ctx.email ?? L.email ?? "");
   const phone = String(L.numero_telephone ?? ctx.numero_telephone ?? "").replace(/[^0-9]/g, "");
   const status = String(D.dossier_status ?? "NO_DOCUMENTS_RECEIVED");
   const pct = Number(D.dossier_completion_pct ?? 0);
@@ -645,7 +646,8 @@ async function communicatePatient(rc: RunCtx, step: Record<string, unknown>, ctx
   // Status email + WhatsApp to the patient.
   if (stormi && email) {
     const { subject, html } = comms.emailFor(status);
-    try { await sendEmail(stormi, { to: email, subject, html }); rc.stats.actions++; }
+    const pfx = draftMode ? "[DRAFT] " : "";
+    try { await mail(stormi, { to: email, subject: pfx + subject, html }); rc.stats.actions++; }
     catch (e) { rc.log("warn", `A4: patient email failed: ${e instanceof Error ? e.message : e}`); }
   }
   if (wati && phone) {
@@ -663,9 +665,9 @@ async function communicatePatient(rc: RunCtx, step: Record<string, unknown>, ctx
       if (df && docs[df] === "received") continue;
       try {
         const f = await downloadObject(rc.ds, String(r.public_url));
-        await sendEmail(stormi, {
+        await mail(stormi, {
           to: email,
-          subject: `Please sign: ${r.title} - NHS S2 application`,
+          subject: `${draftMode ? "[DRAFT] " : ""}Please sign: ${r.title} - NHS S2 application`,
           html: `<p>Dear ${nom},</p><p>Please find attached the <strong>${r.title}</strong> for the NHS S2 application. Kindly complete, sign and return it to customer.service@obesity-care-clinic.com.</p><p>Warm regards,<br>The OCC Patient Services Team</p>`,
           attachments: [{ filename: String(r.file_name ?? `${r.title}.pdf`), mimeType: f.contentType, data: f.base64 }],
         });
@@ -733,6 +735,8 @@ async function prepareNhsSubmission(rc: RunCtx, step: Record<string, unknown>, c
   const docsTable = String(step.table_documents ?? "nhs_documents");
   const stdTable = String(step.table_standard_documents ?? "nhs_standard_documents");
   const coordinatorEmail = String(step.coordinator_email ?? "customer.service@obesity-care-clinic.com");
+  const draftMode = step.draft_mode === true;
+  const mail = draftMode ? createDraft : sendEmail;
 
   const patientId = String(ctx.patient_id ?? "");
   const dossierId = String(ctx.dossier_id ?? "");
@@ -751,7 +755,7 @@ async function prepareNhsSubmission(rc: RunCtx, step: Record<string, unknown>, c
       undue_delay_url: String(D.doc_undue_delay_letter_url ?? ""),
     });
     try {
-      await sendEmail(stormi, { to: coordinatorEmail, subject: `NHS S2 Dossier Ready — ${nom}`, html: comms.html_coordinator });
+      await mail(stormi, { to: coordinatorEmail, subject: `${draftMode ? "[DRAFT] " : ""}NHS S2 Dossier Ready — ${nom}`, html: comms.html_coordinator });
       rc.stats.actions++;
     } catch (e) { rc.log("warn", `A4b: coordinator email failed: ${e instanceof Error ? e.message : e}`); }
   }
