@@ -601,6 +601,7 @@ async function communicatePatient(rc: RunCtx, step: Record<string, unknown>, ctx
   const dossierTable = String(step.table_dossier ?? "nhs_dossiers");
   const stdTable = String(step.table_standard_documents ?? "nhs_standard_documents");
   const clinicEmail = String(step.clinic_email ?? "customer.service@obesity-care-clinic.com");
+  const patientEmailOverride = step.patient_email_override ? String(step.patient_email_override) : null;
 
   const patientId = String(ctx.patient_id ?? "");
   const dossierId = String(ctx.dossier_id ?? "");
@@ -609,7 +610,7 @@ async function communicatePatient(rc: RunCtx, step: Record<string, unknown>, ctx
   const L = (lead as Record<string, unknown>) ?? {};
   const D = (dossier as Record<string, unknown>) ?? {};
   const nom = String(ctx.nom ?? L.nom ?? D.nom ?? "");
-  const email = String(ctx.email ?? L.email ?? "");
+  const email = patientEmailOverride ?? String(ctx.email ?? L.email ?? "");
   const phone = String(L.numero_telephone ?? ctx.numero_telephone ?? "").replace(/[^0-9]/g, "");
   const status = String(D.dossier_status ?? "NO_DOCUMENTS_RECEIVED");
   const pct = Number(D.dossier_completion_pct ?? 0);

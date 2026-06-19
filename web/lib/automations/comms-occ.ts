@@ -72,7 +72,7 @@ export function buildComms(input: CommsInput): CommsOutput {
 
   const html_no_docs = wrap(
     "NHS S2 Document Submission Required",
-    `<p style='font-size:16px;color:#333;'>Dear ${nom},</p><p style='font-size:15px;color:#555;line-height:1.7;'>We are writing regarding your NHS S2 application for bariatric surgery with <strong>Obesity Care Clinic</strong>. We have not yet received your required documents. To proceed, please complete and return the forms attached to this email and send any supporting documents to <a href='mailto:customer.service@obesity-care-clinic.com'>customer.service@obesity-care-clinic.com</a>.</p>`,
+    `<p style='font-size:16px;color:#333;'>Dear ${nom},</p><p style='font-size:15px;color:#555;line-height:1.7;'>We are writing regarding your NHS S2 application for bariatric surgery with <strong>Obesity Care Clinic</strong>. We have not yet received your required documents. You will receive the forms to sign in a separate email — please complete and return them, and send any supporting documents to <a href='mailto:customer.service@obesity-care-clinic.com'>customer.service@obesity-care-clinic.com</a>.</p>`,
   );
   const html_missing = wrap(
     "NHS S2 Application — Documents Still Required",
