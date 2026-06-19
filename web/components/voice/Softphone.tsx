@@ -1105,6 +1105,7 @@ function CallRowView({
   active: boolean;
   onClick: () => void;
 }) {
+  const t = useT();
   return (
     <button
       className="ghost"
