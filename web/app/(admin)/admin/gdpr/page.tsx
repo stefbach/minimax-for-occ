@@ -66,10 +66,9 @@ export default function GdprPage() {
     <>
       <div className="page-header">
         <div>
-          <h1>RGPD — Droit à l&apos;effacement</h1>
+          <h1>{t("RGPD — Droit à l'effacement")}</h1>
           <div className="subtitle">
-            Anonymise un utilisateur ou efface un contact. La suppression d&apos;organisation est
-            réservée aux super-admins. Chaque action est tracée dans le journal d&apos;audit.
+            {t("Anonymise un utilisateur ou efface un contact. La suppression d'organisation est réservée aux super-admins. Chaque action est tracée dans le journal d'audit.")}
           </div>
         </div>
       </div>
@@ -82,7 +81,7 @@ export default function GdprPage() {
             type="text"
             value={contactId}
             onChange={(e) => setContactId(e.target.value)}
-            placeholder="uuid du contact à supprimer"
+            placeholder={t("uuid du contact à supprimer")}
           />
           <p className="hint">
             Supprime le contact. Les appels associés gardent l&apos;historique avec
@@ -97,7 +96,7 @@ export default function GdprPage() {
             type="text"
             value={userId}
             onChange={(e) => setUserId(e.target.value)}
-            placeholder="uuid de l'utilisateur à anonymiser"
+            placeholder={t("uuid de l'utilisateur à anonymiser")}
           />
           <p className="hint">
             Anonymise l&apos;email (<code>deleted_&lt;id&gt;@axon.local</code>), efface le nom
@@ -112,7 +111,7 @@ export default function GdprPage() {
             type="text"
             value={orgId}
             onChange={(e) => setOrgId(e.target.value)}
-            placeholder="uuid de l'organisation (cascade)"
+            placeholder={t("uuid de l'organisation (cascade)")}
           />
           <p className="hint">
             Supprime l&apos;organisation et toutes ses tables liées en cascade. Irréversible.

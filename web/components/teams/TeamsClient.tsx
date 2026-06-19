@@ -190,9 +190,9 @@ export function TeamsClient({ initial, agents }: { initial: TeamRow[]; agents: A
           <table className="list">
             <thead>
               <tr>
-                <th>Nom</th>
-                <th>Lead</th>
-                <th>Description</th>
+                <th>{tr("Nom")}</th>
+                <th>{tr("Lead")}</th>
+                <th>{tr("Description")}</th>
                 <th></th>
               </tr>
             </thead>
@@ -202,45 +202,45 @@ export function TeamsClient({ initial, agents }: { initial: TeamRow[]; agents: A
                 const ms = members[team.id] ?? [];
                 const d = getDraft(team.id);
                 return (
-                  <Fragment key={t.id}>
+                  <Fragment key={team.id}>
                     <tr>
                       <td>
                         <button
                           className="ghost"
                           style={{ padding: "4px 8px", marginRight: 8 }}
-                          onClick={() => setExpanded(expanded === t.id ? null : t.id)}
+                          onClick={() => setExpanded(expanded === team.id ? null : team.id)}
                           title="Voir / éditer les membres"
-                          aria-label={expanded === t.id ? `Réduire la team ${t.name}` : `Voir les membres de ${t.name}`}
-                          aria-expanded={expanded === t.id}
+                          aria-label={expanded === team.id ? `Réduire la team ${team.name}` : `Voir les membres de ${team.name}`}
+                          aria-expanded={expanded === team.id}
                         >
-                          <span aria-hidden="true">{expanded === t.id ? "▾" : "▸"}</span>
+                          <span aria-hidden="true">{expanded === team.id ? "▾" : "▸"}</span>
                         </button>
-                        <strong>{t.name}</strong>
+                        <strong>{team.name}</strong>
                       </td>
                       <td>{lead ? <span className="tag">{lead.name}</span> : <span style={{ color: "var(--muted)" }}>—</span>}</td>
-                      <td style={{ color: "var(--muted)", fontSize: 13 }}>{t.description ?? "—"}</td>
+                      <td style={{ color: "var(--muted)", fontSize: 13 }}>{team.description ?? "—"}</td>
                       <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                         <a
-                          href={`/teams/${t.id}`}
+                          href={`/teams/${team.id}`}
                           style={{ marginRight: 8, color: "var(--accent-2)", fontWeight: 600, textDecoration: "none" }}
                         >
-                          Voir le parcours →
+                          {tr("Voir le parcours →")}
                         </a>
-                        <button className="danger" style={{ padding: "5px 9px" }} onClick={() => deleteTeam(t.id)}>{tr("Supprimer")}</button>
+                        <button className="danger" style={{ padding: "5px 9px" }} onClick={() => deleteTeam(team.id)}>{tr("Supprimer")}</button>
                       </td>
                     </tr>
-                    {expanded === t.id && (
+                    {expanded === team.id && (
                       <tr>
                         <td colSpan={4} style={{ background: "var(--bg-2)", padding: 14 }}>
                           <div style={{ display: "grid", gap: 12 }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                               <label style={{ fontSize: 12, color: "var(--muted)" }}>Lead :</label>
                               <select
-                                value={t.lead_agent_id ?? ""}
-                                onChange={(e) => setLead(t.id, e.target.value)}
+                                value={team.lead_agent_id ?? ""}
+                                onChange={(e) => setLead(team.id, e.target.value)}
                                 style={{ minWidth: 220 }}
                               >
-                                <option value="">— aucun —</option>
+                                <option value="">{tr("— aucun —")}</option>
                                 {agents.map((a) => (
                                   <option key={a.id} value={a.id}>{a.name}</option>
                                 ))}
@@ -252,7 +252,7 @@ export function TeamsClient({ initial, agents }: { initial: TeamRow[]; agents: A
                             </div>
 
                             {ms.length === 0 ? (
-                              <div style={{ color: "var(--muted)", fontSize: 13 }}>Aucun spécialiste ajouté.</div>
+                              <div style={{ color: "var(--muted)", fontSize: 13 }}>{tr("Aucun spécialiste ajouté.")}</div>
                             ) : (
                               <div style={{ display: "grid", gap: 6 }}>
                                 {ms.map((m) => (
@@ -277,11 +277,11 @@ export function TeamsClient({ initial, agents }: { initial: TeamRow[]; agents: A
                                     </div>
                                     <span className="tag">{m.specialty ?? "—"}</span>
                                     <span style={{ color: "var(--muted)", fontSize: 12 }}>
-                                      {m.transfer_description ?? <em>(aucune description)</em>}
+                                      {m.transfer_description ?? <em>{tr("(aucune description)")}</em>}
                                     </span>
                                     <span style={{ color: "var(--muted)", fontSize: 12 }}>p{m.priority}</span>
-                                    <button className="danger" style={{ padding: "4px 8px" }} onClick={() => removeMember(t.id, m.id)}>
-                                      Retirer
+                                    <button className="danger" style={{ padding: "4px 8px" }} onClick={() => removeMember(team.id, m.id)}>
+                                      {tr("Retirer")}
                                     </button>
                                   </div>
                                 ))}
@@ -290,10 +290,10 @@ export function TeamsClient({ initial, agents }: { initial: TeamRow[]; agents: A
 
                             <div style={{ display: "grid", gridTemplateColumns: "1fr 160px 2fr 80px auto", gap: 8, alignItems: "end" }}>
                               <div>
-                                <label style={{ fontSize: 11 }}>Agent</label>
+<label style={{ fontSize: 11 }}>{tr("Agent")}</label>
                                 <select
                                   value={d.agent_id}
-                                  onChange={(e) => setDraftField(t.id, "agent_id", e.target.value)}
+                                  onChange={(e) => setDraftField(team.id, "agent_id", e.target.value)}
                                 >
                                   <option value="">— choisir —</option>
                                   {agents
@@ -308,34 +308,34 @@ export function TeamsClient({ initial, agents }: { initial: TeamRow[]; agents: A
                                 <input
                                   value={d.specialty}
                                   placeholder="billing, tech_support, sales…"
-                                  onChange={(e) => setDraftField(t.id, "specialty", e.target.value)}
+                                  onChange={(e) => setDraftField(team.id, "specialty", e.target.value)}
                                 />
                               </div>
                               <div>
-                                <label style={{ fontSize: 11 }}>Description visible au LLM</label>
+<label style={{ fontSize: 11 }}>{tr("Description visible au LLM")}</label>
                                 <input
                                   value={d.transfer_description}
                                   placeholder="Transfère ici pour les questions de facturation…"
-                                  onChange={(e) => setDraftField(t.id, "transfer_description", e.target.value)}
+                                  onChange={(e) => setDraftField(team.id, "transfer_description", e.target.value)}
                                 />
                               </div>
                               <div>
-                                <label style={{ fontSize: 11 }}>Priorité</label>
+<label style={{ fontSize: 11 }}>{tr("Priorité")}</label>
                                 <input
                                   type="number"
                                   min={1}
                                   max={99}
                                   value={d.priority}
-                                  onChange={(e) => setDraftField(t.id, "priority", Number(e.target.value) || 1)}
+                                  onChange={(e) => setDraftField(team.id, "priority", Number(e.target.value) || 1)}
                                 />
                               </div>
                               <button
                                 type="button"
-                                onClick={() => addMember(t.id)}
+                                onClick={() => addMember(team.id)}
                                 disabled={!d.agent_id}
-                                title={!d.agent_id ? "Sélectionnez d'abord un agent" : "Ajouter ce spécialiste à la team"}
+                                title={!d.agent_id ? tr("Sélectionnez d'abord un agent") : tr("Ajouter ce spécialiste à la team")}
                               >
-                                + Ajouter
+                                {tr("+ Ajouter")}
                               </button>
                             </div>
                           </div>

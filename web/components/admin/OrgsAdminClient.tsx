@@ -74,7 +74,7 @@ function statusBadge(s: Status, deletionAt: string | null, t: (s: string) => str
       const d = daysUntil(deletionAt);
       return (
         <span className="tag" style={{ background: "var(--bad)", color: "white" }}>
-          {t("suppression dans Xj").replace("X", String(d ?? "?"))}
+          {t("suppression dans ") + String(d ?? "?") + "j"}
         </span>
       );
     }
@@ -116,7 +116,7 @@ export function OrgsAdminClient({ initial }: { initial: OrgRow[] }) {
     e.preventDefault();
     setErr(null);
     if (!name.trim()) {
-      setErr("Le nom est requis.");
+      setErr(t("Le nom est requis."));
       return;
     }
     setSubmitting(true);
@@ -200,7 +200,7 @@ export function OrgsAdminClient({ initial }: { initial: OrgRow[] }) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div className="muted" style={{ fontSize: 13 }}>
           {rows.length} client{rows.length > 1 ? "s" : ""} —{" "}
-          {rows.filter((r) => r.status === "active").length} actifs
+          {rows.filter((r) => r.status === "active").length}{t(" actifs")}
         </div>
         {!showForm && (
           <button className="primary" onClick={() => setShowForm(true)}>
@@ -227,7 +227,7 @@ export function OrgsAdminClient({ initial }: { initial: OrgRow[] }) {
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <div>
               <label style={{ fontSize: 12, color: "var(--muted)", display: "block", marginBottom: 4 }}>
-                Nom du client *
+                {t("Nom du client *")}
               </label>
               <input
                 placeholder="Obesity Care Clinic"
@@ -239,10 +239,10 @@ export function OrgsAdminClient({ initial }: { initial: OrgRow[] }) {
             </div>
             <div>
               <label style={{ fontSize: 12, color: "var(--muted)", display: "block", marginBottom: 4 }}>
-                Slug (sous-domaine futur)
+                {t("Slug (sous-domaine futur)")}
               </label>
               <input
-                placeholder="auto-généré si vide"
+                placeholder={t("auto-généré si vide")}
                 value={slug}
                 onChange={(e) => setSlug(e.target.value)}
                 style={{ width: "100%", padding: "6px 8px" }}
@@ -250,11 +250,11 @@ export function OrgsAdminClient({ initial }: { initial: OrgRow[] }) {
             </div>
             <div style={{ gridColumn: "span 2" }}>
               <label style={{ fontSize: 12, color: "var(--muted)", display: "block", marginBottom: 4 }}>
-                Catégorie
+                {t("Catégorie")}
               </label>
               <input
                 list="org-categories"
-                placeholder="Choisir ou taper une catégorie"
+                placeholder={t("Choisir ou taper une catégorie")}
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
                 style={{ width: "100%", padding: "6px 8px" }}
@@ -270,7 +270,7 @@ export function OrgsAdminClient({ initial }: { initial: OrgRow[] }) {
           {/* ── Owner section ────────────────────────────────────────── */}
           <div style={{ marginTop: 8, paddingTop: 12, borderTop: "1px solid var(--border)" }}>
             <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8 }}>
-              Compte propriétaire (optionnel)
+              {t("Compte propriétaire (optionnel)")}
             </div>
             <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
               Si rempli, on crée le compte du patron du client avec le rôle{" "}
@@ -280,7 +280,7 @@ export function OrgsAdminClient({ initial }: { initial: OrgRow[] }) {
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <div>
                 <label style={{ fontSize: 12, color: "var(--muted)", display: "block", marginBottom: 4 }}>
-                  Email du propriétaire
+                  {t("Email du propriétaire")}
                 </label>
                 <input
                   type="email"
@@ -292,7 +292,7 @@ export function OrgsAdminClient({ initial }: { initial: OrgRow[] }) {
               </div>
               <div>
                 <label style={{ fontSize: 12, color: "var(--muted)", display: "block", marginBottom: 4 }}>
-                  Nom (optionnel)
+                  {t("Nom (optionnel)")}
                 </label>
                 <input
                   placeholder="Dr Coste"
@@ -303,11 +303,11 @@ export function OrgsAdminClient({ initial }: { initial: OrgRow[] }) {
               </div>
               <div style={{ gridColumn: "span 2" }}>
                 <label style={{ fontSize: 12, color: "var(--muted)", display: "block", marginBottom: 4 }}>
-                  Mot de passe (vide = généré automatiquement)
+                  {t("Mot de passe (vide = généré automatiquement)")}
                 </label>
                 <input
                   type="text"
-                  placeholder="16 caractères aléatoires si vide"
+                  placeholder={t("16 caractères aléatoires si vide")}
                   value={ownerPassword}
                   onChange={(e) => setOwnerPassword(e.target.value)}
                   style={{ width: "100%", padding: "6px 8px" }}
@@ -318,7 +318,7 @@ export function OrgsAdminClient({ initial }: { initial: OrgRow[] }) {
 
           <div style={{ display: "flex", gap: 8 }}>
             <button type="submit" disabled={submitting || pending} className="primary">
-              {submitting ? "Création…" : "Créer le client"}
+              {submitting ? t("Création…") : t("Créer le client")}
             </button>
           </div>
           {err && <div style={{ color: "var(--bad)", fontSize: 13 }}>{err}</div>}
@@ -330,7 +330,7 @@ export function OrgsAdminClient({ initial }: { initial: OrgRow[] }) {
       {/* ── Clients table ─────────────────────────────────────────────── */}
       <div className="card" style={{ padding: 0, overflow: "hidden" }}>
         {rows.length === 0 ? (
-          <div style={{ padding: 16, color: "var(--muted)" }}>Aucun client. Créez-en un ci-dessus.</div>
+          <div style={{ padding: 16, color: "var(--muted)" }}>{t("Aucun client. Créez-en un ci-dessus.")}</div>
         ) : (
           <table className="list">
             <thead>
@@ -364,7 +364,7 @@ export function OrgsAdminClient({ initial }: { initial: OrgRow[] }) {
                       disabled={pending || r.status === "pending_deletion"}
                       style={{ fontSize: 12, marginRight: 6 }}
                     >
-                      Se connecter
+                      {t("Se connecter")}
                     </button>
                     {r.status === "active" && (
                       <>
@@ -375,7 +375,7 @@ export function OrgsAdminClient({ initial }: { initial: OrgRow[] }) {
                           style={{ fontSize: 12, marginRight: 6 }}
                           title="Login bloqué, données préservées, facturation maintenue"
                         >
-                          Suspendre
+                          {t("Suspendre")}
                         </button>
                         <button
                           className="ghost"
@@ -384,7 +384,7 @@ export function OrgsAdminClient({ initial }: { initial: OrgRow[] }) {
                           style={{ fontSize: 12, marginRight: 6 }}
                           title="Lecture seule, plus de facturation"
                         >
-                          Archiver
+                          {t("Archiver")}
                         </button>
                         <button
                           className="ghost"
@@ -424,7 +424,7 @@ export function OrgsAdminClient({ initial }: { initial: OrgRow[] }) {
                         disabled={pending}
                         style={{ fontSize: 12 }}
                       >
-                        Annuler la suppression
+                        {t("Annuler la suppression")}
                       </button>
                     )}
                   </td>
@@ -447,7 +447,7 @@ export function OrgsAdminClient({ initial }: { initial: OrgRow[] }) {
               <div className="card" style={{ padding: 12, marginTop: 12 }}>
                 <div style={{ fontSize: 12, color: "var(--muted)" }}>Email</div>
                 <div style={{ fontFamily: "monospace", marginBottom: 8 }}>{credentialsModal.owner.email}</div>
-                <div style={{ fontSize: 12, color: "var(--muted)" }}>Mot de passe initial</div>
+                <div style={{ fontSize: 12, color: "var(--muted)" }}>{t("Mot de passe initial")}</div>
                 <div style={{ fontFamily: "monospace" }}>{credentialsModal.owner.password}</div>
               </div>
               <button
@@ -457,7 +457,7 @@ export function OrgsAdminClient({ initial }: { initial: OrgRow[] }) {
                   navigator.clipboard?.writeText(txt);
                 }}
               >
-                Copier les credentials
+                {t("Copier les credentials")}
               </button>
             </>
           ) : (
@@ -485,7 +485,7 @@ export function OrgsAdminClient({ initial }: { initial: OrgRow[] }) {
           </p>
           <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
             <button onClick={() => changeStatus(pendingAction.id, pendingAction.status)} className="primary">
-              Confirmer la suppression
+              {t("Confirmer la suppression")}
             </button>
             <button onClick={() => setPendingAction(null)} className="ghost">
               Annuler

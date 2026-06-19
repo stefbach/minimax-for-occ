@@ -111,31 +111,31 @@ export function QueuesClient({ initial, handles }: { initial: QueueRow[]; handle
         <form onSubmit={createQueue} style={{ display: "grid", gap: 10 }}>
           <div className="form-row">
             <div>
-              <label>Nom</label>
+              <label>{t("Nom")}</label>
               <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Conciergerie · niveau 1" required />
             </div>
             <div>
-              <label>Stratégie de routage</label>
+              <label>{t("Stratégie de routage")}</label>
               <select value={strategy} onChange={(e) => setStrategy(e.target.value as QueueRow["strategy"])}>
-                <option value="longest_idle">longest_idle (agent libre depuis le plus longtemps)</option>
-                <option value="round_robin">round_robin (rotation)</option>
-                <option value="broadcast">broadcast (sonne tous en même temps)</option>
+                <option value="longest_idle">{t("longest_idle (agent libre depuis le plus longtemps)")}</option>
+                <option value="round_robin">{t("round_robin (rotation)")}</option>
+                <option value="broadcast">{t("broadcast (sonne tous en même temps)")}</option>
               </select>
             </div>
           </div>
           <div className="form-row">
             <div>
-              <label>Description</label>
+              <label>{t("Description")}</label>
               <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Ex: appels chambre client" />
             </div>
             <div>
-              <label>Attente max (secondes)</label>
+              <label>{t("Attente max (secondes)")}</label>
               <input type="number" min={30} max={3600} value={maxWait} onChange={(e) => setMaxWait(Number(e.target.value))} />
             </div>
           </div>
           <label style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <input type="checkbox" style={{ width: 18 }} checked={fallbackVm} onChange={(e) => setFallbackVm(e.target.checked)} />
-            Basculer en messagerie si dépassement
+            {t("Basculer en messagerie si dépassement")}
           </label>
           {error && <div style={{ color: "var(--bad)", fontSize: 13 }}>{error}</div>}
           <div>
@@ -146,10 +146,10 @@ export function QueuesClient({ initial, handles }: { initial: QueueRow[]; handle
 
       <div className="card" style={{ padding: 0, overflow: "hidden" }}>
         {queues.length === 0 ? (
-          <div style={{ padding: 16, color: "var(--muted)" }}>Aucune file pour l&apos;instant.</div>
+          <div style={{ padding: 16, color: "var(--muted)" }}>{t("Aucune file pour l'instant.")}</div>
         ) : (
           <table className="list">
-            <thead><tr><th>Nom</th><th>Stratégie</th><th>Max attente</th><th>Voicemail</th><th></th></tr></thead>
+            <thead><tr><th>{t("Nom")}</th><th>{t("Stratégie")}</th><th>{t("Max attente")}</th><th>Voicemail</th><th></th></tr></thead>
             <tbody>
               {queues.map((q) => (
                 <>
@@ -179,9 +179,9 @@ export function QueuesClient({ initial, handles }: { initial: QueueRow[]; handle
                     <tr>
                       <td colSpan={5} style={{ background: "var(--bg-2)", padding: 14 }}>
                         <div style={{ display: "grid", gap: 10 }}>
-                          <div style={{ fontSize: 12, color: "var(--muted)" }}>Membres affectés à cette file (priorité ascendante = passe en premier)</div>
+<div style={{ fontSize: 12, color: "var(--muted)" }}>{t("Membres affectés à cette file (priorité ascendante = passe en premier)")}</div>
                           {(members[q.id] ?? []).length === 0 ? (
-                            <div style={{ color: "var(--muted)", fontSize: 13 }}>Aucun agent assigné.</div>
+                            <div style={{ color: "var(--muted)", fontSize: 13 }}>{t("Aucun agent assigné.")}</div>
                           ) : (
                             <div style={{ display: "grid", gap: 6 }}>
                               {(members[q.id] ?? []).map((m) => (
@@ -189,9 +189,9 @@ export function QueuesClient({ initial, handles }: { initial: QueueRow[]; handle
                                   <div>
                                     <span className="tag" style={{ marginRight: 8 }}>{m.agent_handle?.kind}</span>
                                     <strong>{m.agent_handle?.display_name ?? "—"}</strong>
-                                    <span style={{ color: "var(--muted)", fontSize: 12, marginLeft: 8 }}>priorité {m.priority}</span>
+<span style={{ color: "var(--muted)", fontSize: 12, marginLeft: 8 }}>{t("priorité ")}{m.priority}</span>
                                   </div>
-                                  <button className="danger" style={{ padding: "4px 8px" }} onClick={() => removeMember(q.id, m.id)}>Retirer</button>
+                                  <button className="danger" style={{ padding: "4px 8px" }} onClick={() => removeMember(q.id, m.id)}>{t("Retirer")}</button>
                                 </div>
                               ))}
                             </div>
@@ -202,7 +202,7 @@ export function QueuesClient({ initial, handles }: { initial: QueueRow[]; handle
                               onChange={(e) => { addMember(q.id, e.target.value); e.target.value = ""; }}
                               style={{ flex: 1 }}
                             >
-                              <option value="">+ Ajouter un agent…</option>
+                              <option value="">{t("+ Ajouter un agent…")}</option>
                               {handles
                                 .filter((h) => !(members[q.id] ?? []).some((m) => m.agent_handle?.id === h.id))
                                 .map((h) => (

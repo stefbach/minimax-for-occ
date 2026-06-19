@@ -96,7 +96,7 @@ export function AnalysesClient() {
       try {
         parsedSchema = JSON.parse(schemaText);
       } catch {
-        throw new Error("output_schema doit être un JSON valide");
+        throw new Error(t("output_schema doit être un JSON valide"));
       }
       const payload = { ...editing, output_schema: parsedSchema };
       const isNew = !editing.id;
@@ -112,11 +112,11 @@ export function AnalysesClient() {
       }
       await refresh();
       setEditing(null);
-      toast.success("Policy enregistrée.");
+      toast.success(t("Policy enregistrée."));
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setError(msg);
-      toast.error(`Enregistrement échoué : ${msg}`);
+      toast.error(t("Enregistrement échoué : ") + msg);
     } finally {
       setSaving(false);
     }
@@ -150,12 +150,11 @@ export function AnalysesClient() {
         <div>
           <h1>Analyses LLM</h1>
           <div className="subtitle">
-            Définissez des analyses post-appel : prompt + schéma JSON attendu. Chaque
-            appel terminé déclenchera les policies actives.
+            {t("Définissez des analyses post-appel : prompt + schéma JSON attendu. Chaque appel terminé déclenchera les policies actives.")}
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <button onClick={startNew}>+ Nouvelle policy</button>
+          <button onClick={startNew}>{t("+ Nouvelle policy")}</button>
           <HelpButton contextKey="analyses" />
         </div>
       </div>
@@ -168,10 +167,10 @@ export function AnalysesClient() {
 
       {editing && (
         <div className="card" style={{ marginTop: 18 }}>
-          <h3>{editing.id ? "Modifier la policy" : "Nouvelle policy"}</h3>
+          <h3>{editing.id ? t("Modifier la policy") : t("Nouvelle policy")}</h3>
           <div style={{ display: "grid", gap: 12 }}>
             <label>
-              <div className="muted" style={{ fontSize: 12 }}>Nom</div>
+              <div className="muted" style={{ fontSize: 12 }}>{t("Nom")}</div>
               <input
                 value={editing.name ?? ""}
                 onChange={(e) => setEditing({ ...editing, name: e.target.value })}
@@ -180,7 +179,7 @@ export function AnalysesClient() {
               />
             </label>
             <label>
-              <div className="muted" style={{ fontSize: 12 }}>Description</div>
+              <div className="muted" style={{ fontSize: 12 }}>{t("Description")}</div>
               <input
                 value={editing.description ?? ""}
                 onChange={(e) => setEditing({ ...editing, description: e.target.value })}
@@ -188,7 +187,7 @@ export function AnalysesClient() {
               />
             </label>
             <label>
-              <div className="muted" style={{ fontSize: 12 }}>Prompt LLM</div>
+              <div className="muted" style={{ fontSize: 12 }}>{t("Prompt LLM")}</div>
               <textarea
                 value={editing.prompt ?? ""}
                 onChange={(e) => setEditing({ ...editing, prompt: e.target.value })}
@@ -198,7 +197,7 @@ export function AnalysesClient() {
             </label>
             <label>
               <div className="muted" style={{ fontSize: 12 }}>
-                Schéma de sortie (JSON)
+                {t("Schéma de sortie (JSON)")}
               </div>
               <textarea
                 value={schemaText}
@@ -236,7 +235,7 @@ export function AnalysesClient() {
                 />
               </label>
               <label>
-                <div className="muted" style={{ fontSize: 12 }}>Modèle</div>
+                <div className="muted" style={{ fontSize: 12 }}>{t("Modèle")}</div>
                 <input
                   value={editing.model ?? ""}
                   onChange={(e) => setEditing({ ...editing, model: e.target.value })}
@@ -251,11 +250,11 @@ export function AnalysesClient() {
                 checked={editing.enabled ?? true}
                 onChange={(e) => setEditing({ ...editing, enabled: e.target.checked })}
               />
-              <span>Active</span>
+              <span>{t("Active")}</span>
             </label>
             <div style={{ display: "flex", gap: 8 }}>
               <button onClick={save} disabled={saving}>
-                {saving ? "Enregistrement…" : "Enregistrer"}
+                {saving ? t("Enregistrement…") : t("Enregistrer")}
               </button>
               <button className="ghost" onClick={cancel} disabled={saving}>
                 {t("Annuler")}
@@ -271,7 +270,7 @@ export function AnalysesClient() {
         ) : sorted.length === 0 ? (
           <div style={{ display: "grid", gap: 12, padding: "8px 2px" }}>
             <p className="muted" style={{ margin: 0 }}>
-              Aucune policy pour l&apos;instant.
+              {t("Aucune policy pour l'instant.")}
             </p>
             <div className="muted" style={{ fontSize: 13, lineHeight: 1.5, maxWidth: 560 }}>
               Une policy associe un <em>prompt LLM</em> à un <em>schéma JSON</em> :
@@ -286,10 +285,10 @@ export function AnalysesClient() {
           <table className="list">
             <thead>
               <tr>
-                <th>Nom</th>
+                <th>{t("Nom")}</th>
                 <th>Scope</th>
-                <th>Modèle</th>
-                <th>Active</th>
+                <th>{t("Modèle")}</th>
+                <th>{t("Active")}</th>
                 <th></th>
               </tr>
             </thead>
@@ -313,13 +312,13 @@ export function AnalysesClient() {
                   <td><span className="kbd">{p.model ?? "deepseek-v4-flash"}</span></td>
                   <td>
                     <span className={p.enabled ? "tag good" : "tag"}>
-                      {p.enabled ? "Oui" : "Non"}
+                      {p.enabled ? t("Oui") : t("Non")}
                     </span>
                   </td>
                   <td>
                     <div style={{ display: "flex", gap: 6 }}>
                       <button className="ghost" onClick={() => startEdit(p)}>
-                        Modifier
+                        {t("Modifier")}
                       </button>
                       <button className="danger" onClick={() => remove(p.id)}>
                         Supprimer
