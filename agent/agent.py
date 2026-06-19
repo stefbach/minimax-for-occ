@@ -658,25 +658,53 @@ def _tts_for(agent: Optional[AxonAgent], sample_rate: Optional[int] = None):
         or os.getenv("CARTESIA_VOICE_ID")
     )
 
-    # ── MiniMax DIRECT (Wati 16/06) ─────────────────────────────────────────
-    # Streaming SSE natif (~400ms TTFB). Remplace le passage via Replicate
-    # qui était non-streaming (~1-2s). Format voice_id : "minimax:<model>:<voice>".
-    if MinimaxTTS is not None and is_minimax_voice_id(_voice_for_routing):
+    # ── MiniMax via the OFFICIAL LiveKit plugin (restored 19/06) ─────────────
+    # This is the integration that ORIGINALLY worked (pre-Cartesia): the
+    # official livekit-plugins-minimax-ai package talks to MiniMax directly and
+    # handles auth + GroupId internally, so it works with just MINIMAX_API_KEY
+    # (no separate MINIMAX_GROUP_ID needed). The hand-rolled minimax_tts.py
+    # (16/06) replaced it and produced "no audio" — we restore the plugin here.
+    # Format voice_id : "minimax:<model>:<voice>". audio_format="pcm" bypasses
+    # the chunked-MP3 decoder bug (livekit/livekit#3850, agents#3863).
+    if _voice_for_routing and _voice_for_routing.startswith("minimax:"):
         try:
-            logger.info("TTS=minimax-direct voice_id=%s", _voice_for_routing)
-            telephony_sr = int(sample_rate) if sample_rate and int(sample_rate) <= 16000 else 24000
-            return MinimaxTTS(
-                voice_id=_voice_for_routing,  # type: ignore[arg-type]
-                sample_rate=telephony_sr,
-                speed=(float(agent.tts_speed) if agent and agent.tts_speed and agent.tts_speed != 1.0 else None),
-                pitch=(int(agent.tts_pitch) if agent and agent.tts_pitch else None),
-                emotion=(agent.tts_emotion if agent and agent.tts_emotion else None),
-                volume=(float(agent.tts_volume) if agent and agent.tts_volume and agent.tts_volume != 1.0 else None),
-                english_normalization=(agent.tts_english_normalization if agent else None),
-            )
+            import inspect
+            from livekit.plugins import minimax as _minimax_plugin
+            _mm = _voice_for_routing.split(":", 2)
+            mm_model = (_mm[1] if len(_mm) >= 2 and _mm[1] else "speech-02-hd")
+            mm_voice = (_mm[2] if len(_mm) >= 3 and _mm[2] else None)
+            mm_emotion = (agent.tts_emotion if agent and agent.tts_emotion else None) or None
+            # "fluent" emotion only exists on speech-2.6-* — drop it otherwise.
+            if mm_emotion == "fluent" and not mm_model.startswith("speech-2.6"):
+                mm_emotion = None
+            _lang = (agent.language if agent and agent.language else "").lower()
+            mm_boost = {
+                "fr": "French", "en": "English", "es": "Spanish", "de": "German",
+                "it": "Italian", "pt": "Portuguese", "nl": "Dutch", "ar": "Arabic",
+            }.get(_lang) or os.getenv("MINIMAX_LANGUAGE_BOOST", "auto")
+            mm_kwargs = {
+                "voice": mm_voice,
+                "model": mm_model,
+                "emotion": mm_emotion,
+                "language_boost": mm_boost,
+                "speed": (float(agent.tts_speed) if agent and agent.tts_speed and agent.tts_speed != 1.0 else None),
+                "vol": (float(agent.tts_volume) if agent and agent.tts_volume and agent.tts_volume != 1.0 else None),
+                "pitch": (int(agent.tts_pitch) if agent and agent.tts_pitch else None),
+                "audio_format": "pcm",
+            }
+            # Version-safe: only keep kwargs the installed plugin accepts and
+            # that have a value (drops None) — no TypeErrors across plugin versions.
+            _mm_supported = set(inspect.signature(_minimax_plugin.TTS.__init__).parameters)
+            mm_kwargs = {k: v for k, v in mm_kwargs.items() if v is not None and k in _mm_supported}
+            logger.info("TTS=minimax-official model=%s voice=%s", mm_model, mm_voice)
+            try:
+                return _minimax_plugin.TTS(**mm_kwargs)
+            except TypeError:
+                mm_kwargs.pop("audio_format", None)
+                return _minimax_plugin.TTS(**mm_kwargs)
         except Exception:
             logger.exception(
-                "minimax direct init failed for voice_id=%s — falling back to Replicate path",
+                "MiniMax official plugin init failed for voice_id=%s — falling back",
                 _voice_for_routing,
             )
 
