@@ -595,7 +595,10 @@ def _stt_for(agent: Optional[AxonAgent], tuning: Optional[dict] = None) -> assem
         "end_of_turn_confidence_threshold": _tune_float(
             "eot_threshold", "ASSEMBLYAI_EOT_THRESHOLD", 0.3
         ),
-        "min_turn_silence": _tune_int("min_turn_silence", "ASSEMBLYAI_MIN_TURN_SILENCE", 100),
+        # Reduced from 100ms to 75ms after LLM warmup + turn_detector work.
+        # Saves ~25ms per turn on STT EOU detection. Pairs with quick-ack
+        # prompt to avoid cutting off natural pauses (risk zone ~300-400ms).
+        "min_turn_silence": _tune_int("min_turn_silence", "ASSEMBLYAI_MIN_TURN_SILENCE", 75),
         # Skip the formatted-final pass (punctuation/casing). It adds ~1s of
         # end-of-turn latency for zero benefit — the LLM reads raw text fine.
         # Override with ASSEMBLYAI_FORMAT_TURNS=true if a clean transcript is
@@ -604,7 +607,8 @@ def _stt_for(agent: Optional[AxonAgent], tuning: Optional[dict] = None) -> assem
         in ("1", "true", "yes"),
         # Hard cap on how long AssemblyAI may wait before forcing a turn end,
         # even when it isn't fully confident. Bounds worst-case STT-delay.
-        "max_turn_silence": _tune_int("max_turn_silence", "ASSEMBLYAI_MAX_TURN_SILENCE", 400),
+        # Reduced from 400ms to 350ms for tighter bounding.
+        "max_turn_silence": _tune_int("max_turn_silence", "ASSEMBLYAI_MAX_TURN_SILENCE", 350),
     }
     # u3-rt-pro exclusives: continuous_partials + interruption_delay improve
     # responsiveness (faster commit on short answers + lower barge-in cost).
@@ -3805,17 +3809,15 @@ async def entrypoint(ctx: JobContext) -> None:
     # and fall back to the old kwargs otherwise. Either way, signature-filter
     # so unknown kwargs are dropped instead of crashing.
     #
-    # Default 0.55s — measured compromise. 0.10s was too aggressive (fragmented
-    # speech like "Megan, Claudia, Kenneth / 17 / 1993" got split into 3 turns,
-    # wedging the pipeline). 0.80s was safe but added ~250ms perceived lag on
-    # every turn (EOU climbed from ~1.4s to ~1.7s in production logs).
-    # 0.35s (Wati 16/06 latency push) coupe ~200ms par tour vs l'ancien 0.55s,
-    # au prix d'un risque marginal de couper un patient qui marque une longue
-    # pause naturelle (~350ms reste raisonnable). Override via MIN_ENDPOINTING_DELAY.
+    # Default 0.55s → 0.35s (Wati 16/06) → 0.30s (post-warmup). With LLM
+    # connection warmup now keeping the inference socket alive post-greeting,
+    # we can be more aggressive with VAD endpointing without cold-start TTFT
+    # killing the perceived latency. 0.30s is still safe for natural pauses
+    # (~300ms pauses within a sentence are common). Risk zone remains ~350ms+.
     # Per-campaign override first (test-campaign latency experiments),
-    # then env, then the latency-tuned 0.35s default.
+    # then env, then the aggressive-but-safe 0.30s default.
     _tun_endp = campaign_tuning.get("min_endpointing_delay")
-    min_endp = float(_tun_endp) if _tun_endp else float(os.getenv("MIN_ENDPOINTING_DELAY", "0.35"))
+    min_endp = float(_tun_endp) if _tun_endp else float(os.getenv("MIN_ENDPOINTING_DELAY", "0.30"))
 
     # min_interruption_duration (Wati 2026-06-12 latency review): how long
     # the patient must speak before the agent stops talking. The default
