@@ -81,7 +81,7 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
   const [patientSearchQuery, setPatientSearchQuery] = useState("");
   const [patientSearchOpen, setPatientSearchOpen] = useState(false);
   const [nhsPatients, setNhsPatients] = useState<NhsPatientsResponse["patients"] | null>(null);
-  const [searchContacts, setSearchContacts] = useState<Array<{ id: string; display_name: string | null; e164: string | null }>>([]);
+  const [searchContacts, setSearchContacts] = useState<Array<{ id: string; display_name: string | null; e164: string | null; table_id?: string }>>([]);
   const [nhsOpenPatientId, setNhsOpenPatientId] = useState<string | null>(null);
   const [nhsOpenContactId, setNhsOpenContactId] = useState<string | null>(null);
 
@@ -100,7 +100,7 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
     const timer = setTimeout(() => {
       fetch(`/api/desk/search-contacts?q=${encodeURIComponent(q)}&limit=6`, { cache: "no-store" })
         .then((r) => r.json())
-        .then((j: { contacts?: Array<{ id: string; display_name: string | null; e164: string | null }> }) => setSearchContacts(j.contacts ?? []))
+        .then((j: { contacts?: Array<{ id: string; display_name: string | null; e164: string | null; table_id?: string }> }) => setSearchContacts(j.contacts ?? []))
         .catch(() => {});
     }, 300);
     return () => clearTimeout(timer);
@@ -108,7 +108,8 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
 
   type PatientSearchResult =
     | { kind: "patient"; patient: NhsPatientsResponse["patients"][number] }
-    | { kind: "contact"; id: string; name: string; phone: string | null };
+    | { kind: "contact"; id: string; name: string; phone: string | null }
+    | { kind: "lead"; id: string; name: string; phone: string | null; table_id: string };
 
   const patientSearchQ = patientSearchQuery.trim().toLowerCase();
   const patientSearchResults: PatientSearchResult[] = (() => {
@@ -123,9 +124,12 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
     }
     for (const c of searchContacts) {
       const name = c.display_name ?? "";
-      if (!seen.has(name.toLowerCase())) {
+      if (seen.has(name.toLowerCase())) continue;
+      seen.add(name.toLowerCase());
+      if (c.table_id) {
+        results.push({ kind: "lead", id: c.id, name, phone: c.e164, table_id: c.table_id });
+      } else {
         results.push({ kind: "contact", id: c.id, name, phone: c.e164 });
-        seen.add(name.toLowerCase());
       }
     }
     return results.slice(0, 8);
@@ -306,6 +310,22 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
                           >
                             <span style={{ fontWeight: 600, fontSize: 14 }}>{p.name ?? "—"}</span>
                             <span className="muted" style={{ fontSize: 12 }}>{p.phone ?? p.email ?? ""} · <span style={{ color: "var(--accent)" }}>{t("Dossier patient")}</span></span>
+                          </button>
+                        );
+                      } else if (r.kind === "lead") {
+                        return (
+                          <button
+                            key={`l-${r.table_id}-${r.id}`}
+                            className="ghost"
+                            onMouseDown={() => {
+                              setPatientSearchQuery("");
+                              setPatientSearchOpen(false);
+                              router.push(`/contacts/${r.table_id}?q=${encodeURIComponent(r.name)}`);
+                            }}
+                            style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", width: "100%", padding: "10px 14px", gap: 2, borderRadius: 0, borderBottom: "1px solid var(--border)" }}
+                          >
+                            <span style={{ fontWeight: 600, fontSize: 14 }}>{r.name || "—"}</span>
+                            <span className="muted" style={{ fontSize: 12 }}>{r.phone ?? ""} · <span style={{ color: "var(--info, #6aa0ff)" }}>{t("Fiche contact")}</span></span>
                           </button>
                         );
                       } else {

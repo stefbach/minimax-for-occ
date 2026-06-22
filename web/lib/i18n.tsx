@@ -938,6 +938,7 @@ const EN: Record<string, string> = {
   "Au": "To",
   "Dossier patient": "Patient record",
   "Fiche CRM": "CRM record",
+  "Fiche contact": "Contact record",
   "résultat(s)": "result(s)",
 
   // ── Call detail & transcript ──

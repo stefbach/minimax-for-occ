@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useT } from "@/lib/i18n";
 import * as XLSX from "xlsx";
 
@@ -70,9 +70,11 @@ export function DataTableDetail({
 }: Props) {
   const t = useT();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [rows, setRows] = useState(initialRows);
   const [total, setTotal] = useState<number>(initialTotal ?? initialRows.length);
-  const [search, setSearch] = useState("");
+  // Pre-fill from ?q= URL param so dashboard patient search can deep-link here.
+  const [search, setSearch] = useState(() => searchParams.get("q") ?? "");
   // Pagination state (Wati 2026-06-15): server-driven page/per_page so a
   // 7800-row table doesn't dump everything into the DOM. The first page
   // ships with the SSR payload (initialRows); every subsequent
