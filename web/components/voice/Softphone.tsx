@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   LiveKitRoom,
   RoomAudioRenderer,
@@ -85,6 +85,8 @@ export interface SoftphoneProps {
 export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
   const toast = useToast();
   const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
   const [bootstrapping, setBootstrapping] = useState(true);
   const [handle, setHandle] = useState<Handle | null>(null);
   const [registering, setRegistering] = useState(false);
@@ -238,7 +240,16 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
     return device;
   }
 
-  const dial = useCallback(async () => {
+  const dial = useCallback(async (overrideNumber?: string) => {
+    // Never start a second call while one is already live. twilioCallRef is a
+    // ref (always current, unlike the twilioCallState closure), so this also
+    // catches a duplicate auto-dial firing during an in-progress call — the
+    // bug that produced phantom "ringing" rows stuck in the desk's EN COURS.
+    if (twilioCallRef.current) return;
+    // Dial an explicit number when given (the click-to-dial autodial passes it
+    // straight in) instead of trusting the dialNumber state closure, which may
+    // not have committed the freshly-set value yet.
+    const numberToDial = overrideNumber ?? dialNumber;
     setDialing(true);
     setDialError(null);
     try {
@@ -252,7 +263,7 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
         const reg = await fetch("/api/desk/sdk-call", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ to_e164: dialNumber }),
+          body: JSON.stringify({ to_e164: numberToDial }),
         });
         if (reg.ok) {
           const j = await reg.json();
@@ -290,7 +301,7 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
       }
 
       const params: Record<string, string> = {
-        To: dialNumber,
+        To: numberToDial,
         OrgId: handle.org_id,
       };
       if (humanFrom) params.HumanFrom = humanFrom;
@@ -435,11 +446,26 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
     setDialNumber(target);
     const nameParam = searchParams?.get("name");
     if (nameParam) setDialContactName(nameParam);
-    if (callParam && handle && !autoDialedRef.current) {
+
+    if (callParam) {
+      // Auto-dial needs the agent_handle loaded to attribute the call. Wait
+      // for it rather than stripping the URL prematurely — that would lose the
+      // number before we ever dial. autoDialedRef guards re-runs within a
+      // single mount; the URL strip below guards across mounts/reloads.
+      if (!handle || autoDialedRef.current) return;
       autoDialedRef.current = true;
-      void dial();
+      void dial(target);
     }
-  }, [searchParams, handle, dial]);
+
+    // Consume the click-to-dial params: strip them from the URL so a remount
+    // or reload of /desk can't re-apply them. For ?call= this is critical —
+    // otherwise the number stays in the address bar and auto-dials AGAIN on
+    // the next mount (autoDialedRef only lives for one mount), which is how a
+    // call "places itself" without the agent clicking and leaves a stuck
+    // phantom "ringing" row. replace() (not push) keeps Back from returning
+    // to the auto-dial URL.
+    router.replace(pathname, { scroll: false });
+  }, [searchParams, handle, dial, router, pathname]);
 
   const register = useCallback(async () => {
     setRegistering(true);
@@ -866,7 +892,7 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
               }}
             />
             <button
-              onClick={dial}
+              onClick={() => dial()}
               disabled={dialing || !/^\+\d{6,15}$/.test(dialNumber)}
               style={{ padding: "10px 16px", whiteSpace: "nowrap" }}
             >
