@@ -458,6 +458,51 @@ def _llm_for_resilient(agent: Optional[AxonAgent]):
         return primary
 
 
+async def _warm_session_llm(llm, clog) -> None:
+    """Fire one throwaway micro-completion on the session's REAL llm so the
+    first patient turn doesn't pay a cold handshake.
+
+    On this stack the greeting + re-greet are *canned* (no LLM), so nothing
+    exercises the inference transport until the patient's first real reply —
+    at which point we eat the full DNS+TCP+TLS+HTTP/2 setup to the LiveKit
+    Inference gateway on top of the model's own TTFT (seen as ~1.2s on the
+    first real turn of call 0d82dc2f). Warming the connection while the
+    greeting plays moves that cost off the critical path, the same way
+    Retell-style stacks keep the LLM socket hot. Fire-and-forget: any failure
+    is silent (we just pay the cold cost on demand, exactly as before).
+
+    Disable with LLM_SESSION_WARMUP=off. Does NOT fix provider-side generation
+    throttling (the 8 tok/s spike) — that's capacity on the inference node,
+    not something a warm socket can change."""
+    if os.getenv("LLM_SESSION_WARMUP", "on").lower() in ("off", "false", "0", "no", "disabled"):
+        return
+    try:
+        from livekit.agents.llm import ChatContext
+    except Exception:
+        return
+    try:
+        ctx = ChatContext.empty() if hasattr(ChatContext, "empty") else ChatContext()
+        try:
+            ctx.add_message(role="user", content="Reply with the single character: .")
+        except Exception:
+            from livekit.agents.llm import ChatMessage  # type: ignore
+            ctx.messages.append(ChatMessage(role="user", content="Reply with the single character: ."))  # type: ignore
+        _t0 = time.monotonic()
+        stream = llm.chat(chat_ctx=ctx)
+        async for chunk in stream:
+            # First token is all we need — the socket is now hot.
+            delta = getattr(chunk, "delta", None)
+            if delta is not None and getattr(delta, "content", None):
+                break
+        try:
+            await stream.aclose()
+        except Exception:
+            pass
+        clog.info("LLM warmup: connection primed in %.0fms", (time.monotonic() - _t0) * 1000.0)
+    except Exception:
+        clog.debug("LLM warmup skipped (non-fatal)", exc_info=True)
+
+
 def _build_llm_with_max_tokens(cls, max_tokens: int, **kwargs):
     """Instantiate an LLM plugin and try to pass a per-completion token cap.
     Different plugin versions name the kwarg differently (max_tokens,
@@ -4006,6 +4051,13 @@ async def entrypoint(ctx: JobContext) -> None:
         ),
     )
     clog.info("timing: session.start() returned in %.2fs", _time2.monotonic() - _t_start)
+    # Warm the inference connection in the background while the (canned)
+    # greeting plays, so the patient's first real turn skips the cold
+    # handshake. Non-blocking and best-effort — never delays the greeting.
+    try:
+        asyncio.create_task(_warm_session_llm(_llm, clog))
+    except Exception:
+        clog.debug("LLM warmup task not scheduled (non-fatal)", exc_info=True)
     # Stamp when the agent session became active (SIP participant in the room,
     # session running). This becomes the call's `answered_at` for the DB
     # fallback if Twilio's StatusCallback never reaches us — see _on_shutdown.
