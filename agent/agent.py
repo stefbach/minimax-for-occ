@@ -462,18 +462,14 @@ async def _warm_session_llm(llm, clog) -> None:
     """Fire one throwaway micro-completion on the session's REAL llm so the
     first patient turn doesn't pay a cold handshake.
 
-    On this stack the greeting + re-greet are *canned* (no LLM), so nothing
-    exercises the inference transport until the patient's first real reply —
-    at which point we eat the full DNS+TCP+TLS+HTTP/2 setup to the LiveKit
-    Inference gateway on top of the model's own TTFT (seen as ~1.2s on the
-    first real turn of call 0d82dc2f). Warming the connection while the
-    greeting plays moves that cost off the critical path, the same way
-    Retell-style stacks keep the LLM socket hot. Fire-and-forget: any failure
-    is silent (we just pay the cold cost on demand, exactly as before).
+    Called right after the greeting or re-greeting finishes. At this point the
+    patient will reply in 5-15s, so the socket warms while we wait for their
+    speech, without the timeout risk of warming during session.start(). Fire-
+    and-forget: best-effort, non-blocking (fails silently).
 
     Disable with LLM_SESSION_WARMUP=off. Does NOT fix provider-side generation
-    throttling (the 8 tok/s spike) — that's capacity on the inference node,
-    not something a warm socket can change."""
+    throttling ("inference is slower than realtime") — that's capacity on the
+    inference node, not a cold socket."""
     if os.getenv("LLM_SESSION_WARMUP", "on").lower() in ("off", "false", "0", "no", "disabled"):
         return
     try:
@@ -1376,6 +1372,11 @@ class AxonVoiceAgent(Agent):
             text = f"{prefix}{self._greeting}" if prefix else self._greeting
             await self.session.say(text=text, allow_interruptions=False)
             logger.info("greeting: re-greet say() returned in %.2fs", _t.monotonic() - _b)
+            # Warm LLM connection after re-greeting, as with main greeting.
+            try:
+                asyncio.create_task(_warm_session_llm(self.session.llm, logger))
+            except Exception:
+                logger.debug("LLM post-regreeting warmup not scheduled (non-fatal)", exc_info=True)
         except Exception:
             logger.info(
                 "greeting: re-greet interrupted after %.2fs (likely hangup)",
@@ -1704,6 +1705,13 @@ class AxonVoiceAgent(Agent):
         try:
             await self.session.say(text=self._greeting, allow_interruptions=True)
             logger.info("greeting: say() returned in %.2fs", _t.monotonic() - _b)
+            # Warm the LLM connection NOW, right after greeting finishes and
+            # BEFORE the patient replies. At this point the socket won't timeout
+            # before the 1st real turn (usually 5-15s away). Best-effort.
+            try:
+                asyncio.create_task(_warm_session_llm(self.session.llm, logger))
+            except Exception:
+                logger.debug("LLM post-greeting warmup not scheduled (non-fatal)", exc_info=True)
         except Exception:
             logger.info(
                 "greeting: say() interrupted after %.2fs (likely hangup)",
@@ -4051,13 +4059,6 @@ async def entrypoint(ctx: JobContext) -> None:
         ),
     )
     clog.info("timing: session.start() returned in %.2fs", _time2.monotonic() - _t_start)
-    # Warm the inference connection in the background while the (canned)
-    # greeting plays, so the patient's first real turn skips the cold
-    # handshake. Non-blocking and best-effort — never delays the greeting.
-    try:
-        asyncio.create_task(_warm_session_llm(_llm, clog))
-    except Exception:
-        clog.debug("LLM warmup task not scheduled (non-fatal)", exc_info=True)
     # Stamp when the agent session became active (SIP participant in the room,
     # session running). This becomes the call's `answered_at` for the DB
     # fallback if Twilio's StatusCallback never reaches us — see _on_shutdown.
