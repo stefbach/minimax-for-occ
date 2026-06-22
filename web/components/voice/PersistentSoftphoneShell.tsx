@@ -83,7 +83,7 @@ export function PersistentSoftphoneShell() {
           top: 0,
           right: 0,
           bottom: 0,
-          width: "min(720px, 95vw)",
+          width: "min(1200px, 96vw)",
           background: "var(--bg)",
           boxShadow: "-8px 0 32px rgba(0,0,0,0.3)",
           overflow: "auto",
