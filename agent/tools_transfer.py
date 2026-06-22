@@ -138,12 +138,33 @@ async def _post_transfer(
         return False, None, f"{type(exc).__name__}: {exc}"
 
 
+def _human_callback_confirmation(language: Optional[str]) -> str:
+    """Spoken confirmation read back to the caller after a human handoff.
+
+    Language-aware so an English-pinned line doesn't hear a French sentence.
+    Defaults to French for unknown/None (OCC's historical default).
+    """
+    lang = (language or "").strip().lower()
+    if lang.startswith("en"):
+        return (
+            "Noted — a member of our team will call you back tomorrow about "
+            "your request. Is there anything else I can help you with in the "
+            "meantime?"
+        )
+    return (
+        "C'est noté, un membre de notre équipe vous rappellera demain "
+        "à propos de votre demande. Avez-vous d'autres questions en "
+        "attendant ?"
+    )
+
+
 def build_transfer_to_human_tool(
     *,
     org_id: Optional[str],
     contact_id: Optional[str],
     call_id: Optional[str],
     agent_handle_id: Optional[str],
+    language: Optional[str] = None,
 ):
     """Return a livekit-agents function_tool, or None if it should not be
     registered for this session.
@@ -242,10 +263,6 @@ def build_transfer_to_human_tool(
                 "transfer_to_human: stamp_disposition_and_qualification raised"
             )
 
-        return (
-            "C'est noté, un membre de notre équipe vous rappellera demain "
-            "à propos de votre demande. Avez-vous d'autres questions en "
-            "attendant ?"
-        )
+        return _human_callback_confirmation(language)
 
     return transfer_to_human
