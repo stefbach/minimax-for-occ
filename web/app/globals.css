@@ -424,7 +424,7 @@ table.list tr:hover td { background: var(--panel-2); }
    900px media query stacks the two). */
 .softphone-center-cols {
   display: grid;
-  grid-template-columns: minmax(340px, 1fr) minmax(0, 1fr);
+  grid-template-columns: 1fr minmax(260px, 360px);
   gap: 12px;
   align-items: start;
 }
