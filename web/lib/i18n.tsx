@@ -1289,6 +1289,10 @@ const EN: Record<string, string> = {
   "en attente de l'agent…": "waiting for agent…",
   "Impossible d'exécuter le diagnostic": "Unable to run diagnostic",
   "Cliquez pour rejoindre la salle LiveKit. Le worker y sera dispatché et chargera la config de cet agent.": "Click to join the LiveKit room. The worker will be dispatched and load this agent's configuration.",
+
+  // ── Help drawer ──
+  "Aide contextuelle": "Contextual help",
+  "Aide": "Help",
 };
 
 function readLang(): Lang {

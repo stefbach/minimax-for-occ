@@ -539,7 +539,7 @@ export function DataTableDetail({
             className="ghost"
             onClick={() => { setImportReport(null); setImportError(null); }}
             style={{ padding: "2px 8px" }}
-            title="Fermer"
+            title={t("Fermer")}
           >
             ×
           </button>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useT } from "@/lib/i18n";
 import { resolveHelp, type HelpRole } from "@/lib/help/registry";
 import { renderMarkdown } from "@/lib/help/markdown";
 
@@ -16,6 +17,7 @@ export function HelpDrawer({
   contextKey: string;
   onClose: () => void;
 }) {
+  const t = useT();
   const [role, setRole] = useState<HelpRole | null>(null);
   const [loaded, setLoaded] = useState(false);
 
@@ -92,15 +94,15 @@ export function HelpDrawer({
         >
           <div>
             <div style={{ fontSize: 12, color: "var(--muted, #8b93a7)" }}>
-              Aide contextuelle
+              {t("Aide contextuelle")}
             </div>
             <h2 style={{ margin: 0, fontSize: 18 }}>
-              {resolved?.title ?? "Aide"}
+              {resolved?.title ?? t("Aide")}
             </h2>
           </div>
           <button
             onClick={onClose}
-            aria-label="Fermer"
+            aria-label={t("Fermer")}
             style={{
               background: "transparent",
               border: "1px solid var(--border, #2a2f3a)",
@@ -125,7 +127,7 @@ export function HelpDrawer({
           }}
         >
           {!loaded && (
-            <p style={{ color: "var(--muted, #8b93a7)" }}>Chargement…</p>
+            <p style={{ color: "var(--muted, #8b93a7)" }}>{t("Chargement…")}</p>
           )}
           {loaded && !resolved && (
             <p style={{ color: "var(--muted, #8b93a7)" }}>

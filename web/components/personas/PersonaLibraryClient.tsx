@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useT } from "@/lib/i18n";
 import { PersonaPreview, type PersonaPreviewData } from "./PersonaPreview";
 
 type PersonaSummary = {
@@ -28,6 +29,7 @@ const LANGUAGE_FLAGS: Record<string, string> = {
 };
 
 export function PersonaLibraryClient({ initial }: { initial: PersonaSummary[] }) {
+  const t = useT();
   const router = useRouter();
   const [personas] = useState<PersonaSummary[]>(initial);
   const [industry, setIndustry] = useState("");
@@ -262,7 +264,7 @@ export function PersonaLibraryClient({ initial }: { initial: PersonaSummary[] })
                   className="ghost"
                   onClick={() => setPreview(null)}
                 >
-                  Fermer
+                  {t("Fermer")}
                 </button>
               </div>
             </div>
