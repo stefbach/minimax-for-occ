@@ -395,8 +395,7 @@ export function PeriodBar({
           onChange={(e) => emitRange(e.target.value, range.au)}
           className={hasRange ? "" : "ghost"}
           style={{
-            padding: "4px 8px", fontSize: 13, width: "auto", colorScheme: "light dark",
-            borderColor: hasRange ? "var(--accent)" : "var(--border)",
+            padding: "4px 8px", fontSize: 13, width: "auto",             borderColor: hasRange ? "var(--accent)" : "var(--border)",
           }}
           title={t("Date de début")}
         />
@@ -409,8 +408,7 @@ export function PeriodBar({
           onChange={(e) => emitRange(range.du, e.target.value)}
           className={hasRange ? "" : "ghost"}
           style={{
-            padding: "4px 8px", fontSize: 13, width: "auto", colorScheme: "light dark",
-            borderColor: hasRange ? "var(--accent)" : "var(--border)",
+            padding: "4px 8px", fontSize: 13, width: "auto",             borderColor: hasRange ? "var(--accent)" : "var(--border)",
           }}
           title={t("Date de fin")}
         />
