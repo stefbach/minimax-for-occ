@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+import { useT } from "@/lib/i18n";
 
 type Handle = {
   id: string;
@@ -29,6 +30,7 @@ export function TransferModal({
   onClose: () => void;
   onTransferred: () => void;
 }) {
+  const t = useT();
   const [handles, setHandles] = useState<Handle[]>([]);
   const [presence, setPresence] = useState<Map<string, string>>(new Map());
   const [busy, setBusy] = useState<string | null>(null);
@@ -112,13 +114,13 @@ export function TransferModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <h3 style={{ margin: 0 }}>Transférer l&apos;appel</h3>
+          <h3 style={{ margin: 0 }}>{t("Transférer l'appel")}</h3>
           <button className="ghost" onClick={onClose}>
-            Fermer
+            {t("Fermer")}
           </button>
         </div>
         <p className="muted" style={{ marginTop: 6 }}>
-          Sélectionnez un agent IA ou un humain disponible.
+          {t("Sélectionnez un agent IA ou un humain disponible.")}
         </p>
 
         {error && (
@@ -128,7 +130,7 @@ export function TransferModal({
         )}
 
         {targets.length === 0 ? (
-          <p className="muted">Aucune cible disponible.</p>
+          <p className="muted">{t("Aucune cible disponible.")}</p>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {targets.map((h) => (
@@ -152,7 +154,7 @@ export function TransferModal({
                   </span>
                 </span>
                 <span className="tag">
-                  {busy === h.id ? "…" : "Transférer"}
+                  {busy === h.id ? "…" : t("Transférer")}
                 </span>
               </button>
             ))}

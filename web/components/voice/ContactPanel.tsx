@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useT } from "@/lib/i18n";
 
 export type ContactCall = {
   id: string;
@@ -34,6 +35,7 @@ type Interaction = {
  * the call has no associated contact yet.
  */
 export function ContactPanel({ call }: { call: ContactCall | null }) {
+  const t = useT();
   const contactId = call?.contact_id ?? null;
   const [interactions, setInteractions] = useState<Interaction[]>([]);
   const [noteDraft, setNoteDraft] = useState("");
@@ -95,31 +97,31 @@ export function ContactPanel({ call }: { call: ContactCall | null }) {
   const phone = call.direction === "in" ? call.from_e164 : call.to_e164;
   return (
     <div className="card softphone-right">
-      <h3>{call.contacts?.display_name ?? phone ?? "Contact inconnu"}</h3>
+      <h3>{call.contacts?.display_name ?? phone ?? t("Contact inconnu")}</h3>
       <div className="muted" style={{ fontSize: 13 }}>{phone}</div>
 
       <div style={{ display: "grid", gap: 6, marginTop: 12, fontSize: 13 }}>
         <div>
-          <span className="muted">État : </span>
+          <span className="muted">{t("État")} : </span>
           <span className="tag">{call.state}</span>
         </div>
         <div>
-          <span className="muted">Direction : </span>
-          {call.direction === "in" ? "Entrant" : "Sortant"}
+          <span className="muted">{t("Direction")} : </span>
+          {call.direction === "in" ? t("Entrant") : t("Sortant")}
         </div>
         <div>
-          <span className="muted">Début : </span>
+          <span className="muted">{t("Début")} : </span>
           {new Date(call.started_at).toLocaleString()}
         </div>
         {call.answered_at && (
           <div>
-            <span className="muted">Répondu : </span>
+            <span className="muted">{t("Répondu")} : </span>
             {new Date(call.answered_at).toLocaleTimeString()}
           </div>
         )}
         {call.ended_at && (
           <div>
-            <span className="muted">Terminé : </span>
+            <span className="muted">{t("Terminé")} : </span>
             {new Date(call.ended_at).toLocaleTimeString()}
           </div>
         )}
@@ -141,7 +143,7 @@ export function ContactPanel({ call }: { call: ContactCall | null }) {
             marginBottom: 6,
           }}
         >
-          Historique interactions
+          {t("Historique interactions")}
         </div>
         {!contactId ? (
           <div
@@ -154,7 +156,7 @@ export function ContactPanel({ call }: { call: ContactCall | null }) {
               fontSize: 12,
             }}
           >
-            Aucun contact lié à cet appel.
+            {t("Aucun contact lié à cet appel.")}
           </div>
         ) : interactions.length === 0 ? (
           <div
@@ -167,7 +169,7 @@ export function ContactPanel({ call }: { call: ContactCall | null }) {
               fontSize: 12,
             }}
           >
-            Aucune interaction antérieure.
+            {t("Aucune interaction antérieure.")}
           </div>
         ) : (
           <div
@@ -213,7 +215,7 @@ export function ContactPanel({ call }: { call: ContactCall | null }) {
               rows={2}
               value={noteDraft}
               onChange={(e) => setNoteDraft(e.target.value)}
-              placeholder="Ajouter une note…"
+              placeholder={t("Ajouter une note…")}
               style={{ fontSize: 12 }}
             />
             <div style={{ display: "flex", justifyContent: "flex-end" }}>

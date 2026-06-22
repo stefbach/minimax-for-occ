@@ -1250,6 +1250,45 @@ const EN: Record<string, string> = {
   "Système": "System",
   "Prénom Nom": "First Last",
   "+ Créer une tâche": "+ Create a task",
+
+  // ── Softphone / TransferModal / ComplianceClient ──
+  "Transférer l'appel": "Transfer call",
+  "Sélectionnez un agent IA ou un humain disponible.": "Select an available AI agent or human.",
+  "Aucune cible disponible.": "No targets available.",
+  "Import en masse": "Bulk import",
+  "Fermer l'import": "Close import",
+  "Fermer la notification": "Close notification",
+  "Pour recevoir et émettre des appels, un": "To receive and make calls, an",
+  "(poste agent) doit être lié à votre compte.": "(agent workstation) must be linked to your account.",
+  "Vous pouvez l'activer vous-même ci-dessous, ou demander à un administrateur.": "You can enable it yourself below, or ask an administrator to go to Admin → Users → you → 'Enable agent workstation'.",
+  "Fermer (Échap)": "Close (Esc)",
+
+  // ── ContactPanel ──
+  "Contact inconnu": "Unknown contact",
+  "Début": "Start",
+  "Historique interactions": "Interaction history",
+  "Aucun contact lié à cet appel.": "No contact linked to this call.",
+  "Aucune interaction antérieure.": "No previous interactions.",
+  "Ajouter une note…": "Add a note…",
+
+  // ── VoicePanel ──
+  "L'agent vocal n'a pas pu démarrer": "Voice agent could not start",
+  "Diagnostic automatique :": "Automatic diagnostic:",
+  "Action requise :": "Action required:",
+  "recharger le crédit MiniMax sur": "recharge MiniMax credit on",
+  "recharger le crédit DeepSeek sur": "recharge DeepSeek credit on",
+  "compléter la configuration de l'agent (voix, modèle, LLM)": "complete the agent configuration (voice, model, LLM)",
+  "vérifier la clé API": "check the API key",
+  "dans les variables d'environnement": "in the environment variables",
+  "indisponible, réessayer plus tard": "unavailable, try again later",
+  "Diagnostic en cours…": "Diagnostic in progress…",
+  "Diagnostic…": "Diagnostic…",
+  "Tester les services": "Test services",
+  "Démarrer la session vocale": "Start voice session",
+  "Activer l'audio": "Enable audio",
+  "en attente de l'agent…": "waiting for agent…",
+  "Impossible d'exécuter le diagnostic": "Unable to run diagnostic",
+  "Cliquez pour rejoindre la salle LiveKit. Le worker y sera dispatché et chargera la config de cet agent.": "Click to join the LiveKit room. The worker will be dispatched and load this agent's configuration.",
 };
 
 function readLang(): Lang {

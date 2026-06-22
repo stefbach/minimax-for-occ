@@ -101,14 +101,14 @@ export function PersistentSoftphoneShell() {
             marginBottom: 14,
           }}
         >
-          <h2 style={{ margin: 0, fontSize: 16 }}>Mon poste</h2>
+          <h2 style={{ margin: 0, fontSize: 16 }}>{t("Mon poste")}</h2>
           <button
             className="ghost"
             onClick={() => setExpanded(false)}
-            aria-label="Fermer (Échap)"
+            aria-label={t("Fermer (Échap)")}
             style={{ padding: "5px 10px", fontSize: 13 }}
           >
-            ✕ Fermer
+            ✕ {t("Fermer")}
           </button>
         </div>
         <Softphone />
@@ -142,7 +142,7 @@ export function PersistentSoftphoneShell() {
           }}
         >
           <span aria-hidden style={{ fontSize: 14 }}>☎</span>
-          <span>Mon poste</span>
+          <span>{t("Mon poste")}</span>
         </button>
       )}
     </>

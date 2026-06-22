@@ -622,11 +622,11 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
     if (compact) {
       return (
         <div style={{ padding: "8px 14px", fontSize: 12, color: "var(--muted)", borderBottom: "1px solid var(--border)", background: "var(--panel)" }}>
-          Chargement du poste…
+          {t("Chargement du poste…")}
         </div>
       );
     }
-    return <div className="card"><p className="muted">Chargement du poste…</p></div>;
+    return <div className="card"><p className="muted">{t("Chargement du poste…")}</p></div>;
   }
 
   if (!handle) {
@@ -637,14 +637,12 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
     if (compact) return null;
     return (
       <div className="card" style={{ maxWidth: 560 }}>
-        <h3>Votre poste n&apos;est pas encore configuré</h3>
+        <h3>{t("Votre poste n'est pas encore configuré")}</h3>
         <p className="muted" style={{ marginTop: 6 }}>
-          Pour recevoir et émettre des appels, un <em>agent_handle</em> (poste agent)
-          doit être lié à votre compte.
+          {t("Pour recevoir et émettre des appels, un")} <em>agent_handle</em> {t("(poste agent) doit être lié à votre compte.")}
         </p>
         <p className="muted" style={{ marginTop: 4 }}>
-          Vous pouvez l&apos;activer vous-même ci-dessous, ou demander à un
-          administrateur d&apos;aller dans <strong>Admin → Utilisateurs → vous → « Activer le poste agent »</strong>.
+          {t("Vous pouvez l'activer vous-même ci-dessous, ou demander à un administrateur.")}
         </p>
         {bootstrapError && (
           <div style={{ color: "var(--bad)", fontSize: 13, marginTop: 8 }}>
@@ -653,7 +651,7 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
         )}
         <div style={{ marginTop: 14 }}>
           <button onClick={register} disabled={registering}>
-            {registering ? "Activation…" : "Activer mon poste"}
+            {registering ? t("Activation…") : t("Activer mon poste")}
           </button>
         </div>
       </div>
@@ -718,8 +716,8 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
             />
             <span style={{ fontSize: 13, fontWeight: 600 }}>
               {inTwilioCall
-                ? twilioCallState === "ringing" ? "Sonne…" : "En appel"
-                : "Appel actif"}
+                ? twilioCallState === "ringing" ? t("Sonne…") : t("En appel")
+                : t("Appel actif")}
             </span>
             <span className="muted" style={{ fontSize: 12 }}>
               {inTwilioCall
@@ -761,7 +759,7 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
           style={{ marginLeft: "auto", padding: "5px 11px", fontSize: 12 }}
           aria-label="Ouvrir le softphone complet"
         >
-          ⤢ Étendre
+          {t("⤢ Étendre")}
         </button>
         <style>{`
           @keyframes pulse {
@@ -815,7 +813,7 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
 
         <div className="softphone-center" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(260px, 360px)", gap: 12, alignItems: "start" }}>
           <div className="card" style={{ padding: 12 }}>
-          <h3 style={{ marginTop: 0 }}>Composer un numéro</h3>
+          <h3 style={{ marginTop: 0 }}>{t("Composer un numéro")}</h3>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
             <CountryPrefix
               value={dialNumber}
@@ -842,7 +840,7 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
               disabled={dialing || !/^\+\d{6,15}$/.test(dialNumber)}
               style={{ padding: "10px 16px", whiteSpace: "nowrap" }}
             >
-              {dialing ? "Appel…" : "☎ Appeler"}
+              {dialing ? t("Appel…") : t("☎ Appeler")}
             </button>
           </div>
           <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
@@ -890,7 +888,7 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <div>
                   <div style={{ fontWeight: 600 }}>
-                    {twilioCallState === "ringing" ? "📞 Sonne…" : "🔊 En conversation"}
+                    {twilioCallState === "ringing" ? t("📞 Sonne…") : t("🔊 En conversation")}
                   </div>
                   <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
                     {dialContactName ? `${dialContactName} · ${dialNumber}` : dialNumber}
@@ -902,14 +900,14 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
                     onClick={toggleTwilioMute}
                     style={{ padding: "6px 10px", fontSize: 13 }}
                   >
-                    {twilioMuted ? "🔈 Démute" : "🔇 Mute"}
+                    {twilioMuted ? t("🔈 Démute") : t("🔇 Mute")}
                   </button>
                   <button
                     className="danger"
                     onClick={hangupTwilio}
                     style={{ padding: "6px 10px", fontSize: 13 }}
                   >
-                    Raccrocher
+                    {t("Raccrocher")}
                   </button>
                 </div>
               </div>
@@ -921,7 +919,7 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
             </div>
           )}
 
-          <h3 style={{ marginTop: 24 }}>Session vocale</h3>
+          <h3 style={{ marginTop: 24 }}>{t("Session vocale")}</h3>
           {!conn ? (
             <>
               <p className="muted" style={{ margin: 0 }}>
@@ -1054,7 +1052,7 @@ function CallsList({
 
   return (
     <div className="card softphone-left">
-      <h3>Appels</h3>
+      <h3>{t("Appels")}</h3>
       {calls.length === 0 && (
         <p className="muted" style={{ margin: 0 }}>
           {t("Aucun appel récent. Passez en « available » pour recevoir les appels.")}
@@ -1064,7 +1062,7 @@ function CallsList({
       {live.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>
-            En cours
+            {t("En cours")}
           </div>
           {live.map((c) => (
             <CallRowView

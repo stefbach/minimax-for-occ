@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useT } from "@/lib/i18n";
 
 type DncRow = {
   id: string;
@@ -13,6 +14,7 @@ type DncRow = {
 const E164_RE = /^\+\d{6,15}$/;
 
 export function ComplianceClient() {
+  const t = useT();
   const [rows, setRows] = useState<DncRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -145,7 +147,7 @@ export function ComplianceClient() {
             {busy ? "…" : "Ajouter"}
           </button>
           <button className="ghost" onClick={() => setBulkOpen((v) => !v)} disabled={busy}>
-            {bulkOpen ? "Fermer l'import" : "Import en masse"}
+            {bulkOpen ? t("Fermer l'import") : t("Import en masse")}
           </button>
         </div>
         {bulkOpen && (
