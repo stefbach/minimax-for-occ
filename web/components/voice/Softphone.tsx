@@ -523,6 +523,13 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
     };
   }, []);
 
+  // Mirror activeCall into a ref so refreshCalls can read the current value
+  // without being re-created (and without a stale closure) on every change.
+  const activeCallRef = useRef<CallRow | null>(null);
+  useEffect(() => {
+    activeCallRef.current = activeCall;
+  }, [activeCall]);
+
   // Poll calls every 5s.
   const refreshCalls = useCallback(async () => {
     if (!handle) return;
@@ -531,11 +538,70 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
       if (!r.ok) return;
       const list = (await r.json()) as CallRow[];
       setCalls(list);
-      // Auto-elect the first ringing/in_progress call as "active" if none.
+      // First live (ringing/in_progress) call in the list, if any.
       const live = list.find(
         (c) => c.state === "ringing" || c.state === "in_progress",
       );
-      setActiveCall((prev) => prev ?? live ?? null);
+
+      // Reconcile the ContactPanel's active call against fresh data instead of
+      // latching onto the first snapshot forever. The old `prev ?? live` kept
+      // whatever was first elected and NEVER updated it — so when a call was
+      // hung up (state→ended, so it drops out of this ringing/in_progress
+      // query) the panel stayed frozen on "ringing" with the original start
+      // time and no end time.
+      const prev = activeCallRef.current;
+
+      if (!prev) {
+        // Nothing shown yet → elect the first live call.
+        setActiveCall(live ?? null);
+        return;
+      }
+
+      const fresh = list.find((c) => c.id === prev.id);
+      if (fresh) {
+        // Still live → refresh its fields (ringing→in_progress, answered_at…).
+        setActiveCall(fresh);
+        return;
+      }
+
+      if (prev.state === "ended" || prev.state === "failed") {
+        // Already showing the terminal sheet. Keep it so the agent can still
+        // read the outcome and add a note; switch only if a NEW call goes live.
+        if (live) setActiveCall(live);
+        return;
+      }
+
+      // prev just left the live list (was ringing/in_progress, now gone) → the
+      // call ended. Fetch its terminal row once so the panel shows the real
+      // state + end time ("Terminé : …") rather than the frozen "ringing".
+      try {
+        const rr = await fetch(`/api/calls/${prev.id}`);
+        if (rr.ok) {
+          const j = (await rr.json()) as { call?: Partial<CallRow> | null };
+          const c = j.call;
+          if (c && c.id) {
+            setActiveCall({
+              id: c.id,
+              direction: c.direction ?? prev.direction,
+              state: c.state ?? "ended",
+              from_e164: c.from_e164 ?? prev.from_e164,
+              to_e164: c.to_e164 ?? prev.to_e164,
+              room_id: c.room_id ?? null,
+              started_at: c.started_at ?? prev.started_at,
+              answered_at: c.answered_at ?? prev.answered_at,
+              ended_at: c.ended_at ?? new Date().toISOString(),
+              duration_secs: c.duration_secs ?? null,
+              contact_id: c.contact_id ?? prev.contact_id,
+              queue_id: c.queue_id ?? prev.queue_id,
+              contacts: c.contacts ?? prev.contacts,
+            });
+            return;
+          }
+        }
+      } catch {
+        /* fall through to electing the next live call */
+      }
+      setActiveCall(live ?? null);
     } catch {
       /* ignore */
     }
