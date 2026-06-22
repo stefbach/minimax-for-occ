@@ -3600,6 +3600,34 @@ async def entrypoint(ctx: JobContext) -> None:
         greeting = greeting.replace(" ?", "?").replace(" .", ".").replace(" ,", ",").strip()
         # "Hi, am I speaking with?" → natural professional fallback.
         greeting = re.sub(r"\bwith\s*\?", "with the right person?", greeting, flags=re.IGNORECASE)
+    # Authoring guard (Wati 22/06): the greeting was sometimes written with the
+    # BARE placeholder word — "Hi, am I speaking with firstname?" instead of
+    # "{{firstname}}". render_template never touches it (no braces) and the
+    # {{…}} strip above never fires, so on a real call the agent literally said
+    # "firstname". Single tokens "firstname"/"lastname" are never natural
+    # English, so it's safe to treat them as placeholders: recover the real
+    # value from the already-resolved template vars, else drop the stray word.
+    _bare_name_tokens = {
+        "firstname": template_vars.get("firstname"),
+        "lastname": template_vars.get("lastname"),
+    }
+    _placeholderish = {"firstname", "lastname", "name", "prenom", "prénom", "patient"}
+    for _tok, _val in _bare_name_tokens.items():
+        if not re.search(rf"\b{_tok}\b", greeting, flags=re.IGNORECASE):
+            continue
+        _clean = (str(_val).strip() if _val is not None else "")
+        if _clean and _clean.lower() not in _placeholderish:
+            greeting = re.sub(rf"\b{_tok}\b", _clean, greeting, flags=re.IGNORECASE)
+            clog.info("[call_id=%s] greeting: recovered bare '%s' → %r", call_id, _tok, _clean)
+        else:
+            clog.warning(
+                "[call_id=%s] greeting had bare placeholder '%s' with no real value — stripping",
+                call_id, _tok,
+            )
+            greeting = re.sub(rf"\s*\b{_tok}\b", "", greeting, flags=re.IGNORECASE)
+            greeting = re.sub(r"\s{2,}", " ", greeting)
+            greeting = greeting.replace(" ?", "?").replace(" .", ".").replace(" ,", ",").strip()
+            greeting = re.sub(r"\bwith\s*\?", "with the right person?", greeting, flags=re.IGNORECASE)
     if template_vars:
         clog.info(
             "[call_id=%s] template vars resolved (%d keys: %s)",

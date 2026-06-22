@@ -87,14 +87,40 @@ def _ulaw_byte_to_linear(u_val: int) -> int:
     return sample
 
 
-_ULAW_LE = [struct.pack("<h", _ulaw_byte_to_linear(b)) for b in range(256)]
+def _build_ulaw_table(gain: float) -> list[bytes]:
+    """256-entry µ-law→PCM16-LE decode table, with an optional linear gain.
+
+    Why a gain stage (Wati 22/06): field-reported "voix vraiment basse" on the
+    telephony leg. ElevenLabs' ulaw_8000 output sits a few dB below what the
+    same voice gives on the pcm path, and we send no `use_speaker_boost` by
+    default — so the decoded PCM is quiet. Baking the gain straight into the
+    lookup table keeps decoding a single list-join (zero per-sample CPU at
+    runtime) and clamps to int16 so an over-boost flattens peaks instead of
+    wrapping (no harsh wrap-around distortion). Tune with ELEVENLABS_OUTPUT_GAIN.
+    """
+    if gain == 1.0:
+        return [struct.pack("<h", _ulaw_byte_to_linear(b)) for b in range(256)]
+    table: list[bytes] = []
+    for b in range(256):
+        s = int(round(_ulaw_byte_to_linear(b) * gain))
+        if s > 32767:
+            s = 32767
+        elif s < -32768:
+            s = -32768
+        table.append(struct.pack("<h", s))
+    return table
 
 
-def _ulaw_to_pcm16(data: bytes) -> bytes:
+# Unity table kept for callers that decode without a per-instance gain.
+_ULAW_LE = _build_ulaw_table(1.0)
+
+
+def _ulaw_to_pcm16(data: bytes, table: Optional[list] = None) -> bytes:
     """Expand raw G.711 µ-law bytes to little-endian PCM16 bytes."""
     if not data:
         return b""
-    return b"".join([_ULAW_LE[b] for b in data])
+    tbl = table if table is not None else _ULAW_LE
+    return b"".join([tbl[b] for b in data])
 
 
 @dataclass
@@ -172,8 +198,24 @@ class ElevenLabsTelephonyTTS(tts.TTS):
         self._stability = stability
         self._similarity_boost = similarity_boost
         self._style = style
-        self._speaker_boost = speaker_boost
+        # Loudness (Wati 22/06): default use_speaker_boost ON unless the agent
+        # explicitly disabled it — Retell runs ElevenLabs with the boost on, and
+        # leaving it off was part of why our leg sounded quiet. An explicit
+        # False from the agent config still wins.
+        self._speaker_boost = True if speaker_boost is None else bool(speaker_boost)
         self._language = language
+        # Output gain baked into the µ-law decode table (see _build_ulaw_table).
+        # 1.0 = unchanged; >1.0 = louder. Default 1.4 (~+3 dB) lifts the quiet
+        # ulaw_8000 output to a normal phone level while leaving headroom so the
+        # speaker_boost on top doesn't clip loud syllables. If still too low,
+        # raise ELEVENLABS_OUTPUT_GAIN; if it saturates, lower it.
+        try:
+            self._output_gain = float(os.getenv("ELEVENLABS_OUTPUT_GAIN", "1.4"))
+        except (TypeError, ValueError):
+            self._output_gain = 1.4
+        if self._output_gain < 1.0:
+            self._output_gain = 1.0  # never attenuate below source
+        self._ulaw_table = _build_ulaw_table(self._output_gain)
         try:
             self._opt_latency = (
                 int(optimize_streaming_latency)
@@ -291,7 +333,7 @@ class _ElevenLabsChunkedStream(tts.ChunkedStream):
                 async for raw in resp.content.iter_chunked(4096):
                     if not raw:
                         continue
-                    pcm = _ulaw_to_pcm16(raw)
+                    pcm = _ulaw_to_pcm16(raw, self._etts._ulaw_table)
                     if pcm:
                         output_emitter.push(pcm)
                         pushed = True
