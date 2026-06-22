@@ -112,6 +112,37 @@ export async function getMessageAttachments(cred: GmailCred, messageId: string):
   return out;
 }
 
+/**
+ * RFC 2047 "encoded-word" for header values (e.g. a subject containing an
+ * em dash or accents). Pure-ASCII values pass through unchanged. Non-ASCII
+ * values are emitted as one or more =?UTF-8?B?...?= words, each kept ≤ 75
+ * chars and split on character boundaries so multi-byte UTF-8 sequences are
+ * never broken across words.
+ */
+function encodeHeaderWord(value: string): string {
+  if (/^[\x20-\x7E]*$/.test(value)) return value;
+  const prefix = "=?UTF-8?B?";
+  const suffix = "?=";
+  const maxB64 = 75 - prefix.length - suffix.length;
+  const words: string[] = [];
+  let chunk = "";
+  const flush = () => {
+    if (chunk) words.push(prefix + Buffer.from(chunk, "utf8").toString("base64") + suffix);
+    chunk = "";
+  };
+  for (const ch of value) {
+    const candidate = chunk + ch;
+    if (Buffer.from(candidate, "utf8").toString("base64").length > maxB64) {
+      flush();
+      chunk = ch;
+    } else {
+      chunk = candidate;
+    }
+  }
+  flush();
+  return words.join("\r\n ");
+}
+
 function buildMime(opts: {
   from: string;
   to: string;
@@ -123,7 +154,7 @@ function buildMime(opts: {
   const lines: string[] = [
     `From: ${opts.from}`,
     `To: ${opts.to}`,
-    `Subject: ${opts.subject}`,
+    `Subject: ${encodeHeaderWord(opts.subject)}`,
     "MIME-Version: 1.0",
   ];
   if (opts.attachments && opts.attachments.length > 0) {
