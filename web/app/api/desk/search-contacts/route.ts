@@ -66,7 +66,7 @@ export async function GET(req: Request) {
       .limit(limit);
 
     for (const row of byName ?? []) {
-      const r = row as Record<string, unknown>;
+      const r = row as unknown as Record<string, unknown>;
       const rowId = String(r["id"]);
       if (seenIds.has(rowId)) continue;
       seenIds.add(rowId);
@@ -87,7 +87,7 @@ export async function GET(req: Request) {
         .limit(limit);
 
       for (const row of byPhone ?? []) {
-        const r = row as Record<string, unknown>;
+        const r = row as unknown as Record<string, unknown>;
         const rowId = String(r["id"]);
         if (seenIds.has(rowId)) continue;
         seenIds.add(rowId);
