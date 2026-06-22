@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { minimaxGroupId } from "@/lib/minimax";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -65,7 +66,7 @@ type ClonedVoiceRow = {
 
 async function fetchClonedVoices(): Promise<ClonedVoiceRow[]> {
   const apiKey = process.env.MINIMAX_API_KEY;
-  const groupId = process.env.MINIMAX_GROUP_ID;
+  const groupId = minimaxGroupId();
   if (!apiKey || !groupId) return [];
   const base = (process.env.MINIMAX_BASE_URL || "https://api.minimax.io").replace(/\/+$/, "");
   // /v1/get_voice retourne toutes les voix custom (clonées) du compte.
@@ -91,15 +92,17 @@ async function fetchClonedVoices(): Promise<ClonedVoiceRow[]> {
 
 export async function GET() {
   const apiKey = process.env.MINIMAX_API_KEY;
-  const groupId = process.env.MINIMAX_GROUP_ID;
-  if (!apiKey || !groupId) {
+  // GroupId is OPTIONAL on the current MiniMax API — the 17 system voices need
+  // only the key. A GroupId is only needed to list the account's CLONED voices.
+  const groupId = minimaxGroupId();
+  if (!apiKey) {
     return NextResponse.json({
       voices: [],
-      note: "MINIMAX_API_KEY/MINIMAX_GROUP_ID missing — direct catalog disabled",
+      note: "MINIMAX_API_KEY missing on Vercel — direct catalog disabled",
     });
   }
 
-  const cloned = await fetchClonedVoices();
+  const cloned = groupId ? await fetchClonedVoices() : [];
   const voices: MinimaxVoice[] = [];
   const families: Array<{ slug: string; family: string; label: string }> = [
     { slug: "speech-02-turbo", family: "minimax-turbo", label: "Turbo" },

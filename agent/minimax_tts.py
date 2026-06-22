@@ -21,6 +21,7 @@ Required env :
 from __future__ import annotations
 
 import asyncio
+import base64
 import binascii
 import json
 import logging
@@ -68,6 +69,23 @@ def is_minimax_voice_id(voice_id: Optional[str]) -> bool:
     return bool(voice_id and voice_id.startswith("minimax:"))
 
 
+def group_id_from_api_key(api_key: Optional[str]) -> Optional[str]:
+    """MiniMax API keys are JWTs whose payload carries the GroupID. Extract it
+    so a SEPARATE MINIMAX_GROUP_ID env var isn't required — the original OCC
+    setup (and every MiniMax account) ships the GroupID inside the key itself.
+    Returns None if the key isn't a JWT or has no GroupID claim."""
+    if not api_key or api_key.count(".") != 2:
+        return None
+    try:
+        payload_b64 = api_key.split(".")[1]
+        payload_b64 += "=" * (-len(payload_b64) % 4)  # base64url padding
+        data = json.loads(base64.urlsafe_b64decode(payload_b64).decode("utf-8"))
+        gid = data.get("GroupID") or data.get("GroupId") or data.get("group_id")
+        return str(gid) if gid else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
 class MinimaxTTS(tts.TTS):
     """LiveKit-compatible TTS that streams MiniMax t2a_v2 audio chunks."""
 
@@ -94,11 +112,19 @@ class MinimaxTTS(tts.TTS):
         )
         self._spec = spec
         self._api_key = api_key or os.getenv("MINIMAX_API_KEY")
-        self._group_id = group_id or os.getenv("MINIMAX_GROUP_ID")
+        # GroupID: explicit arg → env → extracted from the API-key JWT. The last
+        # path means MiniMax direct works with just MINIMAX_API_KEY (the GroupID
+        # is embedded in the key), exactly like the original OCC setup.
+        self._group_id = (
+            group_id
+            or os.getenv("MINIMAX_GROUP_ID")
+            or group_id_from_api_key(self._api_key)
+        )
         if not self._api_key:
             raise RuntimeError("MINIMAX_API_KEY missing — set on LK Cloud Agent secrets")
-        if not self._group_id:
-            raise RuntimeError("MINIMAX_GROUP_ID missing — set on LK Cloud Agent secrets")
+        # GroupID is OPTIONAL on MiniMax's current API (sk-api-* keys authenticate
+        # via Bearer alone; GroupId is just a query param). We DON'T raise when it's
+        # absent — the request omits ?GroupId=. Only older JWT accounts embed/need it.
         self._base = os.getenv("MINIMAX_BASE_URL", _DEFAULT_BASE).rstrip("/")
         self._speed = speed
         self._pitch = pitch
@@ -175,7 +201,9 @@ class _MinimaxChunkedStream(tts.ChunkedStream):
 
     async def _run(self, output_emitter: tts.AudioEmitter) -> None:  # type: ignore[override]
         session = await self._mtts._ensure_session()
-        url = f"{self._mtts._base}/v1/t2a_v2?GroupId={self._mtts._group_id}"
+        url = f"{self._mtts._base}/v1/t2a_v2"
+        if self._mtts._group_id:
+            url += f"?GroupId={self._mtts._group_id}"
         payload = self._build_payload()
 
         try:
@@ -192,11 +220,19 @@ class _MinimaxChunkedStream(tts.ChunkedStream):
                     mime_type="audio/pcm",
                 )
                 # SSE-style stream : lines prefixed with `data: ` carrying JSON.
-                # Each event has {data: {audio: "<hex>"}, ...}. The final event
-                # carries trace_id + status; we just look for audio fragments.
+                # Each event has {data: {audio: "<hex>"}, ...}. On auth/param
+                # failures MiniMax answers HTTP 200 with a single JSON body
+                # {"base_resp":{"status_code":N,"status_msg":"..."}} — NOT SSE.
+                # We keep a bounded tail of the raw body so that, if no audio was
+                # produced, we can surface the REAL MiniMax error instead of the
+                # opaque "no audio frames were pushed".
+                pushed = False
+                raw_tail = bytearray()
                 async for raw in resp.content:
                     if not raw:
                         continue
+                    if len(raw_tail) < 4096:
+                        raw_tail += raw[: 4096 - len(raw_tail)]
                     line = raw.strip()
                     if not line or not line.startswith(b"data:"):
                         continue
@@ -217,6 +253,22 @@ class _MinimaxChunkedStream(tts.ChunkedStream):
                         continue
                     if chunk:
                         output_emitter.push(chunk)
+                        pushed = True
+                if not pushed:
+                    detail = raw_tail.decode("utf-8", "replace").strip()
+                    base_resp = None
+                    try:
+                        if detail.startswith("{"):
+                            base_resp = json.loads(detail).get("base_resp")
+                    except Exception:  # noqa: BLE001
+                        pass
+                    logger.error(
+                        "MiniMax t2a_v2 returned NO audio. base_resp=%s body=%s",
+                        base_resp, detail[:400],
+                    )
+                    raise RuntimeError(
+                        f"MiniMax t2a_v2 no audio — base_resp={base_resp} body={detail[:200]}"
+                    )
                 output_emitter.flush()
         except asyncio.TimeoutError as e:
             raise APITimeoutError(str(e)) from e

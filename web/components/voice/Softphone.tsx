@@ -15,6 +15,7 @@ import { ScriptPanel } from "./ScriptPanel";
 import { useToast } from "@/lib/use-toast";
 import { COUNTRIES, countryFor, countryFromE164 } from "@/lib/country-prefixes";
 import { CallNotePanel } from "./CallNotePanel";
+import { getRingtone } from "@/lib/ringtone";
 
 type PresenceStatus = "offline" | "available" | "busy" | "away";
 
@@ -578,6 +579,35 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
     if (conn && conn.room === activeCall.room_id) return;
     void connect(activeCall.id);
   }, [activeCall?.id, activeCall?.room_id, status, conn, connect]);
+
+  // Incoming-call ringtone. Ring while a call assigned to this agent is in
+  // "ringing" state and we're online but not yet joined to its room. The
+  // confirmed gap Wati flagged: the desk only ever showed a silent "Sonne…"
+  // chip, so an agent on another browser tab would miss the call. Stops as
+  // soon as the call is answered/ends, the agent joins, or goes offline.
+  const ringingCall = useMemo(
+    () => calls.find((c) => c.state === "ringing") ?? null,
+    [calls],
+  );
+  const shouldRing =
+    !!ringingCall &&
+    status !== "offline" &&
+    !(conn && ringingCall.room_id && conn.room === ringingCall.room_id);
+  useEffect(() => {
+    const ring = getRingtone();
+    if (shouldRing) {
+      ring.start();
+      // Also nudge the browser tab title so an agent on another tab notices.
+      const prevTitle = document.title;
+      document.title = "📞 Appel entrant…";
+      return () => {
+        ring.stop();
+        document.title = prevTitle;
+      };
+    }
+    ring.stop();
+    return undefined;
+  }, [shouldRing]);
 
   const disconnect = useCallback(() => {
     setConn(null);

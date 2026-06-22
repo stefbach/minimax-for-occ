@@ -28,6 +28,12 @@ interface Run {
   errors: number;
 }
 
+interface LogEntry {
+  ts: string;
+  level: string;
+  msg: string;
+}
+
 const STEP_LABELS: Record<string, string> = {
   send_email_smtp: "✉️ Email",
   send_wati_template: "💬 WhatsApp",
@@ -57,6 +63,9 @@ export function NativeAutomationsPanel() {
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [runResult, setRunResult] = useState<string | null>(null);
+  const [openLogRunId, setOpenLogRunId] = useState<string | null>(null);
+  const [logsCache, setLogsCache] = useState<Record<string, LogEntry[]>>({});
+  const [logsBusy, setLogsBusy] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -119,6 +128,22 @@ export function NativeAutomationsPanel() {
     }
   }
 
+  async function loadLogs(runId: string) {
+    if (openLogRunId === runId) { setOpenLogRunId(null); return; }
+    setOpenLogRunId(runId);
+    if (logsCache[runId]) return;
+    setLogsBusy(runId);
+    try {
+      const r = await fetch(`/api/automations/runs/${runId}`, { cache: "no-store" });
+      const j = (await r.json()) as { log?: LogEntry[]; error?: string };
+      setLogsCache((prev) => ({ ...prev, [runId]: j.log ?? [] }));
+    } catch {
+      setLogsCache((prev) => ({ ...prev, [runId]: [] }));
+    } finally {
+      setLogsBusy(null);
+    }
+  }
+
   function renderCard(wf: Wf, step?: number) {
     const wfRuns = runs.filter((r) => r.workflow_id === wf.id).slice(0, 5);
     return (
@@ -175,11 +200,73 @@ export function NativeAutomationsPanel() {
           </span>
         </div>
         {wfRuns.length > 0 && (
-          <div style={{ fontSize: 11, color: "var(--muted)", display: "grid", gap: 2 }}>
+          <div style={{ fontSize: 11, display: "grid", gap: 4 }}>
             {wfRuns.map((r) => (
               <div key={r.id}>
-                {new Date(r.started_at).toLocaleTimeString("fr-FR")} — {r.status} · {r.matched} {t("lignes")} ·{" "}
-                {r.actions} {t("actions")} · {r.skipped} {t("ignorées")} · {r.errors} {t("erreurs")}
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", color: "var(--muted)" }}>
+                  <span style={{ fontVariantNumeric: "tabular-nums" }}>
+                    {new Date(r.started_at).toLocaleTimeString("fr-FR")}
+                  </span>
+                  <span
+                    style={{
+                      color: r.status === "ok" ? "var(--good)" : r.status === "error" ? "var(--bad)" : "var(--muted)",
+                      fontWeight: 600,
+                    }}
+                  >
+                    {r.status}
+                  </span>
+                  <span>
+                    {r.matched} {t("lignes")} · {r.actions} {t("actions")} · {r.skipped} {t("ignorées")} · {r.errors}{" "}
+                    {t("erreurs")}
+                  </span>
+                  <button
+                    className="ghost"
+                    onClick={() => loadLogs(r.id)}
+                    style={{ padding: "2px 8px", fontSize: 11, marginLeft: "auto" }}
+                  >
+                    {logsBusy === r.id ? "…" : openLogRunId === r.id ? t("Masquer les logs") : t("Voir les logs")}
+                  </button>
+                </div>
+                {openLogRunId === r.id && (
+                  <div
+                    style={{
+                      marginTop: 4,
+                      padding: "8px 10px",
+                      background: "var(--sidebar-bg, #1a1a2e)",
+                      borderRadius: 6,
+                      fontFamily: "ui-monospace, monospace",
+                      fontSize: 11,
+                      lineHeight: 1.6,
+                      maxHeight: 320,
+                      overflowY: "auto",
+                    }}
+                  >
+                    {(logsCache[r.id] ?? []).length === 0 ? (
+                      <span style={{ color: "#888" }}>{t("Aucun log disponible.")}</span>
+                    ) : (
+                      (logsCache[r.id] ?? []).map((entry, i) => (
+                        <div
+                          key={i}
+                          style={{
+                            color:
+                              entry.level === "error"
+                                ? "#ff6b6b"
+                                : entry.level === "warn"
+                                  ? "#ffd93d"
+                                  : entry.level === "info"
+                                    ? "#6bcb77"
+                                    : "#ccc",
+                          }}
+                        >
+                          <span style={{ opacity: 0.5 }}>
+                            {new Date(entry.ts).toLocaleTimeString("fr-FR", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                          </span>{" "}
+                          <span style={{ opacity: 0.7 }}>[{entry.level}]</span> {entry.msg}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
               </div>
             ))}
           </div>

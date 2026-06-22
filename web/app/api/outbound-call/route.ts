@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { SipClient, AgentDispatchClient } from "livekit-server-sdk";
+import { SipClient, AgentDispatchClient, RoomServiceClient } from "livekit-server-sdk";
 import { supabaseSession } from "@/lib/supabase-auth";
 import { supabaseServer } from "@/lib/supabase";
 import { NoPhoneNumberError, pickFromNumber } from "@/lib/geo-routing";
@@ -312,6 +312,43 @@ export async function POST(req: Request) {
       { error: `LiveKit dispatch: ${msg}`, via: "livekit" },
       { status: 502 },
     );
+  }
+
+  // 1b) "Agent First" sequencing (Wati 18/06 — THE silent-call fix).
+  //     Mirror the production dialer (dialer/src/dial.ts): dispatch the agent
+  //     and WAIT until the worker is physically in the room with its audio
+  //     publisher armed BEFORE bringing in the PSTN leg. Without this, the
+  //     phone connects before the agent has joined/subscribed, so the media
+  //     path is never established — the callee hears nothing AND no inbound
+  //     audio is transcribed (stt_secs=0), and the idle watchdog hangs up as
+  //     "voicemail". This is exactly what made every "Make outbound call"
+  //     test silent while production campaigns (which DO warm up) worked.
+  {
+    const rooms = new RoomServiceClient(httpUrl, lkApiKey, lkApiSecret);
+    const warmupTimeoutMs = Math.max(
+      3000,
+      Math.min(30000, Number(process.env.AGENT_WARMUP_TIMEOUT_SECS ?? 10) * 1000),
+    );
+    const warmupStart = Date.now();
+    let agentReady = false;
+    while (Date.now() - warmupStart < warmupTimeoutMs) {
+      try {
+        const participants = await rooms.listParticipants(roomName);
+        // LiveKit names dispatched agent workers "agent-*".
+        if (participants.some((p) => (p.identity ?? "").toLowerCase().startsWith("agent-"))) {
+          agentReady = true;
+          break;
+        }
+      } catch {
+        // Transient list failures (race vs room auto-create) — keep polling.
+      }
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    if (!agentReady) {
+      console.warn(
+        `[outbound-call] agent didn't enter room ${roomName} within ${warmupTimeoutMs}ms — proceeding with SIP outbound regardless`,
+      );
+    }
   }
 
   // 2) Bring the PSTN leg in. fromNumber on the SIP options ensures the

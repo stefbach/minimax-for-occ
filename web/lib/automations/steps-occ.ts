@@ -703,6 +703,18 @@ async function communicatePatient(rc: RunCtx, step: Record<string, unknown>, ctx
         });
         rc.stats.actions++;
       } catch (e) { rc.log("warn", `A4: clinic draft failed: ${e instanceof Error ? e.message : e}`); }
+
+      // Notify the OCC team that the clinic sign draft is waiting for review.
+      const teamEmail = String(step.team_email ?? step.coordinator_email ?? "customer.service@obesity-care-clinic.com");
+      const teamHtml = `<p>Hi team,</p><p>A new patient dossier is ready: the S2 Provider Declaration Form and Detailed Medical Estimate (Devis) for <strong>${nom}</strong> need to be sent to Clinique Bouchard for signature. The generated Medical Report and Undue Delay Letter are in the patient dossier. A draft email to the clinic has been prepared in the mailbox with these documents attached — please review and send it, then upload the signed S2 Provider Declaration when returned.</p>`;
+      try {
+        await mail(stormi, {
+          to: teamEmail,
+          subject: `${draftMode ? "[DRAFT] " : ""}Documents Ready for Clinic Signature — ${nom}`,
+          html: teamHtml,
+        });
+        rc.stats.actions++;
+      } catch (e) { rc.log("warn", `A4: team notify failed: ${e instanceof Error ? e.message : e}`); }
     }
   }
 

@@ -287,12 +287,18 @@ export function AgentForm({ initial }: { initial?: Agent }) {
       .then((r) => (r.ok ? r.json() : []))
       .then((data) => { if (!cancelled) setCartesiaVoices(Array.isArray(data) ? data : []); })
       .catch(() => {});
-    // Load Replicate catalog voices (MiniMax surtout — ElevenLabs y est
-    // legacy depuis Wati 16/06, on a ElevenLabs direct maintenant).
+    // Load Replicate catalog voices. ElevenLabs y est legacy depuis Wati 16/06
+    // (on a ElevenLabs direct). MiniMax via Replicate est ÉCARTÉ ici (Wati
+    // 18/06) — on ne veut QUE MiniMax DIRECT (/api/voices/minimax), pas le hop
+    // Replicate. On filtre donc les familles "minimax*" du catalogue Replicate.
     // Renvoie [] si REPLICATE_API_TOKEN n'est pas configure.
     fetch("/api/voices/replicate")
       .then((r) => (r.ok ? r.json() : []))
-      .then((data) => { if (!cancelled) setReplicateVoices(Array.isArray(data) ? data : []); })
+      .then((data) => {
+        if (cancelled) return;
+        const arr = Array.isArray(data) ? data : [];
+        setReplicateVoices(arr.filter((v) => !String(v?.family || "").startsWith("minimax")));
+      })
       .catch(() => {});
     // Load ElevenLabs DIRECT catalog (Wati 16/06) — voix avec UUID + labels
     // descriptifs ("Jessica - Playful, Bright, Warm"). Necessite ELEVEN_API_KEY
@@ -525,7 +531,10 @@ export function AgentForm({ initial }: { initial?: Agent }) {
     }
   }
 
-  const llmModels = PROVIDER_MODELS[provider];
+  // Fallback to [] so an agent whose llm_provider isn't in PROVIDER_MODELS
+  // (e.g. a value added on the worker before the UI knew about it) renders the
+  // dropdown via the "(personnalisé)" option instead of crashing on .map().
+  const llmModels = PROVIDER_MODELS[provider] ?? [];
 
   // ── Voice catalog (from API + cloned in Supabase) ──────────────────────
   const customCloned = voices.filter((v) => v.source === "cloned");
@@ -582,7 +591,10 @@ export function AgentForm({ initial }: { initial?: Agent }) {
     ? []
     : replicateVoices.filter((v) => {
         if (filterProvider && filterProvider !== v.family) return false;
-        if (filterLang && v.language !== filterLang) return false;
+        // Voices with no declared language (e.g. MiniMax system voices, which
+        // are multilingual) must NOT be hidden by a language filter — only
+        // exclude a voice that HAS a language and it doesn't match.
+        if (filterLang && v.language && v.language !== filterLang) return false;
         if (filterGender && normalizeGender(v.gender) !== filterGender) return false;
         return true;
       });
@@ -595,7 +607,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
       map.set(fam, list);
     }
     // Ordre fixe : ElevenLabs direct (Flash, Turbo) puis MiniMax.
-    const order = ["elevenlabs-flash-direct", "elevenlabs-turbo-direct", "minimax-turbo", "minimax-hd"];
+    const order = ["elevenlabs-flash-direct", "elevenlabs-turbo-direct", "minimax-turbo-direct", "minimax-hd-direct"];
     return Array.from(map.entries()).sort(([a], [b]) => {
       const ia = order.indexOf(a);
       const ib = order.indexOf(b);
@@ -770,8 +782,8 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                     <option value="cartesia" style={{ background: "var(--bg-2)", color: "var(--text)" }}>Cartesia ({cartesiaVoices.length})</option>
                     <option value="elevenlabs-flash-direct" style={{ background: "var(--bg-2)", color: "var(--text)" }}>ElevenLabs Flash v2.5 — latence ~75ms ({replicateVoices.filter((v) => v.family === "elevenlabs-flash-direct").length})</option>
                     <option value="elevenlabs-turbo-direct" style={{ background: "var(--bg-2)", color: "var(--text)" }}>ElevenLabs Turbo v2.5 — qualité équivalente, latence ~100ms ({replicateVoices.filter((v) => v.family === "elevenlabs-turbo-direct").length})</option>
-                    <option value="minimax-turbo" style={{ background: "var(--bg-2)", color: "var(--text)" }}>MiniMax Speech 02 Turbo ({replicateVoices.filter((v) => v.family === "minimax-turbo").length})</option>
-                    <option value="minimax-hd" style={{ background: "var(--bg-2)", color: "var(--text)" }}>MiniMax Speech 02 HD ({replicateVoices.filter((v) => v.family === "minimax-hd").length})</option>
+                    <option value="minimax-turbo-direct" style={{ background: "var(--bg-2)", color: "var(--text)" }}>MiniMax Speech 02 Turbo ({replicateVoices.filter((v) => v.family === "minimax-turbo-direct").length})</option>
+                    <option value="minimax-hd-direct" style={{ background: "var(--bg-2)", color: "var(--text)" }}>MiniMax Speech 02 HD ({replicateVoices.filter((v) => v.family === "minimax-hd-direct").length})</option>
                   </select>
                 )}
                 <select
@@ -1223,7 +1235,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                     <select value={provider} onChange={(e) => {
                       const p = e.target.value as LlmProvider;
                       setProvider(p);
-                      const first = PROVIDER_MODELS[p][0];
+                      const first = PROVIDER_MODELS[p]?.[0];
                       if (first) setModel(first.id);
                     }}>
                       <option value="deepseek">DeepSeek (recommandé)</option>

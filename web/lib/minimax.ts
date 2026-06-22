@@ -9,6 +9,26 @@
 const MINIMAX_DEFAULT_BASE = "https://api.minimax.io";
 const SUPPORTED_MODELS = new Set(["speech-02-turbo", "speech-02-hd"]);
 
+/** MiniMax API keys are JWTs whose payload carries the GroupID. Resolve the
+ *  GroupID from MINIMAX_GROUP_ID if set, otherwise extract it from the
+ *  MINIMAX_API_KEY JWT — so MiniMax works with just the key (no separate
+ *  GROUP_ID), exactly like the original OCC setup. */
+export function minimaxGroupId(): string | null {
+  const explicit = process.env.MINIMAX_GROUP_ID;
+  if (explicit) return explicit;
+  const key = process.env.MINIMAX_API_KEY;
+  if (!key || key.split(".").length !== 3) return null;
+  try {
+    let payload = key.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    while (payload.length % 4) payload += "=";
+    const json = JSON.parse(Buffer.from(payload, "base64").toString("utf-8"));
+    const gid = json.GroupID || json.GroupId || json.group_id;
+    return gid ? String(gid) : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function previewMinimaxTTS(opts: {
   voice_id: string; // "minimax:<model>:<voice_id>"
   text: string;
@@ -19,11 +39,9 @@ export async function previewMinimaxTTS(opts: {
   english_normalization?: boolean;
 }): Promise<{ audio: ArrayBuffer; format: string }> {
   const apiKey = process.env.MINIMAX_API_KEY;
-  const groupId = process.env.MINIMAX_GROUP_ID;
-  if (!apiKey || !groupId) {
-    throw new Error(
-      "MINIMAX_API_KEY/MINIMAX_GROUP_ID missing — configure on Vercel pour activer la preview MiniMax.",
-    );
+  const groupId = minimaxGroupId(); // optional on the current MiniMax API
+  if (!apiKey) {
+    throw new Error("MINIMAX_API_KEY missing — configure on Vercel pour activer la preview MiniMax.");
   }
 
   const parts = opts.voice_id.split(":", 3);
@@ -49,7 +67,9 @@ export async function previewMinimaxTTS(opts: {
   }
 
   const base = (process.env.MINIMAX_BASE_URL || MINIMAX_DEFAULT_BASE).replace(/\/+$/, "");
-  const url = `${base}/v1/t2a_v2?GroupId=${encodeURIComponent(groupId)}`;
+  const url = groupId
+    ? `${base}/v1/t2a_v2?GroupId=${encodeURIComponent(groupId)}`
+    : `${base}/v1/t2a_v2`;
   const body = {
     model,
     text: opts.text,
