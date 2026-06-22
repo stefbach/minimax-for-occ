@@ -246,6 +246,23 @@ def _llm_for(agent: Optional[AxonAgent], _force_direct: bool = False):
     forced_provider = os.getenv("LLM_PROVIDER_FORCE", "").strip().lower()
     forced_model = os.getenv("LLM_MODEL_FORCE", "").strip()
 
+    # Per-agent escape hatch off the colocalized LiveKit Inference gateway.
+    # Inference is normally faster (TTFT ~500ms vs ~1300ms direct) BUT its
+    # latency is variable: real OCC tests caught it dropping to 8 tok/s with
+    # 2-4s TTFT mid-call while a healthy run 16 min earlier held 35 tok/s /
+    # 700ms. For agents that value PREDICTABILITY over best-case (e.g. the
+    # test agent), agents.metadata.call_tuning.llm_force_direct=true pins the
+    # primary to the provider's own API. Same effect as _force_direct on the
+    # secondary, but for the primary. No-op for agents without the flag.
+    if not _force_direct:
+        try:
+            if agent is not None and isinstance(getattr(agent, "metadata", None), dict):
+                _ct_fd = agent.metadata.get("call_tuning") or {}
+                if str(_ct_fd.get("llm_force_direct")).lower() in ("1", "true", "yes"):
+                    _force_direct = True
+        except Exception:
+            pass
+
     provider = (
         forced_provider
         or (agent.llm_provider.lower() if agent and agent.llm_provider else "")
