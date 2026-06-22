@@ -691,6 +691,12 @@ def _tts_for(agent: Optional[AxonAgent], sample_rate: Optional[int] = None):
                 "vol": (float(agent.tts_volume) if agent and agent.tts_volume and agent.tts_volume != 1.0 else None),
                 "pitch": (int(agent.tts_pitch) if agent and agent.tts_pitch else None),
                 "audio_format": "pcm",
+                # Telephony: render natively at the 8 kHz SIP rate so MiniMax
+                # outputs narrowband directly instead of relying on a lossy
+                # downsample (the "radio timbre / no audio" class on PSTN).
+                # signature-filtered below, so harmless if the plugin version
+                # doesn't accept sample_rate.
+                "sample_rate": (int(sample_rate) if sample_rate else None),
             }
             # Version-safe: only keep kwargs the installed plugin accepts and
             # that have a value (drops None) — no TypeErrors across plugin versions.
