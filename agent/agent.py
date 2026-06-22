@@ -628,6 +628,16 @@ def _stt_for(agent: Optional[AxonAgent], tuning: Optional[dict] = None) -> assem
     raise last_exc
 
 
+def _env_int(name: str, default: int) -> int:
+    """Read an int env var, tolerating empty/garbage by returning `default`.
+    Used for optional tuning knobs that must never crash TTS construction."""
+    try:
+        v = os.getenv(name)
+        return int(v) if v not in (None, "") else default
+    except (TypeError, ValueError):
+        return default
+
+
 def _tts_for(agent: Optional[AxonAgent], sample_rate: Optional[int] = None):
     """Construit le plugin TTS adapté au voice_id de l'agent.
 
@@ -708,8 +718,56 @@ def _tts_for(agent: Optional[AxonAgent], sample_rate: Optional[int] = None):
                 _voice_for_routing,
             )
 
-    # ── ElevenLabs DIRECT (Wati 16/06) ──────────────────────────────────────
-    # Streaming WebSocket natif, TTFB ~75ms. Active la latence Retell-like.
+    # ── ElevenLabs TELEPHONY — native ulaw_8000 adapter (Wati 22/06) ─────────
+    # On the SIP/PSTN leg the official livekit-plugins-elevenlabs plugin is the
+    # WRONG tool: it can't emit below pcm_16000, so LiveKit resamples 16k→8k on
+    # every frame. That resample + the 32 KB/s WebSocket is what produced the
+    # crackle ("froissement") and the mid-call screaming on real calls. Retell
+    # avoids both by asking ElevenLabs for ulaw_8000 directly (native Twilio
+    # codec, zero resampling) — which is exactly what elevenlabs_tts.py does.
+    # Telephony only (sample_rate ≤ 16000); web/preview keeps the plugin below.
+    if (
+        _voice_for_routing
+        and _voice_for_routing.startswith("elevenlabs:")
+        and sample_rate and int(sample_rate) <= 16000
+    ):
+        try:
+            from elevenlabs_tts import ElevenLabsTelephonyTTS
+            _el_speed = (
+                float(agent.tts_speed)
+                if agent and agent.tts_speed and agent.tts_speed != 1.0
+                else None
+            )
+            logger.info(
+                "TTS=elevenlabs-telephony voice_id=%s sample_rate=%s (native ulaw_8000)",
+                _voice_for_routing, sample_rate,
+            )
+            return ElevenLabsTelephonyTTS(
+                voice_id=_voice_for_routing,
+                speed=_el_speed,
+                stability=(agent.tts_stability if agent else None),
+                similarity_boost=(agent.tts_similarity_boost if agent else None),
+                style=(agent.tts_style if agent else None),
+                speaker_boost=(agent.tts_speaker_boost if agent else None),
+                language=(
+                    (agent.tts_language if agent and agent.tts_language else None)
+                ),
+                optimize_streaming_latency=_env_int(
+                    "ELEVENLABS_STREAMING_LATENCY", 3
+                ),
+            )
+        except Exception:
+            logger.exception(
+                "elevenlabs telephony adapter failed for voice_id=%s — falling "
+                "back to the official plugin (pcm_16000)",
+                _voice_for_routing,
+            )
+            # fall through to the official-plugin path below
+
+    # ── ElevenLabs DIRECT (Wati 16/06) — official plugin, web/preview path ───
+    # Streaming WebSocket natif, TTFB ~75ms. Used for non-telephony (web sim,
+    # preview) where 16 kHz/mp3 is fine, and as the telephony fallback if the
+    # native ulaw_8000 adapter above ever fails to construct.
     if _voice_for_routing and _voice_for_routing.startswith("elevenlabs:"):
         try:
             from livekit.plugins import elevenlabs as _elevenlabs
@@ -1632,7 +1690,9 @@ async def _watch_handoff(ctx: JobContext, session: AgentSession) -> None:
             return
         try:
             session.llm = _llm_for_resilient(axon_next)
-            session.tts = _tts_for(axon_next)
+            session.tts = _tts_for(
+                axon_next, sample_rate=getattr(ctx, "_tts_sample_rate", None)
+            )
             logger.info("handoff: swapped persona -> %s (%s)", axon_next.id, axon_next.name)
         except Exception:
             logger.exception("handoff: hot-swap failed")
@@ -1799,7 +1859,9 @@ def _install_team_handoff_watcher(
         )
         try:
             next_llm = _llm_for_resilient(axon_next)
-            next_tts = _tts_for(axon_next)
+            next_tts = _tts_for(
+                axon_next, sample_rate=getattr(ctx, "_tts_sample_rate", None)
+            )
             # Belt-and-suspenders: also set on the session (no-op on some
             # versions, but harmless). The authoritative swap is the per-agent
             # tts/llm passed into the new Agent below.
@@ -3634,6 +3696,15 @@ async def entrypoint(ctx: JobContext) -> None:
                 _tun_sr = 8000
                 clog.info("auto-telephony: detected SIP participant — forcing tts_sample_rate=8000")
         _tts = _tts_for(axon, sample_rate=int(_tun_sr) if _tun_sr else None)
+        # Stash the resolved telephony sample_rate on ctx so multi-agent
+        # handoffs (Charlotte → Isabelle → Victoria) rebuild the swapped-in
+        # persona's TTS at the SAME 8 kHz. Without this, a handoff on a phone
+        # call would rebuild ElevenLabs without sample_rate → back to the
+        # resampled/crackly plugin path. Same stash pattern as ctx._call_id.
+        try:
+            ctx._tts_sample_rate = int(_tun_sr) if _tun_sr else None  # type: ignore[attr-defined]
+        except Exception:
+            pass
     except Exception:
         clog.exception("BUILD FAILED: TTS (Cartesia). Check CARTESIA_API_KEY on Fly.")
         raise
