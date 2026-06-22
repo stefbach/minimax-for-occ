@@ -3736,6 +3736,7 @@ async def entrypoint(ctx: JobContext) -> None:
                 contact_id=target_vars.get("__contact_id__"),
                 call_id=call_id,
                 agent_handle_id=agent_handle_id,
+                language=(axon.language if axon else None),
             )
         except Exception:
             clog.exception("transfer_to_human tool build failed")
