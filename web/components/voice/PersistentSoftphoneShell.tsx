@@ -20,6 +20,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { useT } from "@/lib/i18n";
 import { Softphone } from "./Softphone";
 
 const EXPAND_EVENT = "axon:softphone:expand";
@@ -32,6 +33,7 @@ export function dispatchSoftphoneExpand() {
 }
 
 export function PersistentSoftphoneShell() {
+  const t = useT();
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
