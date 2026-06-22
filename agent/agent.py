@@ -747,9 +747,18 @@ def _tts_for(agent: Optional[AxonAgent], sample_rate: Optional[int] = None):
             # integer 2:1 downsample to the 8 kHz leg — narrowband but
             # audible and correct-speed. Off-telephony (web/preview, no
             # sample_rate forced) keeps the default mp3 22050.
+            _is_telephony = bool(sample_rate and int(sample_rate) <= 16000)
+            # Telephony encoding. pcm_16000 is the PROVEN default (clean 2:1
+            # downsample to the 8 kHz SIP leg; pcm_8000 was rejected by
+            # flash/turbo → chipmunk 2.75× mislabel). Made env-overridable so
+            # Wati can A/B `ulaw_8000` (G.711 µ-law = the NATIVE PSTN codec,
+            # zero resampling) WITHOUT a redeploy if the intermittent
+            # sample-rate-mislabel "screaming" recurs — ulaw_8000 sidesteps the
+            # 22050-vs-requested-rate confusion entirely because µ-law carries
+            # its 8 kHz rate intrinsically.
             _tel_encoding = (
-                "pcm_16000"
-                if (sample_rate and int(sample_rate) <= 16000)
+                (os.getenv("ELEVENLABS_TELEPHONY_ENCODING", "pcm_16000") or None)
+                if _is_telephony
                 else None
             )
             if _tel_encoding:
@@ -758,6 +767,60 @@ def _tts_for(agent: Optional[AxonAgent], sample_rate: Optional[int] = None):
                     "elevenlabs-direct: telephony encoding=%s (sample_rate=%s)",
                     _tel_encoding, sample_rate,
                 )
+
+            # ── Telephony hardening (Wati 22/06) ────────────────────────────
+            # Two field-reported defects on the ElevenLabs SIP leg:
+            #   • "bruit de froissement" — crackle: the realtime audio buffer
+            #     underruns when synthesis can't keep up ("inference is slower
+            #     than realtime" in the worker logs). Clicks appear at the
+            #     frame joints.
+            #   • "la voix a hurlé" — the voice suddenly screamed: a classic
+            #     sample-rate mismatch. The most likely trigger is the WebSocket
+            #     reconnecting mid-call (idle/inactivity drop) and the new
+            #     stream coming back at a DIFFERENT output rate than the leg
+            #     expects, so the audio plays too fast = high-pitched scream.
+            #
+            # Fix: keep the WS alive for the whole call so it never silently
+            # reconnects to a reset encoding (inactivity_timeout high), and ask
+            # ElevenLabs to optimise streaming latency so frames arrive in time
+            # to keep the realtime buffer full. Both are isolated + signature-
+            # filtered: an older plugin that doesn't know a kwarg just ignores
+            # it, we NEVER fall back to Cartesia over an optional knob.
+            _harden: dict = {}
+            try:
+                _inact = float(os.getenv("ELEVENLABS_INACTIVITY_TIMEOUT", "300"))
+                if _inact > 0:
+                    _harden["inactivity_timeout"] = _inact
+            except (TypeError, ValueError):
+                pass
+            # optimize_streaming_latency 0-4 (3 = aggressive). Only on the
+            # telephony leg, where underruns are the problem; web/preview keeps
+            # the default (best quality) since it isn't realtime-buffer bound.
+            if _is_telephony:
+                try:
+                    _sl = int(os.getenv("ELEVENLABS_STREAMING_LATENCY", "3"))
+                    _harden["streaming_latency"] = _sl
+                except (TypeError, ValueError):
+                    pass
+            if _harden:
+                try:
+                    import inspect as _el_inspect
+                    _el_supported = set(
+                        _el_inspect.signature(base_tts.__init__).parameters
+                    )
+                    for _hk, _hv in _harden.items():
+                        if _hk in _el_supported:
+                            tts_kwargs[_hk] = _hv
+                        else:
+                            logger.info(
+                                "elevenlabs-direct: plugin has no %s kwarg — skipping",
+                                _hk,
+                            )
+                except Exception:
+                    logger.debug(
+                        "elevenlabs-direct: hardening signature-filter failed",
+                        exc_info=True,
+                    )
 
             # Optional VoiceSettings (Wati 16/06). The plugin's VoiceSettings
             # dataclass REQUIRES stability + similarity_boost (no defaults);
@@ -3783,14 +3846,31 @@ async def entrypoint(ctx: JobContext) -> None:
     _outbound_shortcut = bool(
         _room_name and _room_name.startswith("out-") and not campaign_id
     )
+    # Wati 22/06 — ON-ANSWER is now the DEFAULT everywhere: the agent greets
+    # the moment the callee answers (Retell-style) instead of waiting for the
+    # patient to speak first. Wati's manual test calls showed speech-first's
+    # "dead air until you say Hello" felt like high latency ("surtout quand je
+    # dis hello, ça prend du temps avant de répondre"). The historic ringback
+    # risk (greeting played into in-band ringback on UK mobile routes) is
+    # already mitigated INSIDE on_enter: it re-greets once if the patient's
+    # first speech lands suspiciously late, and the opener budget re-fires the
+    # greeting on a bare "Hello?" (= they didn't hear the first one). Escape
+    # hatches preserved: set GREETING_DEFAULT_MODE=speech_first to revert the
+    # global default without a redeploy, or pin a single campaign back to
+    # speech-first via campaigns.metadata.greeting_mode="speech_first".
+    _default_on_answer = (
+        os.getenv("GREETING_DEFAULT_MODE", "on_answer").lower() == "on_answer"
+    )
+    _mode_tuning = campaign_tuning.get("greeting_mode")
     greet_on_answer = (
-        campaign_tuning.get("greeting_mode") == "on_answer"
+        _mode_tuning == "on_answer"
         or (campaign_id is not None and str(campaign_id) in _env_on_answer_ids)
+        or (_default_on_answer and _mode_tuning != "speech_first")
     )
     clog.info(
-        "greeting mode: %s (campaign=%s outbound_shortcut=%s)",
+        "greeting mode: %s (campaign=%s outbound_shortcut=%s default_on_answer=%s)",
         "ON-ANSWER" if greet_on_answer else "SPEECH-FIRST",
-        campaign_id, _outbound_shortcut,
+        campaign_id, _outbound_shortcut, _default_on_answer,
     )
 
     _greeting_wait = campaign_tuning.get("greeting_wait_secs")
