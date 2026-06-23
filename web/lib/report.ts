@@ -385,14 +385,17 @@ export function generateXlsx(data: ReportData, frequency: ReportFrequency, patie
   const freqLabel = frequency === "daily" ? "Daily" : "Weekly";
   const periodCol = frequency === "daily" ? "Day" : "Week";
 
-  // ── Sheet 1: Summary ────────────────────────────────────────────────────
-  const summaryData: (string | number)[][] = [
-    ["Activity Report — Calls"],
+  // ── Single sheet with all sections ─────────────────────────────────────
+  const rows: (string | number)[][] = [
+    // Header
+    [`Activity Report — Calls`],
     ["Period", data.periodLabel],
     ["Frequency", freqLabel],
     ["Generated", generatedAt],
     [],
-    ["KPI", "Value"],
+    // KPIs
+    ["── KEY PERFORMANCE INDICATORS ──"],
+    ["Metric", "Value"],
     ["Total calls", data.totals.totalCalls],
     ["Answered calls", data.totals.answered],
     ["Answer rate", `${data.totals.answerRate.toFixed(1)}%`],
@@ -401,39 +404,40 @@ export function generateXlsx(data: ReportData, frequency: ReportFrequency, patie
     ["Total cost ($)", `$${data.totals.costDollars.toFixed(2)}`],
     ["Best time slot", data.bestSlotOverall || "—"],
     [],
-    ["Qualification breakdown"],
+    // Qualification breakdown
+    ["── QUALIFICATION BREAKDOWN ──"],
     ["Qualification", "Calls", "Percentage"],
-    ...data.qualification.map((q) => [q.label, q.count, `${q.percent.toFixed(1)}%`]),
+    ...data.qualification.map((q): (string | number)[] => [q.label, q.count, `${q.percent.toFixed(1)}%`]),
+    [],
+    // Period breakdown
+    [`── ${freqLabel.toUpperCase()} BREAKDOWN ──`],
+    [periodCol, "Calls", "Answered", "Answer rate", "Appts", "Conv. rate", "Cost ($)", "Best slot"],
+    ...data.rows.map((r): (string | number)[] => [
+      r.period, r.totalCalls, r.answered,
+      `${r.answerRate.toFixed(1)}%`, r.rdvConfirmed,
+      `${r.conversionRate.toFixed(1)}%`, `$${r.costDollars.toFixed(2)}`, r.bestSlot || "—",
+    ]),
   ];
-  const wsSummary = XLSX.utils.aoa_to_sheet(summaryData);
-  wsSummary["!cols"] = [{ wch: 30 }, { wch: 20 }, { wch: 14 }];
-  XLSX.utils.book_append_sheet(wb, wsSummary, "Summary");
 
-  // ── Sheet 2: Daily / Weekly breakdown ──────────────────────────────────
-  const detailHeaders = [periodCol, "Calls", "Answered", "Answer rate", "Appts", "Conv. rate", "Cost ($)", "Best slot"];
-  const detailRows = data.rows.map((r) => [
-    r.period, r.totalCalls, r.answered,
-    `${r.answerRate.toFixed(1)}%`, r.rdvConfirmed,
-    `${r.conversionRate.toFixed(1)}%`, `$${r.costDollars.toFixed(2)}`, r.bestSlot || "—",
-  ]);
-  const wsDetail = makeSheet([detailHeaders, ...detailRows], [14, 10, 12, 14, 10, 14, 12, 18]);
-  XLSX.utils.book_append_sheet(wb, wsDetail, freqLabel === "Daily" ? "Daily breakdown" : "Weekly breakdown");
-
-  // ── Sheet 3 & 4: Patient lists ─────────────────────────────────────────
+  // Patient sections
   if (patients && patients.rdvConfirme.length > 0) {
-    const ws = makeSheet(
-      [PATIENT_HEADERS, ...patientRows(patients.rdvConfirme)],
-      [28, 30, 18, 8, 12, 12, 8, 30, 18, 12, 22, 14],
-    );
-    XLSX.utils.book_append_sheet(wb, ws, `Confirmed appts (${patients.rdvConfirme.length})`);
+    rows.push([], [`── CONFIRMED APPOINTMENTS (${patients.rdvConfirme.length} patients) ──`]);
+    rows.push(PATIENT_HEADERS);
+    rows.push(...patientRows(patients.rdvConfirme));
   }
   if (patients && patients.passerHumain.length > 0) {
-    const ws = makeSheet(
-      [PATIENT_HEADERS, ...patientRows(patients.passerHumain)],
-      [28, 30, 18, 8, 12, 12, 8, 30, 18, 12, 22, 14],
-    );
-    XLSX.utils.book_append_sheet(wb, ws, `Needs human (${patients.passerHumain.length})`);
+    rows.push([], [`── NEEDS HUMAN FOLLOW-UP (${patients.passerHumain.length} patients) ──`]);
+    rows.push(PATIENT_HEADERS);
+    rows.push(...patientRows(patients.passerHumain));
   }
+
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws["!cols"] = [
+    { wch: 30 }, { wch: 28 }, { wch: 14 }, { wch: 12 },
+    { wch: 10 }, { wch: 14 }, { wch: 12 }, { wch: 20 },
+    { wch: 12 }, { wch: 10 }, { wch: 22 }, { wch: 14 },
+  ];
+  XLSX.utils.book_append_sheet(wb, ws, "Report");
 
   const raw = XLSX.write(wb, { type: "array", bookType: "xlsx" }) as number[];
   return new Blob([new Uint8Array(raw)], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
