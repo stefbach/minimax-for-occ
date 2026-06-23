@@ -555,12 +555,12 @@ async function generateDocuments(rc: RunCtx, step: Record<string, unknown>, ctx:
 // WhatsApp now ships via Twilio (migrated off WATI). These keep their original
 // signatures so the communicate step is unchanged; the `cred`/`broadcastName`
 // args are ignored and the positional params map onto Twilio ContentVariables.
-async function watiSessionMessage(_cred: Record<string, unknown>, phone: string, text: string): Promise<void> {
+async function watiSessionMessage(_cred: Record<string, unknown> | null, phone: string, text: string): Promise<void> {
   await sendWhatsAppFreeform(phone, text);
 }
 
 async function watiTemplateMessage(
-  _cred: Record<string, unknown>,
+  _cred: Record<string, unknown> | null,
   phone: string,
   templateName: string,
   _broadcastName: string,
@@ -602,7 +602,7 @@ function dossierDocFlags(d: Record<string, unknown>): Record<string, string> {
 
 async function communicatePatient(rc: RunCtx, step: Record<string, unknown>, ctx: Ctx): Promise<void> {
   const stormi = (await cred(rc, step.gmail_stormi_credential_id as string)) as GmailCred | null;
-  const wati = await cred(rc, step.wati_credential_id as string);
+  // WhatsApp ships via Twilio now (env creds) — no WATI credential needed.
   const telegram = step.telegram_credential_id ? await cred(rc, step.telegram_credential_id as string) : null;
   const leadTable = String(step.table_lead ?? "leads_rdv");
   const dossierTable = String(step.table_dossier ?? "nhs_dossiers");
@@ -657,20 +657,20 @@ async function communicatePatient(rc: RunCtx, step: Record<string, unknown>, ctx
     try { await mail(stormi, { to: email, subject: pfx + subject, html }); rc.stats.actions++; }
     catch (e) { rc.log("warn", `A4: patient email failed: ${e instanceof Error ? e.message : e}`); }
   }
-  if (wati && phone) {
+  if (phone) {
     try {
       if (reminder) {
-        // Relance reminder → approved WATI template ({{1}} = first name).
-        // Session messages only deliver inside the 24h window, which is closed
+        // Relance reminder → approved WhatsApp template ({{1}} = first name).
+        // Free-form messages only deliver inside the 24h window, which is closed
         // for a non-responding patient, so the reminder must go via a template.
         const template = String(
           step.wati_followup_template ?? "s2_application_documentation_followup__assistance",
         );
-        await watiTemplateMessage(wati, phone, template, `${template}_${patientId}`, [
+        await watiTemplateMessage(null, phone, template, `${template}_${patientId}`, [
           { name: "1", value: nom || "Patient" },
         ]);
       } else {
-        await watiSessionMessage(wati, phone, comms.waFor(status));
+        await watiSessionMessage(null, phone, comms.waFor(status));
       }
       rc.stats.actions++;
     } catch (e) { rc.log("warn", `A4: WhatsApp failed: ${e instanceof Error ? e.message : e}`); }
