@@ -19,7 +19,8 @@ const PROVIDER_MODELS: Record<LlmProvider, ModelOption[]> = {
     { id: "deepseek-v4-flash", label: "deepseek-v4-flash ($0.001/min) — Ultra rapide, 3× moins cher (recommandé appels vocaux)" },
   ],
   openai: [
-    { id: "gpt-4o-mini",  label: "gpt-4o-mini ($0.002/min) — Rapide et économique (recommandé)" },
+    { id: "gpt-4.1-nano", label: "gpt-4.1-nano ($0.001/min) — Ultra rapide, latence minimale (recommandé appels vocaux)" },
+    { id: "gpt-4o-mini",  label: "gpt-4o-mini ($0.002/min) — Rapide et économique" },
     { id: "gpt-4.1-mini", label: "gpt-4.1-mini ($0.004/min) — Dernière génération, économique" },
     { id: "gpt-4.1",      label: "gpt-4.1 ($0.016/min) — Dernière génération haute qualité" },
     { id: "gpt-4o",       label: "gpt-4o ($0.020/min) — Polyvalent haute qualité" },
