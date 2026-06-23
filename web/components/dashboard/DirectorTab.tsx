@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { DirectorResponse } from "@/app/api/dashboard/director/route";
 import type { QualBucket } from "@/lib/qualification";
+import { AlertTriangle, ArrowDownLeft, ArrowUpRight, CalendarCheck, CheckCircle2, Link2, Moon, Phone, Sparkles, Sunrise, Sun, Sunset, Tag, Timer, TrendingUp } from "lucide-react";
 import { useT } from "@/lib/i18n";
 import { DrillSheet, type DrillFilters, type DrillSpec } from "./DrillSheet";
 import { SLOT_WINDOWS } from "@/lib/call-slots";
@@ -121,8 +122,13 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
   };
 
   const gfKey = globalFiltersKey(global);
-  useEffect(() => {
-    let alive = true;
+  // Token-based cancellation: each call to loadDirector() bumps the token, and
+  // any in-flight fetch from a prior call ignores its own response. This lets
+  // both the deps-driven useEffect AND the DrillSheet `onClosed` callback share
+  // the same loader without racing each other (last-writer-wins on data).
+  const loadTokenRef = useRef(0);
+  const loadDirector = useCallback(() => {
+    const token = ++loadTokenRef.current;
     setLoading(true);
     const qs = new URLSearchParams({ from, to, threshold: String(threshold), leads_source: leadsSource });
     if (direction !== "all") qs.set("direction", direction);
@@ -133,11 +139,22 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
       .then(async (r) => {
         const j = await r.json();
         if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
-        if (alive) { setData(j); setError(null); }
+        if (loadTokenRef.current === token) { setData(j); setError(null); }
       })
-      .catch((e) => alive && setError(e instanceof Error ? e.message : "error"))
-      .finally(() => alive && setLoading(false));
-    return () => { alive = false; };
+      .catch((e) => {
+        if (loadTokenRef.current === token) setError(e instanceof Error ? e.message : "error");
+      })
+      .finally(() => {
+        if (loadTokenRef.current === token) setLoading(false);
+      });
+  }, [from, to, direction, threshold, leadsSource, system, slot, global]);
+
+  useEffect(() => {
+    loadDirector();
+    // Bumping the token in the cleanup invalidates the in-flight fetch when
+    // deps change before it resolves — same effect as the previous `alive` flag.
+    return () => { loadTokenRef.current++; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [from, to, direction, threshold, leadsSource, system, slot, gfKey, reloadKey, refreshKey]);
 
   // AI qualification is automatic: any answered call left in the "autre" bucket
@@ -210,24 +227,25 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
     label: string;
     value: string;
     icon: string;
+    displayIcon: ReactNode;
     tone?: string;
     highlight?: boolean;
     // null means the card isn't drillable (e.g. derived ratios) — disable the click.
     drill: Omit<DrillFilters, "from" | "to" | "direction" | "leads_source"> | null;
   };
   const tiles: Tile[] = [
-    { label: t("Total appels"), value: k.totalCalls.toLocaleString(), icon: "📞", tone: "var(--info)", drill: {} },
-    { label: t("Décrochés"), value: `${k.answered.toLocaleString()} · ${k.answeredPct.toFixed(0)}%`, icon: "✅", tone: "var(--good)", drill: { answered: "yes" } },
+    { label: t("Total appels"), value: k.totalCalls.toLocaleString(), icon: "📞", displayIcon: <Phone size={15} />, tone: "var(--info)", drill: {} },
+    { label: t("Décrochés"), value: `${k.answered.toLocaleString()} · ${k.answeredPct.toFixed(0)}%`, icon: "✅", displayIcon: <CheckCircle2 size={15} />, tone: "var(--good)", drill: { answered: "yes" } },
     // Cost is an aggregate over usage_events, not a call subset → no drill.
     // Drill = every call in the period (each one contributed to the spend),
     // mirroring the legacy "Cost consumed" panel.
-    { label: t("Coût consommé"), value: `$${k.cost.toFixed(2)}`, icon: "$", tone: "var(--warn)", drill: {} },
-    { label: t("RDV confirmés"), value: k.rdvConfirmed.toLocaleString(), icon: "📅", tone: "var(--good)", highlight: true, drill: { qualification: "rdv_confirme" } },
+    { label: t("Coût consommé"), value: `$${k.cost.toFixed(2)}`, icon: "$", displayIcon: <span>$</span>, tone: "var(--warn)", drill: {} },
+    { label: t("RDV confirmés"), value: k.rdvConfirmed.toLocaleString(), icon: "📅", displayIcon: <CalendarCheck size={15} />, tone: "var(--good)", highlight: true, drill: { qualification: "rdv_confirme" } },
     // Conversion = RDV / Total → drill to the RDV calls (the numerator).
-    { label: t("Taux de conversion"), value: `${k.conversionRate.toFixed(1)}%`, icon: "📈", tone: "var(--accent-2)", drill: { qualification: "rdv_confirme" } },
-    { label: t("Durée moyenne"), value: fmtDur(k.avgDuration), icon: "⏱", tone: "var(--info)", drill: { answered: "yes" } },
-    { label: t("Callbacks demandés"), value: k.callbacks.toLocaleString(), icon: "↺", tone: "var(--accent)", drill: { qualification: "rappel" } },
-    { label: `${t("Durée")} > ${k.threshold}s`, value: k.callsOverThreshold.toLocaleString(), icon: "⧖", tone: "var(--muted)", drill: { min_duration: k.threshold } },
+    { label: t("Taux de conversion"), value: `${k.conversionRate.toFixed(1)}%`, icon: "📈", displayIcon: <TrendingUp size={15} />, tone: "var(--accent-2)", drill: { qualification: "rdv_confirme" } },
+    { label: t("Durée moyenne"), value: fmtDur(k.avgDuration), icon: "⏱", displayIcon: <Timer size={15} />, tone: "var(--info)", drill: { answered: "yes" } },
+    { label: t("Callbacks demandés"), value: k.callbacks.toLocaleString(), icon: "↺", displayIcon: <span>↺</span>, tone: "var(--accent)", drill: { qualification: "rappel" } },
+    { label: `${t("Durée")} > ${k.threshold}s`, value: k.callsOverThreshold.toLocaleString(), icon: "⧖", displayIcon: <span>⧖</span>, tone: "var(--muted)", drill: { min_duration: k.threshold } },
   ];
 
   type TotalCard = { label: string; value: number; tone: string; drill: Omit<DrillFilters, "from" | "to" | "direction" | "leads_source"> };
@@ -249,7 +267,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
           const inner = (
             <>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: 16 }}>{tile.icon}</span>
+                <span style={{ display: "inline-flex", alignItems: "center" }}>{tile.displayIcon}</span>
                 <span className="muted" style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4 }}>{tile.label}</span>
               </div>
               <div style={{ fontSize: 26, fontWeight: 700, marginTop: 8, color: tile.tone }}>{tile.value}</div>
@@ -315,7 +333,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
           <ClickCard
             key={c.label}
             ariaLabel={`${c.label} — ${t("voir les appels")}`}
-            onClick={() => openDrill(c.label, "📞", c.tone, c.drill)}
+            onClick={() => openDrill(c.label, "phone", c.tone, c.drill)}
             style={{ padding: 16 }}
           >
             <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4 }}>{c.label}</div>
@@ -334,15 +352,15 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
           {data.qualifications.map((q) => (
             <ClickCard
               key={q.key}
-              ariaLabel={`${t(q.label)} — ${t("voir les appels")}`}
-              onClick={() => openDrill(t(q.label), "🏷", "var(--accent)", { qualification: q.key as QualBucket })}
+              ariaLabel={`${q.label} — ${t("voir les appels")}`}
+              onClick={() => openDrill(q.label, "tag", "var(--accent)", { qualification: q.key as QualBucket })}
               style={{ padding: 12, textAlign: "center", borderColor: q.count > 0 ? "var(--accent)" : undefined }}
             >
               <div style={{ fontSize: 24, fontWeight: 700, color: q.count > 0 ? "var(--accent)" : "var(--muted)" }}>
                 {q.count}
               </div>
               <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginTop: 4 }}>
-                {t(q.label)}
+                {q.label}
               </div>
             </ClickCard>
           ))}
@@ -362,7 +380,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
           >
             <button
               type="button"
-              onClick={() => openDrill(t("Appels décrochés non qualifiés"), "⚠", "var(--warn)", { qualification: "unqualified" })}
+              onClick={() => openDrill(t("Appels décrochés non qualifiés"), "alert", "var(--warn)", { qualification: "unqualified" })}
               aria-label={t("Voir les appels non qualifiés")}
               style={{
                 fontSize: 22, fontWeight: 700, color: "var(--warn)",
@@ -380,10 +398,10 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
               </div>
             </div>
             <span className="muted" style={{ fontSize: 11, display: "inline-flex", alignItems: "center", gap: 6 }}>
-              {qualifying && <span className="ai-spin" aria-hidden>✨</span>}
+              {qualifying && <Sparkles size={14} className="ai-spin" aria-hidden />}
               {qualifying
                 ? (qualifyMsg ?? t("Qualification IA en cours…"))
-                : (qualifyMsg ?? `✨ ${t("Qualification IA automatique")}`)}
+                : (qualifyMsg ?? <><Sparkles size={14} style={{ verticalAlign: "middle" }} /> {t("Qualification IA automatique")}</>)}
             </span>
           </div>
         )}
@@ -396,7 +414,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
         <div style={{ display: "flex", gap: 24, alignItems: "baseline", flexWrap: "wrap" }}>
           <button
             type="button"
-            onClick={() => openDrill(t("Appels entrants"), "↘", "var(--info)", { inbound_only: true })}
+            onClick={() => openDrill(t("Appels entrants"), "inbound", "var(--info)", { inbound_only: true })}
             aria-label={t("Voir tous les entrants")}
             style={{ background: "transparent", border: "none", padding: 0, cursor: "pointer", textAlign: "left" }}
           >
@@ -406,7 +424,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
           <div className="muted" style={{ fontSize: 13, display: "inline-flex", gap: 10, alignItems: "center" }}>
             <button
               type="button"
-              onClick={() => openDrill(t("Entrants décrochés"), "✅", "var(--good)", { inbound_only: true, answered: "yes" })}
+              onClick={() => openDrill(t("Entrants décrochés"), "check", "var(--good)", { inbound_only: true, answered: "yes" })}
               style={{ background: "transparent", border: "none", padding: 0, cursor: "pointer", color: "var(--good)" }}
             >
               {data.inbound.answered} {t("décrochés")}
@@ -490,21 +508,21 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>
             {([
-              ["Créneau 1 — matin", SLOT_WINDOWS.matin, data.slots.matin, "matin", "🌅"],
-              ["Créneau 2 — midi", SLOT_WINDOWS.midi, data.slots.midi, "midi", "☀"],
-              ["Créneau 3 — soir", SLOT_WINDOWS.soir, data.slots.soir, "soir", "🌆"],
-              ["Hors créneau", null, data.slots.hors, "hors", "🌙"],
-            ] as const).map(([label, win, v, slot, icon]) => {
+              ["Créneau 1 — matin", SLOT_WINDOWS.matin, data.slots.matin, "matin", "matin", <Sunrise size={13} />],
+              ["Créneau 2 — midi", SLOT_WINDOWS.midi, data.slots.midi, "midi", "midi", <Sun size={13} />],
+              ["Créneau 3 — soir", SLOT_WINDOWS.soir, data.slots.soir, "soir", "soir", <Sunset size={13} />],
+              ["Hors créneau", null, data.slots.hors, "hors", "hors", <Moon size={13} />],
+            ] as const).map(([label, win, v, slot, iconStr, displayIcon]) => {
               const slotTotal = data.slots.matin + data.slots.midi + data.slots.soir + data.slots.hors;
               const pct = slotTotal ? Math.round((v / slotTotal) * 100) : 0;
               return (
                 <ClickCard
                   key={label}
                   ariaLabel={`${label} — ${t("voir les appels")}`}
-                  onClick={() => openDrill(label, icon, "var(--accent)", { slot })}
+                  onClick={() => openDrill(label, iconStr, "var(--accent)", { slot })}
                   style={{ padding: 10 }}
                 >
-                  <div className="muted" style={{ fontSize: 11 }}>{icon} {label}</div>
+                  <div className="muted" style={{ fontSize: 11, display: "flex", alignItems: "center", gap: 4 }}>{displayIcon} {label}</div>
                   <div className="muted" style={{ fontSize: 10 }}>
                     {win ? `${win.uk} UK · ${win.mu} MU` : t("autres heures")}
                   </div>
@@ -528,7 +546,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
           {t("Combien de leads sont passés sur 1, 2 ou 3 agents")}
           {qualifying && (
             <span style={{ color: "var(--accent)", display: "inline-flex", alignItems: "center", gap: 4 }}>
-              <span className="ai-spin" aria-hidden>✨</span> {qualifyMsg ?? t("Analyse IA automatique…")}
+              <Sparkles size={14} className="ai-spin" aria-hidden /> {qualifyMsg ?? t("Analyse IA automatique…")}
             </span>
           )}
         </p>
@@ -542,7 +560,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
               key={label}
               type="button"
               className="card"
-              onClick={() => openDrill(t(label), "🔗", "var(--accent)", { agent_stage: stage as 1 | 2 | 3 })}
+              onClick={() => openDrill(t(label), "link", "var(--accent)", { agent_stage: stage as 1 | 2 | 3 })}
               aria-label={`${t("Voir les appels")} — ${t(label)}`}
               style={{ padding: 12, textAlign: "left", cursor: "pointer", color: "inherit" }}
             >
@@ -570,7 +588,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
               <button
                 key={label}
                 type="button"
-                onClick={() => openDrill(`${t("Durée")} ${label}`, "⏱", "var(--accent)", { duration_bucket: bucket })}
+                onClick={() => openDrill(`${t("Durée")} ${label}`, "timer", "var(--accent)", { duration_bucket: bucket })}
                 aria-label={`${t("Durée")} ${label} — ${t("voir les appels")}`}
                 style={{
                   display: "flex", alignItems: "center", gap: 8, marginBottom: 6,
@@ -620,7 +638,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
                 style={{ padding: "3px 10px", fontSize: 12 }}
                 onClick={() => setActiveQualTab(q.key)}
               >
-                {t(q.label)} ({(summariesByQual.get(q.key) ?? []).length})
+                {q.label} ({(summariesByQual.get(q.key) ?? []).length})
               </button>
             ))}
           </div>
@@ -639,7 +657,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
                     <span className="muted" style={{ fontSize: 11 }}>{fmtDate(s.started_at)}</span>
                   </div>
                   <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
-                    {t(s.qualification_label)} · {s.agent_name ?? "—"} · {fmtDur(s.duration)}
+                    {s.qualification_label} · {s.agent_name ?? "—"} · {fmtDur(s.duration)}
                   </div>
                   <div style={{ fontSize: 12, marginTop: 4 }}>{s.summary}</div>
                 </div>
@@ -673,7 +691,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
                     {h.contact_name ?? "—"} <span className="muted" style={{ fontWeight: 400 }}>{h.phone ?? ""}</span>
                   </div>
                   <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
-                    {h.qualification ? t(h.qualification) : t("À passer à l'humain")}
+                    {h.qualification ?? "À passer à l'humain"}
                     {h.scheduled_for && ` · ${fmtDate(h.scheduled_for)}`}
                     {h.status && ` · ${h.status}`}
                   </div>
@@ -690,7 +708,14 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
           </div>
         )}
       </div>
-      <DrillSheet spec={drill} onClose={() => setDrill(null)} />
+      <DrillSheet
+        spec={drill}
+        onClose={() => setDrill(null)}
+        // Refresh the KPI tiles after the drill panel closes — calls may have
+        // been re-qualified or modified while the user was inspecting the list,
+        // and the tiles otherwise stay frozen on the data fetched at mount.
+        onClosed={loadDirector}
+      />
     </div>
   );
 }

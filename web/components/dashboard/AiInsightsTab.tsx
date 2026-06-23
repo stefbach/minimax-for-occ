@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { useT } from "@/lib/i18n";
+import { AlertTriangle, FileText, Flame, Frown, Lightbulb, MessageSquare, Meh, Phone, Save, Smile, Sparkles, TrendingUp } from "lucide-react";
 import { CallDetailPane } from "@/components/dashboard/CallDetailPane";
 import type { DrillCall } from "@/app/api/dashboard/calls-drill/route";
 import type { QualBucket } from "@/lib/qualification";
@@ -64,7 +66,7 @@ export function AiInsightsTab({
     return (
       <div className="card" style={{ borderStyle: "dashed", display: "grid", gap: 12, padding: 16 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 600 }}>
-          <span style={{ fontSize: 18 }}>✨</span> {t("AI Insights — analyse stratégique")}
+          <Sparkles size={18} /> {t("AI Insights — analyse stratégique")}
         </div>
         <p className="muted" style={{ fontSize: 13, margin: 0 }}>
           {t("Génère un résumé exécutif, les objections fréquentes, les tendances émergentes, un audit du script et le climat de la période — à partir des résumés d'appels (DeepSeek).")}
@@ -74,7 +76,7 @@ export function AiInsightsTab({
         </div>
         <div>
           <button onClick={() => run(false)} style={{ padding: "8px 16px", fontSize: 14, fontWeight: 600 }}>
-            ✨ {t("Générer les insights")}
+            <Sparkles size={15} style={{ verticalAlign: "middle" }} /> {t("Générer les insights")}
           </button>
         </div>
       </div>
@@ -84,7 +86,7 @@ export function AiInsightsTab({
   if (error) {
     return (
       <div className="card" style={{ borderColor: "var(--bad)", display: "grid", gap: 10, padding: 16 }}>
-        <div style={{ color: "var(--bad)", fontWeight: 600 }}>⚠️ {t("Échec de la génération")}</div>
+        <div style={{ color: "var(--bad)", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}><AlertTriangle size={15} /> {t("Échec de la génération")}</div>
         <p style={{ fontSize: 13, margin: 0 }}>{error}</p>
         <div><button className="ghost" onClick={() => run(true)} style={{ padding: "6px 12px", fontSize: 13 }}>↺ {t("Réessayer")}</button></div>
       </div>
@@ -95,7 +97,7 @@ export function AiInsightsTab({
     return (
       <div className="card" style={{ display: "grid", gap: 12, padding: 16 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 600 }}>
-          <span style={{ fontSize: 18 }} className="pulse">✨</span> {t("Analyse en cours…")}
+          <Sparkles size={18} className="pulse" /> {t("Analyse en cours…")}
         </div>
         <p className="muted" style={{ fontSize: 13, margin: 0 }}>{t("L'IA lit les résumés de la période — patiente 15 à 60 secondes.")}</p>
         {[0, 1, 2].map((i) => (
@@ -130,7 +132,7 @@ export function AiInsightsTab({
       <Chatbox from={from} to={to} direction={direction} leadsSource={leadsSource} system={system} periodLabel={periodLabel} />
 
       <p className="muted" style={{ fontSize: 11, fontStyle: "italic", textAlign: "center", margin: 0 }}>
-        ⚠️ {t("Les suggestions de l'IA sont des hypothèses à valider, pas des vérités. Les chiffres décrivent les données observées.")}
+        <AlertTriangle size={15} style={{ verticalAlign: "middle" }} /> {t("Les suggestions de l'IA sont des hypothèses à valider, pas des vérités. Les chiffres décrivent les données observées.")}
       </p>
 
       {/* Hot-lead / example detail overlay (reuses the drill-down pane). */}
@@ -161,12 +163,12 @@ function Header({ insights, onRefresh, loading }: { insights: InsightsResult; on
   return (
     <div className="card" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", padding: 12 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-        <span style={{ width: 30, height: 30, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 8, background: "color-mix(in srgb, var(--accent) 14%, transparent)", color: "var(--accent)" }}>✨</span>
+        <span style={{ width: 30, height: 30, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 8, background: "color-mix(in srgb, var(--accent) 14%, transparent)", color: "var(--accent)" }}><Sparkles size={15} /></span>
         <div style={{ minWidth: 0 }}>
           <div style={{ fontWeight: 600, fontSize: 14 }}>AI Insights · {insights.meta.period_label}</div>
           <div className="muted" style={{ fontSize: 11 }}>
             {t("Généré")} {hh} · {insights.meta.calls_analysed} {t("appels")} · {(insights.meta.elapsed_ms / 1000).toFixed(1)}s · {insights.meta.model}
-            {insights.meta.cached && <span style={{ marginLeft: 6, padding: "1px 6px", borderRadius: 99, fontSize: 10, background: "color-mix(in srgb, var(--muted) 18%, transparent)" }}>💾 {t("cache")}</span>}
+            {insights.meta.cached && <span style={{ marginLeft: 6, padding: "1px 6px", borderRadius: 99, fontSize: 10, background: "color-mix(in srgb, var(--muted) 18%, transparent)", display: "inline-flex", alignItems: "center", gap: 3 }}><Save size={10} /> {t("cache")}</span>}
           </div>
         </div>
       </div>
@@ -184,7 +186,7 @@ function Alerts({ alerts }: { alerts: StrategicAlert[] }) {
         const c = tone(a.severity);
         return (
           <div key={i} className="card" style={{ display: "flex", gap: 10, padding: 12, borderColor: c, background: `color-mix(in srgb, ${c} 8%, transparent)` }}>
-            <span style={{ color: c, flexShrink: 0 }}>⚠️</span>
+            <AlertTriangle size={15} style={{ color: c, flexShrink: 0 }} />
             <div style={{ minWidth: 0 }}>
               <div style={{ fontSize: 13, fontWeight: 600, color: c }}>{a.message}</div>
               <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>{a.evidence_count} {t("appels supportent ce signal")} · {t("sévérité")} {a.severity}</div>
@@ -200,7 +202,7 @@ function Pulse({ insights }: { insights: InsightsResult }) {
   const t = useT();
   return (
     <div className="card" style={{ display: "grid", gap: 12, padding: 16, boxShadow: "inset 0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent)" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 600 }}><span style={{ fontSize: 16 }}>✨</span> {t("Pulse de la période")}</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 600 }}><Sparkles size={15} /> {t("Pulse de la période")}</div>
       <p style={{ fontSize: 14, lineHeight: 1.55, margin: 0 }}>{insights.pulse.summary}</p>
       {insights.pulse.highlights.length > 0 && (
         <div style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" }}>
@@ -225,7 +227,7 @@ function Badge({ children, onClick }: { children: React.ReactNode; onClick?: () 
   );
 }
 
-function SectionCard({ icon, title, desc, children }: { icon: string; title: string; desc?: string; children: React.ReactNode }) {
+function SectionCard({ icon, title, desc, children }: { icon: ReactNode; title: string; desc?: string; children: React.ReactNode }) {
   return (
     <div className="card" style={{ display: "grid", gap: 12, padding: 16, alignContent: "start" }}>
       <div>
@@ -241,7 +243,7 @@ function Objections({ objections, nameFor, onOpen }: { objections: ObjectionInsi
   const t = useT();
   const max = Math.max(...objections.map((o) => o.count || 0), 1);
   return (
-    <SectionCard icon="💬" title={t("Top objections")} desc={t("Pourquoi les prospects refusent (avec suggestions à valider)")}>
+    <SectionCard icon={<MessageSquare size={15} />} title={t("Top objections")} desc={t("Pourquoi les prospects refusent (avec suggestions à valider)")}>
       {objections.length === 0 ? <p className="muted" style={{ fontSize: 13, margin: 0 }}>{t("Aucune objection saillante.")}</p> : objections.map((o, i) => (
         <div key={i} style={{ display: "grid", gap: 5 }}>
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
@@ -251,7 +253,7 @@ function Objections({ objections, nameFor, onOpen }: { objections: ObjectionInsi
           <div style={{ height: 8, borderRadius: 4, background: "color-mix(in srgb, var(--muted) 18%, transparent)", overflow: "hidden" }}>
             <div style={{ height: "100%", width: `${(o.count / max) * 100}%`, background: "var(--bad)" }} />
           </div>
-          <div className="muted" style={{ fontSize: 12, fontStyle: "italic" }}>💡 <strong>{t("Suggestion à valider")}</strong> : {o.counter_argument}</div>
+          <div className="muted" style={{ fontSize: 12, fontStyle: "italic", display: "flex", alignItems: "center", gap: 4 }}><Lightbulb size={12} /> <strong>{t("Suggestion à valider")}</strong> : {o.counter_argument}</div>
           {o.example_call_ids.length > 0 && (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
               {o.example_call_ids.slice(0, 3).map((cid) => <Badge key={cid} onClick={() => onOpen(cid)}>{nameFor(cid)}</Badge>)}
@@ -266,7 +268,7 @@ function Objections({ objections, nameFor, onOpen }: { objections: ObjectionInsi
 function Trends({ trends }: { trends: InsightsResult["trends"] }) {
   const t = useT();
   return (
-    <SectionCard icon="📈" title={t("Tendances & signaux faibles")} desc={t("Sujets qui émergent dans les conversations")}>
+    <SectionCard icon={<TrendingUp size={15} />} title={t("Tendances & signaux faibles")} desc={t("Sujets qui émergent dans les conversations")}>
       {trends.emerging_keywords.length > 0 && (
         <div>
           <div className="muted" style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 6 }}>{t("Mots-clés émergents")}</div>
@@ -295,7 +297,7 @@ function Trends({ trends }: { trends: InsightsResult["trends"] }) {
 function ScriptAudit({ audit, nameFor, onOpen }: { audit: InsightsResult["script_audit"]; nameFor: (id: string) => string; onOpen: (id: string) => void }) {
   const t = useT();
   return (
-    <SectionCard icon="📝" title={t("Audit du script")} desc={t("Thèmes de raccrochage + phrases sur-représentées dans les appels gagnés")}>
+    <SectionCard icon={<FileText size={15} />} title={t("Audit du script")} desc={t("Thèmes de raccrochage + phrases sur-représentées dans les appels gagnés")}>
       {audit.common_hangup_topics.length > 0 && (
         <div>
           <div className="muted" style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 6 }}>{t("Au moment du raccrochage…")}</div>
@@ -337,10 +339,10 @@ function Climate({ sentiment, index, onOpen }: { sentiment: InsightsResult["sent
   const d = sentiment.distribution;
   const total = (d.positive || 0) + (d.neutral || 0) + (d.negative || 0);
   const pct = (n: number) => (total > 0 ? (n / total) * 100 : 0);
-  const Bar = ({ icon, label, n, color }: { icon: string; label: string; n: number; color: string }) => (
+  const Bar = ({ icon, label, n, color }: { icon: ReactNode; label: string; n: number; color: string }) => (
     <div style={{ display: "grid", gap: 2 }}>
       <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-        <span>{icon} {label}</span><span className="muted" style={{ fontFamily: "ui-monospace, monospace" }}>{n} ({pct(n).toFixed(0)}%)</span>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>{icon} {label}</span><span className="muted" style={{ fontFamily: "ui-monospace, monospace" }}>{n} ({pct(n).toFixed(0)}%)</span>
       </div>
       <div style={{ height: 6, borderRadius: 3, background: "color-mix(in srgb, var(--muted) 18%, transparent)", overflow: "hidden" }}>
         <div style={{ height: "100%", width: `${pct(n)}%`, background: color }} />
@@ -348,21 +350,21 @@ function Climate({ sentiment, index, onOpen }: { sentiment: InsightsResult["sent
     </div>
   );
   return (
-    <SectionCard icon="🔥" title={t("Climat & hot leads")} desc={t("Score moyen + prospects à rappeler en priorité")}>
+    <SectionCard icon={<Flame size={15} />} title={t("Climat & hot leads")} desc={t("Score moyen + prospects à rappeler en priorité")}>
       <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
         <div style={{ textAlign: "center" }}>
           <div style={{ fontSize: 28, fontWeight: 700 }}>{sentiment.average_score.toFixed(1)}<span className="muted" style={{ fontSize: 13, fontWeight: 400 }}>/10</span></div>
           <div className="muted" style={{ fontSize: 10, textTransform: "uppercase" }}>{t("Score moyen")}</div>
         </div>
         <div style={{ flex: 1, display: "grid", gap: 6 }}>
-          <Bar icon="🙂" label={t("Positif")} n={d.positive || 0} color="var(--good)" />
-          <Bar icon="😐" label={t("Neutre")} n={d.neutral || 0} color="var(--info, var(--accent))" />
-          <Bar icon="🙁" label={t("Négatif")} n={d.negative || 0} color="var(--bad)" />
+          <Bar icon={<Smile size={14} />} label={t("Positif")} n={d.positive || 0} color="var(--good)" />
+          <Bar icon={<Meh size={14} />} label={t("Neutre")} n={d.neutral || 0} color="var(--info, var(--accent))" />
+          <Bar icon={<Frown size={14} />} label={t("Négatif")} n={d.negative || 0} color="var(--bad)" />
         </div>
       </div>
       {sentiment.hot_leads.length > 0 && (
         <div>
-          <div className="muted" style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 6 }}>📞 {t("Hot leads à rappeler humainement")}</div>
+          <div className="muted" style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}><Phone size={14} /> {t("Hot leads à rappeler humainement")}</div>
           <div style={{ display: "grid", gap: 6 }}>
             {sentiment.hot_leads.map((hl: HotLead) => {
               const e = index[hl.call_id];
@@ -389,7 +391,7 @@ function Hypotheses({ hypotheses }: { hypotheses: InsightsResult["optimization_h
   return (
     <div className="card" style={{ display: "grid", gap: 12, padding: 16, borderColor: "color-mix(in srgb, var(--accent) 30%, var(--border))" }}>
       <div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 600 }}><span style={{ fontSize: 15 }}>💡</span> {t("Hypothèses à tester")}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 600 }}><Lightbulb size={15} /> {t("Hypothèses à tester")}</div>
         <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>{t("Pistes d'optimisation basées sur les données — à valider par A/B test, jamais à prendre pour vérité.")}</div>
       </div>
       {hypotheses.map((h, i) => (
@@ -446,7 +448,7 @@ function Chatbox({ from, to, direction, leadsSource, system, periodLabel }: {
   return (
     <div className="card" style={{ display: "grid", gap: 10, padding: 16, borderColor: "color-mix(in srgb, var(--accent) 30%, var(--border))" }}>
       <div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 600 }}><span style={{ fontSize: 15 }}>💬</span> {t("Pose une question à l'IA")}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 600 }}><MessageSquare size={15} /> {t("Pose une question à l'IA")}</div>
         <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>{t("L'IA voit les appels de la période et peut chercher dans les résumés à la demande.")}</div>
       </div>
 

@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
+import { Calendar, CalendarDays, CalendarRange, FileSpreadsheet, FileText, Pencil } from "lucide-react";
 import { useT } from "@/lib/i18n";
 import { bucketForCall, normalizeQualification } from "@/lib/qualification";
 import { matchesGlobalFilters, hasActiveGlobalFilters, DEFAULT_GLOBAL_FILTERS, type GlobalFilters } from "@/lib/global-filters";
@@ -86,11 +88,11 @@ function toReportFreq(freq: ExtFrequency): ReportFrequency {
   return "weekly";
 }
 
-const GROUPS: { freq: ExtFrequency; labelFr: string; labelEn: string; icon: string }[] = [
-  { freq: "daily",   labelFr: "Quotidien",    labelEn: "Daily",   icon: "📅" },
-  { freq: "weekly",  labelFr: "Hebdomadaire", labelEn: "Weekly",  icon: "📆" },
-  { freq: "monthly", labelFr: "Mensuel",      labelEn: "Monthly", icon: "🗓️" },
-  { freq: "custom",  labelFr: "Personnalisé", labelEn: "Custom",  icon: "✏️" },
+const GROUPS: { freq: ExtFrequency; labelFr: string; labelEn: string; icon: ReactNode }[] = [
+  { freq: "daily",   labelFr: "Quotidien",    labelEn: "Daily",   icon: <CalendarDays size={14} /> },
+  { freq: "weekly",  labelFr: "Hebdomadaire", labelEn: "Weekly",  icon: <CalendarRange size={14} /> },
+  { freq: "monthly", labelFr: "Mensuel",      labelEn: "Monthly", icon: <Calendar size={14} /> },
+  { freq: "custom",  labelFr: "Personnalisé", labelEn: "Custom",  icon: <Pencil size={14} /> },
 ];
 
 export function ReportButton({
@@ -272,7 +274,7 @@ export function ReportButton({
           }}
           title={err ?? undefined}
         >
-          📄 {busy ? t("Génération…") : t("Générer un rapport")} <span style={{ fontSize: 10 }}>▾</span>
+          <FileText size={15} style={{ verticalAlign: "middle" }} /> {busy ? t("Génération…") : t("Générer un rapport")} <span style={{ fontSize: 10 }}>▾</span>
         </summary>
 
         <div
@@ -348,7 +350,7 @@ export function ReportButton({
                     onClick={() => runPdf(g.freq)}
                     style={BTN}
                   >
-                    <span>📄</span> PDF
+                    <FileText size={14} /> PDF
                   </button>
                   <button
                     type="button"
@@ -356,7 +358,7 @@ export function ReportButton({
                     onClick={() => runCsv(g.freq)}
                     style={BTN}
                   >
-                    <span>📊</span> Excel
+                    <FileSpreadsheet size={14} /> Excel
                   </button>
                 </div>
               )}

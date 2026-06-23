@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ErrorsAlertsResponse } from "@/app/api/dashboard/errors-alerts/route";
 import { useT } from "@/lib/i18n";
+import { AlertTriangle, Bot, Phone, ThumbsUp } from "lucide-react";
 
 // "Erreurs & Alertes" — surfaces system errors and call-quality anomalies for
 // the active org. All data comes from /api/dashboard/errors-alerts (org-scoped).
@@ -116,7 +117,7 @@ export function ErrorsAlertsTab() {
       {/* 1. Log des erreurs système */}
       <section>
         <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 8 }}>
-          ⚠ {t("Log des erreurs système")}
+          <AlertTriangle size={15} style={{ verticalAlign: "middle" }} /> {t("Log des erreurs système")}
         </div>
         <div className="card" style={{ padding: 12 }}>
           <div style={{ display: "flex", gap: 10, marginBottom: 10, flexWrap: "wrap", alignItems: "center" }}>
@@ -160,7 +161,7 @@ export function ErrorsAlertsTab() {
           </div>
           {data.errors.length === 0 ? (
             <p className="muted" style={{ margin: 0, padding: "12px 4px" }}>
-              {t("Aucune erreur enregistrée. 👍")}
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>{t("Aucune erreur enregistrée.")} <ThumbsUp size={15} /></span>
             </p>
           ) : (
             <table className="list" style={{ fontSize: 13 }}>
@@ -190,7 +191,7 @@ export function ErrorsAlertsTab() {
       {/* 2. Répondeurs à rappeler */}
       <section>
         <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 8 }}>
-          ☎ {t("Répondeurs à rappeler")} · <strong style={{ color: "var(--text)" }}>{data.callbacks_count}</strong>
+          <Phone size={14} style={{ verticalAlign: "middle" }} /> {t("Répondeurs à rappeler")} · <strong style={{ color: "var(--text)" }}>{data.callbacks_count}</strong>
         </div>
         <div className="card" style={{ padding: 12 }}>
           {data.callbacks.length === 0 ? (
@@ -236,7 +237,7 @@ export function ErrorsAlertsTab() {
       {/* 3. Robot awareness */}
       <section>
         <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 8 }}>
-          🤖 {t("Robot awareness")}
+          <Bot size={15} style={{ verticalAlign: "middle" }} /> {t("Robot awareness")}
         </div>
         <div className="card" style={{ padding: 12 }}>
           {data.robot_awareness.length === 0 ? (

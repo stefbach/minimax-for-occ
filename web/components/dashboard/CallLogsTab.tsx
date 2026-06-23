@@ -3,6 +3,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useT } from "@/lib/i18n";
+import { ArrowDownLeft, ArrowUpRight, Download, Eye, Headphones } from "lucide-react";
 import { bucketForCall, QUAL_BUCKETS, type QualBucket } from "@/lib/qualification";
 import { fixAudioDuration } from "@/lib/fix-audio-duration";
 import { matchesGlobalFilters, hasLeadScopedFilters, DEFAULT_GLOBAL_FILTERS, type GlobalFilters } from "@/lib/global-filters";
@@ -406,7 +407,7 @@ export function CallLogsTab({ from, to, direction, leadsSource = "prod", system 
                       </td>
                       <td>
                         <span style={{ color: (c.direction === "inbound" || c.direction === "in") ? "var(--info)" : "var(--muted)", marginRight: 4 }}>
-                          {(c.direction === "inbound" || c.direction === "in") ? "↘" : "↗"}
+                          {(c.direction === "inbound" || c.direction === "in") ? <ArrowDownLeft size={14} /> : <ArrowUpRight size={14} />}
                         </span>
                         {counterpartyName(c)}
                       </td>
@@ -467,7 +468,7 @@ export function CallLogsTab({ from, to, direction, leadsSource = "prod", system 
                               opacity: c.recording_url ? 1 : 0.35,
                             }}
                           >
-                            🎧
+                            <Headphones size={14} />
                           </button>
                           <Link
                             href={`/calls/${c.id}`}
@@ -478,7 +479,7 @@ export function CallLogsTab({ from, to, direction, leadsSource = "prod", system 
                               textDecoration: "none", color: "var(--text)",
                             }}
                           >
-                            👁
+                            <Eye size={14} />
                           </Link>
                         </div>
                       </td>
@@ -502,7 +503,7 @@ export function CallLogsTab({ from, to, direction, leadsSource = "prod", system 
                               className="ghost"
                               style={{ padding: "4px 10px", fontSize: 12, textDecoration: "none", color: "var(--text)" }}
                             >
-                              ⬇ {t("Télécharger")}
+                              <Download size={14} style={{ verticalAlign: "middle" }} /> {t("Télécharger")}
                             </a>
                           </div>
                         </td>

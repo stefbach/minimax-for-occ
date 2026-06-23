@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useT } from "@/lib/i18n";
+import { ArrowDownLeft, ArrowUpRight, CalendarDays } from "lucide-react";
 import { QUAL_BUCKETS } from "@/lib/qualification";
 import {
   DEFAULT_GLOBAL_FILTERS,
@@ -378,7 +379,7 @@ export function PeriodBar({
           style={{ padding: "5px 11px", fontSize: 13 }}
           title={t("Choisir une date ou un intervalle précis")}
         >
-          📅 {t("Personnalisé")}
+          <CalendarDays size={14} style={{ verticalAlign: "middle" }} /> {t("Personnalisé")}
         </button>
       </div>
 
@@ -395,7 +396,8 @@ export function PeriodBar({
           onChange={(e) => emitRange(e.target.value, range.au)}
           className={hasRange ? "" : "ghost"}
           style={{
-            padding: "4px 8px", fontSize: 13, width: "auto",             borderColor: hasRange ? "var(--accent)" : "var(--border)",
+            padding: "4px 8px", fontSize: 13, width: "auto", colorScheme: "dark",
+            borderColor: hasRange ? "var(--accent)" : "var(--border)",
           }}
           title={t("Date de début")}
         />
@@ -408,7 +410,8 @@ export function PeriodBar({
           onChange={(e) => emitRange(range.du, e.target.value)}
           className={hasRange ? "" : "ghost"}
           style={{
-            padding: "4px 8px", fontSize: 13, width: "auto",             borderColor: hasRange ? "var(--accent)" : "var(--border)",
+            padding: "4px 8px", fontSize: 13, width: "auto", colorScheme: "dark",
+            borderColor: hasRange ? "var(--accent)" : "var(--border)",
           }}
           title={t("Date de fin")}
         />
@@ -455,8 +458,8 @@ export function PeriodBar({
             style={{ width: "auto", padding: "5px 8px", fontSize: 13 }}
           >
             <option value="all">{t("Tous")}</option>
-            <option value="inbound">{t("↘ Entrants")}</option>
-            <option value="outbound">{t("↗ Sortants")}</option>
+            <option value="inbound">{t("Entrants")}</option>
+            <option value="outbound">{t("Sortants")}</option>
           </select>
         </div>
         <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>

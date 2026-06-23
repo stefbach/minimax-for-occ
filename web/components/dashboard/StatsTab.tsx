@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { AnalyticsResponse } from "@/app/api/dashboard/analytics/route";
 import { useT } from "@/lib/i18n";
+import { AlertTriangle, CalendarCheck, Clock, DollarSign, Flame, Lightbulb, Phone, Sparkles, Target } from "lucide-react";
 import { appendGlobalFilters, globalFiltersKey, DEFAULT_GLOBAL_FILTERS, type GlobalFilters } from "@/lib/global-filters";
 
 function fmtDuration(secs: number): string {
@@ -131,7 +132,7 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
         ];
         return (
           <div className="card">
-            <h3 style={{ marginTop: 0, marginBottom: 2 }}>💸 {t("Coûts des appels")}</h3>
+            <h3 style={{ marginTop: 0, marginBottom: 2, display: "flex", alignItems: "center", gap: 6 }}><DollarSign size={15} /> {t("Coûts des appels")}</h3>
             <p className="muted" style={{ fontSize: 12, margin: "0 0 12px" }}>{fmtMoney(cp.total)} {t("dépensés")} · {fmtMoney(data.previous.cost)} {t("période précédente")}</p>
             <div className="grid-kpi" style={{ marginBottom: 14 }}>
               {costTiles.map((tile) => (
@@ -214,7 +215,7 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
                 const max = Math.max(1, ...data.qualifications.map((x) => x.count));
                 return (
                   <div key={q.key} style={{ display: "grid", gridTemplateColumns: "160px 1fr 40px", gap: 8, alignItems: "center" }}>
-                    <span style={{ fontSize: 12 }}>{t(q.label)}</span>
+                    <span style={{ fontSize: 12 }}>{q.label}</span>
                     <div style={{ background: "var(--bg-2)", borderRadius: 4, overflow: "hidden", height: 14 }}>
                       <div style={{ width: `${(q.count / max) * 100}%`, height: "100%", background: q.count > 0 ? "var(--accent)" : "transparent" }} />
                     </div>
@@ -275,7 +276,7 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
           <div className="card">
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
               <div>
-                <h3 style={{ marginTop: 0, marginBottom: 2 }}>🔥 {t("Quand appeler — Jour × Heure")}</h3>
+                <h3 style={{ marginTop: 0, marginBottom: 2, display: "flex", alignItems: "center", gap: 6 }}><Flame size={15} /> {t("Quand appeler — Jour × Heure")}</h3>
                 <p className="muted" style={{ fontSize: 12, margin: 0 }}>
                   {heatMode === "rdv" ? t("Taux de RDV par créneau (≥3 appels)") : t("Taux de décroché par créneau (>15s, disconnect valide)")}
                 </p>
@@ -286,7 +287,7 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
                     className={heatMode === m ? "" : "ghost"}
                     style={{ padding: "4px 10px", fontSize: 12, border: "none", borderRadius: 0,
                       background: heatMode === m ? "var(--accent)" : "transparent", color: heatMode === m ? "#fff" : "var(--text)" }}>
-                    {m === "answer" ? `📞 ${t("Décroché")}` : `📅 ${t("RDV")}`}
+                    {m === "answer" ? <><Phone size={14} style={{ verticalAlign: "middle" }} /> {t("Décroché")}</> : <><CalendarCheck size={14} style={{ verticalAlign: "middle" }} /> {t("RDV")}</>}
                   </button>
                 ))}
               </div>
@@ -454,7 +455,7 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
         const best = [...data.slots].filter((s) => s.total >= 3).sort((a, b) => (b.answered / b.total) - (a.answered / a.total))[0];
         return (
           <div className="card">
-            <h3 style={{ marginTop: 0, marginBottom: 2 }}>🕑 {t("Volume par créneau")}</h3>
+            <h3 style={{ marginTop: 0, marginBottom: 2, display: "flex", alignItems: "center", gap: 6 }}><Clock size={15} /> {t("Volume par créneau")}</h3>
             <p className="muted" style={{ fontSize: 12, margin: "0 0 12px" }}>{t("Appels et taux de décroché · heure UK")}</p>
             <div style={{ display: "grid", gridTemplateColumns: `repeat(${data.slots.length}, 1fr)`, gap: 12 }}>
               {data.slots.map((s) => {
@@ -473,7 +474,7 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
             </div>
             {best && (
               <p style={{ fontSize: 12, marginTop: 12, marginBottom: 0 }}>
-                💡 <strong style={{ color: "var(--accent)" }}>{t("Recommandation")} :</strong> {t("Meilleur taux de réponse sur")} <strong>{best.label}</strong> ({pct(best.answered / best.total)}). {t("Concentrer les prochains appels sur ce créneau.")}
+                <Lightbulb size={15} style={{ verticalAlign: "middle" }} /> <strong style={{ color: "var(--accent)" }}>{t("Recommandation")} :</strong> {t("Meilleur taux de réponse sur")} <strong>{best.label}</strong> ({pct(best.answered / best.total)}). {t("Concentrer les prochains appels sur ce créneau.")}
               </p>
             )}
           </div>
@@ -485,7 +486,7 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
         <div className="card">
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
             <div>
-              <h3 style={{ marginTop: 0, marginBottom: 2 }}>✨ {t("Pipeline d'éligibilité (S2 UK NHS WMP)")}</h3>
+              <h3 style={{ marginTop: 0, marginBottom: 2, display: "flex", alignItems: "center", gap: 6 }}><Sparkles size={15} /> {t("Pipeline d'éligibilité (S2 UK NHS WMP)")}</h3>
               <p className="muted" style={{ fontSize: 12, margin: 0 }}>{t("BMI ≥ 40 (ou ≥ 35 avec comorbidité)")}</p>
             </div>
             <span style={{ fontSize: 12, padding: "3px 10px", borderRadius: 99, border: "1px solid color-mix(in srgb, var(--good) 50%, transparent)", color: "var(--good)" }}>
@@ -494,7 +495,7 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
           </div>
 
           <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.3, color: "var(--good)", margin: "12px 0 6px" }}>
-            🎯 {t("Éligibles & encore dans le pipeline")} ({data.eligibility.pipeline_count})
+            <Target size={15} style={{ verticalAlign: "middle" }} /> {t("Éligibles & encore dans le pipeline")} ({data.eligibility.pipeline_count})
           </div>
           {data.eligibility.in_pipeline.length === 0 ? (
             <p className="muted" style={{ fontSize: 13 }}>{t("Aucun éligible en attente.")}</p>
@@ -536,7 +537,7 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
           {data.eligibility.lost_count > 0 && (
             <>
               <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.3, color: "var(--warn)", margin: "14px 0 6px" }}>
-                ⚠️ {t("Éligibles mais perdus")} ({data.eligibility.lost_count.toLocaleString()}) — {t("revoir les raisons")}
+                <AlertTriangle size={15} style={{ verticalAlign: "middle" }} /> {t("Éligibles mais perdus")} ({data.eligibility.lost_count.toLocaleString()}) — {t("revoir les raisons")}
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                 {data.eligibility.lost_sample.map((l, i) => (
