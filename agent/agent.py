@@ -3848,36 +3848,47 @@ async def entrypoint(ctx: JobContext) -> None:
         else float(os.getenv("MIN_INTERRUPTION_DURATION", "0")) or None
     )
 
+    # ── INTERRUPTION FIX (Wati 2026-06-23) ─────────────────────────────────
+    # By default livekit-agents spins up its ML-based "AdaptiveInterruptionDetector"
+    # whenever the STT exposes streaming + aligned transcripts (AssemblyAI
+    # u3-rt-pro does). On an 8 kHz phone line that detector was SUPPRESSING
+    # normal-volume interruptions: a patient asking "What is the next step?" was
+    # classified as "not a real interruption" and the agent kept talking. Prod
+    # traces proved it — interruption_num_requests=1 for an entire call of
+    # repeated, increasingly loud attempts; the patient literally had to shout
+    # before it fired. This is STT-gated, NOT llm-gated, so it hit every agent
+    # (deepseek, openai, anthropic) identically.
+    #
+    # Fix: force interruption.mode="vad". That drops the ML classifier — any
+    # clear speech past min_interruption_duration (0.25s here) stops the agent
+    # immediately, like a normal call. This MUST go through the nested
+    # turn_handling dict: the deprecated flat-kwargs path (below) has no knob for
+    # the interruption mode, which is why the adaptive detector was always on.
     new_api_applied = False
     try:
-        from livekit.agents import TurnHandlingOptions  # type: ignore
-        try:
-            tho_params = set(_inspect.signature(TurnHandlingOptions.__init__).parameters)
-        except (ValueError, TypeError):
-            tho_params = set()
-        tho_candidate = {
-            "preemptive_generation": True,
-            "min_endpointing_delay": min_endp,
-            "allow_interruptions": True,
-            "turn_detection": chosen_turn_detector,
-        }
+        _session_params = set(_inspect.signature(AgentSession.__init__).parameters)
+    except (ValueError, TypeError):
+        _session_params = set()
+    if "turn_handling" in _session_params:
+        # TurnHandlingOptions is a TypedDict — a plain dict with these keys is
+        # accepted directly (and is forward/backward compatible: unknown keys on
+        # an older build are simply ignored rather than raising).
+        interruption_opts = {"mode": "vad", "enabled": True}
         if min_interruption:
-            tho_candidate["min_interruption_duration"] = min_interruption
-        tho_kwargs = {k: v for k, v in tho_candidate.items() if k in tho_params}
-        if tho_kwargs:
-            try:
-                _session_params = set(_inspect.signature(AgentSession.__init__).parameters)
-            except (ValueError, TypeError):
-                _session_params = set()
-            if "turn_handling" in _session_params:
-                session_kwargs["turn_handling"] = TurnHandlingOptions(**tho_kwargs)
-                new_api_applied = True
-                clog.info(
-                    "turn_handling: TurnHandlingOptions(turn_detection=%s, min_endpointing_delay=%.2f)",
-                    turn_detector_mode, min_endp,
-                )
-    except ImportError:
-        pass
+            interruption_opts["min_duration"] = min_interruption
+        turn_handling_cfg = {
+            "turn_detection": chosen_turn_detector,
+            "endpointing": {"min_delay": min_endp},
+            "interruption": interruption_opts,
+            "preemptive_generation": {"enabled": True},
+        }
+        session_kwargs["turn_handling"] = turn_handling_cfg
+        new_api_applied = True
+        clog.info(
+            "turn_handling: interruption.mode=vad (adaptive ML detector OFF), "
+            "turn_detection=%s, min_endpointing_delay=%.2f, min_interruption=%s",
+            turn_detector_mode, min_endp, min_interruption,
+        )
 
     if not new_api_applied:
         # Old API path. Pass only what this version's AgentSession accepts.
