@@ -819,7 +819,7 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
           />
         )}
 
-        <div className="softphone-center" style={{ display: "grid", gridTemplateColumns: (twilioCallState !== "idle" || activeCall) ? "minmax(0, 1fr) minmax(220px, 280px)" : "1fr", gap: 12, alignItems: "start" }}>
+        <div className="softphone-center" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(220px, 280px)", gap: 12, alignItems: "start" }}>
           <div className="card" style={{ padding: 12 }}>
           <h3 style={{ marginTop: 0 }}>{t("Composer un numéro")}</h3>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
@@ -981,16 +981,12 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
           <ScriptPanel callId={activeCall?.id ?? null} />
           </div>{/* close left card of softphone-center grid */}
 
-          {/* Call notes — only render during/after a call so it doesn't
-              take up space when the desk is idle. */}
-          {(twilioCallState !== "idle" || activeCall) && (
-            <CallNotePanel
-              e164={dialNumber}
-              callActive={twilioCallState !== "idle"}
-              lastCallEndedAt={lastCallEndedAt}
-              lastCallId={lastCallId}
-            />
-          )}
+          <CallNotePanel
+            e164={dialNumber}
+            callActive={twilioCallState !== "idle"}
+            lastCallEndedAt={lastCallEndedAt}
+            lastCallId={lastCallId}
+          />
         </div>{/* close softphone-center grid */}
 
         <ContactPanel call={activeCall} />
