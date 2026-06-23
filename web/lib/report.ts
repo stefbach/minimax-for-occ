@@ -435,8 +435,8 @@ export function generateXlsx(data: ReportData, frequency: ReportFrequency, patie
     XLSX.utils.book_append_sheet(wb, ws, `Needs human (${patients.passerHumain.length})`);
   }
 
-  const raw = XLSX.write(wb, { type: "array", bookType: "xlsx" }) as Uint8Array;
-  return new Blob([raw], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const raw = XLSX.write(wb, { type: "array", bookType: "xlsx" }) as number[];
+  return new Blob([new Uint8Array(raw)], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
 }
 
 // ─── Download helpers ───────────────────────────────────────────────────────
