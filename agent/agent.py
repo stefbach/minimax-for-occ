@@ -508,8 +508,15 @@ async def _warm_session_llm(llm, clog, instructions: str | None = None) -> None:
         # the first real turn will use (full prefill + cache write). Falls back
         # to the socket-only warmup if instructions are absent or the API
         # rejects a system role on this SDK version.
+        # REGRESSION REVERT (Wati 23/06): priming with the FULL system prompt
+        # (~3.8k tokens) made the first turn WORSE, not better. The LLM runs
+        # through the SHARED LiveKit Inference gateway, which was already
+        # logging "inference is slower than realtime" — firing a heavy warmup
+        # there can't pin a warm node for our turn, it just adds load to a
+        # saturating gateway. Back to the lightweight socket-only warmup.
+        # Re-enable the experiment explicitly with LLM_WARMUP_FULL_PROMPT=on.
         primed_full = False
-        if instructions:
+        if instructions and os.getenv("LLM_WARMUP_FULL_PROMPT", "off").lower() in ("1", "true", "yes", "on"):
             try:
                 ctx.add_message(role="system", content=instructions)
                 ctx.add_message(role="user", content="Reply with the single character: .")
