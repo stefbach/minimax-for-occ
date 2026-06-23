@@ -182,10 +182,8 @@ label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px
 }
 
 .main {
-  padding: 28px 32px 60px;
-  max-width: 1200px;
-  width: 100%;
-  margin: 0 auto;
+  padding: 28px 24px 60px;
+  min-width: 0;
 }
 @media (max-width: 760px) {
   .main { padding: 18px; }
