@@ -166,6 +166,7 @@ class ElevenLabsTelephonyTTS(tts.TTS):
         style: Optional[float] = None,
         speaker_boost: Optional[bool] = None,
         language: Optional[str] = None,
+        volume: Optional[float] = None,
         optimize_streaming_latency: Optional[int] = 3,
     ) -> None:
         spec = parse_elevenlabs_voice_id(voice_id)
@@ -205,16 +206,26 @@ class ElevenLabsTelephonyTTS(tts.TTS):
         self._speaker_boost = True if speaker_boost is None else bool(speaker_boost)
         self._language = language
         # Output gain baked into the µ-law decode table (see _build_ulaw_table).
-        # 1.0 = unchanged; >1.0 = louder. Default 1.4 (~+3 dB) lifts the quiet
-        # ulaw_8000 output to a normal phone level while leaving headroom so the
-        # speaker_boost on top doesn't clip loud syllables. If still too low,
-        # raise ELEVENLABS_OUTPUT_GAIN; if it saturates, lower it.
+        # 1.0 = unchanged; >1.0 = louder. The GLOBAL default 1.4 (~+3 dB) lifts
+        # the quiet ulaw_8000 output to a normal phone level for every voice.
         try:
-            self._output_gain = float(os.getenv("ELEVENLABS_OUTPUT_GAIN", "1.4"))
+            _env_gain = float(os.getenv("ELEVENLABS_OUTPUT_GAIN", "1.4"))
         except (TypeError, ValueError):
-            self._output_gain = 1.4
-        if self._output_gain < 1.0:
-            self._output_gain = 1.0  # never attenuate below source
+            _env_gain = 1.4
+        # Per-agent loudness (agents.tts_volume). 1.0 = leave the global gain as
+        # is; >1.0 makes THIS voice louder, <1.0 quieter. Lets a naturally soft
+        # voice (e.g. Charlotte) be lifted to match the others WITHOUT touching
+        # the global ELEVENLABS_OUTPUT_GAIN or any other agent. Folded into the
+        # same baked µ-law table, so there's still zero per-sample CPU at runtime.
+        try:
+            _vol = float(volume) if volume is not None else 1.0
+        except (TypeError, ValueError):
+            _vol = 1.0
+        if _vol <= 0:
+            _vol = 1.0
+        # Clamp the COMBINED gain: floor 0.5 (don't bury a voice), ceiling 4.0
+        # (past ~+12 dB the int16 clamp flattens too many peaks → distortion).
+        self._output_gain = max(0.5, min(4.0, _env_gain * _vol))
         self._ulaw_table = _build_ulaw_table(self._output_gain)
         try:
             self._opt_latency = (

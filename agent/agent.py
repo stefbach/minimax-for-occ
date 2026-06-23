@@ -847,6 +847,7 @@ def _tts_for(agent: Optional[AxonAgent], sample_rate: Optional[int] = None):
                 language=(
                     (agent.tts_language if agent and agent.tts_language else None)
                 ),
+                volume=(agent.tts_volume if agent else None),
                 optimize_streaming_latency=_env_int(
                     "ELEVENLABS_STREAMING_LATENCY", 3
                 ),
