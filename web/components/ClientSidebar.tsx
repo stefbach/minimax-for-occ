@@ -3,11 +3,13 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import { Brand } from "./brand/Brand";
 import { OrgSwitcher } from "./OrgSwitcher";
 import { ThemeLangSwitcher } from "./ThemeLangSwitcher";
 import { useT } from "@/lib/i18n";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+import { Heart, Menu, Music, Pencil, Settings, X, Zap } from "lucide-react";
 import { effectiveModules, isModuleId, type ModuleId } from "@/lib/permissions";
 
 // Width below which the sidebar morphs into a slide-in drawer. Kept in sync
@@ -28,7 +30,7 @@ type Role =
 interface NavItem {
   href: string;
   label: string;
-  icon: string;
+  icon: ReactNode;
   group: string;
   /** Which module this entry belongs to. Items without a module are visible
    *  to every authenticated user (e.g. /start, /help). Visibility is now
@@ -77,16 +79,16 @@ const NAV: NavItem[] = [
   { href: "/mon-calendrier/ia", label: "Calendrier IA", icon: "🤖", group: "Overview", module: "desk", indent: true },
   { href: "/desk/supervise",  label: "Supervision",     icon: "◷", group: "Overview", module: "desk", requiredRoles: SUPERVISOR_ROLES },
   { href: "/supervise/live",  label: "Supervision live", icon: "◉", group: "Overview", module: "desk", requiredRoles: SUPERVISOR_ROLES },
-  { href: "/mes-patients",    label: "Mes patients",    icon: "☰", group: "Overview", module: "desk" },
+  { href: "/mes-patients",    label: "Mes patients",    icon: <Menu size={16} />, group: "Overview", module: "desk" },
   { href: "/alerts",    label: "Alertes",          icon: "!", group: "Overview", module: "alerts" },
 
   // ─── CONFIGURATION ───
   { href: "/agents",         label: "Agents",                icon: "◇", group: "Configuration", module: "agents" },
   { href: "/outbound-call",  label: "Appel sortant",         icon: "☎", group: "Configuration", module: "agents" },
   { href: "/teams",          label: "Teams IA",              icon: "⌬", group: "Configuration", module: "agents" },
-  { href: "/scripts",        label: "Scripts",               icon: "✎", group: "Configuration", module: "agents" },
+  { href: "/scripts",        label: "Scripts",               icon: <Pencil size={16} />, group: "Configuration", module: "agents" },
   { href: "/agents/library", label: "Bibliothèque persona", icon: "⊕", group: "Configuration", module: "agents" },
-  { href: "/voices",         label: "Voice Studio",          icon: "♪", group: "Configuration", module: "agents" },
+  { href: "/voices",         label: "Voice Studio",          icon: <Music size={16} />, group: "Configuration", module: "agents" },
 
   // ─── OPÉRATIONS ───
   { href: "/campaigns", label: "Campagnes",      icon: "⇈", group: "Opérations", module: "campaigns" },
@@ -101,11 +103,11 @@ const NAV: NavItem[] = [
   // ─── DONNÉES ───
   { href: "/contacts",       label: "CRM / Contacts",      icon: "◐", group: "Données", module: "contacts" },
   { href: "/numbers",        label: "Numéros de téléphone", icon: "✆", group: "Données", module: "numbers" },
-  { href: "/numbers/health", label: "Santé des numéros",   icon: "♥", group: "Données", module: "numbers" },
+  { href: "/numbers/health", label: "Santé des numéros",   icon: <Heart size={16} />, group: "Données", module: "numbers" },
 
   // ─── COMPTE ───
   { href: "/team",      label: "Équipe",          icon: "◉", group: "Compte", module: "team" },
-  { href: "/settings",  label: "Paramètres",      icon: "⚙", group: "Compte", module: "settings" },
+  { href: "/settings",  label: "Paramètres",      icon: <Settings size={16} />, group: "Compte", module: "settings" },
   { href: "/help",      label: "Guide",           icon: "?", group: "Compte" },
 ];
 
@@ -292,7 +294,7 @@ export function ClientSidebar() {
         aria-controls="client-sidebar"
         onClick={() => setDrawerOpen((v) => !v)}
       >
-        {drawerOpen ? "✕" : "☰"}
+        {drawerOpen ? <X size={16} /> : <Menu size={16} />}
       </button>
 
       {/* Backdrop — tap-to-close. `display: none` by default; the media
@@ -357,7 +359,7 @@ export function ClientSidebar() {
             aria-expanded={advancedOpen}
           >
             <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span aria-hidden="true" style={{ fontSize: 12, opacity: 0.7 }}>⚙</span>
+              <span aria-hidden="true" style={{ opacity: 0.7, display: "inline-flex" }}><Settings size={16} /></span>
               <span>Avancé</span>
               <span
                 style={{
@@ -400,7 +402,7 @@ export function ClientSidebar() {
                 justifyContent: "center",
               }}
             >
-              <span aria-hidden="true">⚡</span>
+              <Zap size={16} aria-hidden="true" />
               <span>Mode admin Axon</span>
             </Link>
           </div>

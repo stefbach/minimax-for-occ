@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useT } from "@/lib/i18n";
+import { ArrowDownLeft, ArrowUpRight, CalendarDays } from "lucide-react";
 import { QUAL_BUCKETS } from "@/lib/qualification";
 import {
   DEFAULT_GLOBAL_FILTERS,
@@ -391,7 +392,7 @@ export function PeriodBar({
           style={{ padding: "5px 11px", fontSize: 13 }}
           title={t("Choisir une date ou un intervalle précis")}
         >
-          📅 {t("Personnalisé")}
+          <CalendarDays size={14} style={{ verticalAlign: "middle" }} /> {t("Personnalisé")}
         </button>
       </div>
 
@@ -470,8 +471,8 @@ export function PeriodBar({
             style={{ width: "auto", padding: "5px 8px", fontSize: 13 }}
           >
             <option value="all">{t("Tous")}</option>
-            <option value="inbound">{t("↘ Entrants")}</option>
-            <option value="outbound">{t("↗ Sortants")}</option>
+            <option value="inbound">{t("Entrants")}</option>
+            <option value="outbound">{t("Sortants")}</option>
           </select>
         </div>
         <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>

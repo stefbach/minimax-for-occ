@@ -2,9 +2,13 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import {
+  AlertTriangle, BarChart2, Building2, ClipboardList, Home, Phone, Radio, Sparkles,
+  Inbox, MessageSquare, Users, UserRound,
+} from "lucide-react";
 import type { DashboardOverviewResponse } from "@/app/api/dashboard/overview/route";
-import type { NhsPatientsResponse } from "@/app/api/dashboard/nhs-suivi/patients/route";
 import { KpiGrid } from "./KpiGrid";
 import { VolumeChart } from "./VolumeChart";
 import { DispositionsList } from "./DispositionsList";
@@ -29,18 +33,18 @@ import { ApiStatusPill } from "./ApiStatusPill";
 import { useT } from "@/lib/i18n";
 
 type TabId = "overview" | "stats" | "logs" | "entrants" | "sms" | "live" | "errors" | "ai" | "leads" | "nhs" | "rain";
-const ALL_TABS: { id: TabId; label: string; icon: string }[] = [
-  { id: "overview", label: "Vue d'ensemble", icon: "🏠" },
-  { id: "stats", label: "Statistiques", icon: "📊" },
-  { id: "logs", label: "Call Logs", icon: "📋" },
-  { id: "entrants", label: "Entrants", icon: "📥" },
-  { id: "sms", label: "SMS", icon: "💬" },
-  { id: "live", label: "Live", icon: "🔴" },
-  { id: "errors", label: "Erreurs & Alertes", icon: "⚠️" },
-  { id: "ai", label: "AI Insights", icon: "✨" },
-  { id: "leads", label: "Leads", icon: "👥" },
-  { id: "nhs", label: "Suivi NHS S2", icon: "🏥" },
-  { id: "rain", label: "Suivi Rain", icon: "👩" },
+const ALL_TABS: { id: TabId; label: string; icon: ReactNode }[] = [
+  { id: "overview", label: "Vue d'ensemble", icon: <Home size={15} /> },
+  { id: "stats", label: "Statistiques", icon: <BarChart2 size={15} /> },
+  { id: "logs", label: "Call Logs", icon: <ClipboardList size={15} /> },
+  { id: "entrants", label: "Entrants", icon: <Inbox size={15} /> },
+  { id: "sms", label: "SMS", icon: <MessageSquare size={15} /> },
+  { id: "live", label: "Live", icon: <Radio size={15} /> },
+  { id: "errors", label: "Erreurs & Alertes", icon: <AlertTriangle size={15} /> },
+  { id: "ai", label: "AI Insights", icon: <Sparkles size={15} /> },
+  { id: "leads", label: "Leads", icon: <Users size={15} /> },
+  { id: "nhs", label: "Suivi NHS S2", icon: <Building2 size={15} /> },
+  { id: "rain", label: "Suivi Rain", icon: <UserRound size={15} /> },
 ];
 
 // Short human label for the active period, e.g. "05/06" or "01/06 – 05/06".
@@ -204,7 +208,7 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
       <div style={{ flex: 1, minWidth: 0, width: "100%", display: "flex", flexDirection: "column", gap: 18 }}>
         <div className="page-header" style={{ marginBottom: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <span style={{ fontSize: 22 }}>📞</span>
+            <Phone size={16} aria-hidden="true" />
             <div>
               <h1 style={{ margin: 0 }}>{t("Tableau de bord des appels")}</h1>
               <div className="subtitle">{t("Pilotage et analyse de vos appels Axon")}.</div>
@@ -258,7 +262,7 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
 
         {/* Section header — tells the operator which tab they're in (legacy
             parity), with the active period for the period-scoped tabs.
-            Skipped for the NHS tab which renders its own header. */}
+            Skipped for the NHS and Rain tabs which render their own header. */}
         {tab !== "nhs" && tab !== "rain" && (() => {
           const active = TABS.find((x) => x.id === tab);
           if (!active) return null;
