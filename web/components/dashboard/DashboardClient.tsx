@@ -14,6 +14,7 @@ import { CallLogsTab } from "./CallLogsTab";
 import { StatsTab } from "./StatsTab";
 import { DirectorTab } from "./DirectorTab";
 import { AiInsightsTab } from "./AiInsightsTab";
+import { LeadsTab } from "./LeadsTab";
 import { NhsSuiviTab } from "./NhsSuiviTab";
 import { ErrorsAlertsTab } from "./ErrorsAlertsTab";
 import { PeriodBar, presetToRange, DEFAULT_FILTERS, type Period, type Filters } from "./PeriodBar";
@@ -23,7 +24,7 @@ import { ReportButton } from "./ReportButton";
 import { ApiStatusPill } from "./ApiStatusPill";
 import { useT } from "@/lib/i18n";
 
-type TabId = "overview" | "stats" | "logs" | "live" | "errors" | "ai" | "nhs";
+type TabId = "overview" | "stats" | "logs" | "live" | "errors" | "ai" | "leads" | "nhs";
 const ALL_TABS: { id: TabId; label: string; icon: string }[] = [
   { id: "overview", label: "Vue d'ensemble", icon: "🏠" },
   { id: "stats", label: "Statistiques", icon: "📊" },
@@ -31,6 +32,7 @@ const ALL_TABS: { id: TabId; label: string; icon: string }[] = [
   { id: "live", label: "Live", icon: "🔴" },
   { id: "errors", label: "Erreurs & Alertes", icon: "⚠️" },
   { id: "ai", label: "AI Insights", icon: "✨" },
+  { id: "leads", label: "Leads", icon: "👥" },
   { id: "nhs", label: "Suivi NHS S2", icon: "🏥" },
 ];
 
@@ -186,7 +188,7 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
         {tab !== "nhs" && (() => {
           const active = TABS.find((x) => x.id === tab);
           if (!active) return null;
-          const periodScoped = tab === "overview" || tab === "stats" || tab === "logs" || tab === "ai";
+          const periodScoped = tab === "overview" || tab === "stats" || tab === "logs" || tab === "ai" || tab === "leads";
           return (
             <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
               <h2 style={{ margin: 0, fontSize: 19 }}>
@@ -251,6 +253,13 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
               system={filters.system}
               periodLabel={periodLabelFor(period)}
             />
+          </>
+        )}
+
+        {tab === "leads" && (
+          <>
+            <PeriodBar period={period} filters={filters} onPeriod={setPeriod} onFilters={setFilters} />
+            <LeadsTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} system={filters.system} global={filters} refreshKey={refreshKey} orgId={orgId} />
           </>
         )}
 
