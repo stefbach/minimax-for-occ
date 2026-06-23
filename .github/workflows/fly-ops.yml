@@ -1,0 +1,175 @@
+name: Fly Ops
+
+# Diagnostic / opérations ponctuelles sur les apps Fly, déclenchées à la main
+# (workflow_dispatch). Créé le 12/06/2026 pour diagnostiquer pourquoi le worker
+# axon-agent enregistré sur LiveKit cesse de recevoir les dispatches quelques
+# minutes après son démarrage (appels 10:29 et 10:32 sans agent dans la room).
+# Le streaming `fly logs` côté client perd des lignes ; ce workflow récupère
+# l'état machine + les logs côté serveur via le FLY_API_TOKEN des secrets.
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "diagnose | restart-agent | list-secrets | probe-dispatch | bench-deepseek | bench-anthropic | bench-lk-inference | check-replicate-schema | test-replicate-predict | tighten-watchdog | probe-replicate-import | check-agent-source | inspect-anthropic"
+        required: true
+        default: "diagnose"
+
+jobs:
+  ops:
+    runs-on: ubuntu-latest
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+    steps:
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Machine state (axon-agent)
+        if: ${{ github.event.inputs.action == 'diagnose' }}
+        run: |
+          echo "===== fly status -a axon-agent ====="
+          flyctl status -a axon-agent || true
+          echo ""
+          echo "===== machine config (json) ====="
+          flyctl machine list -a axon-agent --json > machines.json || true
+          jq '.[] | {id, state, region, created_at, updated_at,
+                     restart: .config.restart,
+                     services: .config.services,
+                     checks: .config.checks,
+                     auto_destroy: .config.auto_destroy,
+                     guest: .config.guest}' machines.json || cat machines.json
+
+      - name: Server-side logs (axon-agent)
+        if: ${{ github.event.inputs.action == 'diagnose' }}
+        run: |
+          echo "===== fly logs -a axon-agent (server-side, no-tail) ====="
+          timeout 60 flyctl logs -a axon-agent --no-tail || true
+
+      - name: Machine events + CPU/process state (axon-agent)
+        if: ${{ github.event.inputs.action == 'diagnose' }}
+        run: |
+          echo "===== machine status (event history) ====="
+          for id in $(flyctl machine list -a axon-agent --json | jq -r '.[].id'); do
+            flyctl machine status "$id" -a axon-agent || true
+          done
+          echo ""
+          echo "===== load average (in-machine) ====="
+          timeout 60 flyctl ssh console -a axon-agent -C "cat /proc/loadavg" || true
+          echo ""
+          echo "===== processes (in-machine, via /proc) ====="
+          timeout 60 flyctl ssh console -a axon-agent -C "python -c \"import os,glob; [print(p.split('/')[2], open(p).read().strip()[:120]) for p in glob.glob('/proc/[0-9]*/cmdline') if open(p).read().strip()]\"" || true
+          echo ""
+          echo "===== worker HTTP :8081 (event-loop alive?) ====="
+          timeout 60 flyctl ssh console -a axon-agent -C "python -c \"import urllib.request; r=urllib.request.urlopen('http://127.0.0.1:8081/', timeout=5); print('HTTP', r.status, r.read()[:200])\"" || \
+            echo "PROBE FAILED — worker event loop likely blocked or HTTP server down"
+
+      - name: Server-side logs (dialer)
+        if: ${{ github.event.inputs.action == 'diagnose' }}
+        run: |
+          echo "===== fly logs -a minimax-for-occ (server-side, no-tail) ====="
+          timeout 60 flyctl logs -a minimax-for-occ --no-tail || true
+
+      - name: LiveKit Cloud status + agent-name env
+        if: ${{ github.event.inputs.action == 'diagnose' || github.event.inputs.action == 'probe-dispatch' }}
+        run: |
+          echo "===== status.livekit.io ====="
+          curl -s --max-time 15 https://status.livekit.io/api/v2/summary.json | head -c 2000 || true
+          echo ""
+          echo "===== LIVEKIT_AGENT_NAME dans l'env de la machine agent ====="
+          timeout 30 flyctl ssh console -a axon-agent -C "python -c \"import os; print('LIVEKIT_AGENT_NAME =', os.getenv('LIVEKIT_AGENT_NAME', '(non défini — défaut du code)'))\"" || true
+          echo ""
+          echo "===== Cles API critiques sur la machine agent (presence seule, valeur masquee) ====="
+          BKEYS="aW1wb3J0IG9zCmZvciBrIGluICgnUkVQTElDQVRFX0FQSV9UT0tFTicsICdSRVBMSUNBVEVfQVBJX0tFWScsICdDQVJURVNJQV9BUElfS0VZJywgJ0FTU0VNQkxZQUlfQVBJX0tFWScsICdERUVQU0VFS19BUElfS0VZJywgJ09QRU5BSV9BUElfS0VZJywgJ0FOVEhST1BJQ19BUElfS0VZJywgJ01JTklNQVhfQVBJX0tFWScpOgogICAgdiA9IG9zLmdldGVudihrKQogICAgbXNnID0gKCdPSyAoJyArIHN0cihsZW4odikpICsgJyBjaGFycyknKSBpZiB2IGVsc2UgJ01JU1NJTkcnCiAgICBwcmludCgnICAnICsgay5sanVzdCgyNSkgKyAnID0gJyArIG1zZykK"
+          timeout 30 flyctl ssh console -a axon-agent -C "python -c \"import base64;exec(base64.b64decode('$BKEYS').decode())\"" || true
+
+      - name: Probe dispatch (room de test, aucun appel téléphonique)
+        if: ${{ github.event.inputs.action == 'probe-dispatch' }}
+        run: |
+          # Crée une room + un dispatch agent depuis la machine axon-agent
+          # (clés LiveKit déjà dans son env) et vérifie si le worker reçoit
+          # le job. Script passé en base64 pour éviter l'enfer du quoting.
+          B64="CmltcG9ydCBhc3luY2lvLCBvcwpmcm9tIGxpdmVraXQgaW1wb3J0IGFwaQoKQUdFTlQgPSBvcy5nZXRlbnYoIkxJVkVLSVRfQUdFTlRfTkFNRSIsICJheG9uLXZvaWNlLWFnZW50IikKCmFzeW5jIGRlZiBtYWluKCk6CiAgICBwcmludCgicHJvYmluZyBhZ2VudF9uYW1lOiIsIEFHRU5UKQogICAgbGsgPSBhcGkuTGl2ZUtpdEFQSSgpCiAgICByb29tID0gImRpc3BhdGNoLXByb2JlLXRlc3QiCiAgICB0cnk6CiAgICAgICAgYXdhaXQgbGsucm9vbS5kZWxldGVfcm9vbShhcGkuRGVsZXRlUm9vbVJlcXVlc3Qocm9vbT1yb29tKSkKICAgIGV4Y2VwdCBFeGNlcHRpb246CiAgICAgICAgcGFzcwogICAgYXdhaXQgbGsucm9vbS5jcmVhdGVfcm9vbShhcGkuQ3JlYXRlUm9vbVJlcXVlc3QobmFtZT1yb29tLCBlbXB0eV90aW1lb3V0PTMwKSkKICAgIGQgPSBhd2FpdCBsay5hZ2VudF9kaXNwYXRjaC5jcmVhdGVfZGlzcGF0Y2goCiAgICAgICAgYXBpLkNyZWF0ZUFnZW50RGlzcGF0Y2hSZXF1ZXN0KGFnZW50X25hbWU9QUdFTlQsIHJvb209cm9vbSwgbWV0YWRhdGE9Int9IikpCiAgICBwcmludCgiZGlzcGF0Y2ggY3JlYXRlZDoiLCBnZXRhdHRyKGQsICJpZCIsIGQpKQogICAgam9pbmVkID0gRmFsc2UKICAgIGZvciBpIGluIHJhbmdlKDE1KToKICAgICAgICBhd2FpdCBhc3luY2lvLnNsZWVwKDEpCiAgICAgICAgcGFydHMgPSBhd2FpdCBsay5yb29tLmxpc3RfcGFydGljaXBhbnRzKGFwaS5MaXN0UGFydGljaXBhbnRzUmVxdWVzdChyb29tPXJvb20pKQogICAgICAgIGlkcyA9IFtwLmlkZW50aXR5IGZvciBwIGluIHBhcnRzLnBhcnRpY2lwYW50c10KICAgICAgICBwcmludCgidCslZHMgcGFydGljaXBhbnRzOiIgJSAoaSArIDEpLCBpZHMpCiAgICAgICAgaWYgYW55KHguc3RhcnRzd2l0aCgiYWdlbnQtIikgZm9yIHggaW4gaWRzKToKICAgICAgICAgICAgcHJpbnQoIlJFU1VMVDogQUdFTlQgSk9JTkVEIOKAlCBkaXNwYXRjaCBwYXRoIE9LIikKICAgICAgICAgICAgam9pbmVkID0gVHJ1ZQogICAgICAgICAgICBicmVhawogICAgaWYgbm90IGpvaW5lZDoKICAgICAgICBwcmludCgiUkVTVUxUOiBOTyBBR0VOVCBhZnRlciAxNXMg4oCUIGRpc3BhdGNoIHBhdGggQlJPS0VOIHBvdXIiLCBBR0VOVCkKICAgIHRyeToKICAgICAgICBhd2FpdCBsay5yb29tLmRlbGV0ZV9yb29tKGFwaS5EZWxldGVSb29tUmVxdWVzdChyb29tPXJvb20pKQogICAgZXhjZXB0IEV4Y2VwdGlvbjoKICAgICAgICBwYXNzCiAgICBhd2FpdCBsay5hY2xvc2UoKQoKYXN5bmNpby5ydW4obWFpbigpKQo="
+          timeout 90 flyctl ssh console -a axon-agent -C "python -c \"import base64;exec(base64.b64decode('$B64').decode())\"" || true
+          echo ""
+          echo "===== logs worker pendant la sonde ====="
+          timeout 30 flyctl logs -a axon-agent --no-tail | tail -30 || true
+
+      - name: Bench DeepSeek TTFT (depuis la machine agent, réseau identique aux appels)
+        if: ${{ github.event.inputs.action == 'bench-deepseek' }}
+        run: |
+          B64="CmltcG9ydCBqc29uLCB0aW1lLCB1cmxsaWIucmVxdWVzdCwgb3MKCmtleSA9IG9zLmVudmlyb24uZ2V0KCJEU0siLCAiIikKdXJsID0gImh0dHBzOi8vYXBpLmRlZXBzZWVrLmNvbS92MS9jaGF0L2NvbXBsZXRpb25zIgoKVE9PTFMgPSBbCiAgICB7InR5cGUiOiAiZnVuY3Rpb24iLCAiZnVuY3Rpb24iOiB7Im5hbWUiOiAic2F2ZV9jb250YWN0X2RhdGEiLCAiZGVzY3JpcHRpb24iOiAiU2F1dmVnYXJkZSBsZXMgaW5mb3JtYXRpb25zIGR1IHBhdGllbnQgZGFucyBsZSBDUk0iLCAicGFyYW1ldGVycyI6IHsidHlwZSI6ICJvYmplY3QiLCAicHJvcGVydGllcyI6IHsicG9pZHMiOiB7InR5cGUiOiAibnVtYmVyIn0sICJ0YWlsbGUiOiB7InR5cGUiOiAibnVtYmVyIn0sICJxdWFsaWZpY2F0aW9uIjogeyJ0eXBlIjogInN0cmluZyJ9LCAibm90ZSI6IHsidHlwZSI6ICJzdHJpbmcifSwgInJhcHBlbCI6IHsidHlwZSI6ICJzdHJpbmcifX19fX0sCiAgICB7InR5cGUiOiAiZnVuY3Rpb24iLCAiZnVuY3Rpb24iOiB7Im5hbWUiOiAidHJhbnNmZXJfdG9faHVtYW4iLCAiZGVzY3JpcHRpb24iOiAiVHJhbnNmZXJlIGwgYXBwZWwgYSB1biBhZ2VudCBodW1haW4iLCAicGFyYW1ldGVycyI6IHsidHlwZSI6ICJvYmplY3QiLCAicHJvcGVydGllcyI6IHsicmFpc29uIjogeyJ0eXBlIjogInN0cmluZyJ9fX19fSwKICAgIHsidHlwZSI6ICJmdW5jdGlvbiIsICJmdW5jdGlvbiI6IHsibmFtZSI6ICJoYW5kb2ZmX3RvX2FnZW50IiwgImRlc2NyaXB0aW9uIjogIlBhc3NlIGwgYXBwZWwgYSB1biBhdXRyZSBhZ2VudCBJQSIsICJwYXJhbWV0ZXJzIjogeyJ0eXBlIjogIm9iamVjdCIsICJwcm9wZXJ0aWVzIjogeyJhZ2VudCI6IHsidHlwZSI6ICJzdHJpbmcifX19fX0sCiAgICB7InR5cGUiOiAiZnVuY3Rpb24iLCAiZnVuY3Rpb24iOiB7Im5hbWUiOiAiZW5kX2NhbGwiLCAiZGVzY3JpcHRpb24iOiAiVGVybWluZSBsIGFwcGVsIHBvbGltZW50IiwgInBhcmFtZXRlcnMiOiB7InR5cGUiOiAib2JqZWN0IiwgInByb3BlcnRpZXMiOiB7InJhaXNvbiI6IHsidHlwZSI6ICJzdHJpbmcifX19fX0sCl0KCmRlZiB0dGZ0KHdpdGhfdG9vbHMpOgogICAgZmlsbGVyID0gIkNvbnRleHRlIGRlIGNhbXBhZ25lLCBsaWduZSBkZSBzY3JpcHQgbnVtZXJvIDEuICIgKiAzODAKICAgIGJvZHkgPSB7CiAgICAgICAgIm1vZGVsIjogImRlZXBzZWVrLWNoYXQiLAogICAgICAgICJzdHJlYW0iOiBUcnVlLAogICAgICAgICJtYXhfdG9rZW5zIjogMzAsCiAgICAgICAgIm1lc3NhZ2VzIjogWwogICAgICAgICAgICB7InJvbGUiOiAic3lzdGVtIiwgImNvbnRlbnQiOiAiVHUgZXMgQ2hhcmxvdHRlLCBhZ2VudGUgZGUgbGEgY2xpbmlxdWUuICIgKyBmaWxsZXJ9LAogICAgICAgICAgICB7InJvbGUiOiAidXNlciIsICJjb250ZW50IjogIlllcywgaXQncyBtZS4ifSwKICAgICAgICBdLAogICAgfQogICAgaWYgd2l0aF90b29sczoKICAgICAgICBib2R5WyJ0b29scyJdID0gVE9PTFMKICAgIHJlcSA9IHVybGxpYi5yZXF1ZXN0LlJlcXVlc3QodXJsLCBkYXRhPWpzb24uZHVtcHMoYm9keSkuZW5jb2RlKCksCiAgICAgICAgaGVhZGVycz17IkF1dGhvcml6YXRpb24iOiAiQmVhcmVyICIgKyBrZXksICJDb250ZW50LVR5cGUiOiAiYXBwbGljYXRpb24vanNvbiJ9KQogICAgdDAgPSB0aW1lLnRpbWUoKQogICAgd2l0aCB1cmxsaWIucmVxdWVzdC51cmxvcGVuKHJlcSwgdGltZW91dD00MCkgYXMgcjoKICAgICAgICBmb3IgbGluZSBpbiByOgogICAgICAgICAgICBpZiBsaW5lLnN0YXJ0c3dpdGgoYiJkYXRhOiAiKSBhbmQgKGIiY29udGVudCIgaW4gbGluZSBvciBiInRvb2xfY2FsbHMiIGluIGxpbmUpOgogICAgICAgICAgICAgICAgcmV0dXJuICh0aW1lLnRpbWUoKSAtIHQwKSAqIDEwMDAKICAgIHJldHVybiAtMQoKZm9yIGxhYmVsLCB3dCBpbiBbKCJTQU5TIG91dGlscyIsIEZhbHNlKSwgKCJBVkVDIG91dGlscyAoY29tbWUgbGVzIHZyYWlzIGFwcGVscykiLCBUcnVlKV06CiAgICB2YWxzID0gW10KICAgIGZvciBpIGluIHJhbmdlKDMpOgogICAgICAgIHRyeToKICAgICAgICAgICAgdmFscy5hcHBlbmQodHRmdCh3dCkpCiAgICAgICAgZXhjZXB0IEV4Y2VwdGlvbiBhcyBlOgogICAgICAgICAgICBwcmludChsYWJlbCwgImVzc2FpIiwgaSwgImVycmV1cjoiLCBlKQogICAgaWYgdmFsczoKICAgICAgICBwcmludCgiVFRGVCAlcyA6IGVzc2Fpcz0lcyBtcyDigJQgbcOpZGlhbmU9JS4wZiBtcyIgJSAobGFiZWwsIFtpbnQodikgZm9yIHYgaW4gdmFsc10sIHNvcnRlZCh2YWxzKVtsZW4odmFscykvLzJdKSkK"
+          timeout 120 flyctl ssh console -a axon-agent -C "python -c \"import base64,os;os.environ['DSK']=os.environ.get('DEEPSEEK_API_KEY','');exec(base64.b64decode('$B64').decode())\"" || true
+
+      - name: Bench LiveKit Inference (validation modeles + TTFT, zero appel)
+        if: ${{ github.event.inputs.action == 'bench-lk-inference' }}
+        run: |
+          B64="CmltcG9ydCBhc3luY2lvLCB0aW1lCgpDQU5ESURBVEVTID0gWwogICAgImRlZXBzZWVrLWFpL0RlZXBTZWVrLVYzLjEiLAogICAgImRlZXBzZWVrLWFpL2RlZXBzZWVrLXYzLjEiLAogICAgImRlZXBzZWVrL2RlZXBzZWVrLXYzLjEiLAogICAgImRlZXBzZWVrLWFpL0RlZXBTZWVrLVYzIiwKICAgICJvcGVuYWkvZ3B0LTRvLW1pbmkiLApdCgphc3luYyBkZWYgdHJ5X21vZGVsKG1pZCk6CiAgICBmcm9tIGxpdmVraXQuYWdlbnRzIGltcG9ydCBpbmZlcmVuY2UKICAgIGZyb20gbGl2ZWtpdC5hZ2VudHMubGxtIGltcG9ydCBDaGF0Q29udGV4dAogICAgbGxtID0gaW5mZXJlbmNlLkxMTShtb2RlbD1taWQpCiAgICBjdHggPSBDaGF0Q29udGV4dCgpCiAgICBjdHguYWRkX21lc3NhZ2Uocm9sZT0ic3lzdGVtIiwgY29udGVudD0iVHUgZXMgQ2hhcmxvdHRlLCBhZ2VudGUgZGUgbGEgY2xpbmlxdWUuICIgKyAoIkNvbnRleHRlIHNjcmlwdC4gIiAqIDMwMCkpCiAgICBjdHguYWRkX21lc3NhZ2Uocm9sZT0idXNlciIsIGNvbnRlbnQ9IlllcywgaXQgaXMgbWUuIikKICAgIHQwID0gdGltZS50aW1lKCkKICAgIGZpcnN0ID0gTm9uZQogICAgdHJ5OgogICAgICAgIHN0cmVhbSA9IGxsbS5jaGF0KGNoYXRfY3R4PWN0eCkKICAgICAgICBhc3luYyB3aXRoIHN0cmVhbToKICAgICAgICAgICAgYXN5bmMgZm9yIGNodW5rIGluIHN0cmVhbToKICAgICAgICAgICAgICAgIGRlbHRhID0gZ2V0YXR0cihjaHVuaywgImRlbHRhIiwgTm9uZSkKICAgICAgICAgICAgICAgIGlmIGRlbHRhIGlzIG5vdCBOb25lIGFuZCBnZXRhdHRyKGRlbHRhLCAiY29udGVudCIsIE5vbmUpOgogICAgICAgICAgICAgICAgICAgIGZpcnN0ID0gKHRpbWUudGltZSgpIC0gdDApICogMTAwMAogICAgICAgICAgICAgICAgICAgIGJyZWFrCiAgICAgICAgaWYgZmlyc3Q6CiAgICAgICAgICAgIHByaW50KCJPSyAgICUtMzJzIFRURlQ9JTRkIG1zIiAlIChtaWQsIGZpcnN0KSkKICAgICAgICBlbHNlOgogICAgICAgICAgICBwcmludCgiVklERSAlLTMycyAoZmx1eCBzYW5zIGNvbnRlbnUpIiAlIG1pZCkKICAgIGV4Y2VwdCBFeGNlcHRpb24gYXMgZToKICAgICAgICBwcmludCgiRUNIRUMgJS0zMXMgJXM6ICVzIiAlIChtaWQsIHR5cGUoZSkuX19uYW1lX18sIHN0cihlKVs6MTIwXSkpCiAgICBmaW5hbGx5OgogICAgICAgIHRyeToKICAgICAgICAgICAgYXdhaXQgbGxtLmFjbG9zZSgpCiAgICAgICAgZXhjZXB0IEV4Y2VwdGlvbjoKICAgICAgICAgICAgcGFzcwoKYXN5bmMgZGVmIG1haW4oKToKICAgIGZvciBtaWQgaW4gQ0FORElEQVRFUzoKICAgICAgICBhd2FpdCB0cnlfbW9kZWwobWlkKQoKYXN5bmNpby5ydW4obWFpbigpKQo="
+          timeout 180 flyctl ssh console -a axon-agent -C "python -c \"import base64;exec(base64.b64decode('$B64').decode())\"" || true
+
+      - name: Replicate schema check (input parameters of TTS models)
+        if: ${{ github.event.inputs.action == 'check-replicate-schema' }}
+        run: |
+          BSCHEMA="CmltcG9ydCBqc29uLCBvcywgdXJsbGliLnJlcXVlc3QKCmtleSA9IG9zLmVudmlyb24uZ2V0KCJSRVBMSUNBVEVfQVBJX1RPS0VOIikgb3Igb3MuZW52aXJvbi5nZXQoIlJFUExJQ0FURV9BUElfS0VZIiwgIiIpCmZvciBzbHVnIGluIFsiZWxldmVubGFicy9mbGFzaC12Mi41IiwgIm1pbmltYXgvc3BlZWNoLTAyLXR1cmJvIl06CiAgICB1cmwgPSAiaHR0cHM6Ly9hcGkucmVwbGljYXRlLmNvbS92MS9tb2RlbHMvIiArIHNsdWcKICAgIHJlcSA9IHVybGxpYi5yZXF1ZXN0LlJlcXVlc3QodXJsLCBoZWFkZXJzPXsiQXV0aG9yaXphdGlvbiI6ICJCZWFyZXIgIiArIGtleX0pCiAgICB0cnk6CiAgICAgICAgd2l0aCB1cmxsaWIucmVxdWVzdC51cmxvcGVuKHJlcSwgdGltZW91dD0xNSkgYXMgcjoKICAgICAgICAgICAgaiA9IGpzb24ubG9hZHMoci5yZWFkKCkpCiAgICAgICAgcHJvcHMgPSAoai5nZXQoImxhdGVzdF92ZXJzaW9uIikgb3Ige30pLmdldCgib3BlbmFwaV9zY2hlbWEiLCB7fSkuZ2V0KCJjb21wb25lbnRzIiwge30pLmdldCgic2NoZW1hcyIsIHt9KS5nZXQoIklucHV0Iiwge30pLmdldCgicHJvcGVydGllcyIsIHt9KQogICAgICAgIHByaW50KCIiKQogICAgICAgIHByaW50KCI9PT0gIiArIHNsdWcgKyAiID09PSIpCiAgICAgICAgZm9yIGssIHYgaW4gcHJvcHMuaXRlbXMoKToKICAgICAgICAgICAgcHJpbnQoIiAgZmllbGQ9IiArIGsgKyAiIHR5cGU9IiArIHN0cih2LmdldCgidHlwZSIsICI/IikpICsgIiBlbnVtPSIgKyBzdHIodi5nZXQoImVudW0iLCAiIikpWzoyMDBdICsgIiBkZXNjPSIgKyBzdHIodi5nZXQoImRlc2NyaXB0aW9uIiwgIiIpKVs6ODBdKQogICAgZXhjZXB0IEV4Y2VwdGlvbiBhcyBlOgogICAgICAgIHByaW50KHNsdWcgKyAiOiBFUlJPUiAiICsgc3RyKGUpKQo="
+          timeout 60 flyctl ssh console -a axon-agent -C "python -c \"import base64;exec(base64.b64decode('$BSCHEMA').decode())\"" || true
+
+      - name: Replicate test prediction (debug voice_id behaviour)
+        if: ${{ github.event.inputs.action == 'test-replicate-predict' }}
+        run: |
+          BTEST="CmltcG9ydCBqc29uLCBvcywgdXJsbGliLnJlcXVlc3QsIHVybGxpYi5lcnJvcgoKa2V5ID0gb3MuZW52aXJvbi5nZXQoIlJFUExJQ0FURV9BUElfVE9LRU4iKSBvciBvcy5lbnZpcm9uLmdldCgiUkVQTElDQVRFX0FQSV9LRVkiLCAiIikKcHJpbnQoImtleV9sZW49IiArIHN0cihsZW4oa2V5KSkgKyAiIHByZWZpeD0iICsga2V5Wzo4XSkKCiMgVGVzdCAxIDogUE9TVCBwcmVkaWN0aW9uIGF2ZWMgcHJvbXB0ICsgdm9pY2VfaWQgcXUgb24gY29ubmFpdCAoUmFjaGVsIGFuY2llbikKdXJsID0gImh0dHBzOi8vYXBpLnJlcGxpY2F0ZS5jb20vdjEvbW9kZWxzL2VsZXZlbmxhYnMvZmxhc2gtdjIuNS9wcmVkaWN0aW9ucyIKZm9yIGxhYmVsLCBwYXlsb2FkIGluIFsKICAgICgiYXZlYyB2b2ljZV9pZCBSYWNoZWwiLCB7InByb21wdCI6ICJIZWxsbyB0ZXN0IG9uZSIsICJ2b2ljZV9pZCI6ICIyMW0wMFRjbTRUbHZEcThpa1dBTSJ9KSwKICAgICgic2FucyB2b2ljZV9pZCIsICAgICAgICB7InByb21wdCI6ICJIZWxsbyB0ZXN0IHR3byJ9KSwKICAgICgiYXZlYyB2b2ljZV9pZCBBZGFtIiwgICB7InByb21wdCI6ICJIZWxsbyB0ZXN0IHRocmVlIiwgInZvaWNlX2lkIjogInBOSW56Nm9icGdEUUdjRm1hSmdCIn0pLApdOgogICAgcHJpbnQoIiIpCiAgICBwcmludCgiLS0tICIgKyBsYWJlbCArICIgLS0tIikKICAgIHByaW50KCJwYXlsb2FkOiAiICsganNvbi5kdW1wcyhwYXlsb2FkKSkKICAgIHJlcSA9IHVybGxpYi5yZXF1ZXN0LlJlcXVlc3QodXJsLCBtZXRob2Q9IlBPU1QiLAogICAgICAgIGRhdGE9anNvbi5kdW1wcyh7ImlucHV0IjogcGF5bG9hZH0pLmVuY29kZSgpLAogICAgICAgIGhlYWRlcnM9eyJBdXRob3JpemF0aW9uIjogIkJlYXJlciAiICsga2V5LCAiQ29udGVudC1UeXBlIjogImFwcGxpY2F0aW9uL2pzb24iLCAiUHJlZmVyIjogIndhaXQ9MTAifSkKICAgIHRyeToKICAgICAgICB3aXRoIHVybGxpYi5yZXF1ZXN0LnVybG9wZW4ocmVxLCB0aW1lb3V0PTMwKSBhcyByOgogICAgICAgICAgICBqID0ganNvbi5sb2FkcyhyLnJlYWQoKSkKICAgICAgICBwcmludCgiICBzdGF0dXM6Iiwgai5nZXQoInN0YXR1cyIpKQogICAgICAgIHByaW50KCIgIGlucHV0IGFzIGFjY2VwdGVkIGJ5IFJlcGxpY2F0ZToiLCBqLmdldCgiaW5wdXQiKSkKICAgICAgICBwcmludCgiICBoYXMgb3V0cHV0OiIsIGJvb2woai5nZXQoIm91dHB1dCIpKSkKICAgICAgICBpZiBqLmdldCgiZXJyb3IiKTogcHJpbnQoIiAgZXJyb3I6Iiwgai5nZXQoImVycm9yIikpCiAgICBleGNlcHQgdXJsbGliLmVycm9yLkhUVFBFcnJvciBhcyBlOgogICAgICAgIGJvZHkgPSBlLnJlYWQoKS5kZWNvZGUoKVs6NDAwXQogICAgICAgIHByaW50KCIgIEhUVFAiLCBlLmNvZGUsICI6IiwgYm9keSkKICAgIGV4Y2VwdCBFeGNlcHRpb24gYXMgZToKICAgICAgICBwcmludCgiICBFWEM6IiwgZSkK"
+          timeout 90 flyctl ssh console -a axon-agent -C "python -c \"import base64;exec(base64.b64decode('$BTEST').decode())\"" || true
+
+      - name: Bench Anthropic (test API + plugin direct depuis le worker)
+        if: ${{ github.event.inputs.action == 'bench-anthropic' }}
+        run: |
+          BANT="aW1wb3J0IG9zLCB0aW1lLCBqc29uLCB1cmxsaWIucmVxdWVzdCwgdXJsbGliLmVycm9yCmtleSA9IG9zLmVudmlyb24uZ2V0KCJBTlRIUk9QSUNfQVBJX0tFWSIsICIiKQpwcmludCgia2V5X2xlbj0iICsgc3RyKGxlbihrZXkpKSArICIgcHJlZml4PSIgKyBrZXlbOjEwXSkKcHJpbnQoIiIpCnVybCA9ICJodHRwczovL2FwaS5hbnRocm9waWMuY29tL3YxL21lc3NhZ2VzIgpmb3IgbW9kZWwgaW4gWyJjbGF1ZGUtaGFpa3UtNC01LTIwMjUxMDAxIiwgImNsYXVkZS1oYWlrdS00LTUiLCAiY2xhdWRlLXNvbm5ldC00LTYiLCAiY2xhdWRlLW9wdXMtNC03Il06CiAgICBwcmludCgiLS0tICIgKyBtb2RlbCArICIgLS0tIikKICAgIGJvZHkgPSB7Im1vZGVsIjogbW9kZWwsICJtYXhfdG9rZW5zIjogMzAsCiAgICAgICAgICAgICJtZXNzYWdlcyI6IFt7InJvbGUiOiAidXNlciIsICJjb250ZW50IjogIlJlcGx5IGp1c3QgJ09LJy4ifV19CiAgICByZXEgPSB1cmxsaWIucmVxdWVzdC5SZXF1ZXN0KHVybCwgbWV0aG9kPSJQT1NUIiwKICAgICAgICBkYXRhPWpzb24uZHVtcHMoYm9keSkuZW5jb2RlKCksCiAgICAgICAgaGVhZGVycz17IngtYXBpLWtleSI6IGtleSwgImFudGhyb3BpYy12ZXJzaW9uIjogIjIwMjMtMDYtMDEiLCAiQ29udGVudC1UeXBlIjogImFwcGxpY2F0aW9uL2pzb24ifSkKICAgIHQwID0gdGltZS50aW1lKCkKICAgIHRyeToKICAgICAgICB3aXRoIHVybGxpYi5yZXF1ZXN0LnVybG9wZW4ocmVxLCB0aW1lb3V0PTMwKSBhcyByOgogICAgICAgICAgICBqID0ganNvbi5sb2FkcyhyLnJlYWQoKSkKICAgICAgICAgICAgZWxhcHNlZCA9ICh0aW1lLnRpbWUoKSAtIHQwKSAqIDEwMDAKICAgICAgICAgICAgdGV4dCA9IChqLmdldCgiY29udGVudCIpIG9yIFt7fV0pWzBdLmdldCgidGV4dCIsICIiKQogICAgICAgICAgICBwcmludCgiICBPSyBpbiAiICsgc3RyKGludChlbGFwc2VkKSkgKyAibXM6ICIgKyB0ZXh0Wzo4MF0pCiAgICBleGNlcHQgdXJsbGliLmVycm9yLkhUVFBFcnJvciBhcyBlOgogICAgICAgIGJvZCA9IGUucmVhZCgpLmRlY29kZSgpWzo0MDBdCiAgICAgICAgcHJpbnQoIiAgSFRUUCAiICsgc3RyKGUuY29kZSkgKyAiOiAiICsgYm9kKQogICAgZXhjZXB0IEV4Y2VwdGlvbiBhcyBlOgogICAgICAgIHByaW50KCIgIEVYQzogIiArIHR5cGUoZSkuX19uYW1lX18gKyAiOiAiICsgc3RyKGUpWzoyMDBdKQogICAgcHJpbnQoIiIpCgpwcmludCgiLS0tIHZpYSBsaXZla2l0LnBsdWdpbnMuYW50aHJvcGljIC0tLSIpCnRyeToKICAgIGZyb20gbGl2ZWtpdC5wbHVnaW5zIGltcG9ydCBhbnRocm9waWMKICAgIHByaW50KCIgIG1vZHVsZTogIiArIHN0cihhbnRocm9waWMuX19maWxlX18pKQogICAgdHJ5OgogICAgICAgIGltcG9ydCBpbXBvcnRsaWIubWV0YWRhdGEgYXMgbWQKICAgICAgICBwcmludCgiICB2ZXJzaW9uOiAiICsgbWQudmVyc2lvbigibGl2ZWtpdC1wbHVnaW5zLWFudGhyb3BpYyIpKQogICAgZXhjZXB0IEV4Y2VwdGlvbjoKICAgICAgICBwYXNzCiAgICBsbG0gPSBhbnRocm9waWMuTExNKG1vZGVsPSJjbGF1ZGUtaGFpa3UtNC01LTIwMjUxMDAxIiwgYXBpX2tleT1rZXkpCiAgICBwcmludCgiICBMTE0gaW5zdGFuY2UgT0s6ICIgKyB0eXBlKGxsbSkuX19uYW1lX18pCmV4Y2VwdCBFeGNlcHRpb24gYXMgZToKICAgIHByaW50KCIgIEVYQzogIiArIHR5cGUoZSkuX19uYW1lX18gKyAiOiAiICsgc3RyKGUpWzozMDBdKQo="
+          timeout 120 flyctl ssh console -a axon-agent -C "python -c \"import base64;exec(base64.b64decode('$BANT').decode())\"" || true
+
+      - name: Test replicate_tts import on worker
+        if: ${{ github.event.inputs.action == 'probe-replicate-import' }}
+        run: |
+          BPR="aW1wb3J0IG9zLCBzeXMsIHRyYWNlYmFjawpwcmludCgiZmlsZSBleGlzdHM6ICIgKyBzdHIob3MucGF0aC5leGlzdHMoIi9hcHAvcmVwbGljYXRlX3R0cy5weSIpKSkKcHJpbnQoImN3ZDogIiArIG9zLmdldGN3ZCgpKQpwcmludCgic3lzLnBhdGhbMDo1XTogIiArIHN0cihzeXMucGF0aFs6NV0pKQpwcmludCgiIikKcHJpbnQoIi0tLSBpbXBvcnQgcmVwbGljYXRlX3R0cyAtLS0iKQp0cnk6CiAgICBpbXBvcnQgcmVwbGljYXRlX3R0cyBhcyBydAogICAgcHJpbnQoIiAgT0sgbW9kdWxlOiAiICsgcnQuX19maWxlX18pCiAgICBwcmludCgiICBoYXMgaXNfcmVwbGljYXRlX3ZvaWNlX2lkOiAiICsgc3RyKGhhc2F0dHIocnQsICdpc19yZXBsaWNhdGVfdm9pY2VfaWQnKSkpCiAgICBwcmludCgiICBoYXMgUmVwbGljYXRlVFRTOiAiICsgc3RyKGhhc2F0dHIocnQsICdSZXBsaWNhdGVUVFMnKSkpCiAgICBwcmludCgiICB0ZXN0IHJvdXRpbmc6ICIgKyBzdHIocnQuaXNfcmVwbGljYXRlX3ZvaWNlX2lkKCJyZXBsaWNhdGU6ZWxldmVubGFicy1mbGFzaDpKYW5lIikpKQogICAgcHJpbnQoIiIpCiAgICBwcmludCgiLS0tIGluc3RhbnRpYXRlIFJlcGxpY2F0ZVRUUyAtLS0iKQogICAgdHJ5OgogICAgICAgIHR0cyA9IHJ0LlJlcGxpY2F0ZVRUUyh2b2ljZV9pZD0icmVwbGljYXRlOmVsZXZlbmxhYnMtZmxhc2g6SmFuZSIsIHNhbXBsZV9yYXRlPTIyMDUwKQogICAgICAgIHByaW50KCIgIE9LIFRUUyBpbnN0YW5jZTogIiArIHR5cGUodHRzKS5fX25hbWVfXykKICAgIGV4Y2VwdCBFeGNlcHRpb24gYXMgZToKICAgICAgICBwcmludCgiICBFWEM6ICIgKyB0eXBlKGUpLl9fbmFtZV9fICsgIjogIiArIHN0cihlKVs6MzAwXSkKICAgICAgICB0cmFjZWJhY2sucHJpbnRfZXhjKGxpbWl0PTMpCmV4Y2VwdCBFeGNlcHRpb24gYXMgZToKICAgIHByaW50KCIgIElNUE9SVCBGQUlMOiAiICsgdHlwZShlKS5fX25hbWVfXyArICI6ICIgKyBzdHIoZSlbOjMwMF0pCiAgICB0cmFjZWJhY2sucHJpbnRfZXhjKGxpbWl0PTUpCg=="
+          timeout 60 flyctl ssh console -a axon-agent -C "bash -c 'cd /app && python -c \"import base64;exec(base64.b64decode(\\\"$BPR\\\").decode())\"'" || true
+
+      - name: Check agent.py on worker has replicate routing
+        if: ${{ github.event.inputs.action == 'check-agent-source' }}
+        run: |
+          BAS="aW1wb3J0IG9zCndpdGggb3BlbignL2FwcC9hZ2VudC5weScpIGFzIGY6CiAgICBzcmMgPSBmLnJlYWQoKQojIGNoZWNrIGZvciB0aGUgcmVwbGljYXRlIHJvdXRpbmcgYmxvY2sKaGFzX2ltcG9ydCA9ICJmcm9tIHJlcGxpY2F0ZV90dHMgaW1wb3J0IiBpbiBzcmMKaGFzX3JvdXRpbmcgPSAiaXNfcmVwbGljYXRlX3ZvaWNlX2lkKF92b2ljZV9mb3Jfcm91dGluZykiIGluIHNyYwpwcmludCgiYWdlbnQucHkgc2l6ZToiLCBsZW4oc3JjKSwgImJ5dGVzIikKcHJpbnQoImhhcyAnZnJvbSByZXBsaWNhdGVfdHRzIGltcG9ydCc6IiwgaGFzX2ltcG9ydCkKcHJpbnQoImhhcyAnaXNfcmVwbGljYXRlX3ZvaWNlX2lkKF92b2ljZV9mb3Jfcm91dGluZyknOiIsIGhhc19yb3V0aW5nKQojIFByaW50IHRoZSBfdHRzX2ZvciBmdW5jdGlvbgppbXBvcnQgcmUKbSA9IHJlLnNlYXJjaChyImRlZiBfdHRzX2ZvclwoLio/XG5yZXR1cm4gX2NhcnRlc2lhX3R0c19mb3IiLCBzcmMsIHJlLlMpCmlmIG06CiAgICBwcmludCgiXG4tLS0gX3R0c19mb3Igc25pcHBldCAoZmlyc3QgMzAgbGluZXMpIC0tLSIpCiAgICBwcmludCgiXG4iLmpvaW4obS5ncm91cCgwKS5zcGxpdCgiXG4iKVs6MzBdKSkKZWxzZToKICAgIHByaW50KCJcbl90dHNfZm9yIG5vdCBmb3VuZCB2aWEgcmVnZXgiKQo="
+          timeout 30 flyctl ssh console -a axon-agent -C "python -c \"import base64;exec(base64.b64decode('$BAS').decode())\"" || true
+
+      - name: Inspect Anthropic plugin signature (debug caching)
+        if: ${{ github.event.inputs.action == 'inspect-anthropic' }}
+        run: |
+          BANT="aW1wb3J0IG9zLCBpbXBvcnRsaWIsIGluc3BlY3QKZnJvbSBsaXZla2l0LnBsdWdpbnMgaW1wb3J0IGFudGhyb3BpYwpwcmludCgibW9kdWxlOiIsIGFudGhyb3BpYy5fX2ZpbGVfXykKc2lnID0gaW5zcGVjdC5zaWduYXR1cmUoYW50aHJvcGljLkxMTS5fX2luaXRfXykKcHJpbnQoImFudGhyb3BpYy5MTE0uX19pbml0X18gc2lnbmF0dXJlOiIpCnByaW50KHNpZykKcHJpbnQoIlxuLS0tIHNvdXJjZSBvZiBfX2luaXRfXyAoZmlyc3QgODAgbGluZXMpIC0tLSIpCnNyYyA9IGluc3BlY3QuZ2V0c291cmNlKGFudGhyb3BpYy5MTE0uX19pbml0X18pCmZvciBsaW5lIGluIHNyYy5zcGxpdCgiXG4iKVs6ODBdOgogICAgcHJpbnQobGluZSkK"
+          timeout 60 flyctl ssh console -a axon-agent -C "python -c \"import base64;exec(base64.b64decode('$BANT').decode())\"" || true
+
+      - name: Tighten dispatch watchdog (probe interval 120s -> 30s)
+        if: ${{ github.event.inputs.action == 'tighten-watchdog' }}
+        run: |
+          echo "Setting DISPATCH_PROBE_INTERVAL_SECS=30 on axon-agent…"
+          flyctl secrets set DISPATCH_PROBE_INTERVAL_SECS=30 DISPATCH_PROBE_STARTUP_DELAY_SECS=60 -a axon-agent --stage=false
+          echo ""
+          echo "Done. Worker will restart and probe every 30s instead of 120s."
+          echo "Window of undetected 'deaf' state: 60s max (vs 4min before)."
+
+      - name: Restart agent machine
+        if: ${{ github.event.inputs.action == 'restart-agent' }}
+        run: |
+          for id in $(flyctl machine list -a axon-agent --json | jq -r '.[].id'); do
+            echo "restarting machine $id"
+            flyctl machine restart "$id" -a axon-agent
+          done
+
+      - name: List secret names (axon-agent)
+        if: ${{ github.event.inputs.action == 'list-secrets' }}
+        run: |
+          echo "===== secrets on axon-agent (names only) ====="
+          flyctl secrets list -a axon-agent || true
+          echo ""
+          echo "===== critical-key presence check ====="
+          flyctl secrets list -a axon-agent --json > /tmp/sec.json || true
+          for k in DEEPSEEK_API_KEY ANTHROPIC_API_KEY CLAUDE_API_KEY OPENAI_API_KEY CARTESIA_API_KEY REPLICATE_API_TOKEN ASSEMBLYAI_API_KEY MINIMAX_API_KEY LIVEKIT_API_KEY LIVEKIT_API_SECRET SUPABASE_SERVICE_ROLE_KEY; do
+            if jq -e ".[] | select(.Name == \"$k\")" /tmp/sec.json > /dev/null 2>&1; then
+              echo "  ✓ $k"
+            else
+              echo "  ✗ $k  MISSING"
+            fi
+          done

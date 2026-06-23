@@ -67,13 +67,14 @@ export async function POST(req: Request) {
   // Sanity: contact must belong to the same org.
   const { data: c, error: cErr } = await admin
     .from("contacts")
-    .select("id, org_id")
+    .select("id, org_id, display_name, e164")
     .eq("id", body.contact_id)
     .maybeSingle();
   if (cErr) return NextResponse.json({ error: cErr.message }, { status: 500 });
   if (!c || (c as { org_id: string }).org_id !== orgId) {
     return NextResponse.json({ error: "contact not found in this org" }, { status: 400 });
   }
+  const contactRow = c as { display_name: string | null; e164: string | null };
 
   const { data, error } = await admin
     .from("human_callback_tasks")
@@ -86,6 +87,11 @@ export async function POST(req: Request) {
       scheduled_for: scheduledFor.toISOString(),
       notes: body.notes?.trim() ?? null,
       status: "pending",
+      // Dénormalisation 15/06 — assure que les colonnes sont remplies
+      // dès la création pour le superviseur, même si le row contacts
+      // perd ses détails plus tard.
+      display_name: contactRow.display_name,
+      e164: contactRow.e164,
     })
     .select("id")
     .single();

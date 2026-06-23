@@ -106,7 +106,13 @@ export async function previewCartesiaTTS(opts: {
     output_format: { container: "mp3", encoding: "mp3", sample_rate: 44100 },
   };
   if (opts.language) body.language = opts.language;
-  if (opts.speed !== undefined && opts.speed !== 1.0) body.speed = opts.speed;
+  // Sonic 3.5 speed lives in generation_config (valid range 0.6–1.5), not
+  // a top-level numeric — the old shape was silently ignored, which is why
+  // Wati's slider "did nothing" on preview (2026-06-12, Cartesia docs).
+  if (opts.speed !== undefined && opts.speed !== 1.0) {
+    const clamped = Math.min(1.5, Math.max(0.6, opts.speed));
+    body.generation_config = { speed: clamped };
+  }
   if (opts.emotion) body.emotion = [opts.emotion];
 
   const r = await fetch(`${cartesiaBase()}/tts/bytes`, {

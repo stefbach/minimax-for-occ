@@ -231,7 +231,7 @@ function toCSV(rows: DrillCall[]): string {
   return [header.join(","), ...lines].join("\n");
 }
 
-export function DrillSheet({ spec, onClose }: { spec: DrillSpec | null; onClose: () => void }) {
+export function DrillSheet({ spec, onClose, onClosed }: { spec: DrillSpec | null; onClose: () => void; onClosed?: () => void }) {
   const t = useT();
   const [data, setData] = useState<DrillResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -243,6 +243,9 @@ export function DrillSheet({ spec, onClose }: { spec: DrillSpec | null; onClose:
   const open = Boolean(spec);
   const lastFocused = useRef<HTMLElement | null>(null);
   const closeBtnRef = useRef<HTMLButtonElement | null>(null);
+  // Tracks the previous `open` value so we can fire `onClosed` exactly once,
+  // on the transition open → closed (not on initial mount when open is false).
+  const wasOpenRef = useRef(false);
 
   // Restore focus to whatever opened us — basic keyboard hygiene.
   useEffect(() => {
@@ -254,6 +257,16 @@ export function DrillSheet({ spec, onClose }: { spec: DrillSpec | null; onClose:
       lastFocused.current.focus();
     }
   }, [open]);
+
+  // Fire `onClosed` on the open → closed transition. Lets the parent refresh
+  // any aggregate views (e.g. KPI tiles) that may have gone stale while the
+  // user was inspecting the drill list.
+  useEffect(() => {
+    if (wasOpenRef.current && !open) {
+      onClosed?.();
+    }
+    wasOpenRef.current = open;
+  }, [open, onClosed]);
 
   // ESC closes the detail overlay first (if open), otherwise the whole sheet.
   useEffect(() => {

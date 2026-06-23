@@ -144,7 +144,7 @@ export function AutomationEditor({ id }: { id: string }) {
       <div className="card" style={{ display: "grid", gap: 8, padding: 14 }}>
         <strong style={{ fontSize: 14 }}>{t("Déclencheur")} (JSON)</strong>
         <span className="muted" style={{ fontSize: 12 }}>
-          {t("type table_scan · every_minutes · table · filters [{column, op, value}] · max_rows_per_run")}
+          {t("type table_scan|callable · every_minutes · table · data_source_credential_id · filters [{column, op, value}] · max_rows_per_run")}
         </span>
         <textarea
           value={triggerJson}
@@ -158,7 +158,7 @@ export function AutomationEditor({ id }: { id: string }) {
       <div className="card" style={{ display: "grid", gap: 8, padding: 14 }}>
         <strong style={{ fontSize: 14 }}>{t("Étapes")} (JSON)</strong>
         <span className="muted" style={{ fontSize: 12 }}>
-          {t("send_email_smtp · send_wati_template · update_row — modèles {{colonne}} acceptés")}
+          {t("ai_brain · send_email_smtp · send_wati_template · send_whatsapp_session · update_row · telegram_notify · call_automation … — modèles {{colonne}} acceptés")}
         </span>
         <textarea
           value={stepsJson}

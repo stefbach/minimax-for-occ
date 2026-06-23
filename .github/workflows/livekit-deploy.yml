@@ -7,6 +7,11 @@ on:
       - 'agent/**'
       - '.github/workflows/livekit-deploy.yml'
   workflow_dispatch:
+    inputs:
+      deploy_prod:
+        description: "Inclure la PROD (CA_PFUfvaBhC8Wk) dans ce run ? Laisser decoche pour ne deployer QUE l'agent test."
+        type: boolean
+        default: false
 
 jobs:
   deploy:
@@ -19,15 +24,29 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install LiveKit CLI
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          RELEASE=$(curl -sf https://api.github.com/repos/livekit/livekit-cli/releases/latest)
+          set -e
+          # Authenticated request to avoid the 60/hr unauth rate limit.
+          RELEASE=$(curl -sfL \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            https://api.github.com/repos/livekit/livekit-cli/releases/latest)
+          echo "$RELEASE" | head -c 500
+          echo ""
           DOWNLOAD_URL=$(echo "$RELEASE" \
             | grep '"browser_download_url"' \
             | grep -i 'linux' \
             | grep -iE 'amd64|x86_64' \
-            | grep '\.tar\.gz' \
+            | grep -iE '\.tar\.gz|\.tgz' \
             | head -1 \
             | cut -d'"' -f4)
+          if [ -z "$DOWNLOAD_URL" ]; then
+            echo "ERROR: aucun asset linux amd64 .tar.gz trouve. Pin v2.7.2 (dernier connu OK) en fallback."
+            DOWNLOAD_URL="https://github.com/livekit/livekit-cli/releases/download/v2.7.2/lk_2.7.2_linux_amd64.tar.gz"
+          fi
           echo "Downloading: $DOWNLOAD_URL"
           curl -fSL -o /tmp/lk.tar.gz "$DOWNLOAD_URL"
           tar -xzf /tmp/lk.tar.gz -C /tmp
@@ -35,8 +54,28 @@ jobs:
           chmod +x /usr/local/bin/lk
           lk --version
 
-      - name: Deploy to LiveKit Cloud Agents
-        run: lk agent deploy
+      # ── Phase de TEST (Wati 18/06) ─────────────────────────────────────────
+      # Un push sur main redeploie UNIQUEMENT l'agent test ci-dessous. La prod
+      # n'est PAS touchee : elle continue de tourner sur son code deja valide.
+      # On deploie le test EN PREMIER pour qu'il soit toujours vivant sous son
+      # nom (axon-voice-agent-test) avant que le routage Vercel ne l'adresse.
+      - name: Deploy to LiveKit Cloud Agents (TEST CA_PbChboVCvPJC)
+        run: lk agent deploy --config livekit-test.toml
+        env:
+          LIVEKIT_URL: ${{ secrets.LIVEKIT_URL }}
+          LIVEKIT_API_KEY: ${{ secrets.LIVEKIT_API_KEY }}
+          LIVEKIT_API_SECRET: ${{ secrets.LIVEKIT_API_SECRET }}
+
+      # ── PROD : VERROUILLEE par defaut (Wati 18/06) ─────────────────────────
+      # Ne se redeploie QUE si la variable de repo DEPLOY_PROD == 'true', ou
+      # via un run manuel (Actions → Run workflow = workflow_dispatch). Tant
+      # qu'on valide les tests, la prod (CA_PFUfvaBhC8Wk) reste figee sur son
+      # code actuel. Pour repasser en deploiement prod auto : poser la variable
+      # de repo DEPLOY_PROD=true (Settings → Secrets and variables → Actions →
+      # Variables), ou supprimer ce garde-fou.
+      - name: Deploy to LiveKit Cloud Agents (PROD CA_PFUfvaBhC8Wk)
+        if: vars.DEPLOY_PROD == 'true' || github.event.inputs.deploy_prod == 'true'
+        run: lk agent deploy --config livekit.toml
         env:
           LIVEKIT_URL: ${{ secrets.LIVEKIT_URL }}
           LIVEKIT_API_KEY: ${{ secrets.LIVEKIT_API_KEY }}

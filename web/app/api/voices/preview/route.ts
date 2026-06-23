@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import { previewCartesiaTTS } from "@/lib/cartesia";
+import { previewReplicateTTS } from "@/lib/replicate";
+import { previewElevenLabsTTS } from "@/lib/elevenlabs";
+import { previewMinimaxTTS } from "@/lib/minimax";
 import { requestOrgId } from "@/lib/request-org";
 import { recordUsage, estimateCostCents } from "@/lib/billing";
 import { rateLimit, clientIp } from "@/lib/rate-limit";
@@ -44,14 +47,42 @@ export async function POST(req: Request) {
   try {
     const text =
       body.text || "Bonjour, je suis votre nouvel assistant vocal. Comment puis-je vous aider ?";
-    const { audio, format } = await previewCartesiaTTS({
-      voice_id: body.voice_id,
-      text,
-      speed: body.speed,
-      emotion: body.emotion,
-      model: body.model,
-      language: body.language,
-    });
+    // Routing par provider :
+    //   "elevenlabs:famille:voice"   → ElevenLabs DIRECT (Wati 16/06)
+    //   "minimax:model:voice"        → MiniMax DIRECT (Wati 16/06)
+    //   "replicate:famille:voice"    → Replicate (legacy)
+    //   sinon                        → Cartesia (UUID natif, voix clonees)
+    const isElevenLabs = body.voice_id.startsWith("elevenlabs:");
+    const isMinimax = body.voice_id.startsWith("minimax:");
+    const isReplicate = body.voice_id.startsWith("replicate:");
+    const { audio, format } = isElevenLabs
+      ? await previewElevenLabsTTS({
+          voice_id: body.voice_id,
+          text,
+          speed: body.speed,
+        })
+      : isMinimax
+      ? await previewMinimaxTTS({
+          voice_id: body.voice_id,
+          text,
+          speed: body.speed,
+          emotion: body.emotion,
+        })
+      : isReplicate
+      ? await previewReplicateTTS({
+          voice_id: body.voice_id,
+          text,
+          speed: body.speed,
+          language: body.language,
+        })
+      : await previewCartesiaTTS({
+          voice_id: body.voice_id,
+          text,
+          speed: body.speed,
+          emotion: body.emotion,
+          model: body.model,
+          language: body.language,
+        });
 
     // Billing: record TTS chars (best-effort, never blocks the response).
     try {

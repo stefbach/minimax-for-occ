@@ -21,7 +21,24 @@ interface Props {
    *  when null the call still goes through, just without the friendly label. */
   nameColumn?: string | null;
   initialRows: Record<string, unknown>[];
+  /** Total row count for the underlying physical table — used by the
+   *  pager to render "X / total" and disable the "next" button on the
+   *  last page. Falls back to initialRows.length when omitted. */
+  initialTotal?: number;
+  /** Page size used by the server for the SSR-rendered first page.
+   *  Defaults to 20 (matches the page-size selector default). */
+  initialPerPage?: number;
 }
+
+// Page size choices offered to the user. "all" sends per_page=all to the
+// API, which falls back to the server's hard cap (10k). Wati 2026-06-15:
+// default 20, with 50/100/all as opt-ins.
+const PAGE_SIZE_OPTIONS: Array<{ value: number | "all"; label: string }> = [
+  { value: 20, label: "20" },
+  { value: 50, label: "50" },
+  { value: 100, label: "100" },
+  { value: "all", label: "Tout" },
+];
 
 type ImportReport = {
   inserted: number;
@@ -41,42 +58,79 @@ const SUMMARY_COL_KEYS = new Set([
   "do_not_call", "voicemail_detected", "cycle_status",
 ]);
 
-export function DataTableDetail({ registryId, columns, phoneColumn, nameColumn, initialRows }: Props) {
+export function DataTableDetail({
+  registryId,
+  columns,
+  phoneColumn,
+  nameColumn,
+  initialRows,
+  initialTotal,
+  initialPerPage = 20,
+}: Props) {
   const router = useRouter();
   const [rows, setRows] = useState(initialRows);
+  const [total, setTotal] = useState<number>(initialTotal ?? initialRows.length);
   const [search, setSearch] = useState("");
-  // Server-side search results — when the user types, we query the API
-  // (which scans the WHOLE table) instead of filtering the loaded window.
-  // null = no active server search (show the loaded rows). Wati 2026-06-12:
-  // "Quiche Lorraine" exists in leads_rdv but was outside the recency
-  // window the page loads, so client-side filtering showed 0 results.
-  const [serverRows, setServerRows] = useState<Record<string, unknown>[] | null>(null);
-  const [searching, setSearching] = useState(false);
+  // Pagination state (Wati 2026-06-15): server-driven page/per_page so a
+  // 7800-row table doesn't dump everything into the DOM. The first page
+  // ships with the SSR payload (initialRows); every subsequent
+  // page/perPage/search change refetches via /api/data-tables/.../rows.
+  const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState<number | "all">(initialPerPage);
+  const [fetching, setFetching] = useState(false);
+  // Tracks whether the on-screen rows came from the server fetch (vs. the
+  // SSR payload). Keeps the "X / Y" counter honest when filters change.
+  const isFirstLoad = useRef(true);
+
+  // Reset to page 1 whenever the search term or page size changes — Wati
+  // 2026-06-15: typing in search while on page 4 of a different filter
+  // would land on an out-of-range page and show nothing.
   useEffect(() => {
-    const q = search.trim();
-    if (!q) {
-      setServerRows(null);
-      setSearching(false);
+    setPage(1);
+  }, [search, perPage]);
+
+  useEffect(() => {
+    // The SSR payload IS page 1 of the default listing — skip the fetch
+    // for that exact case so we don't double-load on mount.
+    if (
+      isFirstLoad.current &&
+      page === 1 &&
+      perPage === initialPerPage &&
+      search.trim() === ""
+    ) {
+      isFirstLoad.current = false;
       return;
     }
-    setSearching(true);
+    isFirstLoad.current = false;
+    const q = search.trim();
+    setFetching(true);
     const handle = setTimeout(async () => {
       try {
+        const params = new URLSearchParams();
+        if (q) params.set("q", q);
+        params.set("page", String(page));
+        params.set("per_page", perPage === "all" ? "all" : String(perPage));
         const r = await fetch(
-          `/api/data-tables/${registryId}/rows?q=${encodeURIComponent(q)}`,
+          `/api/data-tables/${registryId}/rows?${params.toString()}`,
           { cache: "no-store" },
         );
         const j = await r.json();
-        if (r.ok && Array.isArray(j.rows)) setServerRows(j.rows);
-        else setServerRows([]);
+        if (r.ok && Array.isArray(j.rows)) {
+          setRows(j.rows);
+          if (typeof j.total === "number") setTotal(j.total);
+        } else {
+          setRows([]);
+          setTotal(0);
+        }
       } catch {
-        setServerRows([]);
+        setRows([]);
+        setTotal(0);
       } finally {
-        setSearching(false);
+        setFetching(false);
       }
     }, 300);
     return () => clearTimeout(handle);
-  }, [search, registryId]);
+  }, [search, page, perPage, registryId, initialPerPage]);
   const [qualFilter, setQualFilter] = useState<string>("");
   const [phaseFilter, setPhaseFilter] = useState<string>("");
   const [showAdd, setShowAdd] = useState(false);
@@ -193,17 +247,24 @@ export function DataTableDetail({ registryId, columns, phoneColumn, nameColumn, 
     return String(v);
   }
 
-  // Active search → use the server's whole-table results; quick filters
-  // still apply on top. No search → the loaded recency window as before.
-  const baseRows = serverRows ?? rows;
-  const filtered = baseRows.filter((r) => {
+  // Server-driven pagination (Wati 2026-06-15): `rows` already reflects
+  // the active page + search term. Quick qualification/phase filters
+  // still apply client-side on top of the visible window — they only
+  // narrow the current page rather than triggering a new fetch, which
+  // matches how Zoho/HubSpot scope quick-filters to the loaded view.
+  const filtered = rows.filter((r) => {
     if (qualFilter && String(r["qualification"] ?? "") !== qualFilter) return false;
     if (phaseFilter && String(r["current_phase"] ?? "") !== phaseFilter) return false;
-    if (serverRows) return true; // server already matched the search term
-    const q = search.trim().toLowerCase();
-    if (!q) return true;
-    return JSON.stringify(r).toLowerCase().includes(q);
+    return true;
   });
+
+  // Total number of pages — relies on the server's `total` count. When
+  // perPage === "all" we collapse to a single page even if the server
+  // capped the result set.
+  const totalPages =
+    perPage === "all" ? 1 : Math.max(1, Math.ceil(total / perPage));
+  const canPrev = page > 1;
+  const canNext = page < totalPages;
 
   async function addRow(e: React.FormEvent) {
     e.preventDefault();
@@ -222,6 +283,7 @@ export function DataTableDetail({ registryId, columns, phoneColumn, nameColumn, 
       const body = await r.json();
       if (!r.ok) { setError(body.error ?? `Échec (${r.status})`); return; }
       setRows((prev) => [body, ...prev]);
+      setTotal((prev) => prev + 1);
       setDraft({});
       setShowAdd(false);
       router.refresh();
@@ -261,13 +323,6 @@ export function DataTableDetail({ registryId, columns, phoneColumn, nameColumn, 
         return;
       }
       setRows((prev) => prev.map((r) => ((r.id as string) === editingId ? body : r)));
-      // Also patch the active server-search results — while a search is
-      // running the table renders serverRows, and Wati's June 12 edit of
-      // Quiche Lorraine SAVED to the DB but the visible (search) list kept
-      // the old values, which read as "rien n'a sauvegardé".
-      setServerRows((prev) =>
-        prev ? prev.map((r) => ((r.id as string) === editingId ? body : r)) : prev,
-      );
       setEditingId(null);
       router.refresh();
     } finally {
@@ -291,7 +346,7 @@ export function DataTableDetail({ registryId, columns, phoneColumn, nameColumn, 
         return;
       }
       setRows((prev) => prev.filter((r) => (r.id as string) !== id));
-      setServerRows((prev) => (prev ? prev.filter((r) => (r.id as string) !== id) : prev));
+      setTotal((prev) => Math.max(0, prev - 1));
       router.refresh();
     } finally {
       setDeletingId(null);
@@ -350,12 +405,62 @@ export function DataTableDetail({ registryId, columns, phoneColumn, nameColumn, 
           </button>
         )}
         <span className="muted" style={{ fontSize: 12, marginLeft: 4 }}>
-          {searching
-            ? "Recherche dans toute la table…"
-            : serverRows
-              ? `${filtered.length} trouvé${filtered.length > 1 ? "s" : ""} (toute la table)`
-              : `${filtered.length} / ${rows.length}`}
+          {fetching
+            ? "Chargement…"
+            : search.trim()
+              ? `${filtered.length} affiché${filtered.length > 1 ? "s" : ""} · ${total} trouvé${total > 1 ? "s" : ""}`
+              : `${filtered.length} / ${total}`}
         </span>
+        {/* Pagination (Wati 2026-06-15): prev / next + page-size selector.
+            Sits in the toolbar so it's always visible above the table.
+            Page-size "Tout" sends per_page=all to the API; the server
+            caps at 10k rows. */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            marginLeft: 8,
+            fontSize: 12,
+          }}
+        >
+          <label style={{ color: "var(--muted)" }}>Par page</label>
+          <select
+            value={String(perPage)}
+            onChange={(e) => {
+              const v = e.target.value;
+              setPerPage(v === "all" ? "all" : Number.parseInt(v, 10));
+            }}
+            style={{ fontSize: 12, padding: "2px 4px" }}
+          >
+            {PAGE_SIZE_OPTIONS.map((o) => (
+              <option key={String(o.value)} value={String(o.value)}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+          <button
+            className="ghost"
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            disabled={!canPrev || fetching}
+            style={{ padding: "2px 8px", fontSize: 12 }}
+            aria-label="Page précédente"
+          >
+            ‹ Précédent
+          </button>
+          <span style={{ color: "var(--muted)", whiteSpace: "nowrap" }}>
+            Page {page} / {totalPages}
+          </span>
+          <button
+            className="ghost"
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            disabled={!canNext || fetching}
+            style={{ padding: "2px 8px", fontSize: 12 }}
+            aria-label="Page suivante"
+          >
+            Suivant ›
+          </button>
+        </div>
         <div style={{ flex: 1 }} />
         <button onClick={() => setShowAdd((v) => !v)}>{showAdd ? "Annuler" : "+ Ajouter un contact"}</button>
         <button

@@ -22,10 +22,19 @@ export default async function NewCampaignWizardPage({
   let teams: TeamOption[] = [];
   let contactLists: ContactListOption[] = [];
   let dataTables: DataTableOption[] = [];
+  let orgCategory: string | null = null;
 
   if (hasSupabase()) {
     const sb = supabaseServer();
     const DEFAULT_ORG = await currentOrgIdForServer();
+    try {
+      const { data: org } = await sb
+        .from("organizations")
+        .select("category")
+        .eq("id", DEFAULT_ORG)
+        .maybeSingle();
+      orgCategory = (org as { category: string | null } | null)?.category ?? null;
+    } catch { /* ignore */ }
     try {
       const { data } = await sb
         .from("agent_handles")
@@ -199,6 +208,7 @@ export default async function NewCampaignWizardPage({
         teams={teams}
         contactLists={contactLists}
         dataTables={dataTables}
+        orgCategory={orgCategory}
       />
     </>
   );

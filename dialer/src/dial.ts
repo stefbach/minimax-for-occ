@@ -212,7 +212,7 @@ async function dialViaLiveKit(args: {
     //      to leak into.
     // This is how Vapi / Bland / Twilio <Conference>-based platforms avoid
     // the early-media bleed-through that plain SIP outbound suffers from.
-    const agentName = process.env.LIVEKIT_AGENT_NAME ?? "minimax-voice-agent";
+    const agentName = process.env.LIVEKIT_AGENT_NAME ?? "axon-voice-agent";
     const dispatch = new AgentDispatchClient(lk.host, lk.key, lk.secret);
     await dispatch.createDispatch(roomName, agentName, { metadata: roomMeta });
 
