@@ -39,9 +39,15 @@ function periodForFreq(freq: ExtFrequency, customFrom?: string, customTo?: strin
   today.setUTCHours(0, 0, 0, 0);
 
   if (freq === "custom" && customFrom && customTo) {
-    const fromDate = new Date(customFrom);
-    const toDate = new Date(customTo + "T23:59:59.999Z");
-    const label = `${fromDate.toLocaleDateString("fr-FR", { day: "2-digit", month: "long" })} – ${toDate.toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" })}`;
+    // Use UTC midnight for from, and exclusive next-day midnight for to — this aligns with
+    // the server's .lt("started_at", toIso) query and formatPeriodLabel (which subtracts 1 day).
+    const fromDate = new Date(customFrom + "T00:00:00.000Z");
+    const toDate = new Date(customTo + "T00:00:00.000Z");
+    toDate.setUTCDate(toDate.getUTCDate() + 1); // exclusive end: start of next day
+    // Build label at noon UTC so toLocaleDateString never rolls over to an adjacent day.
+    const fromLabel = new Date(customFrom + "T12:00:00.000Z");
+    const toLabel = new Date(customTo + "T12:00:00.000Z");
+    const label = `${fromLabel.toLocaleDateString("fr-FR", { day: "2-digit", month: "long" })} – ${toLabel.toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" })}`;
     return { from: fromDate.toISOString(), to: toDate.toISOString(), label, type: "pilotage_hebdo" };
   }
 
