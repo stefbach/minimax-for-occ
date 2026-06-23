@@ -236,7 +236,7 @@ export function ReportButton({
 
   const SUBMENU_STYLE: React.CSSProperties = {
     position: "absolute", left: "calc(100% + 4px)", top: 0, zIndex: 50,
-    background: "var(--surface, #1a1f2e)",
+    background: "var(--panel)",
     border: "1px solid var(--border)",
     borderRadius: 7,
     boxShadow: "0 6px 20px rgba(0,0,0,0.4)",

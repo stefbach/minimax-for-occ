@@ -247,7 +247,7 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
             <div style={{
               display: "flex", alignItems: "center", justifyContent: "space-between",
               gap: 12, flexWrap: "wrap",
-              background: "var(--surface, #1a1f2e)",
+              background: "var(--panel)",
               border: "1px solid var(--border)",
               borderLeft: "4px solid var(--accent)",
               borderRadius: 10,
@@ -287,10 +287,10 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
                 {patientSearchOpen && patientSearchResults.length > 0 && (
                   <div style={{
                     position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 200,
-                    background: "var(--surface, #1a1f2e)",
+                    background: "var(--panel)",
                     border: "1px solid var(--border)",
                     borderRadius: 8,
-                    boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+                    boxShadow: "0 8px 24px rgba(0,0,0,0.2)",
                     overflow: "hidden",
                   }}>
                     {patientSearchResults.map((r, i) => {
