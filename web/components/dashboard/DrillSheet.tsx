@@ -231,7 +231,7 @@ function toCSV(rows: DrillCall[]): string {
   return [header.join(","), ...lines].join("\n");
 }
 
-export function DrillSheet({ spec, onClose }: { spec: DrillSpec | null; onClose: () => void }) {
+export function DrillSheet({ spec, onClose, onClosed }: { spec: DrillSpec | null; onClose: () => void; onClosed?: () => void }) {
   const t = useT();
   const [data, setData] = useState<DrillResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -250,8 +250,9 @@ export function DrillSheet({ spec, onClose }: { spec: DrillSpec | null; onClose:
       lastFocused.current = (document.activeElement as HTMLElement) ?? null;
       // Defer to next tick so the close button is mounted.
       setTimeout(() => closeBtnRef.current?.focus(), 0);
-    } else if (lastFocused.current) {
-      lastFocused.current.focus();
+    } else {
+      if (lastFocused.current) lastFocused.current.focus();
+      onClosed?.();
     }
   }, [open]);
 
