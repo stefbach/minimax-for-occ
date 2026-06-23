@@ -257,8 +257,8 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
             }}>
               {/* Left: icon + title + period */}
               <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
-                <h2 style={{ margin: 0, fontSize: 19 }}>
-                  <span style={{ marginRight: 8 }}>🏠</span>
+                <h2 style={{ margin: 0, fontSize: 19, display: "flex", alignItems: "center", gap: 8 }}>
+                  <Home size={18} />
                   {t("Vue d'ensemble")}
                 </h2>
                 <span className="muted" style={{ fontSize: 13 }}>
