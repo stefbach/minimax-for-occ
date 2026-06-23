@@ -676,7 +676,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
               background: tab === t.id ? "var(--surface-2, rgba(255,255,255,0.06))" : "transparent",
               color: tab === t.id ? "var(--fg)" : "var(--muted)",
               border: "none",
-              borderBottom: tab === t.id ? "2px solid var(--accent, #ff6b35)" : "2px solid transparent",
+              borderBottom: tab === t.id ? "2px solid var(--accent, #a855f7)" : "2px solid transparent",
               cursor: "pointer",
             }}
           >
