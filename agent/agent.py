@@ -3814,7 +3814,28 @@ async def entrypoint(ctx: JobContext) -> None:
     # Reuse the VAD loaded once at worker startup (prewarm) instead of paying
     # the model-load cost on every single call — that load was part of the
     # delay before the agent could start listening/speaking.
-    vad = (ctx.proc.userdata.get("vad") if getattr(ctx, "proc", None) else None) or silero.VAD.load()
+    #
+    # Per-turn EOU latency lever (Wati 2026-06-23 latency research): with
+    # turn_detection="vad", Silero VAD's `min_silence_duration` is what ACTUALLY
+    # ends every turn — not the AssemblyAI min_turn_silence we tuned. Its default
+    # is 0.55s, so every turn waited ~550ms of trailing silence regardless of the
+    # STT config. When a call carries a `min_silence_duration` override (set via
+    # agents.metadata.call_tuning, so prod agents with no metadata are unaffected
+    # and keep the prewarmed default-0.55 VAD), load a fresh VAD at that value.
+    # 0.30 cuts ~250ms off EOU on every turn. The fresh-load cost is one-off at
+    # session start and does NOT affect the per-turn EOU we're optimising.
+    _prewarmed_vad = ctx.proc.userdata.get("vad") if getattr(ctx, "proc", None) else None
+    _tun_min_sil = campaign_tuning.get("min_silence_duration")
+    if _tun_min_sil is not None:
+        try:
+            _ms = float(_tun_min_sil)
+            vad = silero.VAD.load(min_silence_duration=_ms)
+            clog.info("VAD: per-call min_silence_duration=%.2fs (tuning override)", _ms)
+        except Exception:
+            clog.warning("VAD: min_silence_duration override %r invalid — using prewarmed VAD", _tun_min_sil, exc_info=True)
+            vad = _prewarmed_vad or silero.VAD.load()
+    else:
+        vad = _prewarmed_vad or silero.VAD.load()
 
     import inspect as _inspect
 
