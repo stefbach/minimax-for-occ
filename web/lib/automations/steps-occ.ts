@@ -564,6 +564,37 @@ async function watiSessionMessage(cred: Record<string, unknown>, phone: string, 
   if (!r.ok) throw new Error(`WATI session ${r.status}: ${(await r.text()).slice(0, 150)}`);
 }
 
+/**
+ * Send an APPROVED WATI template (works outside the 24h session window, unlike
+ * watiSessionMessage). Kept local to avoid an engine→steps-occ→engine import
+ * cycle; mirrors the engine's sendTemplateMessage call.
+ */
+async function watiTemplateMessage(
+  cred: Record<string, unknown>,
+  phone: string,
+  templateName: string,
+  broadcastName: string,
+  parameters: Array<{ name: string; value: string }>,
+): Promise<void> {
+  const base = String(cred.base_url ?? "").replace(/\/+$/, "");
+  const token = String(cred.token ?? "");
+  if (!base || !token) throw new Error("WATI credential missing base_url/token");
+  const waNumber = phone.replace(/^\+/, "");
+  const r = await fetch(
+    `${base}/api/v1/sendTemplateMessage?whatsappNumber=${encodeURIComponent(waNumber)}`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: token.startsWith("Bearer ") ? token : `Bearer ${token}`,
+      },
+      body: JSON.stringify({ template_name: templateName, broadcast_name: broadcastName, parameters }),
+      signal: AbortSignal.timeout(15000),
+    },
+  );
+  if (!r.ok) throw new Error(`WATI template ${r.status}: ${(await r.text()).slice(0, 150)}`);
+}
+
 async function telegramSend(cred: Record<string, unknown>, text: string): Promise<void> {
   const token = String(cred.bot_token ?? cred.token ?? "");
   const chatId = String(cred.chat_id ?? "");
@@ -651,8 +682,22 @@ async function communicatePatient(rc: RunCtx, step: Record<string, unknown>, ctx
     catch (e) { rc.log("warn", `A4: patient email failed: ${e instanceof Error ? e.message : e}`); }
   }
   if (wati && phone) {
-    try { await watiSessionMessage(wati, phone, comms.waFor(status)); rc.stats.actions++; }
-    catch (e) { rc.log("warn", `A4: WhatsApp failed: ${e instanceof Error ? e.message : e}`); }
+    try {
+      if (reminder) {
+        // Relance reminder → approved WATI template ({{1}} = first name).
+        // Session messages only deliver inside the 24h window, which is closed
+        // for a non-responding patient, so the reminder must go via a template.
+        const template = String(
+          step.wati_followup_template ?? "s2_application_documentation_followup__assistance",
+        );
+        await watiTemplateMessage(wati, phone, template, `${template}_${patientId}`, [
+          { name: "1", value: nom || "Patient" },
+        ]);
+      } else {
+        await watiSessionMessage(wati, phone, comms.waFor(status));
+      }
+      rc.stats.actions++;
+    } catch (e) { rc.log("warn", `A4: WhatsApp failed: ${e instanceof Error ? e.message : e}`); }
   }
 
   // Forms to sign (S2 / Patient Authorisation) → email to the patient.
