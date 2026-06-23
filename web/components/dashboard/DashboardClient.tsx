@@ -9,6 +9,7 @@ import {
   Inbox, MessageSquare, Users, UserRound,
 } from "lucide-react";
 import type { DashboardOverviewResponse } from "@/app/api/dashboard/overview/route";
+import type { NhsPatientsResponse } from "@/app/api/dashboard/nhs-suivi/patients/route";
 import { KpiGrid } from "./KpiGrid";
 import { VolumeChart } from "./VolumeChart";
 import { DispositionsList } from "./DispositionsList";
@@ -208,7 +209,7 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
       <div style={{ flex: 1, minWidth: 0, width: "100%", display: "flex", flexDirection: "column", gap: 18 }}>
         <div className="page-header" style={{ marginBottom: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <Phone size={16} aria-hidden="true" />
+            <Phone size={20} style={{ flexShrink: 0 }} />
             <div>
               <h1 style={{ margin: 0 }}>{t("Tableau de bord des appels")}</h1>
               <div className="subtitle">{t("Pilotage et analyse de vos appels Axon")}.</div>
