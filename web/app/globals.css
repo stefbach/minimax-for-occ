@@ -397,7 +397,7 @@ table.list tr:hover td { background: var(--panel-2); }
 }
 .softphone-grid {
   display: grid;
-  grid-template-columns: 220px 1fr 300px;
+  grid-template-columns: 200px 1fr 300px;
   gap: 14px;
   align-items: start;
 }

@@ -804,14 +804,22 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
         </div>
       </div>
 
-      <div className="softphone-grid" style={activeCall ? undefined : { gridTemplateColumns: "200px 1fr" }}>
-        <CallsList
-          calls={calls}
-          activeId={activeCall?.id ?? null}
-          onSelect={(c) => setActiveCall(c)}
-        />
+      <div className="softphone-grid" style={
+        activeCall
+          ? undefined
+          : calls.length === 0
+            ? { gridTemplateColumns: "1fr" }
+            : { gridTemplateColumns: "200px 1fr" }
+      }>
+        {(calls.length > 0 || activeCall) && (
+          <CallsList
+            calls={calls}
+            activeId={activeCall?.id ?? null}
+            onSelect={(c) => setActiveCall(c)}
+          />
+        )}
 
-        <div className="softphone-center" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(220px, 280px)", gap: 12, alignItems: "start" }}>
+        <div className="softphone-center" style={{ display: "grid", gridTemplateColumns: (twilioCallState !== "idle" || activeCall) ? "minmax(0, 1fr) minmax(220px, 280px)" : "1fr", gap: 12, alignItems: "start" }}>
           <div className="card" style={{ padding: 12 }}>
           <h3 style={{ marginTop: 0 }}>{t("Composer un numéro")}</h3>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
@@ -919,7 +927,7 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
             </div>
           )}
 
-          <h3 style={{ marginTop: 24 }}>{t("Session vocale")}</h3>
+          <h3 style={{ marginTop: 16 }}>{t("Session vocale")}</h3>
           {!conn ? (
             <>
               <p className="muted" style={{ margin: 0 }}>
@@ -973,15 +981,16 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
           <ScriptPanel callId={activeCall?.id ?? null} />
           </div>{/* close left card of softphone-center grid */}
 
-          {/* Notes pendant l'appel + qualification dialog at hangup
-              (Wati June 10). Sits to the RIGHT of the dialer so the agent
-              can take notes while the call rings/connects. */}
-          <CallNotePanel
-            e164={dialNumber}
-            callActive={twilioCallState !== "idle"}
-            lastCallEndedAt={lastCallEndedAt}
-            lastCallId={lastCallId}
-          />
+          {/* Call notes — only render during/after a call so it doesn't
+              take up space when the desk is idle. */}
+          {(twilioCallState !== "idle" || activeCall) && (
+            <CallNotePanel
+              e164={dialNumber}
+              callActive={twilioCallState !== "idle"}
+              lastCallEndedAt={lastCallEndedAt}
+              lastCallId={lastCallId}
+            />
+          )}
         </div>{/* close softphone-center grid */}
 
         <ContactPanel call={activeCall} />
