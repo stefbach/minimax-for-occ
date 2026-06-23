@@ -276,6 +276,10 @@ const EN: Record<string, string> = {
   "API…": "API…",
   "Services en échec": "Failing services",
   "État des services (Supabase, Twilio, LiveKit…)": "Service health (Supabase, Twilio, LiveKit…)",
+  "État des services": "Service health",
+  "Vérification en cours…": "Checking…",
+  "Incident": "Incident",
+  "Non configuré": "Not configured",
   // ── Global filter bar (legacy OCC dashboard parity) ──
   "Personnalisé": "Custom",
   "Période active": "Active period",
