@@ -5,6 +5,7 @@ import { searchMessages, getMessageAttachments, sendEmail, createDraft, type Gma
 import { uploadObject, downloadObject, publicUrl, upsertNhsDocument, renderPdf } from "./storage";
 import { extractClinicalPrompt, medicalReportPrompt, undueDelayPrompt, s2SubmissionEmailPrompt } from "./prompts-occ";
 import { buildComms } from "./comms-occ";
+import { sendWhatsAppTemplate, sendWhatsAppFreeform } from "./whatsapp-twilio";
 
 /**
  * OCC patient-pipeline compound steps.
@@ -551,48 +552,23 @@ async function generateDocuments(rc: RunCtx, step: Record<string, unknown>, ctx:
 
 // ── Agent 4: Communicate (status comms + relance + forms/clinic drafts) ──────
 
-async function watiSessionMessage(cred: Record<string, unknown>, phone: string, text: string): Promise<void> {
-  const base = String(cred.base_url ?? "").replace(/\/+$/, "");
-  const token = String(cred.token ?? "");
-  if (!base || !token) throw new Error("WATI credential missing base_url/token");
-  const url = `${base}/api/v1/sendSessionMessage/${encodeURIComponent(phone.replace(/^\+/, ""))}?messageText=${encodeURIComponent(text)}`;
-  const r = await fetch(url, {
-    method: "POST",
-    headers: { Authorization: token.startsWith("Bearer ") ? token : `Bearer ${token}` },
-    signal: AbortSignal.timeout(15000),
-  });
-  if (!r.ok) throw new Error(`WATI session ${r.status}: ${(await r.text()).slice(0, 150)}`);
+// WhatsApp now ships via Twilio (migrated off WATI). These keep their original
+// signatures so the communicate step is unchanged; the `cred`/`broadcastName`
+// args are ignored and the positional params map onto Twilio ContentVariables.
+async function watiSessionMessage(_cred: Record<string, unknown>, phone: string, text: string): Promise<void> {
+  await sendWhatsAppFreeform(phone, text);
 }
 
-/**
- * Send an APPROVED WATI template (works outside the 24h session window, unlike
- * watiSessionMessage). Kept local to avoid an engine→steps-occ→engine import
- * cycle; mirrors the engine's sendTemplateMessage call.
- */
 async function watiTemplateMessage(
-  cred: Record<string, unknown>,
+  _cred: Record<string, unknown>,
   phone: string,
   templateName: string,
-  broadcastName: string,
+  _broadcastName: string,
   parameters: Array<{ name: string; value: string }>,
 ): Promise<void> {
-  const base = String(cred.base_url ?? "").replace(/\/+$/, "");
-  const token = String(cred.token ?? "");
-  if (!base || !token) throw new Error("WATI credential missing base_url/token");
-  const waNumber = phone.replace(/^\+/, "");
-  const r = await fetch(
-    `${base}/api/v1/sendTemplateMessage?whatsappNumber=${encodeURIComponent(waNumber)}`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: token.startsWith("Bearer ") ? token : `Bearer ${token}`,
-      },
-      body: JSON.stringify({ template_name: templateName, broadcast_name: broadcastName, parameters }),
-      signal: AbortSignal.timeout(15000),
-    },
-  );
-  if (!r.ok) throw new Error(`WATI template ${r.status}: ${(await r.text()).slice(0, 150)}`);
+  const variables: Record<string, string> = {};
+  for (const p of parameters) variables[p.name] = p.value;
+  await sendWhatsAppTemplate(phone, templateName, variables);
 }
 
 async function telegramSend(cred: Record<string, unknown>, text: string): Promise<void> {
