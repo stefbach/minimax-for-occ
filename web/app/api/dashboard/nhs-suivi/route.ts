@@ -41,6 +41,7 @@ export type NhsStalledPatient = {
 };
 
 export type NhsCoordinatorQueue = {
+  user_id: string | null;
   name: string;
   patients: { lead_id: string; name: string | null; phone: string | null; assigned_at: string | null; reason: string | null }[];
 };
@@ -227,25 +228,45 @@ export async function GET(request: Request) {
     nhs_submitted: tracking.submitted,
   };
 
-  // ── Step 9: coordinator queues (independent of dossiers) ──────────────
-  const COORDINATORS = ["Summer", "Rain", "Stormi"];
-  const queues = new Map<string, NhsCoordinatorQueue>(
-    COORDINATORS.map((n) => [n.toLowerCase(), { name: n, patients: [] }]),
-  );
+  // ── Step 9: coordinator queues (driven by users.is_nhs_coordinator) ───
+  // Coordinators come from public.users (flagged via is_nhs_coordinator). The
+  // display order matches what the legacy hardcoded list used.
+  const COORDINATOR_ORDER = ["summer", "rain", "stormi"];
+  const queuesByUser = new Map<string, NhsCoordinatorQueue>();
+  const queuesByLegacyName = new Map<string, NhsCoordinatorQueue>();
+  try {
+    const { data: coords } = await legacy
+      .from("axon_coordinators_ro")
+      .select("id, full_name, email");
+    type CoordRow = { id: string; full_name: string | null; email: string | null };
+    for (const c of (coords ?? []) as CoordRow[]) {
+      const displayName = (c.full_name ?? c.email ?? "").trim();
+      // Title-case the first character so "rain" displays as "Rain".
+      const titled = displayName ? displayName[0].toUpperCase() + displayName.slice(1) : "—";
+      const queue: NhsCoordinatorQueue = { user_id: c.id, name: titled, patients: [] };
+      queuesByUser.set(c.id, queue);
+      // Legacy fallback: assignment rows written before the migration carry
+      // assigned_to as a name string. Index by the first word of full_name to
+      // resolve those.
+      const firstName = displayName.split(/\s+/)[0]?.toLowerCase();
+      if (firstName) queuesByLegacyName.set(firstName, queue);
+    }
+  } catch { /* coordinators unreachable — leave queues empty */ }
+
   try {
     const { data: assigns } = await legacy
       .from("axon_assignments_ro")
-      .select("lead_id, assigned_to, reason, assigned_at, status")
+      .select("lead_id, assigned_to, assigned_to_user_id, reason, assigned_at, status")
       .order("assigned_at", { ascending: false })
       .limit(2000);
-    type Assign = { lead_id: string; assigned_to: string | null; reason: string | null; assigned_at: string | null; status: string | null };
+    type Assign = { lead_id: string; assigned_to: string | null; assigned_to_user_id: string | null; reason: string | null; assigned_at: string | null; status: string | null };
     const latestPerLead = new Map<string, Assign>();
     for (const a of (assigns ?? []) as Assign[]) {
       if (!a.lead_id || latestPerLead.has(a.lead_id)) continue;
       latestPerLead.set(a.lead_id, a);
     }
     const open = [...latestPerLead.values()].filter(
-      (a) => a.assigned_to && (!a.status || a.status === "open"),
+      (a) => (a.assigned_to_user_id || a.assigned_to) && (!a.status || a.status === "open"),
     );
     const assignIds = open.map((a) => a.lead_id);
     const assignLeadById = new Map<string, { nom: string | null; numero_telephone: string | null }>();
@@ -259,7 +280,10 @@ export async function GET(request: Request) {
       }
     }
     for (const a of open) {
-      const queue = queues.get((a.assigned_to ?? "").trim().toLowerCase());
+      // Prefer the real FK, fall back to the legacy name string.
+      const queue =
+        (a.assigned_to_user_id && queuesByUser.get(a.assigned_to_user_id)) ||
+        queuesByLegacyName.get((a.assigned_to ?? "").trim().toLowerCase());
       if (!queue) continue;
       const lead = assignLeadById.get(String(a.lead_id));
       queue.patients.push({
@@ -279,7 +303,16 @@ export async function GET(request: Request) {
     pending_response_3d_plus: pending3d,
     ready_to_submit: readyToSubmit,
     stalled: { count: stalledPatients.length, patients: stalledPatients.slice(0, 100) },
-    coordinators: COORDINATORS.map((n) => queues.get(n.toLowerCase())!),
+    coordinators: (() => {
+      // Stable ordering: known names (Summer/Rain/Stormi) first in their legacy
+      // order, then any future coordinators appended alphabetically.
+      const all = [...queuesByUser.values()];
+      const idx = (q: NhsCoordinatorQueue) => {
+        const i = COORDINATOR_ORDER.indexOf(q.name.toLowerCase());
+        return i === -1 ? 999 : i;
+      };
+      return all.sort((a, b) => idx(a) - idx(b) || a.name.localeCompare(b.name));
+    })(),
     clinic_docs: clinicDocs,
     comms,
     file_status,

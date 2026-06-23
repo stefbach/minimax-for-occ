@@ -350,15 +350,15 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
           {data.qualifications.map((q) => (
             <ClickCard
               key={q.key}
-              ariaLabel={`${q.label} — ${t("voir les appels")}`}
-              onClick={() => openDrill(q.label, "🏷", "var(--accent)", { qualification: q.key as QualBucket })}
+              ariaLabel={`${t(q.label)} — ${t("voir les appels")}`}
+              onClick={() => openDrill(t(q.label), "🏷", "var(--accent)", { qualification: q.key as QualBucket })}
               style={{ padding: 12, textAlign: "center", borderColor: q.count > 0 ? "var(--accent)" : undefined }}
             >
               <div style={{ fontSize: 24, fontWeight: 700, color: q.count > 0 ? "var(--accent)" : "var(--muted)" }}>
                 {q.count}
               </div>
               <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginTop: 4 }}>
-                {q.label}
+                {t(q.label)}
               </div>
             </ClickCard>
           ))}
@@ -636,7 +636,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
                 style={{ padding: "3px 10px", fontSize: 12 }}
                 onClick={() => setActiveQualTab(q.key)}
               >
-                {q.label} ({(summariesByQual.get(q.key) ?? []).length})
+                {t(q.label)} ({(summariesByQual.get(q.key) ?? []).length})
               </button>
             ))}
           </div>
@@ -655,7 +655,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
                     <span className="muted" style={{ fontSize: 11 }}>{fmtDate(s.started_at)}</span>
                   </div>
                   <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
-                    {s.qualification_label} · {s.agent_name ?? "—"} · {fmtDur(s.duration)}
+                    {t(s.qualification_label)} · {s.agent_name ?? "—"} · {fmtDur(s.duration)}
                   </div>
                   <div style={{ fontSize: 12, marginTop: 4 }}>{s.summary}</div>
                 </div>
@@ -689,7 +689,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
                     {h.contact_name ?? "—"} <span className="muted" style={{ fontWeight: 400 }}>{h.phone ?? ""}</span>
                   </div>
                   <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
-                    {h.qualification ?? "À passer à l'humain"}
+                    {h.qualification ? t(h.qualification) : t("À passer à l'humain")}
                     {h.scheduled_for && ` · ${fmtDate(h.scheduled_for)}`}
                     {h.status && ` · ${h.status}`}
                   </div>
