@@ -2,14 +2,15 @@
 
 // Activity report generation — port of the legacy OCC dashboard's "Générer un
 // rapport" feature. Aggregates the period's calls into daily or weekly rows
-// and renders a PDF (jsPDF + autotable, lazy-loaded) or a semicolon-CSV that
-// opens cleanly in French Excel. All processing is client-side over the rows
-// already exposed by /api/calls, so no new server surface is needed.
+// and renders a PDF (jsPDF + autotable, lazy-loaded) or a proper XLSX workbook
+// with multiple sheets. All processing is client-side over the rows already
+// exposed by /api/calls, so no new server surface is needed.
 
+import * as XLSX from "xlsx";
 import { bucketForCall, QUAL_BUCKETS } from "@/lib/qualification";
 
 export type ReportFrequency = "daily" | "weekly";
-export type ReportFormat = "pdf" | "csv";
+export type ReportFormat = "pdf" | "csv" | "xlsx";
 
 // The subset of /api/calls fields the report needs.
 export type ReportCall = {
@@ -342,6 +343,100 @@ export function generateCsv(data: ReportData, frequency: ReportFrequency, patien
   }
   // BOM so Excel opens UTF-8 accents correctly.
   return new Blob(["﻿" + lines.join("\n")], { type: "text/csv;charset=utf-8" });
+}
+
+// ─── XLSX report ───────────────────────────────────────────────────────────
+
+const PATIENT_HEADERS = [
+  "Full name", "Email", "Phone", "Age", "Weight (kg)", "Height (cm)",
+  "BMI", "Comorbidities", "Programme tier", "Total calls", "Qualification", "Last call",
+];
+
+function patientRows(patients: PatientRow[]): (string | number)[][] {
+  return patients.map((p) => [
+    p.nom ?? "",
+    p.email ?? "",
+    p.numero_telephone ?? "",
+    calcAge(p.patient_dob),
+    p.poids ?? "",
+    p.taille ?? "",
+    p.bmi ?? "",
+    p.other_chronic_conditions ?? "",
+    p.current_phase ?? "",
+    p.call_count ?? 0,
+    p.qualification ?? "",
+    p.last_call_datetime
+      ? new Date(p.last_call_datetime).toLocaleDateString("en-GB")
+      : "",
+  ]);
+}
+
+function makeSheet(data: (string | number)[][], colWidths: number[]): XLSX.WorkSheet {
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  ws["!cols"] = colWidths.map((w) => ({ wch: w }));
+  // Freeze the header row
+  ws["!freeze"] = { xSplit: 0, ySplit: 1 };
+  return ws;
+}
+
+export function generateXlsx(data: ReportData, frequency: ReportFrequency, patients?: PatientSections): Blob {
+  const wb = XLSX.utils.book_new();
+  const generatedAt = new Date().toLocaleString("en-GB");
+  const freqLabel = frequency === "daily" ? "Daily" : "Weekly";
+  const periodCol = frequency === "daily" ? "Day" : "Week";
+
+  // ── Sheet 1: Summary ────────────────────────────────────────────────────
+  const summaryData: (string | number)[][] = [
+    ["Activity Report — Calls"],
+    ["Period", data.periodLabel],
+    ["Frequency", freqLabel],
+    ["Generated", generatedAt],
+    [],
+    ["KPI", "Value"],
+    ["Total calls", data.totals.totalCalls],
+    ["Answered calls", data.totals.answered],
+    ["Answer rate", `${data.totals.answerRate.toFixed(1)}%`],
+    ["Confirmed appointments", data.totals.rdvConfirmed],
+    ["Conversion rate", `${data.totals.conversionRate.toFixed(1)}%`],
+    ["Total cost ($)", `$${data.totals.costDollars.toFixed(2)}`],
+    ["Best time slot", data.bestSlotOverall || "—"],
+    [],
+    ["Qualification breakdown"],
+    ["Qualification", "Calls", "Percentage"],
+    ...data.qualification.map((q) => [q.label, q.count, `${q.percent.toFixed(1)}%`]),
+  ];
+  const wsSummary = XLSX.utils.aoa_to_sheet(summaryData);
+  wsSummary["!cols"] = [{ wch: 30 }, { wch: 20 }, { wch: 14 }];
+  XLSX.utils.book_append_sheet(wb, wsSummary, "Summary");
+
+  // ── Sheet 2: Daily / Weekly breakdown ──────────────────────────────────
+  const detailHeaders = [periodCol, "Calls", "Answered", "Answer rate", "Appts", "Conv. rate", "Cost ($)", "Best slot"];
+  const detailRows = data.rows.map((r) => [
+    r.period, r.totalCalls, r.answered,
+    `${r.answerRate.toFixed(1)}%`, r.rdvConfirmed,
+    `${r.conversionRate.toFixed(1)}%`, `$${r.costDollars.toFixed(2)}`, r.bestSlot || "—",
+  ]);
+  const wsDetail = makeSheet([detailHeaders, ...detailRows], [14, 10, 12, 14, 10, 14, 12, 18]);
+  XLSX.utils.book_append_sheet(wb, wsDetail, freqLabel === "Daily" ? "Daily breakdown" : "Weekly breakdown");
+
+  // ── Sheet 3 & 4: Patient lists ─────────────────────────────────────────
+  if (patients && patients.rdvConfirme.length > 0) {
+    const ws = makeSheet(
+      [PATIENT_HEADERS, ...patientRows(patients.rdvConfirme)],
+      [28, 30, 18, 8, 12, 12, 8, 30, 18, 12, 22, 14],
+    );
+    XLSX.utils.book_append_sheet(wb, ws, `Confirmed appts (${patients.rdvConfirme.length})`);
+  }
+  if (patients && patients.passerHumain.length > 0) {
+    const ws = makeSheet(
+      [PATIENT_HEADERS, ...patientRows(patients.passerHumain)],
+      [28, 30, 18, 8, 12, 12, 8, 30, 18, 12, 22, 14],
+    );
+    XLSX.utils.book_append_sheet(wb, ws, `Needs human (${patients.passerHumain.length})`);
+  }
+
+  const raw = XLSX.write(wb, { type: "array", bookType: "xlsx" }) as Uint8Array;
+  return new Blob([raw], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
 }
 
 // ─── Download helpers ───────────────────────────────────────────────────────

@@ -5,7 +5,7 @@ import { useT } from "@/lib/i18n";
 import { bucketForCall, normalizeQualification } from "@/lib/qualification";
 import { matchesGlobalFilters, hasActiveGlobalFilters, DEFAULT_GLOBAL_FILTERS, type GlobalFilters } from "@/lib/global-filters";
 import {
-  buildReportData, generateCsv, reportFilename, downloadBlob,
+  buildReportData, generateCsv, generateXlsx, reportFilename, downloadBlob,
   type ReportCall, type ReportFrequency, type PatientRow, type PatientSections,
 } from "@/lib/report";
 import { ReportViewer } from "@/components/reports/ReportViewer";
@@ -225,8 +225,8 @@ export function ReportButton({
         }
       } catch { /* non-fatal — CSV still downloads without patient sections */ }
 
-      const blob = generateCsv(data, reportFreq, patientSections);
-      downloadBlob(blob, reportFilename({ periodLabel: p.label, frequency: reportFreq, format: "csv" }));
+      const blob = generateXlsx(data, reportFreq, patientSections);
+      downloadBlob(blob, reportFilename({ periodLabel: p.label, frequency: reportFreq, format: "xlsx" }));
     } catch (e) {
       setErr(e instanceof Error ? e.message : "report error");
     } finally {
@@ -350,7 +350,7 @@ export function ReportButton({
                     onClick={() => runCsv(g.freq)}
                     style={BTN}
                   >
-                    <span>📊</span> CSV
+                    <span>📊</span> Excel
                   </button>
                 </div>
               )}
