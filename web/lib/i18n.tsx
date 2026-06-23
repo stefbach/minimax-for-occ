@@ -234,10 +234,12 @@ const EN: Record<string, string> = {
   "Assignation…": "Assigning…",
   "Assigné à": "Assigned to",
   "Assigner": "Assign",
+  "Assigner à": "Assign to",
   "Assigner à un coordinateur": "Assign to a coordinator",
   "Désassigner": "Unassign",
   "Désassignation…": "Unassigning…",
   "Désassigné": "Unassigned",
+  "Échec — réessayer": "Failed — try again",
   // ── NHS S2: drill-down des cards ──
   "patient(s) concerné(s)": "patient(s) concerned",
   "affichés": "shown",
@@ -358,6 +360,16 @@ const EN: Record<string, string> = {
   "Instruction en cours": "Under review",
   "Dossiers approuvés": "Files approved",
   "Dossiers refusés": "Files rejected",
+  // ── PatientFullProfile section titles ──
+  "Identité": "Identity",
+  "Suivi": "Tracking",
+  "Clinique": "Clinical",
+  "NHS / Documents": "NHS / Documents",
+  "Cadence": "Cadence",
+  "Notes & Source": "Notes & Source",
+  "Autres champs": "Other fields",
+  "Derniers appels": "Recent calls",
+  "✓ Enregistré": "✓ Saved",
   // ── Team page ──
   "Équipe": "Team",
   "Gérez les utilisateurs de votre organisation, leurs rôles et leurs accès.":
@@ -487,6 +499,255 @@ const EN: Record<string, string> = {
   "voir les appels": "view calls",
   "Aucune table de phases configurée pour cette organisation.":
     "No phase table configured for this organisation.",
+  // ── Sidebar items missing translations ──
+  "Rapports pilotage": "Management reports",
+  "Mon calendrier": "My calendar",
+  "Mes patients": "My patients",
+  "Appel sortant": "Outbound call",
+  "Supervision": "Supervision",
+  "Supervision live": "Live supervision",
+  "Fermer le menu": "Close menu",
+  "Ouvrir le menu": "Open menu",
+  "Navigation principale": "Main navigation",
+  // ── Director tab: inbound calls section ──
+  "décrochés": "answered",
+  "sans réponse": "no answer",
+  "Appels entrants": "Inbound calls",
+  "Voir tous les entrants": "View all inbound",
+  "Total": "Total",
+  "Entrants décrochés": "Inbound answered",
+  "Entrants sans réponse": "Inbound no answer",
+  "Non décrochés": "Unanswered",
+  // ── Director tab: call slots ──
+  "Créneau 1 — matin": "Slot 1 — morning",
+  "Créneau 2 — midi": "Slot 2 — midday",
+  "Créneau 3 — soir": "Slot 3 — evening",
+  "Hors créneau": "Out of hours",
+  // ── Director tab: agent chain ──
+  "Chaîne d'agents": "Agent chain",
+  "Combien de leads sont passés sur 1, 2 ou 3 agents": "How many leads went through 1, 2 or 3 agents",
+  "Agent 1 uniquement": "Agent 1 only",
+  // ── Director tab: AI qualification ──
+  "Analyse IA automatique": "Automatic AI analysis",
+  "Analyse IA automatique…": "Automatic AI analysis…",
+  "restant(s)": "remaining",
+  "Appels décrochés non qualifiés": "Answered calls not yet qualified",
+  "Voir les appels non qualifiés": "View unqualified calls",
+  "Qualification IA automatique : chaque appel décroché est classé par l'IA d'après son transcript. Le reliquat se résorbe tout seul.":
+    "Automatic AI qualification: every answered call is classified by AI from its transcript. The remainder clears itself.",
+  "Qualification IA en cours…": "AI qualification in progress…",
+  "Qualification IA automatique": "Automatic AI qualification",
+  "Voir les appels": "View calls",
+  // ── Director tab: call summaries ──
+  "Ce qu'ils ont dit": "What they said",
+  "Résumés d'appels regroupés par qualification": "Call summaries grouped by qualification",
+  "Aucun résumé pour cette qualification.": "No summary for this qualification.",
+  "Aucun résumé d'appel sur la période. Les résumés sont générés post-appel.":
+    "No call summaries for this period. Summaries are generated after the call.",
+  // ── Director tab: human callbacks / human handoff ──
+  "Dossiers à confier à un humain": "Files to hand to a human",
+  "Leads en attente de rappel humain": "Leads awaiting human callback",
+  "Aucun dossier en attente.": "No dossiers pending.",
+  "Voir dans Mon poste": "View in My desk",
+  "À passer à l'humain": "Transfer to human",
+  // ── Director tab: qualitative call threshold ──
+  "Seuil « appel qualitatif »": "\"Qualitative call\" threshold",
+  "durée minimum": "minimum duration",
+  "appel(s)": "call(s)",
+  "Filtre la tuile « DURÉE > X » ci-dessus. Les autres KPI ne changent pas.":
+    "Filters the \"DURATION > X\" tile above. Other KPIs are unaffected.",
+  // ── Director tab: qualification tiles (disposition labels) ──
+  "RDV CONFIRME": "CONFIRMED APPT",
+  "À PASSER À L'HUMAIN": "TRANSFER TO HUMAN",
+  "RAPPEL": "CALLBACK",
+  "PAS INTERESSE": "NOT INTERESTED",
+  "PAS DE REPONSE": "NO ANSWER",
+  "REPONDEUR": "VOICEMAIL",
+  "FAUX NUMERO": "WRONG NUMBER",
+  "NON ELIGIBLE": "NOT ELIGIBLE",
+  "NE PAS RAPPELER": "DO NOT CALL",
+  // ── Stats tab ──
+  "RDV obtenus": "Appointments booked",
+  "des appels": "of calls",
+  "Taux de décroché": "Answer rate",
+  "par RDV": "per appt",
+  "Appels totaux": "Total calls",
+  "leads en base": "leads in database",
+  "Éligibles dans le pipeline": "Eligible in pipeline",
+  "BMI ≥ 40 & pas encore RDV": "BMI ≥ 40 & no appt yet",
+  "Appels moy. avant RDV": "Avg calls before appt",
+  "plus bas = mieux": "lower = better",
+  "Faux n° / sans réponse": "Wrong no. / no answer",
+  "qualité de la liste": "list quality",
+  "Actifs maintenant": "Active now",
+  "appels en direct": "live calls",
+  "au repos": "idle",
+  "vs préc.": "vs prev.",
+  "Dépense totale": "Total spend",
+  "Coût moyen / appel": "Avg cost / call",
+  "Coût par RDV": "Cost per appt",
+  "Gaspillé (faux n° / sans réponse)": "Wasted (wrong no. / no answer)",
+  "de la dépense": "of spend",
+  "Coûts des appels": "Call costs",
+  "dépensés": "spent",
+  "période précédente": "previous period",
+  "Coût par heure": "Cost per hour",
+  "Coût par issue": "Cost by outcome",
+  "Aucun coût attribué.": "No costs attributed.",
+  "Entonnoir de conversion": "Conversion funnel",
+  "Où tombent tes leads — chaque étape comparée au total initial": "Where your leads fall — each step vs. the starting total",
+  "Résultat de chaque appel, normalisé en 9 catégories": "Outcome of each call, normalised into 9 categories",
+  "Aucune qualification dans la période.": "No qualifications in this period.",
+  "Attribution par source de lead": "Attribution by lead source",
+  "Conversion par origine du lead (Facebook, Google, etc.)": "Conversion by lead origin (Facebook, Google, etc.)",
+  "Aucune table de leads avec colonne source_lead configurée.": "No leads table with a source_lead column configured.",
+  "Quand appeler — Jour × Heure": "Best times — Day × Hour",
+  "Taux de RDV par créneau (≥3 appels)": "Appt rate by slot (≥3 calls)",
+  "Taux de décroché par créneau (>15s, disconnect valide)": "Answer rate by slot (>15s, valid disconnect)",
+  "Faible": "Low",
+  "Élevé": "High",
+  "Top créneaux": "Top slots",
+  "Durée moy.": "Avg dur.",
+  "Pas assez de données.": "Insufficient data.",
+  "Combien d'essais avant qu'un patient décroche, et taux de réussite à chaque tentative":
+    "How many attempts before a patient answers, and the success rate at each attempt",
+  // ── Call logs tab ──
+  "Répondu": "Answered",
+  "Nom, numéro, agent, qualification…": "Name, number, agent, qualification…",
+  "Plage de durée personnalisée": "Custom duration range",
+  "Perso": "Custom",
+  "de": "from",
+  "à": "to",
+  "Appels affichés": "Calls shown",
+  "Minutes totales": "Total minutes",
+  "Coût total": "Total cost",
+  "filtre actif": "active filter",
+  "Numéro": "Number",
+  "Facturée": "Billed",
+  "Lead": "Lead",
+  "Source": "Source",
+  // ── NHS report cards (source: clinic manager's monthly PDF) ──
+  "Rapport NHS — dossiers S2": "NHS report — S2 dossiers",
+  "Mis à jour le": "Updated on",
+  "Total dossiers": "Total dossiers",
+  "soumis au NHS": "submitted to NHS",
+  "Approuvés": "Approved",
+  "opérés": "operated",
+  "programmés": "scheduled",
+  "sortis du parcours": "left pathway",
+  "En attente NHS": "Awaiting NHS",
+  "réponse / appel en cours": "reply / appeal in progress",
+  "Éléments requis": "Items required",
+  "documents à fournir": "documents to provide",
+  "Rejetés": "Rejected",
+  "critères ICB non remplis": "ICB criteria not met",
+  "Abandons": "Drop-outs",
+  "ne souhaitent pas continuer": "do not wish to continue",
+  "À soumettre": "To submit",
+  "transmis au NHS en fin de semaine": "to be sent to NHS this week",
+  "patient(s)": "patient(s)",
+  "Envoi NHS": "Sent to NHS",
+  "Situation": "Situation",
+  "Voir les documents": "View documents",
+  "Disponible après l'upload des documents": "Available after the document upload",
+  // ── NHS report — per-patient situations (verbatim from the manager's PDF) ──
+  // Approved
+  "Opéré — phases 1 et 2 terminées.": "Operated — phases 1 and 2 complete.",
+  "Opération (phase 2) prévue en juillet 2026.": "Surgery (phase 2) scheduled for July 2026.",
+  "Opération (phase 2) prévue en août 2026.": "Surgery (phase 2) scheduled for August 2026.",
+  "Opération prévue en septembre 2026.": "Surgery scheduled for September 2026.",
+  "Chirurgie du cou préalable — opération prévue en septembre 2026.":
+    "Prior neck surgery — surgery scheduled for September 2026.",
+  "Sorti du parcours — ne souhaite pas continuer.": "Left pathway — does not wish to continue.",
+  "Sorti du parcours — approuvé NHS mais ne peut pas régler les honoraires.":
+    "Left pathway — NHS-approved but cannot pay our fees.",
+  "Sorti du parcours — approuvée le 23/04/2026, n'a pas souhaité continuer.":
+    "Left pathway — approved on 23/04/2026, did not wish to continue.",
+  // Pending NHS
+  "Réévaluation par le service bariatrique local requise avant financement S2.":
+    "Re-evaluation by the local bariatric service required before S2 funding.",
+  "Appel déposé le 22/05/2026 — accusé de réception NHS le 28/05/2026, réponse à venir.":
+    "Appeal filed on 22/05/2026 — NHS acknowledgement on 28/05/2026, reply pending.",
+  "Éléments envoyés au NHS — réponse attendue.": "Items sent to NHS — reply awaited.",
+  // Missing docs
+  "Preuves NHS Tier 3 + 1 justificatif de résidence en Angleterre.":
+    "NHS Tier 3 evidence + 1 proof of residence in England.",
+  "Lettre du GP (orientation Tier 3 → Tier 4) + 2 justificatifs de résidence + relevés bancaires depuis oct. 2025.":
+    "GP letter (Tier 3 → Tier 4 referral) + 2 proofs of residence + bank statements from Oct. 2025.",
+  "Consultation GP + preuves Tier 3 + 1 justificatif de résidence + relevés bancaires.":
+    "GP consultation + Tier 3 evidence + 1 proof of residence + bank statements.",
+  "Preuves Tier 3 + justificatifs de résidence + relevés bancaires.":
+    "Tier 3 evidence + proofs of residence + bank statements.",
+  "Participation Tier 3 + documentation d'achèvement + assiduité / suivi clinique.":
+    "Tier 3 participation + completion documentation + attendance / clinical follow-up.",
+  "Lettre de sortie Tier 3 + preuves complémentaires + 2 justificatifs de résidence + relevés bancaires.":
+    "Tier 3 exit letter + additional evidence + 2 proofs of residence + bank statements.",
+  "Engagement Tier 3/4 + 2 justificatifs de résidence + relevés bancaires + Council Tax.":
+    "Tier 3/4 engagement + 2 proofs of residence + bank statements + Council Tax.",
+  "Engagement Tier 3 depuis mai 2025 + 2 justificatifs de résidence récents + relevés bancaires depuis oct. 2025 + Council Tax récent.":
+    "Tier 3 engagement since May 2025 + 2 recent proofs of residence + bank statements from Oct. 2025 + recent Council Tax.",
+  "En attente du statut de visa du patient.": "Awaiting the patient's visa status.",
+  "Éligible S2, demande suspendue : renouvellement du titre de séjour et preuves médicales NHS attendus.":
+    "S2-eligible, application suspended: residence permit renewal and NHS medical evidence awaited.",
+  "Mise à jour niveau 3 demandée — RDV médecin traitant le 24/06/2026.":
+    "Tier 3 update requested — GP appointment on 24/06/2026.",
+  "Mise à jour niveau 3 — documentation du médecin traitant attendue.":
+    "Tier 3 update — GP documentation awaited.",
+  "Documentation du médecin traitant attendue.": "GP documentation awaited.",
+  // Rejected
+  "Critères ICB non remplis — niveau 3 non complété, approbation refusée.":
+    "ICB criteria not met — Tier 3 not completed, approval refused.",
+  "Aucun document justificatif fourni.": "No supporting document provided.",
+  "Chirurgie privée antérieure — disqualifiée pour la voie S2.":
+    "Prior private surgery — disqualified from the S2 pathway.",
+  "En attente du document patient avant envoi en révision.":
+    "Awaiting the patient document before submission for review.",
+  "Critères ICB non remplis — niveau 2 refusé en 2025. Envisage la Turquie en privé.":
+    "ICB criteria not met — Tier 2 refused in 2025. Considering private surgery in Turkey.",
+  // Drop-outs
+  "Ne souhaite pas continuer.": "Does not wish to continue.",
+  "Documents non fournis — ne souhaite pas continuer.":
+    "Documents not provided — does not wish to continue.",
+  "Pas de justificatif niveau 3 — ne souhaite pas continuer.":
+    "No Tier 3 evidence — does not wish to continue.",
+  "A obtenu une date d'opération au Royaume-Uni (sous 6 mois).":
+    "Has obtained a surgery date in the UK (within 6 months).",
+  // To submit
+  "Voie S2 — dossier prêt, transmission au NHS prévue en fin de semaine.":
+    "S2 pathway — dossier ready, NHS transmission scheduled for end of week.",
+  // ── NhsReportDetailView ──
+  "Dossier NHS S2": "NHS S2 dossier",
+  "Envoyé le": "Sent on",
+  "Parcours NHS S2": "NHS S2 pathway",
+  "Dossier préparé": "Dossier prepared",
+  "Soumis au NHS": "Submitted to NHS",
+  "En examen NHS": "Under NHS review",
+  "Approuvé": "Approved",
+  "Opération planifiée": "Surgery scheduled",
+  "Opéré": "Operated",
+  "Approuvé & Opéré": "Approved & Operated",
+  "Approuvé — opération planifiée": "Approved — surgery scheduled",
+  "Situation actuelle": "Current situation",
+  "Détails de la soumission NHS": "NHS submission details",
+  "Catégorie": "Category",
+  "Envoi au NHS": "Sent to NHS",
+  "Rapport du": "Report dated",
+  "Les documents seront accessibles ici après l'upload depuis Google Drive.":
+    "Documents will be accessible here after upload from Google Drive.",
+  // Stage labels
+  "Dossier soumis": "Dossier submitted",
+  "Approuvé — voie S2": "Approved — S2 pathway",
+  "En attente de réponse NHS": "Awaiting NHS response",
+  "Éléments manquants requis": "Missing elements required",
+  "Rejeté — critères ICB": "Rejected — ICB criteria",
+  "Abandon du parcours": "Pathway dropout",
+  "Prêt à soumettre": "Ready to submit",
+  // NhsReportDetailView — documents section
+  "fichiers": "files",
+  "catégories": "categories",
+  "Chargement des documents…": "Loading documents…",
+  "Aucun dossier trouvé dans Supabase pour ce patient.": "No dossier found in Supabase for this patient.",
+  "Aucun document disponible.": "No documents available.",
 };
 
 function readLang(): Lang {

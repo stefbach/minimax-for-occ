@@ -100,7 +100,7 @@ function makeRequest(opts: {
       pathname: opts.path,
       searchParams: new URLSearchParams(),
       clone() {
-        const cloned = { ...this } as unknown as {
+        const cloned = { ...(this as object) } as unknown as {
           pathname: string;
           search: string;
           searchParams: URLSearchParams;

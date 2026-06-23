@@ -149,3 +149,50 @@ export async function loadOverDialedLeads(limit = 10): Promise<LeadActionRow[]> 
     .limit(limit);
   return (data ?? []) as LeadActionRow[];
 }
+
+export interface PatientExportRow {
+  nom: string | null;
+  email: string | null;
+  numero_telephone: string | null;
+  poids: number | null;
+  taille: number | null;
+  bmi: number | null;
+  qualification: string | null;
+  last_call_datetime: string | null;
+}
+
+/** Load patients active in the period (last_call_datetime within window, or created_at). */
+export async function loadPatientDataForExport(
+  orgId: string,
+  period: PeriodWindow,
+  limit = 500,
+): Promise<PatientExportRow[]> {
+  const sb = supabaseServer();
+  // First resolve the org's primary data table
+  const { data: tables } = await sb
+    .from("tenant_data_tables")
+    .select("physical_table")
+    .eq("org_id", orgId);
+  const table = (tables ?? []).find((t: { physical_table: string | null }) =>
+    /leads_rdv|nhs|patient/i.test(String(t.physical_table ?? "")),
+  );
+  if (!table?.physical_table) return [];
+
+  // Query the table, filtering by last_call_datetime in period (fallback: all rows up to limit)
+  const { data } = await sb
+    .from(table.physical_table)
+    .select("nom, email, numero_telephone, poids, taille, bmi, qualification, last_call_datetime")
+    .gte("last_call_datetime", period.fromIso)
+    .lt("last_call_datetime", period.toIso)
+    .limit(limit);
+
+  if (data && data.length > 0) return data as PatientExportRow[];
+
+  // If no results for the filtered period, return all rows (so export is always useful)
+  const { data: allData } = await sb
+    .from(table.physical_table)
+    .select("nom, email, numero_telephone, poids, taille, bmi, qualification, last_call_datetime")
+    .order("last_call_datetime", { ascending: false })
+    .limit(limit);
+  return (allData ?? []) as PatientExportRow[];
+}
