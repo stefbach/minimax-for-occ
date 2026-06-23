@@ -475,18 +475,27 @@ def _llm_for_resilient(agent: Optional[AxonAgent]):
         return primary
 
 
-async def _warm_session_llm(llm, clog) -> None:
+async def _warm_session_llm(llm, clog, instructions: str | None = None) -> None:
     """Fire one throwaway micro-completion on the session's REAL llm so the
-    first patient turn doesn't pay a cold handshake.
+    first patient turn doesn't pay a cold start.
 
     Called right after the greeting or re-greeting finishes. At this point the
-    patient will reply in 5-15s, so the socket warms while we wait for their
+    patient will reply in 5-15s, so the warmup runs while we wait for their
     speech, without the timeout risk of warming during session.start(). Fire-
     and-forget: best-effort, non-blocking (fails silently).
 
-    Disable with LLM_SESSION_WARMUP=off. Does NOT fix provider-side generation
-    throttling ("inference is slower than realtime") — that's capacity on the
-    inference node, not a cold socket."""
+    When `instructions` is provided we warm with the REAL system prompt as the
+    cache prefix (plus a 1-token user turn), instead of a 14-token throwaway.
+    This is what actually cuts the cold FIRST-turn latency: the inference node
+    has to do its first full-prompt prefill + decode against ~3-4k tokens, and
+    on a cold node that costs ~1s more than steady-state. Doing it here, during
+    the greeting dead-time, means the patient's first real answer lands on an
+    already-warm node + warm prompt cache. A bare 14-token warmup only primed
+    the socket, not the generation path, so the first real turn still paid it.
+
+    Disable with LLM_SESSION_WARMUP=off. Does NOT fix sustained provider-side
+    throttling ("inference is slower than realtime") — that's node capacity,
+    not a cold start."""
     if os.getenv("LLM_SESSION_WARMUP", "on").lower() in ("off", "false", "0", "no", "disabled"):
         return
     try:
@@ -495,11 +504,31 @@ async def _warm_session_llm(llm, clog) -> None:
         return
     try:
         ctx = ChatContext.empty() if hasattr(ChatContext, "empty") else ChatContext()
-        try:
-            ctx.add_message(role="user", content="Reply with the single character: .")
-        except Exception:
-            from livekit.agents.llm import ChatMessage  # type: ignore
-            ctx.messages.append(ChatMessage(role="user", content="Reply with the single character: ."))  # type: ignore
+        # Prime with the real system prompt so the node warms the SAME prefix
+        # the first real turn will use (full prefill + cache write). Falls back
+        # to the socket-only warmup if instructions are absent or the API
+        # rejects a system role on this SDK version.
+        # REGRESSION REVERT (Wati 23/06): priming with the FULL system prompt
+        # (~3.8k tokens) made the first turn WORSE, not better. The LLM runs
+        # through the SHARED LiveKit Inference gateway, which was already
+        # logging "inference is slower than realtime" — firing a heavy warmup
+        # there can't pin a warm node for our turn, it just adds load to a
+        # saturating gateway. Back to the lightweight socket-only warmup.
+        # Re-enable the experiment explicitly with LLM_WARMUP_FULL_PROMPT=on.
+        primed_full = False
+        if instructions and os.getenv("LLM_WARMUP_FULL_PROMPT", "off").lower() in ("1", "true", "yes", "on"):
+            try:
+                ctx.add_message(role="system", content=instructions)
+                ctx.add_message(role="user", content="Reply with the single character: .")
+                primed_full = True
+            except Exception:
+                primed_full = False
+        if not primed_full:
+            try:
+                ctx.add_message(role="user", content="Reply with the single character: .")
+            except Exception:
+                from livekit.agents.llm import ChatMessage  # type: ignore
+                ctx.messages.append(ChatMessage(role="user", content="Reply with the single character: ."))  # type: ignore
         _t0 = time.monotonic()
         stream = llm.chat(chat_ctx=ctx)
         async for chunk in stream:
@@ -511,7 +540,11 @@ async def _warm_session_llm(llm, clog) -> None:
             await stream.aclose()
         except Exception:
             pass
-        clog.info("LLM warmup: connection primed in %.0fms", (time.monotonic() - _t0) * 1000.0)
+        clog.info(
+            "LLM warmup: %s primed in %.0fms",
+            "full-prompt (node+cache)" if primed_full else "socket-only",
+            (time.monotonic() - _t0) * 1000.0,
+        )
     except Exception:
         clog.debug("LLM warmup skipped (non-fatal)", exc_info=True)
 
@@ -1322,6 +1355,13 @@ class AxonVoiceAgent(Agent):
             kwargs["vad"] = vad
         super().__init__(**kwargs)
         self._greeting = greeting
+        # Keep the raw system prompt so the LLM warmup can prime the inference
+        # node with the REAL prompt prefix (not a 14-token throwaway) during the
+        # greeting dead-time — see _warm_session_llm. This is what cuts the cold
+        # first-turn latency (the patient's first real answer was paying ~1.8s
+        # TTFT vs ~0.6s on warm turns, because the node had never generated
+        # against this prompt yet).
+        self._instructions = instructions
         # Optional reference to the SIP participant already resolved by the
         # entrypoint via ctx.wait_for_participant(). on_enter uses this to
         # poll sip.callStatus directly instead of relying on room events
@@ -1395,7 +1435,7 @@ class AxonVoiceAgent(Agent):
             logger.info("greeting: re-greet say() returned in %.2fs", _t.monotonic() - _b)
             # Warm LLM connection after re-greeting, as with main greeting.
             try:
-                asyncio.create_task(_warm_session_llm(self.session.llm, logger))
+                asyncio.create_task(_warm_session_llm(self.session.llm, logger, self._instructions))
             except Exception:
                 logger.debug("LLM post-regreeting warmup not scheduled (non-fatal)", exc_info=True)
         except Exception:
@@ -1574,44 +1614,86 @@ class AxonVoiceAgent(Agent):
             except Exception:
                 pass
 
-            last_logged_status: str | None = None
-            while _t.monotonic() - gate_start < max_gate:
+            # ── GREET-ON-VOICE early release (Wati 23/06) ──────────────────
+            # The dead-air problem: on lagging PSTN routes sip.callStatus
+            # flips to "active" 3-5s AFTER the patient actually picks up and
+            # starts talking. Real prod transcripts show patients saying
+            # "Hello?… Hello?" 2-3 times into silence before the gate frees.
+            # The patient's own VOICE is the most reliable "they're really on
+            # the line" signal we have, and it ALWAYS precedes the laggy
+            # callStatus update. So: if the session detects the patient
+            # speaking, release the gate immediately and greet. This is purely
+            # ADDITIVE — it can only free the gate EARLIER, never later — and
+            # leaves the callStatus path and the re-greet backstop untouched.
+            _voice_seen = {"v": False}
+
+            def _on_user_state(ev) -> None:  # noqa: ANN001
                 try:
-                    attrs = dict(getattr(sp, "attributes", None) or {})
-                    status = (attrs.get("sip.callStatus") or "").lower()
-                    if status != last_logged_status:
-                        logger.info(
-                            "greeting: SIP gate poll callStatus=%r at %.2fs",
-                            status,
-                            _t.monotonic() - gate_start,
-                        )
-                        last_logged_status = status
-                    if status == "active":
-                        logger.info(
-                            "greeting: SIP gate released (callStatus=active) after %.2fs",
-                            _t.monotonic() - gate_start,
-                        )
-                        break
-                    # Some LK SIP outbound flows omit the explicit "active"
-                    # transition and just clear the dialing/ringing flag.
-                    # If status leaves dialing/ringing/automation but isn't
-                    # "active", treat it as ready too.
-                    if status and status not in {"dialing", "ringing", "automation"}:
-                        logger.info(
-                            "greeting: SIP gate released (callStatus=%r) after %.2fs",
-                            status,
-                            _t.monotonic() - gate_start,
-                        )
-                        break
+                    if getattr(ev, "new_state", None) == "speaking":
+                        _voice_seen["v"] = True
                 except Exception:
-                    logger.debug("greeting: poll failed", exc_info=True)
-                await asyncio.sleep(0.2)
-            else:
-                logger.warning(
-                    "greeting: SIP gate timed out at %.1fs with last status=%r — greeting anyway",
-                    max_gate,
-                    last_logged_status,
-                )
+                    pass
+
+            _voice_handler_attached = False
+            try:
+                self.session.on("user_state_changed", _on_user_state)
+                _voice_handler_attached = True
+            except Exception:
+                logger.debug("greeting: could not attach user_state_changed listener", exc_info=True)
+
+            last_logged_status: str | None = None
+            try:
+                while _t.monotonic() - gate_start < max_gate:
+                    # Patient's voice beats the laggy callStatus — release now.
+                    if _voice_seen["v"]:
+                        logger.info(
+                            "greeting: SIP gate released EARLY on patient voice after %.2fs (last callStatus=%r)",
+                            _t.monotonic() - gate_start,
+                            last_logged_status,
+                        )
+                        break
+                    try:
+                        attrs = dict(getattr(sp, "attributes", None) or {})
+                        status = (attrs.get("sip.callStatus") or "").lower()
+                        if status != last_logged_status:
+                            logger.info(
+                                "greeting: SIP gate poll callStatus=%r at %.2fs",
+                                status,
+                                _t.monotonic() - gate_start,
+                            )
+                            last_logged_status = status
+                        if status == "active":
+                            logger.info(
+                                "greeting: SIP gate released (callStatus=active) after %.2fs",
+                                _t.monotonic() - gate_start,
+                            )
+                            break
+                        # Some LK SIP outbound flows omit the explicit "active"
+                        # transition and just clear the dialing/ringing flag.
+                        # If status leaves dialing/ringing/automation but isn't
+                        # "active", treat it as ready too.
+                        if status and status not in {"dialing", "ringing", "automation"}:
+                            logger.info(
+                                "greeting: SIP gate released (callStatus=%r) after %.2fs",
+                                status,
+                                _t.monotonic() - gate_start,
+                            )
+                            break
+                    except Exception:
+                        logger.debug("greeting: poll failed", exc_info=True)
+                    await asyncio.sleep(0.2)
+                else:
+                    logger.warning(
+                        "greeting: SIP gate timed out at %.1fs with last status=%r — greeting anyway",
+                        max_gate,
+                        last_logged_status,
+                    )
+            finally:
+                if _voice_handler_attached:
+                    try:
+                        self.session.off("user_state_changed", _on_user_state)
+                    except Exception:
+                        logger.debug("greeting: could not detach user_state_changed listener", exc_info=True)
 
         # ────────────────────────────────────────────────────────────────
         # GREET-ON-ANSWER (Wati 2026-06-12: "il faut qu'il dit son greeting
@@ -1664,6 +1746,18 @@ class AxonVoiceAgent(Agent):
                     "greeting: say() interrupted after %.2fs (likely hangup)",
                     _t.monotonic() - _b,
                 )
+            # Warm the LLM with the REAL system prompt NOW, while the patient is
+            # still picking up / about to answer. This is the on-answer path's
+            # cold-start fix: the patient's first substantive reply was paying
+            # ~1.8s TTFT because the inference node had never generated against
+            # this prompt; priming it during the dead-time drops the first real
+            # turn to steady-state (~0.6s). Fire-and-forget.
+            try:
+                asyncio.create_task(
+                    _warm_session_llm(self.session.llm, logger, self._instructions)
+                )
+            except Exception:
+                logger.debug("LLM on-answer warmup not scheduled (non-fatal)", exc_info=True)
             # Wati 18/06 — ARM the opener-response budget in on-answer mode too.
             # History: it used to be 0 here, on the theory that the agent had
             # ALREADY greeted at pickup so any "Hello?" came from someone who
@@ -1730,7 +1824,7 @@ class AxonVoiceAgent(Agent):
             # BEFORE the patient replies. At this point the socket won't timeout
             # before the 1st real turn (usually 5-15s away). Best-effort.
             try:
-                asyncio.create_task(_warm_session_llm(self.session.llm, logger))
+                asyncio.create_task(_warm_session_llm(self.session.llm, logger, self._instructions))
             except Exception:
                 logger.debug("LLM post-greeting warmup not scheduled (non-fatal)", exc_info=True)
         except Exception:
@@ -3720,7 +3814,28 @@ async def entrypoint(ctx: JobContext) -> None:
     # Reuse the VAD loaded once at worker startup (prewarm) instead of paying
     # the model-load cost on every single call — that load was part of the
     # delay before the agent could start listening/speaking.
-    vad = (ctx.proc.userdata.get("vad") if getattr(ctx, "proc", None) else None) or silero.VAD.load()
+    #
+    # Per-turn EOU latency lever (Wati 2026-06-23 latency research): with
+    # turn_detection="vad", Silero VAD's `min_silence_duration` is what ACTUALLY
+    # ends every turn — not the AssemblyAI min_turn_silence we tuned. Its default
+    # is 0.55s, so every turn waited ~550ms of trailing silence regardless of the
+    # STT config. When a call carries a `min_silence_duration` override (set via
+    # agents.metadata.call_tuning, so prod agents with no metadata are unaffected
+    # and keep the prewarmed default-0.55 VAD), load a fresh VAD at that value.
+    # 0.30 cuts ~250ms off EOU on every turn. The fresh-load cost is one-off at
+    # session start and does NOT affect the per-turn EOU we're optimising.
+    _prewarmed_vad = ctx.proc.userdata.get("vad") if getattr(ctx, "proc", None) else None
+    _tun_min_sil = campaign_tuning.get("min_silence_duration")
+    if _tun_min_sil is not None:
+        try:
+            _ms = float(_tun_min_sil)
+            vad = silero.VAD.load(min_silence_duration=_ms)
+            clog.info("VAD: per-call min_silence_duration=%.2fs (tuning override)", _ms)
+        except Exception:
+            clog.warning("VAD: min_silence_duration override %r invalid — using prewarmed VAD", _tun_min_sil, exc_info=True)
+            vad = _prewarmed_vad or silero.VAD.load()
+    else:
+        vad = _prewarmed_vad or silero.VAD.load()
 
     import inspect as _inspect
 
