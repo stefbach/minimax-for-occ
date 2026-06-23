@@ -1159,6 +1159,11 @@ const EN: Record<string, string> = {
   "Au moment du raccrochage…": "At the point of hang-up…",
   "Salutation à l'entrée en session": "Session entry greeting",
   "Notes prises pendant l'appel…": "Notes taken during call…",
+  "Notes pendant l'appel": "Call notes",
+  "Comment qualifies-tu cet appel ?": "How do you qualify this call?",
+  "Nom complet *": "Full name *",
+  "Email (optionnel)": "Email (optional)",
+  "Note initiale (optionnel)": "Initial note (optional)",
 
   // ── Callbacks & scheduling ──
   "Aucun rappel programmé. Tu peux prendre des leads dans le pool partagé.": "No callback scheduled. You can take leads from the shared pool.",
