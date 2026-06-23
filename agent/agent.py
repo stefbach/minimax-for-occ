@@ -1574,44 +1574,86 @@ class AxonVoiceAgent(Agent):
             except Exception:
                 pass
 
-            last_logged_status: str | None = None
-            while _t.monotonic() - gate_start < max_gate:
+            # ── GREET-ON-VOICE early release (Wati 23/06) ──────────────────
+            # The dead-air problem: on lagging PSTN routes sip.callStatus
+            # flips to "active" 3-5s AFTER the patient actually picks up and
+            # starts talking. Real prod transcripts show patients saying
+            # "Hello?… Hello?" 2-3 times into silence before the gate frees.
+            # The patient's own VOICE is the most reliable "they're really on
+            # the line" signal we have, and it ALWAYS precedes the laggy
+            # callStatus update. So: if the session detects the patient
+            # speaking, release the gate immediately and greet. This is purely
+            # ADDITIVE — it can only free the gate EARLIER, never later — and
+            # leaves the callStatus path and the re-greet backstop untouched.
+            _voice_seen = {"v": False}
+
+            def _on_user_state(ev) -> None:  # noqa: ANN001
                 try:
-                    attrs = dict(getattr(sp, "attributes", None) or {})
-                    status = (attrs.get("sip.callStatus") or "").lower()
-                    if status != last_logged_status:
-                        logger.info(
-                            "greeting: SIP gate poll callStatus=%r at %.2fs",
-                            status,
-                            _t.monotonic() - gate_start,
-                        )
-                        last_logged_status = status
-                    if status == "active":
-                        logger.info(
-                            "greeting: SIP gate released (callStatus=active) after %.2fs",
-                            _t.monotonic() - gate_start,
-                        )
-                        break
-                    # Some LK SIP outbound flows omit the explicit "active"
-                    # transition and just clear the dialing/ringing flag.
-                    # If status leaves dialing/ringing/automation but isn't
-                    # "active", treat it as ready too.
-                    if status and status not in {"dialing", "ringing", "automation"}:
-                        logger.info(
-                            "greeting: SIP gate released (callStatus=%r) after %.2fs",
-                            status,
-                            _t.monotonic() - gate_start,
-                        )
-                        break
+                    if getattr(ev, "new_state", None) == "speaking":
+                        _voice_seen["v"] = True
                 except Exception:
-                    logger.debug("greeting: poll failed", exc_info=True)
-                await asyncio.sleep(0.2)
-            else:
-                logger.warning(
-                    "greeting: SIP gate timed out at %.1fs with last status=%r — greeting anyway",
-                    max_gate,
-                    last_logged_status,
-                )
+                    pass
+
+            _voice_handler_attached = False
+            try:
+                self.session.on("user_state_changed", _on_user_state)
+                _voice_handler_attached = True
+            except Exception:
+                logger.debug("greeting: could not attach user_state_changed listener", exc_info=True)
+
+            last_logged_status: str | None = None
+            try:
+                while _t.monotonic() - gate_start < max_gate:
+                    # Patient's voice beats the laggy callStatus — release now.
+                    if _voice_seen["v"]:
+                        logger.info(
+                            "greeting: SIP gate released EARLY on patient voice after %.2fs (last callStatus=%r)",
+                            _t.monotonic() - gate_start,
+                            last_logged_status,
+                        )
+                        break
+                    try:
+                        attrs = dict(getattr(sp, "attributes", None) or {})
+                        status = (attrs.get("sip.callStatus") or "").lower()
+                        if status != last_logged_status:
+                            logger.info(
+                                "greeting: SIP gate poll callStatus=%r at %.2fs",
+                                status,
+                                _t.monotonic() - gate_start,
+                            )
+                            last_logged_status = status
+                        if status == "active":
+                            logger.info(
+                                "greeting: SIP gate released (callStatus=active) after %.2fs",
+                                _t.monotonic() - gate_start,
+                            )
+                            break
+                        # Some LK SIP outbound flows omit the explicit "active"
+                        # transition and just clear the dialing/ringing flag.
+                        # If status leaves dialing/ringing/automation but isn't
+                        # "active", treat it as ready too.
+                        if status and status not in {"dialing", "ringing", "automation"}:
+                            logger.info(
+                                "greeting: SIP gate released (callStatus=%r) after %.2fs",
+                                status,
+                                _t.monotonic() - gate_start,
+                            )
+                            break
+                    except Exception:
+                        logger.debug("greeting: poll failed", exc_info=True)
+                    await asyncio.sleep(0.2)
+                else:
+                    logger.warning(
+                        "greeting: SIP gate timed out at %.1fs with last status=%r — greeting anyway",
+                        max_gate,
+                        last_logged_status,
+                    )
+            finally:
+                if _voice_handler_attached:
+                    try:
+                        self.session.off("user_state_changed", _on_user_state)
+                    except Exception:
+                        logger.debug("greeting: could not detach user_state_changed listener", exc_info=True)
 
         # ────────────────────────────────────────────────────────────────
         # GREET-ON-ANSWER (Wati 2026-06-12: "il faut qu'il dit son greeting
