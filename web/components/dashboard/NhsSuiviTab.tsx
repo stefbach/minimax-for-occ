@@ -365,19 +365,19 @@ export function NhsSuiviTab({
         </div>
       </div>
 
-      {/* Objectif mensuel — bandeau bleu */}
+      {/* Objectif mensuel — compact inline banner */}
       <div
         className="card"
         style={{
-          padding: 20,
+          padding: "12px 18px",
           background: "linear-gradient(135deg, color-mix(in srgb, var(--info) 90%, #1d4ed8) 0%, #1d4ed8 100%)",
           color: "#fff",
           borderColor: "transparent",
         }}
       >
-        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
           <div>
-            <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6, opacity: 0.85 }}>
+            <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 0.6, opacity: 0.85 }}>
               {t("Objectif mensuel NHS S2")}
             </div>
             <button
@@ -385,58 +385,54 @@ export function NhsSuiviTab({
               onClick={() => openDrill("submitted_month", t("Objectif mensuel NHS S2"))}
               title={t("Voir les dossiers soumis ce mois")}
               style={{
-                fontSize: 36, fontWeight: 700, lineHeight: 1.1, marginTop: 4,
+                fontSize: 26, fontWeight: 700, lineHeight: 1.2, marginTop: 2,
                 background: "none", border: "none", color: "inherit", padding: 0,
-                cursor: "pointer", font: "inherit", display: "block", textAlign: "left",
+                cursor: "pointer", font: "inherit", display: "inline",
               }}
             >
-              {data.submitted_this_month} <span style={{ fontSize: 22, opacity: 0.7 }}>/ {data.monthly_objective}</span>
+              {data.submitted_this_month}
             </button>
-            <div style={{ fontSize: 13, marginTop: 4, opacity: 0.9 }}>
-              {t("dossiers soumis ce mois")} · {remaining} {t("restants à atteindre")}
-            </div>
+            <span style={{ fontSize: 16, opacity: 0.7, marginLeft: 4 }}>/ {data.monthly_objective}</span>
+            <span style={{ fontSize: 12, opacity: 0.9, marginLeft: 10 }}>
+              {t("dossiers soumis")} · {remaining} {t("restants")}
+            </span>
           </div>
-          <div style={{ textAlign: "right", minWidth: 180 }}>
-            <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6, opacity: 0.85 }}>{t("Progression")}</div>
-            <div style={{ fontSize: 28, fontWeight: 700 }}>{pct}%</div>
-            <div style={{ height: 6, background: "rgba(255,255,255,0.25)", borderRadius: 6, overflow: "hidden", marginTop: 6 }}>
-              <div style={{ width: `${pct}%`, height: "100%", background: "#fff" }} />
+          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+            <div style={{ textAlign: "right" }}>
+              <div style={{ fontSize: 22, fontWeight: 700 }}>{pct}%</div>
+              <div style={{ fontSize: 10, opacity: 0.85 }}>{daysLeftInMonth} {t("j. restants")}</div>
             </div>
-            <div style={{ fontSize: 11, marginTop: 6, opacity: 0.85 }}>
-              {daysLeftInMonth} {t("jours restants dans le mois")}
+            <div style={{ width: 80, height: 6, background: "rgba(255,255,255,0.25)", borderRadius: 6, overflow: "hidden" }}>
+              <div style={{ width: `${pct}%`, height: "100%", background: "#fff" }} />
             </div>
           </div>
         </div>
       </div>
 
-      {/* Escalade requise */}
-      <AlertRow
-        tone="bad"
-        icon="⚠"
-        title={t("Escalade requise")}
-        subtitle={t("Patients sans réponse depuis 3 jours+")}
-        ctaLabel={t("Voir et assigner")}
-        onCta={() => openDrill("pending_3d", t("Escalade requise"))}
-        value={data.pending_response_3d_plus}
-      />
-
-      {/* Prêts à soumettre */}
-      <AlertRow
-        tone="good"
-        icon="✓"
-        title={t("Prêts à soumettre")}
-        subtitle={t("Dossiers complets — soumission NHS possible")}
-        ctaLabel={t("Voir les patients")}
-        onCta={() => openDrill("ready", t("Prêts à soumettre"))}
-        value={data.ready_to_submit}
-      />
-
-      {/* Bloqués — dossiers partiels sans activité 5j+ (parité legacy) */}
-      <div style={{ display: "grid", gap: 8 }}>
+      {/* Alert cards — 3 columns */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+        <AlertRow
+          tone="bad"
+          icon="⚠"
+          title={t("Escalade requise")}
+          subtitle={t("Patients sans réponse depuis 3 jours+")}
+          ctaLabel={t("Voir et assigner")}
+          onCta={() => openDrill("pending_3d", t("Escalade requise"))}
+          value={data.pending_response_3d_plus}
+        />
+        <AlertRow
+          tone="good"
+          icon="✓"
+          title={t("Prêts à soumettre")}
+          subtitle={t("Dossiers complets — soumission NHS possible")}
+          ctaLabel={t("Voir les patients")}
+          onCta={() => openDrill("ready", t("Prêts à soumettre"))}
+          value={data.ready_to_submit}
+        />
         <AlertRow
           tone="warn"
           icon="⏳"
-          title={t("Bloqué — aucun changement depuis 5j+")}
+          title={t("Bloqué — sans changement 5j+")}
           subtitle={
             data.stalled.count === 0
               ? t("Aucun dossier partiel bloqué")
@@ -446,52 +442,54 @@ export function NhsSuiviTab({
           ctaLabel={data.stalled.count > 0 ? (showStalled ? t("Masquer la liste") : t("Voir les patients")) : undefined}
           onCta={data.stalled.count > 0 ? () => setShowStalled((v) => !v) : undefined}
         />
-        {showStalled && data.stalled.patients.length > 0 && (
-          <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                <thead>
-                  <tr className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4 }}>
-                    <th style={{ textAlign: "left", padding: "10px 12px" }}>{t("Patient")}</th>
-                    <th style={{ textAlign: "left", padding: "10px 12px" }}>{t("Téléphone")}</th>
-                    <th style={{ textAlign: "left", padding: "10px 12px" }}>Email</th>
-                    <th style={{ textAlign: "left", padding: "10px 12px" }}>{t("Qualification")}</th>
-                    <th style={{ textAlign: "center", padding: "10px 12px" }}>{t("Docs cliniques")}</th>
-                    <th style={{ textAlign: "left", padding: "10px 12px" }}>{t("Dernière activité")}</th>
-                    <th style={{ textAlign: "right", padding: "10px 12px" }}>{t("Bloqué depuis")}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.stalled.patients.map((p, i) => (
-                    <tr key={`${p.phone ?? p.email ?? i}`} style={{ borderTop: "1px solid var(--border)" }}>
-                      <td style={{ padding: "8px 12px", fontWeight: 600 }}>{p.name ?? "—"}</td>
-                      <td style={{ padding: "8px 12px" }}>{p.phone ?? "—"}</td>
-                      <td style={{ padding: "8px 12px" }}>{p.email ?? "—"}</td>
-                      <td style={{ padding: "8px 12px" }}>{p.qualification ?? "—"}</td>
-                      <td style={{ padding: "8px 12px", textAlign: "center" }}>
-                        <span style={{ color: "var(--warn)", fontWeight: 600 }}>{p.docs_filled}/{p.docs_total}</span>
-                      </td>
-                      <td style={{ padding: "8px 12px" }}>
-                        {p.last_activity
-                          ? new Date(p.last_activity).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" })
-                          : t("Jamais")}
-                      </td>
-                      <td style={{ padding: "8px 12px", textAlign: "right", color: "var(--warn)", fontWeight: 600 }}>
-                        {p.days_stalled != null ? `${p.days_stalled} ${t("jours")}` : "—"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            {data.stalled.count > data.stalled.patients.length && (
-              <p className="muted" style={{ fontSize: 12, margin: 0, padding: "8px 12px" }}>
-                {t("Liste limitée aux")} {data.stalled.patients.length} {t("plus anciens")} · {data.stalled.count} {t("au total")}
-              </p>
-            )}
-          </div>
-        )}
       </div>
+
+      {/* Stalled patients inline expansion — spans full width below the 3-col grid */}
+      {showStalled && data.stalled.patients.length > 0 && (
+        <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4 }}>
+                  <th style={{ textAlign: "left", padding: "10px 12px" }}>{t("Patient")}</th>
+                  <th style={{ textAlign: "left", padding: "10px 12px" }}>{t("Téléphone")}</th>
+                  <th style={{ textAlign: "left", padding: "10px 12px" }}>Email</th>
+                  <th style={{ textAlign: "left", padding: "10px 12px" }}>{t("Qualification")}</th>
+                  <th style={{ textAlign: "center", padding: "10px 12px" }}>{t("Docs cliniques")}</th>
+                  <th style={{ textAlign: "left", padding: "10px 12px" }}>{t("Dernière activité")}</th>
+                  <th style={{ textAlign: "right", padding: "10px 12px" }}>{t("Bloqué depuis")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.stalled.patients.map((p, i) => (
+                  <tr key={`${p.phone ?? p.email ?? i}`} style={{ borderTop: "1px solid var(--border)" }}>
+                    <td style={{ padding: "8px 12px", fontWeight: 600 }}>{p.name ?? "—"}</td>
+                    <td style={{ padding: "8px 12px" }}>{p.phone ?? "—"}</td>
+                    <td style={{ padding: "8px 12px" }}>{p.email ?? "—"}</td>
+                    <td style={{ padding: "8px 12px" }}>{p.qualification ?? "—"}</td>
+                    <td style={{ padding: "8px 12px", textAlign: "center" }}>
+                      <span style={{ color: "var(--warn)", fontWeight: 600 }}>{p.docs_filled}/{p.docs_total}</span>
+                    </td>
+                    <td style={{ padding: "8px 12px" }}>
+                      {p.last_activity
+                        ? new Date(p.last_activity).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" })
+                        : t("Jamais")}
+                    </td>
+                    <td style={{ padding: "8px 12px", textAlign: "right", color: "var(--warn)", fontWeight: 600 }}>
+                      {p.days_stalled != null ? `${p.days_stalled} ${t("jours")}` : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {data.stalled.count > data.stalled.patients.length && (
+            <p className="muted" style={{ fontSize: 12, margin: 0, padding: "8px 12px" }}>
+              {t("Liste limitée aux")} {data.stalled.patients.length} {t("plus anciens")} · {data.stalled.count} {t("au total")}
+            </p>
+          )}
+        </div>
+      )}
 
       {/* "My assignments" — visible only to flagged coordinators (or anyone
           who currently has open assignments). Clicking a row opens the same
