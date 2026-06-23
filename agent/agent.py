@@ -475,18 +475,27 @@ def _llm_for_resilient(agent: Optional[AxonAgent]):
         return primary
 
 
-async def _warm_session_llm(llm, clog) -> None:
+async def _warm_session_llm(llm, clog, instructions: str | None = None) -> None:
     """Fire one throwaway micro-completion on the session's REAL llm so the
-    first patient turn doesn't pay a cold handshake.
+    first patient turn doesn't pay a cold start.
 
     Called right after the greeting or re-greeting finishes. At this point the
-    patient will reply in 5-15s, so the socket warms while we wait for their
+    patient will reply in 5-15s, so the warmup runs while we wait for their
     speech, without the timeout risk of warming during session.start(). Fire-
     and-forget: best-effort, non-blocking (fails silently).
 
-    Disable with LLM_SESSION_WARMUP=off. Does NOT fix provider-side generation
-    throttling ("inference is slower than realtime") — that's capacity on the
-    inference node, not a cold socket."""
+    When `instructions` is provided we warm with the REAL system prompt as the
+    cache prefix (plus a 1-token user turn), instead of a 14-token throwaway.
+    This is what actually cuts the cold FIRST-turn latency: the inference node
+    has to do its first full-prompt prefill + decode against ~3-4k tokens, and
+    on a cold node that costs ~1s more than steady-state. Doing it here, during
+    the greeting dead-time, means the patient's first real answer lands on an
+    already-warm node + warm prompt cache. A bare 14-token warmup only primed
+    the socket, not the generation path, so the first real turn still paid it.
+
+    Disable with LLM_SESSION_WARMUP=off. Does NOT fix sustained provider-side
+    throttling ("inference is slower than realtime") — that's node capacity,
+    not a cold start."""
     if os.getenv("LLM_SESSION_WARMUP", "on").lower() in ("off", "false", "0", "no", "disabled"):
         return
     try:
@@ -495,11 +504,24 @@ async def _warm_session_llm(llm, clog) -> None:
         return
     try:
         ctx = ChatContext.empty() if hasattr(ChatContext, "empty") else ChatContext()
-        try:
-            ctx.add_message(role="user", content="Reply with the single character: .")
-        except Exception:
-            from livekit.agents.llm import ChatMessage  # type: ignore
-            ctx.messages.append(ChatMessage(role="user", content="Reply with the single character: ."))  # type: ignore
+        # Prime with the real system prompt so the node warms the SAME prefix
+        # the first real turn will use (full prefill + cache write). Falls back
+        # to the socket-only warmup if instructions are absent or the API
+        # rejects a system role on this SDK version.
+        primed_full = False
+        if instructions:
+            try:
+                ctx.add_message(role="system", content=instructions)
+                ctx.add_message(role="user", content="Reply with the single character: .")
+                primed_full = True
+            except Exception:
+                primed_full = False
+        if not primed_full:
+            try:
+                ctx.add_message(role="user", content="Reply with the single character: .")
+            except Exception:
+                from livekit.agents.llm import ChatMessage  # type: ignore
+                ctx.messages.append(ChatMessage(role="user", content="Reply with the single character: ."))  # type: ignore
         _t0 = time.monotonic()
         stream = llm.chat(chat_ctx=ctx)
         async for chunk in stream:
@@ -511,7 +533,11 @@ async def _warm_session_llm(llm, clog) -> None:
             await stream.aclose()
         except Exception:
             pass
-        clog.info("LLM warmup: connection primed in %.0fms", (time.monotonic() - _t0) * 1000.0)
+        clog.info(
+            "LLM warmup: %s primed in %.0fms",
+            "full-prompt (node+cache)" if primed_full else "socket-only",
+            (time.monotonic() - _t0) * 1000.0,
+        )
     except Exception:
         clog.debug("LLM warmup skipped (non-fatal)", exc_info=True)
 
@@ -1322,6 +1348,13 @@ class AxonVoiceAgent(Agent):
             kwargs["vad"] = vad
         super().__init__(**kwargs)
         self._greeting = greeting
+        # Keep the raw system prompt so the LLM warmup can prime the inference
+        # node with the REAL prompt prefix (not a 14-token throwaway) during the
+        # greeting dead-time — see _warm_session_llm. This is what cuts the cold
+        # first-turn latency (the patient's first real answer was paying ~1.8s
+        # TTFT vs ~0.6s on warm turns, because the node had never generated
+        # against this prompt yet).
+        self._instructions = instructions
         # Optional reference to the SIP participant already resolved by the
         # entrypoint via ctx.wait_for_participant(). on_enter uses this to
         # poll sip.callStatus directly instead of relying on room events
@@ -1395,7 +1428,7 @@ class AxonVoiceAgent(Agent):
             logger.info("greeting: re-greet say() returned in %.2fs", _t.monotonic() - _b)
             # Warm LLM connection after re-greeting, as with main greeting.
             try:
-                asyncio.create_task(_warm_session_llm(self.session.llm, logger))
+                asyncio.create_task(_warm_session_llm(self.session.llm, logger, self._instructions))
             except Exception:
                 logger.debug("LLM post-regreeting warmup not scheduled (non-fatal)", exc_info=True)
         except Exception:
@@ -1706,6 +1739,18 @@ class AxonVoiceAgent(Agent):
                     "greeting: say() interrupted after %.2fs (likely hangup)",
                     _t.monotonic() - _b,
                 )
+            # Warm the LLM with the REAL system prompt NOW, while the patient is
+            # still picking up / about to answer. This is the on-answer path's
+            # cold-start fix: the patient's first substantive reply was paying
+            # ~1.8s TTFT because the inference node had never generated against
+            # this prompt; priming it during the dead-time drops the first real
+            # turn to steady-state (~0.6s). Fire-and-forget.
+            try:
+                asyncio.create_task(
+                    _warm_session_llm(self.session.llm, logger, self._instructions)
+                )
+            except Exception:
+                logger.debug("LLM on-answer warmup not scheduled (non-fatal)", exc_info=True)
             # Wati 18/06 — ARM the opener-response budget in on-answer mode too.
             # History: it used to be 0 here, on the theory that the agent had
             # ALREADY greeted at pickup so any "Hello?" came from someone who
@@ -1772,7 +1817,7 @@ class AxonVoiceAgent(Agent):
             # BEFORE the patient replies. At this point the socket won't timeout
             # before the 1st real turn (usually 5-15s away). Best-effort.
             try:
-                asyncio.create_task(_warm_session_llm(self.session.llm, logger))
+                asyncio.create_task(_warm_session_llm(self.session.llm, logger, self._instructions))
             except Exception:
                 logger.debug("LLM post-greeting warmup not scheduled (non-fatal)", exc_info=True)
         except Exception:
