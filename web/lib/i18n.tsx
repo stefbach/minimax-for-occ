@@ -286,6 +286,8 @@ const EN: Record<string, string> = {
   "Éligibilité": "Eligibility",
   "Décroché": "Answered",
   "Toutes": "All",
+  "Campagne": "Campaign",
+  "Filtrer par campagne": "Filter by campaign",
   "1ère": "1st",
   "2ème": "2nd",
   "3ème et +": "3rd +",

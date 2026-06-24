@@ -225,7 +225,7 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
               <SyncTwilioButton />
             </div>
             <PeriodBar period={period} filters={filters} onPeriod={setPeriod} onFilters={setFilters} />
-            <DirectorTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} system={filters.system} slot={filters.slot} global={filters} refreshKey={refreshKey} />
+            <DirectorTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} system={filters.system} slot={filters.slot} global={filters} refreshKey={refreshKey} campaignId={filters.campaignId} />
             {data && <CampaignsTable rows={data.campaigns} />}
           </>
         )}
@@ -233,14 +233,14 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
         {tab === "stats" && (
           <>
             <PeriodBar period={period} filters={filters} onPeriod={setPeriod} onFilters={setFilters} />
-            <StatsTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} system={filters.system} global={filters} />
+            <StatsTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} system={filters.system} global={filters} campaignId={filters.campaignId} />
           </>
         )}
 
         {tab === "logs" && (
           <>
             <PeriodBar period={period} filters={filters} onPeriod={setPeriod} onFilters={setFilters} />
-            <CallLogsTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} system={filters.system} global={filters} />
+            <CallLogsTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} system={filters.system} global={filters} campaignId={filters.campaignId} />
           </>
         )}
 
@@ -268,7 +268,7 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
         {tab === "leads" && (
           <>
             <PeriodBar period={period} filters={filters} onPeriod={setPeriod} onFilters={setFilters} />
-            <LeadsTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} system={filters.system} global={filters} refreshKey={refreshKey} orgId={orgId} />
+            <LeadsTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} system={filters.system} global={filters} refreshKey={refreshKey} orgId={orgId} campaignId={filters.campaignId} />
           </>
         )}
 

@@ -119,7 +119,7 @@ function counterpartyNumber(c: CallRow): string | null {
   return (c.direction === "inbound" || c.direction === "in") ? c.from_e164 : c.to_e164;
 }
 
-export function CallLogsTab({ from, to, direction, leadsSource = "prod", system = "all", global = DEFAULT_GLOBAL_FILTERS }: { from: string; to: string; direction: string; leadsSource?: "prod" | "test"; system?: "all" | "retell" | "axon"; global?: GlobalFilters }) {
+export function CallLogsTab({ from, to, direction, leadsSource = "prod", system = "all", global = DEFAULT_GLOBAL_FILTERS, campaignId }: { from: string; to: string; direction: string; leadsSource?: "prod" | "test"; system?: "all" | "retell" | "axon"; global?: GlobalFilters; campaignId?: string }) {
   const t = useT();
   const [rows, setRows] = useState<CallRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -145,6 +145,7 @@ export function CallLogsTab({ from, to, direction, leadsSource = "prod", system 
       const qs = new URLSearchParams({ state: stateFilter, limit: "2000", from, to, leads_source: leadsSource, enrich: "lead" });
       if (direction !== "all") qs.set("direction", direction);
       if (system !== "all") qs.set("system", system);
+      if (campaignId && campaignId !== "all") qs.set("campaign_id", campaignId);
       const r = await fetch(`/api/calls?${qs.toString()}`, { cache: "no-store" });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
@@ -155,7 +156,7 @@ export function CallLogsTab({ from, to, direction, leadsSource = "prod", system 
     } finally {
       setLoading(false);
     }
-  }, [stateFilter, from, to, direction, leadsSource, system]);
+  }, [stateFilter, from, to, direction, leadsSource, system, campaignId]);
 
   useEffect(() => {
     fetchData();

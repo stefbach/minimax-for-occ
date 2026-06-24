@@ -35,7 +35,7 @@ function heatCellStyle(rate: number, total: number): { background: string; color
   return { background: `rgb(${lerp(40, 6)}, ${lerp(60, 145)}, ${lerp(55, 90)})`, color: tt > 0.45 ? "#fff" : "var(--muted)" };
 }
 
-export function StatsTab({ from, to, direction, leadsSource = "prod", system = "all", global = DEFAULT_GLOBAL_FILTERS }: { from: string; to: string; direction: string; leadsSource?: "prod" | "test"; system?: "all" | "retell" | "axon"; global?: GlobalFilters }) {
+export function StatsTab({ from, to, direction, leadsSource = "prod", system = "all", global = DEFAULT_GLOBAL_FILTERS, campaignId }: { from: string; to: string; direction: string; leadsSource?: "prod" | "test"; system?: "all" | "retell" | "axon"; global?: GlobalFilters; campaignId?: string }) {
   const t = useT();
   const [data, setData] = useState<AnalyticsResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -49,6 +49,7 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
     const qs = new URLSearchParams({ from, to, leads_source: leadsSource });
     if (direction !== "all") qs.set("direction", direction);
     if (system !== "all") qs.set("system", system);
+    if (campaignId && campaignId !== "all") qs.set("campaign_id", campaignId);
     appendGlobalFilters(qs, global);
     fetch(`/api/dashboard/analytics?${qs.toString()}`, { cache: "no-store" })
       .then(async (r) => {
@@ -59,7 +60,7 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
       .catch((e) => alive && setError(e instanceof Error ? e.message : "error"))
       .finally(() => alive && setLoading(false));
     return () => { alive = false; };
-  }, [from, to, direction, leadsSource, system, gfKey]);
+  }, [from, to, direction, leadsSource, system, gfKey, campaignId]);
 
   if (loading && !data) return <div className="card"><p className="muted" style={{ margin: 0 }}>{t("Chargement…")}</p></div>;
   if (error) return <div className="card" style={{ borderColor: "var(--bad)", color: "var(--bad)" }}>{error}</div>;
