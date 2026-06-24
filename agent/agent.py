@@ -1663,6 +1663,24 @@ class AxonVoiceAgent(Agent):
             preroll = float(os.getenv("GREETING_PREROLL_SECONDS", "0.4"))
             if preroll > 0:
                 await asyncio.sleep(preroll)
+            # Wati 24/06 — ARM the opener-response budget BEFORE the greeting
+            # say(), not after. Root cause of the "How can I help you today?"
+            # hallucination on répondeur / early-answer calls (Rachel Brant,
+            # Christabel Probert 24/06): the canned greeting say() below is
+            # NON-interruptible and blocks ~2-3 s. On a voicemail / early-answer
+            # the callee audio ("Hi.", the répondeur's opener) reaches STT WHILE
+            # that say() is still awaiting — so on_user_turn_completed fired with
+            # _opener_replies_left STILL 0 (it used to be set only AFTER say()
+            # returned). With the budget at 0 the bare opener fell straight
+            # through to the LLM, which improvised "Hello! How can I help you
+            # today? Are you interested in exploring bariatric surgery…" — NOT
+            # Charlotte's scripted "Hello am I speaking with {{firstname}}?".
+            # Arming the budget first means an early "Hi."/"Hello?" re-fires the
+            # canned greeting (via _say_regreet) and suppresses the LLM reply,
+            # closing the race. _BARE_OPENER_RE only matches pure openers, so a
+            # real substantive "Yes, speaking" from someone who DID hear the
+            # greeting still goes to the LLM — no double-greeting for them.
+            self._opener_replies_left = 2
             _b = _t.monotonic()
             logger.info("greeting: say() begin (on-answer)")
             try:
@@ -1676,23 +1694,6 @@ class AxonVoiceAgent(Agent):
                     "greeting: say() interrupted after %.2fs (likely hangup)",
                     _t.monotonic() - _b,
                 )
-            # Wati 18/06 — ARM the opener-response budget in on-answer mode too.
-            # History: it used to be 0 here, on the theory that the agent had
-            # ALREADY greeted at pickup so any "Hello?" came from someone who
-            # DID hear it. Real outbound calls disproved that: the carrier's
-            # early-answer / ringback connects the callee's audio a beat AFTER
-            # sip.callStatus flips to "active", so the greeting routinely plays
-            # into a dead leg and the patient hears NOTHING. They then say
-            # "Hello?" — and with the budget at 0 that bare opener fell straight
-            # through to the LLM, which improvised generic assistant-speak
-            # ("I just wanted to confirm the identity. How can I assist you
-            # today?") — absurd on a call WE placed. Arming the budget makes a
-            # bare opener re-fire the identity question (politely varied via
-            # _say_regreet prefixes) instead. _BARE_OPENER_RE only matches pure
-            # openers (hello/hi/hey/who's this), so a real "Yes" / substantive
-            # answer from someone who DID hear the greeting still goes to the
-            # LLM — no double-greeting for them.
-            self._opener_replies_left = 2
             return
 
         if sp is not None:
