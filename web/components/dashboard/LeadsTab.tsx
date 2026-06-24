@@ -22,10 +22,13 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const hasData = useRef(false);
+  const paramsRef = useRef({ from, to, direction, leadsSource, system, global, orgId });
+  paramsRef.current = { from, to, direction, leadsSource, system, global, orgId };
 
   const fetchData = useCallback(async () => {
+    const { from, to, direction, leadsSource, system, global, orgId } = paramsRef.current;
     try {
-      if (!hasData.current) setLoading(true); // only blank out on first load
+      if (!hasData.current) setLoading(true);
       setError(null);
       const qs = new URLSearchParams({
         from,
@@ -56,11 +59,11 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
     } finally {
       setLoading(false);
     }
-  }, [from, to, direction, leadsSource, system, global, orgId]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     fetchData();
-  }, [fetchData, refreshKey]);
+  }, [refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading) {
     return <div className="card" style={{ padding: 20 }}>{t("Chargement…")}</div>;
