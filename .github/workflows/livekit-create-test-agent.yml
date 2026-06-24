@@ -1,0 +1,107 @@
+name: LiveKit — Create Test Agent (one-shot)
+
+# Workflow à déclencher UNE FOIS pour créer un 2ème agent LK Cloud Agents
+# dédié aux tests/simulations (séparé de CA_PFUfvaBhC8Wk qui sert la prod).
+#
+# Après exécution :
+# 1. Récupérer le nouvel ID CA_xxxxxxxx affiché dans les logs.
+# 2. Wati ajoute LIVEKIT_AGENT_NAME_TEST=<le-nom-choisi> dans les env vars
+#    Vercel (Production + Preview).
+# 3. Wati ajoute les clés API (Anthropic, OpenAI, Cartesia, Replicate,
+#    AssemblyAI, Supabase, etc.) sur le nouvel agent via le dashboard LK.
+
+on:
+  workflow_dispatch:
+    inputs:
+      agent_name:
+        description: "Nom unique de l'agent (servira au dispatch). Ex: axon-voice-agent-test"
+        required: true
+        default: "axon-voice-agent-test"
+
+jobs:
+  create:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agent
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LiveKit CLI
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          RELEASE=$(curl -sfL \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/livekit/livekit-cli/releases/latest)
+          DOWNLOAD_URL=$(echo "$RELEASE" \
+            | grep '"browser_download_url"' \
+            | grep -i 'linux' \
+            | grep -iE 'amd64|x86_64' \
+            | grep -iE '\.tar\.gz|\.tgz' \
+            | head -1 \
+            | cut -d'"' -f4)
+          if [ -z "$DOWNLOAD_URL" ]; then
+            DOWNLOAD_URL="https://github.com/livekit/livekit-cli/releases/download/v2.7.2/lk_2.7.2_linux_amd64.tar.gz"
+          fi
+          curl -fSL -o /tmp/lk.tar.gz "$DOWNLOAD_URL"
+          tar -xzf /tmp/lk.tar.gz -C /tmp
+          find /tmp -maxdepth 2 -name 'lk' -type f | head -1 | xargs -I{} cp {} /usr/local/bin/lk
+          chmod +x /usr/local/bin/lk
+          lk --version
+
+      - name: Prepare livekit-test.toml (no id, will be filled by `lk agent create`)
+        run: |
+          cat > livekit-test.toml <<EOF
+          [project]
+            subdomain = "minimax-i107a5a3"
+
+          [agent]
+            name = "${{ github.event.inputs.agent_name }}"
+
+          [build]
+            dockerfile = "Dockerfile"
+          EOF
+          echo "=== livekit-test.toml ==="
+          cat livekit-test.toml
+
+      - name: Create the agent on LiveKit Cloud
+        env:
+          LIVEKIT_URL: ${{ secrets.LIVEKIT_URL }}
+          LIVEKIT_API_KEY: ${{ secrets.LIVEKIT_API_KEY }}
+          LIVEKIT_API_SECRET: ${{ secrets.LIVEKIT_API_SECRET }}
+        run: |
+          set -e
+          # `lk agent create` lit livekit.toml. On bascule temporairement le
+          # vrai livekit.toml et on utilise livekit-test.toml pendant la création.
+          mv livekit.toml livekit.toml.bak
+          mv livekit-test.toml livekit.toml
+          # --region eu-central : le plus proche du UK (patients OCC).
+          lk agent create --region eu-central --silent
+          echo ""
+          echo "=== livekit.toml apres creation (contient le nouvel ID) ==="
+          cat livekit.toml
+          # On le renomme proprement pour qu'il ne masque pas le vrai prod.
+          mv livekit.toml livekit-test.toml
+          mv livekit.toml.bak livekit.toml
+
+      - name: Show next steps
+        run: |
+          echo ""
+          echo "=============================================================="
+          echo "  Agent test cree avec succes."
+          echo "  Recupere l'ID CA_xxxxx ci-dessus dans 'livekit-test.toml'."
+          echo "=============================================================="
+          echo ""
+          echo "Etapes suivantes :"
+          echo "  1. Sur Vercel : ajouter LIVEKIT_AGENT_NAME_TEST=${{ github.event.inputs.agent_name }}"
+          echo "  2. Sur LK Cloud dashboard : ajouter les cles API critiques sur le nouvel agent"
+          echo "     (REPLICATE_API_TOKEN, ANTHROPIC_API_KEY, OPENAI_API_KEY, CARTESIA_API_KEY,"
+          echo "      ASSEMBLYAI_API_KEY, DEEPSEEK_API_KEY, MINIMAX_API_KEY, SUPABASE_URL,"
+          echo "      SUPABASE_SERVICE_ROLE_KEY, etc — meme set que CA_PFUfvaBhC8Wk)"
+          echo "  3. Re-trigger le workflow Deploy Voice Agent (LiveKit Cloud) pour que le"
+          echo "     code soit deploye sur le nouvel agent (apres avoir mis a jour"
+          echo "     livekit-deploy.yml pour deployer aux 2)."

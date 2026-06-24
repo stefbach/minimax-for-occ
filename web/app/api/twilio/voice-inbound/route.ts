@@ -56,7 +56,7 @@ export async function POST(req: Request) {
   // alpha entries some carriers send back).
   const { data: numberRow, error: numErr } = await sb
     .from("phone_numbers")
-    .select("id, org_id, e164, active, flow_id, queue_id")
+    .select("id, org_id, e164, active, flow_id, queue_id, agent_handle_id")
     .ilike("e164", to)
     .maybeSingle();
 
@@ -159,7 +159,29 @@ export async function POST(req: Request) {
   // The legacy /api/twilio-voice route bridges the call to the LiveKit
   // SIP trunk where an IA agent picks up. Mirroring rather than copying
   // keeps a single source of truth for the SIP wiring.
-  const aiUrl = absoluteUrl(req, "/api/twilio-voice");
+  //
+  // Resolve the AI agent assigned to this inbound number, if any. The
+  // phone_numbers.agent_handle_id → agent_handles.ai_agent_id chain lets an
+  // org point each inbound number at a dedicated reception agent (e.g.
+  // "Charlotte - Entrant", whose greeting/prompt are written for someone who
+  // called US) instead of falling back to the worker's generic multilingual
+  // default. We also stamp direction=in so the agent knows it's an inbound
+  // leg. Backward compatible: numbers with no agent_handle_id forward neither
+  // param, so today's "everything to the IA default" behaviour is preserved.
+  let inboundAgentId: string | null = null;
+  if (numberRow.agent_handle_id) {
+    const { data: handleRow } = await sb
+      .from("agent_handles")
+      .select("ai_agent_id")
+      .eq("id", numberRow.agent_handle_id)
+      .eq("org_id", numberRow.org_id)
+      .maybeSingle();
+    inboundAgentId = (handleRow?.ai_agent_id as string | null) ?? null;
+  }
+
+  const aiParams = new URLSearchParams({ direction: "in" });
+  if (inboundAgentId) aiParams.set("agent_id", inboundAgentId);
+  const aiUrl = absoluteUrl(req, `/api/twilio-voice?${aiParams.toString()}`);
   return twiml(`<Redirect method="POST">${escapeXml(aiUrl)}</Redirect>`);
 }
 

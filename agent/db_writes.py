@@ -656,6 +656,8 @@ def create_human_callback_task(
     qualification: Optional[str] = None,
     reason: Optional[str] = None,
     days_ahead: int = 0,  # kept for compat; ignored when 0 (= immediate)
+    display_name: Optional[str] = None,
+    e164: Optional[str] = None,
 ) -> None:
     """Insert a human_callback_tasks row scheduled for NOW so the contact
     appears in the manager's 'à traiter' queue immediately. The human
@@ -664,6 +666,12 @@ def create_human_callback_task(
 
     Dedupes: if the same contact already has a pending/in_progress task,
     no new row is created.
+
+    display_name + e164 are denormalised onto the task row (15/06/2026,
+    Wati supervise bug) so the manager's queue always shows patient
+    details even when contact_id is NULL (lead lives in leads_rdv_*
+    physical tables without a matching contacts row). If callers don't
+    pass them, we resolve from the calls + leads_rdv chain below.
     """
     if not org_id or not has_supabase():
         return
@@ -676,6 +684,82 @@ def create_human_callback_task(
         # wants to defer (e.g. a "rappel à 18h" RAPPEL).
         scheduled = datetime.now(timezone.utc) + timedelta(days=max(0, days_ahead))
         with httpx.Client(timeout=httpx.Timeout(5.0), headers=_supabase_headers()) as c:
+            # Resolve patient details FIRST (15/06/2026 Wati v2 fix) — avant
+            # le dedup check, et avant de tenter de retrouver un contact_id.
+            # On veut éviter de créer des tâches contact_id=NULL : si on
+            # arrive à résoudre un e164, on cherche ou crée un contact pour
+            # rendre la fiche cliquable depuis le superviseur.
+            if (not e164 or not display_name) and original_call_id:
+                try:
+                    cr = c.get(_supabase_url(
+                        f"/rest/v1/calls?id=eq.{original_call_id}&select=to_e164"
+                    ))
+                    if cr.is_success:
+                        crows = cr.json() or []
+                        if crows and not e164:
+                            e164 = crows[0].get("to_e164") or None
+                    if not display_name:
+                        ct = c.get(_supabase_url(
+                            f"/rest/v1/campaign_targets?last_call_id=eq.{original_call_id}"
+                            "&select=source_metadata&limit=1"
+                        ))
+                        if ct.is_success:
+                            ctrows = ct.json() or []
+                            sm = (ctrows[0] if ctrows else {}).get("source_metadata") or {}
+                            ptable = sm.get("physical_table")
+                            prow = sm.get("row_id")
+                            # Restrict to known leads_rdv* tables (defensive
+                            # against SQL injection via untrusted metadata).
+                            if (
+                                isinstance(ptable, str)
+                                and ptable.startswith("leads_rdv")
+                                and ptable.replace("_", "").isalnum()
+                                and prow
+                            ):
+                                lr = c.get(_supabase_url(
+                                    f"/rest/v1/{ptable}?id=eq.{prow}"
+                                    "&select=nom,numero_telephone"
+                                ))
+                                if lr.is_success:
+                                    lrows = lr.json() or []
+                                    if lrows:
+                                        display_name = display_name or lrows[0].get("nom")
+                                        e164 = e164 or lrows[0].get("numero_telephone")
+                except Exception:
+                    logger.debug("create_human_callback_task: resolve patient details failed", exc_info=True)
+            # Find-or-create un contact pour rendre la fiche cliquable
+            # côté superviseur. Sans ça, les leads vivant dans leads_rdv*
+            # produisent des tâches sans contact_id (bug Wati 15/06).
+            if not contact_id and e164:
+                try:
+                    cq = c.get(_supabase_url(
+                        f"/rest/v1/contacts?org_id=eq.{org_id}&e164=eq.{e164}&select=id&limit=1"
+                    ))
+                    if cq.is_success:
+                        rows = cq.json() or []
+                        if rows:
+                            contact_id = rows[0]["id"]
+                    if not contact_id:
+                        # Création paresseuse — display_name peut être null,
+                        # le contact sera enrichi plus tard si besoin via
+                        # save_contact_data ou par un humain.
+                        ic = c.post(
+                            _supabase_url("/rest/v1/contacts"),
+                            headers={
+                                **_supabase_headers(),
+                                "Content-Type": "application/json",
+                                "Prefer": "return=representation",
+                            },
+                            json={"org_id": org_id, "display_name": display_name, "e164": e164},
+                        )
+                        if ic.is_success:
+                            created = ic.json() or []
+                            if created:
+                                contact_id = created[0].get("id") if isinstance(created, list) else created.get("id")
+                except Exception:
+                    logger.debug("create_human_callback_task: find-or-create contact failed", exc_info=True)
+            # Dedup check : ne crée pas un doublon de tâche ouverte pour le
+            # même contact. À ce stade contact_id est résolu si possible.
             if contact_id:
                 check = c.get(_supabase_url(
                     f"/rest/v1/human_callback_tasks?contact_id=eq.{contact_id}"
@@ -703,6 +787,8 @@ def create_human_callback_task(
                     "transfer_reason": reason,
                     "scheduled_for": scheduled.isoformat(),
                     "status": "pending",
+                    "display_name": display_name,
+                    "e164": e164,
                 },
             )
             r.raise_for_status()
@@ -894,20 +980,26 @@ def auto_qualify_call(call_id: Optional[str]) -> None:
             # messaging service and the lead tagged as a callback.
             voicemail_transcript = False
             any_user_speech = False
+            user_rows_full: list = []
+            joined_full = ""
             try:
                 vt = c.get(
                     _supabase_url(
                         f"/rest/v1/call_transcripts?call_id=eq.{call_id}"
-                        "&speaker=in.(user,customer)&select=text&order=seq.asc&limit=8"
+                        "&speaker=in.(user,customer)&select=text&order=seq.asc&limit=100"
                     ),
                 )
                 if vt.is_success:
-                    user_rows = vt.json() or []
+                    user_rows_full = vt.json() or []
                     any_user_speech = any(
-                        str(r.get("text") or "").strip() for r in user_rows
+                        str(r.get("text") or "").strip() for r in user_rows_full
                     )
+                    user_rows = user_rows_full[:8]
                     joined = " ".join(
                         str(r.get("text") or "") for r in user_rows
+                    ).lower()
+                    joined_full = " ".join(
+                        str(r.get("text") or "") for r in user_rows_full
                     ).lower()
                     voicemail_transcript = bool(re.search(
                         r"leave\s+(a|your)\s+message|after\s+the\s+(tone|beep)"
@@ -936,6 +1028,65 @@ def auto_qualify_call(call_id: Optional[str]) -> None:
             except Exception:
                 pass
 
+            # ── Transcript intent detection (Wati 15/06 — safety net) ─────────
+            # When the agent forgets to call save_contact_data /
+            # transfer_to_human, we rescue the qualification by reading the
+            # patient's own words. The 15/06 morning audit caught six
+            # mis-qualified RAPPEL calls in one batch: Charlotte/Isabelle
+            # engaged the conversation but never wrote a qualification, so the
+            # duration heuristic bucketed every >30s answered call as RAPPEL.
+            # That silently loses leads who explicitly asked for a human and
+            # leaves "no thanks" patients getting recalled for weeks.
+            # Two intents in priority order:
+            #   1. HUMAN_SIGNAL — explicit ask for a real person, bot
+            #      rejection, or sensitive life event (bereavement, terminal
+            #      diagnosis, hospitalisation).
+            #   2. EXPLICIT_REFUSAL — patient said "no" with clear intent.
+            #      Polite "I'm fine for now" stays RAPPEL via duration.
+            intent_qual: Optional[str] = None
+            intent_source: Optional[str] = None
+            if any_user_speech and not voicemail_transcript and not audio_dropped:
+                if re.search(
+                    r"(real|actual|live)\s+(person|human|being)"
+                    r"|(speak|talk|chat)\s+(to|with)\s+(a|an|the)?\s*(real\s+)?(human|person)"
+                    r"|human\s+being\s+(to\s+)?(talk|speak|call)"
+                    r"|(have|want|need|get)\s+(a|the)\s+human"
+                    r"|when\s+you\s+have\s+a\s+human"
+                    r"|have\s+a\s+human\s+(being\s+)?(to\s+)?(talk|call|speak)"
+                    # Bot rejection: patient names what they're talking to AND
+                    # signals they don't want it (time complaint, "don't have
+                    # time for automated", "machines speak", etc.).
+                    r"|this\s+is\s+(a\s+)?(computer|robot|bot|machine|automated|automation|an\s+ai)"
+                    r"|i\s+know\s+(this|you('?re|\s+are))\s+(a|an)\s*(computer|robot|bot|machine|automated|ai)"
+                    r"|don'?t\s+(really\s+)?have\s+time\s+(to\s+)?(be\s+)?(talking|speaking)\s+to\s+(automated|computers|robots|bots|machines|an?\s*ai)"
+                    r"|grab\s+the\s+automata"
+                    r"|machines?\s+speak\s+with"
+                    # Bereavement / sensitive medical context.
+                    r"|(mother(\s*[\-\s]?in[\-\s]?law)?|father(\s*[\-\s]?in[\-\s]?law)?|husband|wife|partner|son|daughter|sister|brother|mum|dad|mom)\s+(just\s+)?(passed\s+away|has\s+died|died(\s+recently)?)"
+                    r"|just\s+lost\s+my\s+(mother|father|husband|wife|partner|son|daughter|sister|brother|mum|dad|mom)"
+                    r"|i'?m?\s+(in\s+)?mourning|bereave(d|ment)"
+                    r"|(diagnosed\s+with|fighting)\s+(cancer|terminal)"
+                    r"|in\s+(the\s+)?hospital\s+(right\s+)?(now|today|currently)",
+                    joined_full,
+                ):
+                    intent_qual = "A PASSER A L'HUMAIN"
+                    intent_source = "transcript_human_signal"
+                elif re.search(
+                    r"\bno,?\s*(i\s+)?(don'?t|do\s+not|did\s+not|didn'?t|never)\s+(want(ed)?|need|think\s+i\s+(ever\s+)?(want|need))\b"
+                    r"|\bi\s+(never|don'?t)\s+(want(ed)?|need(ed)?|ask(ed)?|sign(ed)?\s+up|appl(ied|y))\b"
+                    r"|\bno\s+interest\b"
+                    r"|\bnot\s+interested\b"
+                    r"|\bi'?m\s+not\s+interested\b"
+                    r"|\bdon'?t\s+call\s+(me\s+)?(again|back|anymore|any\s+more)\b"
+                    r"|\bstop\s+calling\b"
+                    r"|\bremove\s+me\s+(from|off)\b"
+                    r"|\bplease\s+(do\s+not|don'?t)\s+(contact|call)\s+me\b"
+                    r"|\btake\s+me\s+off\s+(your\s+)?(list|database)\b",
+                    joined_full,
+                ):
+                    intent_qual = "PAS INTERESSE"
+                    intent_source = "transcript_refusal_signal"
+
             if voicemail_transcript:
                 qual = "REPONDEUR"
                 qualification_source = "voicemail_transcript"
@@ -945,7 +1096,18 @@ def auto_qualify_call(call_id: Optional[str]) -> None:
             elif handoff_count > 0:
                 qual = "A PASSER A L'HUMAIN"
                 qualification_source = "auto_inferred"
-            elif not answered or duration == 0:
+            elif intent_qual is not None:
+                qual = intent_qual
+                qualification_source = intent_source or "auto_inferred"
+            elif (not answered and not any_user_speech) or duration == 0:
+                # `answered` comes from calls.answered_at, which the Twilio
+                # status webhook often fails to stamp on the LiveKit path
+                # (race / missing in-progress event). Patient SPEECH is the
+                # ground truth: if we transcribed them, the call WAS
+                # answered no matter what the column says — Wati's June 12
+                # test had a full greeting→identity→intro conversation
+                # auto-stamped PAS DE REPONSE purely because answered_at
+                # was NULL.
                 qual = "PAS DE REPONSE"
                 qualification_source = "auto_inferred"
             elif not any_user_speech:

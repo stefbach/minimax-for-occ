@@ -71,7 +71,15 @@ export async function GET(req: Request) {
   const dateStr = new Date().toISOString().slice(0, 10);
   const filename = `patients-export-${dateStr}.xlsx`;
 
-  return new NextResponse(buf, {
+  // Copy into a standalone ArrayBuffer so the response body is a well-typed
+  // BodyInit across Next runtimes — the bare Uint8Array<ArrayBufferLike>
+  // returned by XLSX.write is rejected by the NextResponse/Blob types.
+  const body = buf.buffer.slice(
+    buf.byteOffset,
+    buf.byteOffset + buf.byteLength,
+  ) as ArrayBuffer;
+
+  return new NextResponse(body, {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       "Content-Disposition": `attachment; filename="${filename}"`,

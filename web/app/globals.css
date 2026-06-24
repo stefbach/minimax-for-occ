@@ -395,9 +395,19 @@ table.list tr:hover td { background: var(--panel-2); }
   border-radius: var(--radius);
   padding: 12px 16px;
 }
+/* Wati 22/06 (v3) — the dialer was changing width the instant a call
+   connected. Root cause: ContactPanel (.softphone-right) returns null while
+   idle, so the grid had only 2 tracks; the moment a call mounts ContactPanel
+   a 3rd 320px track appears and the centre `1fr` snaps ~320px narrower.
+   Earlier (15/06) we deliberately collapsed the 3rd track on idle to let the
+   keypad breathe — but that collapse IS the resize the agent sees mid-dial.
+   Fix: always reserve the 3 tracks. The centre column is now identical
+   whether or not a call is live, so "Composer un numéro" never moves. The
+   only cost is a little reserved whitespace on the right while idle — a fair
+   trade for a stable dialer the humans can actually use. */
 .softphone-grid {
   display: grid;
-  grid-template-columns: 200px 1fr 300px;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) minmax(0, 320px);
   gap: 14px;
   align-items: start;
 }
@@ -410,6 +420,18 @@ table.list tr:hover td { background: var(--panel-2); }
   gap: 10px;
 }
 .softphone-center { min-height: 240px; }
+/* Inner layout of .softphone-center. This used to be a 2-col grid
+   (dialer | notes) but CallNotePanel no longer renders any in-flow content
+   (Wati 16/06 removed its textarea — it only owns the post-call
+   qualification modal now, which is position:fixed). The empty 2nd track was
+   just reserving 260-360px of dead space to the right of the dialer. Single
+   column: the dialer card now uses the full centre width. */
+.softphone-center-cols {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  align-items: start;
+}
 
 /* ─── Live supervision ───────────────────────────────────── */
 .calls-kpis { gap: 12px; }

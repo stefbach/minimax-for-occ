@@ -1,10 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { DynamicEngineConfig, defaultEngineConfig, type EngineConfig } from "./DynamicEngineConfig";
 import { PreflightPanel } from "./PreflightPanel";
 import { preflightCampaign, isPreflightClear } from "@/lib/sentinel/preflight";
+import { ScheduleChatPanel, type ScheduleChatContext, type FinalizeResult } from "./ScheduleChatPanel";
+import type { NormalizedSchedule } from "@/lib/campaigns/schedule-proposal";
 
 export interface AgentHandleOption {
   id: string;
@@ -258,6 +260,7 @@ export function CampaignWizard({
   teams = [],
   contactLists = [],
   dataTables = [],
+  orgCategory = null,
 }: {
   template?: import("@/lib/campaign-templates").CampaignTemplate | null;
   agents: AgentHandleOption[];
@@ -267,6 +270,9 @@ export function CampaignWizard({
   teams?: TeamOption[];
   contactLists?: ContactListOption[];
   dataTables?: DataTableOption[];
+  /** Business vertical of the org — lets the scheduling assistant speak the
+   *  client's language (Hôtel, Restaurant, Clinique, Call Center, …). */
+  orgCategory?: string | null;
 }) {
   const router = useRouter();
 
@@ -363,6 +369,39 @@ export function CampaignWizard({
   // Step navigation: 1 = Qui appelle, 2 = Qui appeler, 3 = Quand.
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  // Step 3 "Quand" is chat-first: the operator describes their cadence to the
+  // assistant. They can flip to the classic form to fine-tune by hand.
+  const [manualSchedule, setManualSchedule] = useState(false);
+  // Real distinct values of the selected table's status column — loaded so the
+  // scheduling assistant maps the operator's wording onto THIS client's exact
+  // stored values (works for any tenant: hôtel, resto, call center, …).
+  const [tableStatusValues, setTableStatusValues] = useState<string[]>([]);
+
+  const statusColumn = engineConfig?.selection.status_column ?? "";
+  useEffect(() => {
+    if (!dataTableId || !dynamicMode || !statusColumn) {
+      setTableStatusValues([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/campaigns/table-statuses?data_table_id=${encodeURIComponent(dataTableId)}&column=${encodeURIComponent(statusColumn)}`,
+        );
+        if (!res.ok) return;
+        const json = (await res.json()) as { values?: unknown };
+        if (!cancelled && Array.isArray(json.values)) {
+          setTableStatusValues(json.values.filter((v): v is string => typeof v === "string"));
+        }
+      } catch {
+        /* non-blocking: the assistant falls back to asking for statuses */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [dataTableId, dynamicMode, statusColumn]);
 
   const selectedAgent = agents.find((a) => a.id === agentHandleId) ?? null;
   const selectedNumber = numbers.find((n) => n.id === phoneNumberId) ?? null;
@@ -424,25 +463,23 @@ export function CampaignWizard({
     }
   }
 
-  async function submit() {
-    setError(null);
-    if (!name.trim()) {
-      setError("Le nom est requis.");
-      return;
-    }
+  // Build the payload and POST it. Returns a result object instead of touching
+  // UI state or navigating, so BOTH the manual "Créer" button and the chat's
+  // finalize_campaign tool can reuse the exact same creation path (single
+  // source of truth — same validation, same schedule/engine build).
+  async function doCreate(): Promise<{ ok: boolean; id?: string; error?: string }> {
+    if (!name.trim()) return { ok: false, error: "Le nom est requis." };
     if (!effectiveHandleId) {
-      setError(
-        selectedTeam
+      return {
+        ok: false,
+        error: selectedTeam
           ? "Cette team n'a pas d'agent lead actif. Définissez un lead dans Teams IA."
           : "Sélectionnez un agent IA (ou une team).",
-      );
-      return;
+      };
     }
     if (!phoneNumberId && !callerIdOverride) {
-      setError("Choisissez un numéro émetteur ou un caller-id.");
-      return;
+      return { ok: false, error: "Choisissez un numéro émetteur ou un caller-id." };
     }
-    setSubmitting(true);
     persistDraft();
 
     // Convert each range's start/end from the user-chosen timezone to UTC
@@ -514,18 +551,100 @@ export function CampaignWizard({
         }),
       });
       const json = await res.json();
-      if (!res.ok) {
-        throw new Error(json?.error ?? `HTTP ${res.status}`);
-      }
-      try {
-        window.sessionStorage.removeItem(STORAGE_KEY);
-      } catch {
-        /* ignore */
-      }
-      router.push(`/campaigns/${json.id}`);
+      if (!res.ok) return { ok: false, error: json?.error ?? `HTTP ${res.status}` };
+      return { ok: true, id: json.id as string };
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erreur inconnue");
+      return { ok: false, error: err instanceof Error ? err.message : "Erreur inconnue" };
+    }
+  }
+
+  // Manual "Créer en brouillon" button.
+  async function submit() {
+    setError(null);
+    setSubmitting(true);
+    const r = await doCreate();
+    if (!r.ok) {
+      setError(r.error ?? "Erreur inconnue");
       setSubmitting(false);
+      return;
+    }
+    try {
+      window.sessionStorage.removeItem(STORAGE_KEY);
+    } catch {
+      /* ignore */
+    }
+    router.push(`/campaigns/${r.id}`);
+  }
+
+  // Called by the scheduling chatbot's finalize_campaign tool on the operator's
+  // explicit "go". Gated on steps 1-2 + preflight so the conversational path is
+  // exactly as safe as the manual button. Returns a result string the agent
+  // relays back into the conversation.
+  async function finalizeFromChat(): Promise<FinalizeResult> {
+    if (!step1Valid) {
+      return { ok: false, error: "Complète d'abord « Qui appelle » (numéro émetteur) à l'étape 1." };
+    }
+    if (!step2Valid) {
+      return { ok: false, error: "Choisis d'abord la base de contacts (ou des cibles) à l'étape « Qui appeler »." };
+    }
+    if (!preflightClear) {
+      return { ok: false, error: "Des blocages subsistent dans le récap de vérification — corrige-les avant de créer." };
+    }
+    setError(null);
+    setSubmitting(true);
+    const r = await doCreate();
+    if (!r.ok) {
+      setError(r.error ?? "Erreur inconnue");
+      setSubmitting(false);
+      return r;
+    }
+    try {
+      window.sessionStorage.removeItem(STORAGE_KEY);
+    } catch {
+      /* ignore */
+    }
+    router.push(`/campaigns/${r.id}`);
+    return r;
+  }
+
+  // Apply a schedule the chatbot proposed to the live wizard state. The recap
+  // (section 6) then reflects exactly what the operator is about to confirm.
+  function applyChatProposal(s: NormalizedSchedule) {
+    setDays(s.days);
+    setTimezone(s.timezone);
+    setHourRanges(s.hour_ranges.map((r) => ({ start: r.start, end: r.end })));
+    if (s.max_concurrency != null) setMaxConcurrency(s.max_concurrency);
+    if (s.max_attempts != null) setMaxAttempts(s.max_attempts);
+    if (s.retry_delay_min != null) setRetryDelayMin(s.retry_delay_min);
+    // Continuous-campaign extras only apply when a data table drives the engine.
+    if (dynamicMode && dataTableId) {
+      setEngineConfig((prev) => {
+        if (!prev) return prev;
+        const next: EngineConfig = {
+          ...prev,
+          selection: {
+            ...prev.selection,
+            include_statuses: s.include_statuses ?? prev.selection.include_statuses,
+          },
+          volume: {
+            ...prev.volume,
+            max_new_per_day: s.max_new_per_day ?? prev.volume.max_new_per_day,
+            wave_size: s.wave_size ?? prev.volume.wave_size,
+          },
+        };
+        // Map cumulative relance markers ([1,3,5]) onto the detected phases'
+        // wait_business_days (deltas: 1,2,2), capped to however many phases the
+        // table actually exposes.
+        const markers = s.relance_days_after_first;
+        if (markers && markers.length > 0 && prev.cadence.phases.length > 0) {
+          const phases = prev.cadence.phases.slice(0, markers.length).map((ph, i) => ({
+            ...ph,
+            wait_business_days: i === 0 ? markers[0] : markers[i] - markers[i - 1],
+          }));
+          next.cadence = { ...prev.cadence, enabled: true, phases };
+        }
+        return next;
+      });
     }
   }
 
@@ -588,6 +707,30 @@ export function CampaignWizard({
   ]);
 
   const preflightClear = isPreflightClear(preflightResult);
+
+  // Context handed to the scheduling chatbot. Intentionally derived from STABLE
+  // campaign facts only (mode + table) — NOT from the live timezone/engine —
+  // so that applying a proposal doesn't change this object's identity and tear
+  // down the in-flight conversation.
+  const scheduleChatContext: ScheduleChatContext = useMemo(() => {
+    const cols = selectedDataTable?.columns ?? [];
+    const statusCol =
+      cols.find((c) => /qualif|status|statut|stage/i.test(c.key))?.key ?? null;
+    const relancePhases = cols.filter((c) =>
+      /^(date_j\d+|appel_j\d+|phase\d+_called_at|relance_\d+_date|j\d+_called_at)$/i.test(c.key),
+    ).length;
+    return {
+      mode: dynamicMode && dataTableId ? "dynamic" : "static",
+      default_timezone: TPL_DEFAULTS.timezone,
+      table_label: selectedDataTable?.label ?? null,
+      status_column: statusCol,
+      status_values: tableStatusValues,
+      detected_relance_phases: selectedDataTable ? relancePhases : null,
+      concurrency_limit: PLAN_CONCURRENCY_LIMIT,
+      org_category: orgCategory,
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dynamicMode, dataTableId, selectedDataTable, tableStatusValues, orgCategory]);
 
   const STEPS: { n: 1 | 2 | 3; label: string; icon: string }[] = [
     { n: 1, label: "Qui appelle ?", icon: "🎙" },
@@ -1086,9 +1229,49 @@ export function CampaignWizard({
         </div>
       </section>
 
-      {/* 5. Planning */}
+      {/* 5a. Chat-first scheduling — the operator describes their cadence and
+          the assistant fills the planning + creates the draft on "go". */}
+      {!manualSchedule && (
+        <section className="card" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+            <div>
+              <h3 style={{ margin: 0 }}>5. Quand ? — discute avec l&apos;assistant</h3>
+              <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                Explique ton rythme d&apos;appels en langage naturel. L&apos;assistant remplit la
+                planification (récap ci-dessous) et crée la campagne en brouillon quand tu dis « go ».
+              </div>
+            </div>
+            <button
+              type="button"
+              className="ghost"
+              onClick={() => setManualSchedule(true)}
+              style={{ whiteSpace: "nowrap", padding: "6px 12px" }}
+            >
+              ✏️ Régler à la main
+            </button>
+          </div>
+          <ScheduleChatPanel
+            context={scheduleChatContext}
+            onProposal={applyChatProposal}
+            onFinalize={finalizeFromChat}
+          />
+        </section>
+      )}
+
+      {/* 5b. Manual planning form — fallback for fine-tuning by hand. */}
+      {manualSchedule && (
       <section className="card">
-        <h3>5. Créneaux & cadence</h3>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+          <h3 style={{ margin: 0 }}>5. Créneaux &amp; cadence</h3>
+          <button
+            type="button"
+            className="ghost"
+            onClick={() => setManualSchedule(false)}
+            style={{ padding: "6px 12px", whiteSpace: "nowrap" }}
+          >
+            💬 Revenir au chat
+          </button>
+        </div>
         <div className="muted" style={{ fontSize: 12, marginTop: -6, marginBottom: 10 }}>
           Jours, plage horaire et cadence d&apos;appel — une seule source de vérité.
         </div>
@@ -1321,6 +1504,7 @@ export function CampaignWizard({
           </div>
         )}
       </section>
+      )}
 
       {/* Sentinel Wave 1: preflight panel above the recap. */}
       <PreflightPanel result={preflightResult} />

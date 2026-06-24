@@ -11,12 +11,25 @@ const MANAGER_ROLES = new Set(["super_admin", "owner", "admin", "manager"]);
 /**
  * GET  /api/automations/credentials → list (id, name, kind, masked hints — NEVER secrets)
  * POST /api/automations/credentials → create/replace { name, kind, data }
- *      kinds: 'smtp' {host, port, user, pass, from}
- *             'wati' {base_url, token}
- *             'http_bearer' {token}
+ *      kinds: 'smtp'          {host, port, user, pass, from}
+ *             'wati'          {base_url, token}
+ *             'http_bearer'   {token}
+ *             'supabase_data' {url, service_key}     — patient pipeline DB
+ *             'anthropic'     {api_key, default_model?} — AI brains
+ *             'gmail_oauth'   {client_id, client_secret, refresh_token, sender?}
+ *             'telegram'      {bot_token, chat_id?}
  *
  * Secrets go in, never come back out: GET only exposes which fields are set.
  */
+const ALLOWED_KINDS = [
+  "smtp",
+  "wati",
+  "http_bearer",
+  "supabase_data",
+  "anthropic",
+  "gmail_oauth",
+  "telegram",
+];
 export async function GET(req: Request) {
   if (!hasSupabase()) return NextResponse.json({ credentials: [] });
   const sb = await supabaseSession();
@@ -67,8 +80,8 @@ export async function POST(req: Request) {
   if (!body?.name || !body.kind || !body.data) {
     return NextResponse.json({ error: "name, kind, data required" }, { status: 400 });
   }
-  if (!["smtp", "wati", "http_bearer"].includes(body.kind)) {
-    return NextResponse.json({ error: "kind must be smtp|wati|http_bearer" }, { status: 400 });
+  if (!ALLOWED_KINDS.includes(body.kind)) {
+    return NextResponse.json({ error: `kind must be one of ${ALLOWED_KINDS.join("|")}` }, { status: 400 });
   }
 
   const admin = supabaseServer();

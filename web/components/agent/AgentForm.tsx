@@ -10,19 +10,25 @@ import { useT } from "@/lib/i18n";
 
 type ModelOption = { id: string; label: string };
 
+// Coût estimé / minute d'appel (≈ 6k input cached + 1k input frais + 500 output
+// tokens par minute de conversation). Prix juin 2026, API directe (pas via
+// Retell ou autre intermédiaire qui rajoute sa marge). Coûts uniquement LLM —
+// la facture totale ajoute TTS + STT + Twilio + LK Cloud (≈ $0.05–0.06/min hors
+// LLM).
 const PROVIDER_MODELS: Record<LlmProvider, ModelOption[]> = {
   deepseek: [
-    { id: "deepseek-v4-flash", label: "deepseek-v4-flash — Ultra rapide (1-2s), cache prefix, 3× moins cher (recommandé appels vocaux)" },
+    { id: "deepseek-v4-flash", label: "deepseek-v4-flash ($0.001/min) — Ultra rapide, 3× moins cher (recommandé appels vocaux)" },
   ],
   openai: [
-    { id: "gpt-4o-mini", label: "gpt-4o-mini — Rapide et économique (recommandé appels vocaux)" },
-    { id: "gpt-4o", label: "gpt-4o — Polyvalent haute qualité" },
-    { id: "gpt-4.1-mini", label: "gpt-4.1-mini — Dernière génération, économique" },
-    { id: "gpt-4.1", label: "gpt-4.1 — Dernière génération" },
+    { id: "gpt-4.1-nano", label: "gpt-4.1-nano ($0.001/min) — Ultra rapide, latence minimale (recommandé appels vocaux)" },
+    { id: "gpt-4o-mini",  label: "gpt-4o-mini ($0.002/min) — Rapide et économique" },
+    { id: "gpt-4.1-mini", label: "gpt-4.1-mini ($0.004/min) — Dernière génération, économique" },
+    { id: "gpt-4.1",      label: "gpt-4.1 ($0.016/min) — Dernière génération haute qualité" },
+    { id: "gpt-4o",       label: "gpt-4o ($0.020/min) — Polyvalent haute qualité" },
   ],
   anthropic: [
-    { id: "claude-haiku-4-5-20251001", label: "claude-haiku-4-5 — Ultra rapide, multilingue (recommandé appels vocaux)" },
-    { id: "claude-sonnet-4-6", label: "claude-sonnet-4-6 — Équilibre qualité/vitesse" },
+    { id: "claude-haiku-4-5-20251001", label: "claude-haiku-4-5 ($0.005/min) — Ultra rapide, multilingue (recommandé)" },
+    { id: "claude-sonnet-4-6",         label: "claude-sonnet-4-6 ($0.020/min) — Équilibre qualité/vitesse" },
   ],
   minimax: [
     { id: "MiniMax-M2", label: "MiniMax-M2 — Standard" },
@@ -47,7 +53,37 @@ interface CartesiaVoiceCatalog {
   is_public: boolean;
 }
 
+// Catalogue Replicate (Wati preview 15/06) — meme structure normalisee
+// que Cartesia pour reutiliser les memes filtres/affichage. La famille
+// distingue ElevenLabs Flash/Turbo et MiniMax Turbo/HD pour grouper le
+// dropdown par fournisseur.
+interface ReplicateVoiceCatalog {
+  id: string;
+  name: string;
+  description: string | null;
+  language: string | null;
+  gender: string | null;
+  is_public: boolean;
+  family: string; // "elevenlabs-flash" | "elevenlabs-turbo" | "minimax-turbo" | "minimax-hd"
+}
+
+const REPLICATE_FAMILY_LABELS: Record<string, string> = {
+  // ElevenLabs direct (Wati 16/06) — WebSocket streaming, TTFB ~75ms.
+  "elevenlabs-flash-direct": "ElevenLabs Flash v2.5",
+  "elevenlabs-turbo-direct": "ElevenLabs Turbo v2.5",
+  // MiniMax direct (Wati 16/06) — SSE streaming natif, TTFB ~400ms.
+  "minimax-turbo-direct": "MiniMax Speech 02 Turbo",
+  "minimax-hd-direct": "MiniMax Speech 02 HD",
+  // MiniMax via Replicate — legacy depuis Wati 16/06.
+  "minimax-turbo": "MiniMax Speech 02 Turbo (Replicate)",
+  "minimax-hd": "MiniMax Speech 02 HD (Replicate)",
+};
+
 const LANG_NAMES: Record<string, string> = {
+  // "multi" est la valeur emise par les voix Replicate multilingues
+  // (ElevenLabs Charlotte/Alice + MiniMax Wise_Woman/etc.) — sans cette
+  // entree elles s'affichaient en brut "multi" dans le dropdown.
+  multi: "Multilingue",
   fr: "Français", en: "Anglais", es: "Espagnol", de: "Allemand",
   it: "Italien", pt: "Portugais", zh: "Mandarin", ja: "Japonais",
   ko: "Coréen", nl: "Néerlandais", pl: "Polonais", ar: "Arabe",
@@ -68,7 +104,22 @@ const LANG_NAMES: Record<string, string> = {
 };
 const GENDER_LABELS: Record<string, string> = {
   feminine: "Féminine", masculine: "Masculine", neutral: "Neutre",
+  // Wati 16/06 — Cartesia + ElevenLabs API renvoient parfois "female"/"male"
+  // bruts au lieu du canonique "feminine"/"masculine". On les remappe pour
+  // eviter les doublons dans le filtre genre.
+  female: "Féminine", male: "Masculine",
+  f: "Féminine", m: "Masculine", n: "Neutre",
 };
+// Wati 16/06 — normalise tous les genres bruts vers le canonique 3-valeurs
+// avant de les afficher / filtrer, pour eliminer les doublons.
+function normalizeGender(g: string | null | undefined): string | null {
+  if (!g) return null;
+  const x = g.toLowerCase();
+  if (x === "female" || x === "feminine" || x === "f") return "feminine";
+  if (x === "male" || x === "masculine" || x === "m") return "masculine";
+  if (x === "neutral" || x === "neutre" || x === "n") return "neutral";
+  return g;
+}
 const COUNTRY_LABELS: Record<string, string> = {
   AF: "Afghanistan", AL: "Albanie", AR: "Argentine", AU: "Australie",
   AT: "Autriche", AZ: "Azerbaïdjan", BD: "Bangladesh", BE: "Belgique",
@@ -129,6 +180,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
   const [error, setError] = useState<string | null>(null);
   const [voices, setVoices] = useState<Voice[]>([]);
   const [cartesiaVoices, setCartesiaVoices] = useState<CartesiaVoiceCatalog[]>([]);
+  const [replicateVoices, setReplicateVoices] = useState<ReplicateVoiceCatalog[]>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const objectUrlRef = useRef<string | null>(null);
 
@@ -145,6 +197,25 @@ export function AgentForm({ initial }: { initial?: Agent }) {
   const [voice, setVoice] = useState(initial?.tts_voice_id ?? "");
   const [speed, setSpeed] = useState(initial?.tts_speed ?? 1.0);
   const [volume, setVolume] = useState(initial?.tts_volume ?? 1.0);
+  const [pitch, setPitch] = useState(initial?.tts_pitch ?? 0);
+  const [ttsEmotion, setTtsEmotion] = useState<string>(initial?.tts_emotion ?? "");
+  // Advanced TTS knobs (Wati 16/06). null = "use provider default".
+  const [ttsLanguage, setTtsLanguage] = useState<string>(initial?.tts_language ?? "");
+  const [stability, setStability] = useState<number | null>(
+    initial?.tts_stability ?? null,
+  );
+  const [similarityBoost, setSimilarityBoost] = useState<number | null>(
+    initial?.tts_similarity_boost ?? null,
+  );
+  const [styleVal, setStyleVal] = useState<number | null>(
+    initial?.tts_style ?? null,
+  );
+  const [speakerBoost, setSpeakerBoost] = useState<boolean>(
+    initial?.tts_speaker_boost ?? true,
+  );
+  const [englishNorm, setEnglishNorm] = useState<boolean>(
+    initial?.tts_english_normalization ?? false,
+  );
   const [ttsModel, setTtsModel] = useState(() => {
     const valid = TTS_MODELS.map((m) => m.id);
     const stored = initial?.tts_model ?? "";
@@ -169,6 +240,10 @@ export function AgentForm({ initial }: { initial?: Agent }) {
   const [filterLang, setFilterLang] = useState("");
   const [filterGender, setFilterGender] = useState("");
   const [filterCountry, setFilterCountry] = useState("");
+  // Filtre fournisseur (Wati 15/06) : "" tous, "cartesia", "elevenlabs-flash",
+  // "elevenlabs-turbo", "minimax-turbo", "minimax-hd". Évite de scroller dans
+  // 881 voix quand on cherche par exemple uniquement ElevenLabs Flash.
+  const [filterProvider, setFilterProvider] = useState("");
 
   // Inline voice cloning (Cartesia /voices/clone).
   const [showClone, setShowClone] = useState(false);
@@ -214,6 +289,95 @@ export function AgentForm({ initial }: { initial?: Agent }) {
     fetch("/api/voices/cartesia")
       .then((r) => (r.ok ? r.json() : []))
       .then((data) => { if (!cancelled) setCartesiaVoices(Array.isArray(data) ? data : []); })
+      .catch(() => {});
+    // Load Replicate catalog voices. ElevenLabs y est legacy depuis Wati 16/06
+    // (on a ElevenLabs direct). MiniMax via Replicate est ÉCARTÉ ici (Wati
+    // 18/06) — on ne veut QUE MiniMax DIRECT (/api/voices/minimax), pas le hop
+    // Replicate. On filtre donc les familles "minimax*" du catalogue Replicate.
+    // Renvoie [] si REPLICATE_API_TOKEN n'est pas configure.
+    fetch("/api/voices/replicate")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) => {
+        if (cancelled) return;
+        const arr = Array.isArray(data) ? data : [];
+        setReplicateVoices(arr.filter((v) => !String(v?.family || "").startsWith("minimax")));
+      })
+      .catch(() => {});
+    // Load ElevenLabs DIRECT catalog (Wati 16/06) — voix avec UUID + labels
+    // descriptifs ("Jessica - Playful, Bright, Warm"). Necessite ELEVEN_API_KEY
+    // sur Vercel. Renvoie {voices:[], note:...} si absent.
+    fetch("/api/voices/elevenlabs")
+      .then((r) => (r.ok ? r.json() : { voices: [] }))
+      .then((data) => {
+        if (cancelled) return;
+        const list = Array.isArray(data?.voices) ? data.voices : [];
+        // Construit 2 entries pour chaque voix : une Flash, une Turbo.
+        const direct: ReplicateVoiceCatalog[] = [];
+        for (const v of list) {
+          const label = v.description
+            ? `${v.name} - ${v.description}`
+            : v.name;
+          direct.push({
+            id: `elevenlabs:flash:${v.voice_id}`,
+            name: `${label} (Flash)`,
+            description: v.description ?? null,
+            language: v.language ?? null,
+            gender: v.gender ?? null,
+            is_public: v.category === "premade",
+            family: "elevenlabs-flash-direct",
+          });
+          direct.push({
+            id: `elevenlabs:turbo:${v.voice_id}`,
+            name: `${label} (Turbo)`,
+            description: v.description ?? null,
+            language: v.language ?? null,
+            gender: v.gender ?? null,
+            is_public: v.category === "premade",
+            family: "elevenlabs-turbo-direct",
+          });
+        }
+        // Fusionne avec le catalogue Replicate existant (MiniMax surtout).
+        setReplicateVoices((prev) => {
+          const withoutOldDirect = prev.filter(
+            (v) => v.family !== "elevenlabs-flash-direct" && v.family !== "elevenlabs-turbo-direct",
+          );
+          return [...direct, ...withoutOldDirect];
+        });
+      })
+      .catch(() => {});
+    // Load MiniMax DIRECT catalog (Wati 16/06) — voix system (17 préréglées
+    // Speech 02) + voix clonées sur le compte. Renvoie {voices:[], note:...}
+    // si MINIMAX_API_KEY/GROUP_ID absentes. Format voice_id renvoyé :
+    // "minimax:speech-02-turbo:<voice>" ou "minimax:speech-02-hd:<voice>".
+    fetch("/api/voices/minimax")
+      .then((r) => (r.ok ? r.json() : { voices: [] }))
+      .then((data) => {
+        if (cancelled) return;
+        const list = Array.isArray(data?.voices) ? data.voices : [];
+        const direct: ReplicateVoiceCatalog[] = list.map((v: {
+          voice_id: string;
+          name: string;
+          description: string | null;
+          gender: string | null;
+          language: string | null;
+          family: string;
+          category: string;
+        }) => ({
+          id: v.voice_id,
+          name: v.description ? `${v.name} — ${v.description}` : v.name,
+          description: v.description,
+          language: v.language,
+          gender: v.gender,
+          is_public: v.category === "system",
+          family: `${v.family}-direct`, // "minimax-turbo-direct" | "minimax-hd-direct"
+        }));
+        setReplicateVoices((prev) => {
+          const withoutOldMinimaxDirect = prev.filter(
+            (v) => v.family !== "minimax-turbo-direct" && v.family !== "minimax-hd-direct",
+          );
+          return [...withoutOldMinimaxDirect, ...direct];
+        });
+      })
       .catch(() => {});
     return () => {
       cancelled = true;
@@ -287,11 +451,17 @@ export function AgentForm({ initial }: { initial?: Agent }) {
       llm_provider: provider,
       llm_model: model,
       tts_voice_id: voice || null,
-      tts_emotion: null,
+      tts_emotion: ttsEmotion || null,
       tts_speed: speed,
       tts_volume: volume,
-      tts_pitch: 0,
+      tts_pitch: pitch,
       tts_model: ttsModel || null,
+      tts_stability: stability,
+      tts_similarity_boost: similarityBoost,
+      tts_style: styleVal,
+      tts_speaker_boost: speakerBoost,
+      tts_language: ttsLanguage || null,
+      tts_english_normalization: englishNorm,
       voice_style: voiceStyle || null,
       system_prompt: systemPrompt,
       greeting,
@@ -364,26 +534,42 @@ export function AgentForm({ initial }: { initial?: Agent }) {
     }
   }
 
-  const llmModels = PROVIDER_MODELS[provider];
+  // Fallback to [] so an agent whose llm_provider isn't in PROVIDER_MODELS
+  // (e.g. a value added on the worker before the UI knew about it) renders the
+  // dropdown via the "(personnalisé)" option instead of crashing on .map().
+  const llmModels = PROVIDER_MODELS[provider] ?? [];
 
   // ── Voice catalog (from API + cloned in Supabase) ──────────────────────
   const customCloned = voices.filter((v) => v.source === "cloned");
   const customPresets = voices.filter((v) => v.source === "preset");
 
-  // Derive filter options from catalog data.
-  const catalogLangs = [...new Set(cartesiaVoices.map((v) => v.language).filter(Boolean) as string[])].sort();
-  const catalogGenders = [...new Set(cartesiaVoices.map((v) => v.gender).filter(Boolean) as string[])].sort();
+  // Derive filter options from catalog data (Cartesia + Replicate fusionnes).
+  const catalogLangs = [
+    ...new Set([
+      ...(cartesiaVoices.map((v) => v.language).filter(Boolean) as string[]),
+      ...(replicateVoices.map((v) => v.language).filter(Boolean) as string[]),
+    ]),
+  ].sort();
+  const catalogGenders = [
+    ...new Set([
+      ...(cartesiaVoices.map((v) => normalizeGender(v.gender)).filter(Boolean) as string[]),
+      ...(replicateVoices.map((v) => normalizeGender(v.gender)).filter(Boolean) as string[]),
+    ]),
+  ].sort();
   const catalogCountries = [...new Set(cartesiaVoices.map((v) => v.country).filter(Boolean) as string[])].sort();
 
-  // Apply active filters.
-  const filteredCatalog = cartesiaVoices.filter((v) => {
-    if (filterLang && v.language !== filterLang) return false;
-    if (filterGender && v.gender !== filterGender) return false;
-    if (filterCountry && v.country !== filterCountry) return false;
-    return true;
-  });
+  // Apply active filters (provider Cartesia uniquement, on cache si le filtre
+  // demande explicitement une famille Replicate).
+  const filteredCatalog = (filterProvider && filterProvider !== "cartesia")
+    ? []
+    : cartesiaVoices.filter((v) => {
+        if (filterLang && v.language !== filterLang) return false;
+        if (filterGender && normalizeGender(v.gender) !== filterGender) return false;
+        if (filterCountry && v.country !== filterCountry) return false;
+        return true;
+      });
 
-  // Group filtered catalog by language.
+  // Group filtered catalog by language (Cartesia).
   const catalogGroups: [string, CartesiaVoiceCatalog[]][] = (() => {
     const map = new Map<string, CartesiaVoiceCatalog[]>();
     for (const v of filteredCatalog) {
@@ -401,8 +587,40 @@ export function AgentForm({ initial }: { initial?: Agent }) {
     });
   })();
 
+  // Replicate : meme logique de filtrage + filtre famille (Wati 15/06).
+  // Si filterProvider est "cartesia" → on cache toutes les Replicate.
+  // Si filterProvider est une famille Replicate → on garde que cette famille.
+  const filteredReplicate = (filterProvider === "cartesia")
+    ? []
+    : replicateVoices.filter((v) => {
+        if (filterProvider && filterProvider !== v.family) return false;
+        // Voices with no declared language (e.g. MiniMax system voices, which
+        // are multilingual) must NOT be hidden by a language filter — only
+        // exclude a voice that HAS a language and it doesn't match.
+        if (filterLang && v.language && v.language !== filterLang) return false;
+        if (filterGender && normalizeGender(v.gender) !== filterGender) return false;
+        return true;
+      });
+  const replicateGroups: [string, ReplicateVoiceCatalog[]][] = (() => {
+    const map = new Map<string, ReplicateVoiceCatalog[]>();
+    for (const v of filteredReplicate) {
+      const fam = v.family;
+      const list = map.get(fam) ?? [];
+      list.push(v);
+      map.set(fam, list);
+    }
+    // Ordre fixe : ElevenLabs direct (Flash, Turbo) puis MiniMax.
+    const order = ["elevenlabs-flash-direct", "elevenlabs-turbo-direct", "minimax-turbo-direct", "minimax-hd-direct"];
+    return Array.from(map.entries()).sort(([a], [b]) => {
+      const ia = order.indexOf(a);
+      const ib = order.indexOf(b);
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+    });
+  })();
+
   const knownVoiceIds = new Set<string>([
     ...cartesiaVoices.map((v) => v.id),
+    ...replicateVoices.map((v) => v.id),
     ...customCloned.map((v) => v.voice_id),
     ...customPresets.map((v) => v.voice_id),
   ]);
@@ -516,17 +734,36 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                   ))}
                 </optgroup>
               )}
+              {catalogGroups.length > 0 && (
+                <optgroup label="━━━ Cartesia ━━━" disabled>
+                  <option value="" disabled>↓ Voix Cartesia (voix clonees + catalogue)</option>
+                </optgroup>
+              )}
               {catalogGroups.map(([lang, options]) => (
-                <optgroup key={lang} label={LANG_NAMES[lang] ?? lang.toUpperCase()}>
+                <optgroup key={`cartesia-${lang}`} label={`Cartesia · ${LANG_NAMES[lang] ?? lang.toUpperCase()}`}>
                   {options.map((v) => (
                     <option key={v.id} value={v.id}>
-                      {v.name}{v.gender ? ` (${GENDER_LABELS[v.gender] ?? v.gender})` : ""}
+                      {v.name}{v.gender ? ` (${GENDER_LABELS[normalizeGender(v.gender) ?? v.gender] ?? v.gender})` : ""}
                     </option>
                   ))}
                 </optgroup>
               ))}
-              {cartesiaVoices.length === 0 && (
-                <option value="" disabled>Catalogue vocal non disponible (clé API manquante)</option>
+              {replicateGroups.length > 0 && (
+                <optgroup label="━━━ ElevenLabs / MiniMax ━━━" disabled>
+                  <option value="" disabled>↓ Voix premium streaming</option>
+                </optgroup>
+              )}
+              {replicateGroups.map(([fam, options]) => (
+                <optgroup key={`replicate-${fam}`} label={REPLICATE_FAMILY_LABELS[fam] ?? fam}>
+                  {options.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.name}{v.gender ? ` (${GENDER_LABELS[normalizeGender(v.gender) ?? v.gender] ?? v.gender})` : ""}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+              {cartesiaVoices.length === 0 && replicateVoices.length === 0 && (
+                <option value="" disabled>Catalogue vocal non disponible (cle API manquante)</option>
               )}
               {voice && !knownVoiceIds.has(voice) && (
                 <option value={voice}>{voice} (ID manuel)</option>
@@ -534,8 +771,24 @@ export function AgentForm({ initial }: { initial?: Agent }) {
             </select>
 
             {/* Horizontal filter bar — below the dropdown, like Cartesia's UI */}
-            {cartesiaVoices.length > 0 && (
+            {(cartesiaVoices.length > 0 || replicateVoices.length > 0) && (
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 10 }}>
+                {/* Filtre fournisseur (Wati 15/06) — premier filtre car le plus
+                    selectif : ramene 881 voix a quelques dizaines en un clic. */}
+                {replicateVoices.length > 0 && (
+                  <select
+                    value={filterProvider}
+                    onChange={(e) => setFilterProvider(e.target.value)}
+                    style={{ width: "auto", fontSize: 13, padding: "6px 12px", borderRadius: 20, background: "var(--bg-2)", color: "var(--text)", fontWeight: filterProvider ? 600 : 400 }}
+                  >
+                    <option value="" style={{ background: "var(--bg-2)", color: "var(--text)" }}>Tous les fournisseurs</option>
+                    <option value="cartesia" style={{ background: "var(--bg-2)", color: "var(--text)" }}>Cartesia ({cartesiaVoices.length})</option>
+                    <option value="elevenlabs-flash-direct" style={{ background: "var(--bg-2)", color: "var(--text)" }}>ElevenLabs Flash v2.5 — latence ~75ms ({replicateVoices.filter((v) => v.family === "elevenlabs-flash-direct").length})</option>
+                    <option value="elevenlabs-turbo-direct" style={{ background: "var(--bg-2)", color: "var(--text)" }}>ElevenLabs Turbo v2.5 — qualité équivalente, latence ~100ms ({replicateVoices.filter((v) => v.family === "elevenlabs-turbo-direct").length})</option>
+                    <option value="minimax-turbo-direct" style={{ background: "var(--bg-2)", color: "var(--text)" }}>MiniMax Speech 02 Turbo ({replicateVoices.filter((v) => v.family === "minimax-turbo-direct").length})</option>
+                    <option value="minimax-hd-direct" style={{ background: "var(--bg-2)", color: "var(--text)" }}>MiniMax Speech 02 HD ({replicateVoices.filter((v) => v.family === "minimax-hd-direct").length})</option>
+                  </select>
+                )}
                 <select
                   value={filterGender}
                   onChange={(e) => setFilterGender(e.target.value)}
@@ -566,18 +819,18 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                     <option key={c} value={c} style={{ background: "var(--bg-2)", color: "var(--text)" }}>{COUNTRY_LABELS[c] ?? c}</option>
                   ))}
                 </select>
-                {(filterLang || filterGender || filterCountry) && (
+                {(filterLang || filterGender || filterCountry || filterProvider) && (
                   <button
                     type="button"
                     className="ghost"
                     style={{ fontSize: 12, padding: "6px 12px", borderRadius: 20 }}
-                    onClick={() => { setFilterLang(""); setFilterGender(""); setFilterCountry(""); }}
+                    onClick={() => { setFilterLang(""); setFilterGender(""); setFilterCountry(""); setFilterProvider(""); }}
                   >
                     {t("✕ Effacer")}
                   </button>
                 )}
                 <span style={{ fontSize: 12, color: "var(--muted)", marginLeft: 4 }}>
-                  {filteredCatalog.length}{t(" voix")}
+                  {filteredCatalog.length + filteredReplicate.length}{t(" voix")}
                 </span>
               </div>
             )}
@@ -668,28 +921,266 @@ export function AgentForm({ initial }: { initial?: Agent }) {
             </button>
             {showVoiceAdvanced && (
               <div style={{ display: "grid", gap: 14, marginTop: 12 }}>
-                <div>
-                  <label>{t("Modèle TTS")}</label>
-                  <select value={ttsModel} onChange={(e) => setTtsModel(e.target.value)}>
-                    {TTS_MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-                  </select>
-                </div>
-                <div className="form-row">
-                  <div>
-                    <label>Vitesse ({speed.toFixed(2)}×)</label>
-                    <input
-                      type="range" min="0.5" max="2" step="0.05"
-                      value={speed} onChange={(e) => setSpeed(Number(e.target.value))}
-                    />
-                  </div>
-                  <div>
-                    <label>Volume ({volume.toFixed(1)})</label>
-                    <input
-                      type="range" min="0.1" max="2" step="0.1"
-                      value={volume} onChange={(e) => setVolume(Number(e.target.value))}
-                    />
-                  </div>
-                </div>
+                {/* Detection du fournisseur (Wati 15/06) : adapte les
+                    reglages avances au moteur derriere la voix selectionnee.
+                    voice_id "replicate:elevenlabs-flash:..." → ElevenLabs Flash
+                    voice_id "replicate:elevenlabs-turbo:..." → ElevenLabs Turbo
+                    voice_id "replicate:minimax-turbo:..."    → MiniMax Turbo
+                    voice_id "replicate:minimax-hd:..."       → MiniMax HD
+                    sinon → Cartesia (defaut historique). */}
+                {(() => {
+                  // Detect family from voice_id prefix (Wati 16/06 :
+                  // 'elevenlabs:flash:...' / 'elevenlabs:turbo:...' = direct,
+                  // 'minimax:speech-02-turbo:...' / 'minimax:speech-02-hd:...' = direct,
+                  // 'replicate:elevenlabs-...' = legacy via Replicate,
+                  // 'replicate:minimax-...' = MiniMax via Replicate,
+                  // sinon UUID Cartesia).
+                  const isElevenLabsDirect = voice.startsWith("elevenlabs:");
+                  const isMinimaxDirect = voice.startsWith("minimax:");
+                  const isReplicate = voice.startsWith("replicate:");
+                  const family = isElevenLabsDirect
+                    ? `elevenlabs-${voice.split(":")[1] ?? "flash"}-direct`
+                    : isMinimaxDirect
+                    ? (voice.split(":")[1] === "speech-02-hd" ? "minimax-hd-direct" : "minimax-turbo-direct")
+                    : isReplicate
+                    ? voice.split(":")[1] ?? ""
+                    : "cartesia";
+                  const isElevenLabs = family.startsWith("elevenlabs");
+                  const isMiniMax = family.startsWith("minimax");
+                  const isExternal = isElevenLabsDirect || isMinimaxDirect || isReplicate;
+                  const familyLabel =
+                    family === "cartesia" ? "Cartesia Sonic" :
+                    family === "elevenlabs-flash-direct" ? "ElevenLabs Flash v2.5 (direct, ~75ms TTFB)" :
+                    family === "elevenlabs-turbo-direct" ? "ElevenLabs Turbo v2.5 (direct, ~100ms TTFB)" :
+                    family === "elevenlabs-flash" ? "ElevenLabs Flash v2.5 (via Replicate, legacy)" :
+                    family === "elevenlabs-turbo" ? "ElevenLabs Turbo v2.5 (via Replicate, legacy)" :
+                    family === "minimax-turbo-direct" ? "MiniMax Speech 02 Turbo (direct, ~400ms TTFB)" :
+                    family === "minimax-hd-direct" ? "MiniMax Speech 02 HD (direct, streaming SSE)" :
+                    family === "minimax-turbo" ? "MiniMax Speech 02 Turbo (via Replicate, legacy)" :
+                    family === "minimax-hd" ? "MiniMax Speech 02 HD (via Replicate, legacy)" :
+                    "Cartesia Sonic";
+                  return (
+                    <>
+                      {/* Modele TTS : dropdown sonic-3.5/sonic-3 uniquement
+                          pour Cartesia. Pour les autres fournisseurs, le
+                          modele est encode dans le voice_id (familyLabel),
+                          on l'affiche en lecture seule. */}
+                      {!isExternal ? (
+                        <div>
+                          <label>{t("Modèle TTS")}</label>
+                          <select value={ttsModel} onChange={(e) => setTtsModel(e.target.value)}>
+                            {TTS_MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+                          </select>
+                        </div>
+                      ) : (
+                        <div>
+                          <label>{t("Modèle TTS")}</label>
+                          <div style={{ padding: "8px 12px", borderRadius: 6, background: "var(--bg-2)", color: "var(--muted)", fontSize: 13 }}>
+                            <strong style={{ color: "var(--text)" }}>{familyLabel}</strong>
+                            <span> — fixé par la voix sélectionnée, non modifiable</span>
+                          </div>
+                        </div>
+                      )}
+                      <div className="form-row">
+                        {/* Vitesse — plages par fournisseur :
+                              Cartesia  : 0.6 - 1.5
+                              MiniMax   : 0.5 - 2.0 (champ speed)
+                              ElevenLabs: 0.7 - 1.2 (voice_settings.speed) */}
+                        <div>
+                          <label>Vitesse ({speed.toFixed(2)}×)</label>
+                          <input
+                            type="range"
+                            min={isMiniMax ? "0.5" : isElevenLabs ? "0.7" : "0.6"}
+                            max={isMiniMax ? "2" : isElevenLabs ? "1.2" : "1.5"}
+                            step="0.05"
+                            value={speed} onChange={(e) => setSpeed(Number(e.target.value))}
+                          />
+                          <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
+                            {isMiniMax ? "Plage MiniMax : 0.5×–2.0×" : isElevenLabs ? "Plage ElevenLabs : 0.7×–1.2×" : "Plage Cartesia : 0.6×–1.5×"}
+                          </div>
+                        </div>
+                        {/* Volume : Cartesia + MiniMax exposent. ElevenLabs non. */}
+                        {!isElevenLabs ? (
+                          <div>
+                            <label>Volume ({volume.toFixed(1)})</label>
+                            <input
+                              type="range"
+                              min={isMiniMax ? "0" : "0.1"}
+                              max={isMiniMax ? "10" : "2"}
+                              step={isMiniMax ? "0.5" : "0.1"}
+                              value={volume} onChange={(e) => setVolume(Number(e.target.value))}
+                            />
+                            <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
+                              {isMiniMax ? "Plage MiniMax : 0–10" : "Plage Cartesia : 0.1–2.0"}
+                            </div>
+                          </div>
+                        ) : (
+                          <div>
+                            <label>Volume</label>
+                            <div style={{ padding: "8px 12px", borderRadius: 6, background: "var(--bg-2)", color: "var(--muted)", fontSize: 13 }}>
+                              Non exposé par ElevenLabs (utiliser stability / style à la place)
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* ── Cartesia : émotion + langue forcée ───────────── */}
+                      {family === "cartesia" && (
+                        <>
+                          <div className="form-row">
+                            <div>
+                              <label>Émotion (Cartesia)</label>
+                              <select
+                                value={ttsEmotion}
+                                onChange={(e) => setTtsEmotion(e.target.value)}
+                              >
+                                <option value="">Aucune (neutre)</option>
+                                <option value="positivity">Positivity (chaleureux)</option>
+                                <option value="curiosity">Curiosity (intéressé)</option>
+                                <option value="sadness">Sadness (triste)</option>
+                                <option value="anger">Anger (colère)</option>
+                                <option value="surprise">Surprise (étonné)</option>
+                              </select>
+                              <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
+                                Module la tonalité affective du modèle Sonic.
+                              </div>
+                            </div>
+                            <div>
+                              <label>Langue forcée</label>
+                              <select
+                                value={ttsLanguage}
+                                onChange={(e) => setTtsLanguage(e.target.value)}
+                              >
+                                <option value="">Auto (depuis le texte)</option>
+                                <option value="fr">Français</option>
+                                <option value="en">Anglais</option>
+                                <option value="es">Espagnol</option>
+                                <option value="de">Allemand</option>
+                                <option value="it">Italien</option>
+                                <option value="pt">Portugais</option>
+                                <option value="nl">Néerlandais</option>
+                              </select>
+                              <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
+                                Force Cartesia à synthétiser dans cette langue (utile en multi-langue).
+                              </div>
+                            </div>
+                          </div>
+                        </>
+                      )}
+
+                      {/* ── ElevenLabs : stability/similarity/style/speaker boost ── */}
+                      {isElevenLabs && (
+                        <>
+                          <div className="form-row">
+                            <div>
+                              <label>
+                                Stability ({stability === null ? "défaut 0.5" : stability.toFixed(2)})
+                              </label>
+                              <input
+                                type="range" min="0" max="1" step="0.05"
+                                value={stability ?? 0.5}
+                                onChange={(e) => setStability(Number(e.target.value))}
+                              />
+                              <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
+                                Bas = expressif/variable · Haut = stable/monotone
+                              </div>
+                            </div>
+                            <div>
+                              <label>
+                                Similarity boost ({similarityBoost === null ? "défaut 0.75" : similarityBoost.toFixed(2)})
+                              </label>
+                              <input
+                                type="range" min="0" max="1" step="0.05"
+                                value={similarityBoost ?? 0.75}
+                                onChange={(e) => setSimilarityBoost(Number(e.target.value))}
+                              />
+                              <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
+                                Fidélité à la voix originale (cloning).
+                              </div>
+                            </div>
+                          </div>
+                          <div className="form-row">
+                            <div>
+                              <label>
+                                Style ({styleVal === null ? "défaut 0" : styleVal.toFixed(2)})
+                              </label>
+                              <input
+                                type="range" min="0" max="1" step="0.05"
+                                value={styleVal ?? 0}
+                                onChange={(e) => setStyleVal(Number(e.target.value))}
+                              />
+                              <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
+                                Exagération du style (&gt;0 augmente la latence).
+                              </div>
+                            </div>
+                            <div>
+                              <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                <input
+                                  type="checkbox"
+                                  checked={speakerBoost}
+                                  onChange={(e) => setSpeakerBoost(e.target.checked)}
+                                />
+                                Speaker boost
+                              </label>
+                              <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
+                                Amplifie la similarité au coût d&apos;un léger surcoût latence.
+                              </div>
+                            </div>
+                          </div>
+                        </>
+                      )}
+
+                      {/* ── MiniMax : pitch + émotion + english_normalization ── */}
+                      {isMiniMax && (
+                        <>
+                          <div className="form-row">
+                            <div>
+                              <label>Pitch ({pitch > 0 ? "+" : ""}{pitch})</label>
+                              <input
+                                type="range" min="-12" max="12" step="1"
+                                value={pitch}
+                                onChange={(e) => setPitch(Number(e.target.value))}
+                              />
+                              <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
+                                Décalage en demi-tons : -12 grave · +12 aigu (MiniMax).
+                              </div>
+                            </div>
+                            <div>
+                              <label>Émotion (MiniMax)</label>
+                              <select
+                                value={ttsEmotion}
+                                onChange={(e) => setTtsEmotion(e.target.value)}
+                              >
+                                <option value="">Aucune (neutre)</option>
+                                <option value="happy">Happy (joyeux)</option>
+                                <option value="sad">Sad (triste)</option>
+                                <option value="angry">Angry (colère)</option>
+                                <option value="fearful">Fearful (apeuré)</option>
+                                <option value="disgusted">Disgusted (dégoûté)</option>
+                                <option value="surprised">Surprised (surpris)</option>
+                                <option value="calm">Calm (calme)</option>
+                                <option value="neutral">Neutral (neutre)</option>
+                              </select>
+                            </div>
+                          </div>
+                          <div>
+                            <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <input
+                                type="checkbox"
+                                checked={englishNorm}
+                                onChange={(e) => setEnglishNorm(e.target.checked)}
+                              />
+                              English normalization
+                            </label>
+                            <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
+                              Normalise nombres/dates/symboles en anglais (recommandé si l&apos;agent parle anglais).
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </>
+                  );
+                })()}
                 <div>
                   <label>Style &amp; ton (consigne LLM)</label>
                   <textarea
@@ -747,7 +1238,8 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                     <select value={provider} onChange={(e) => {
                       const p = e.target.value as LlmProvider;
                       setProvider(p);
-                      setModel(PROVIDER_MODELS[p][0].id);
+                      const first = PROVIDER_MODELS[p]?.[0];
+                      if (first) setModel(first.id);
                     }}>
                       <option value="deepseek">{t("DeepSeek (recommandé)")}</option>
                       <option value="openai">OpenAI</option>

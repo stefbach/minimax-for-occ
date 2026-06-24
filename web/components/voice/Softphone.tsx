@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   LiveKitRoom,
   RoomAudioRenderer,
@@ -16,6 +16,7 @@ import { useToast } from "@/lib/use-toast";
 import { COUNTRIES, countryFor, countryFromE164 } from "@/lib/country-prefixes";
 import { CallNotePanel } from "./CallNotePanel";
 import { useT } from "@/lib/i18n";
+import { getRingtone } from "@/lib/ringtone";
 
 type PresenceStatus = "offline" | "available" | "busy" | "away";
 
@@ -86,6 +87,8 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
   const toast = useToast();
   const t = useT();
   const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
   const [bootstrapping, setBootstrapping] = useState(true);
   const [handle, setHandle] = useState<Handle | null>(null);
   const [registering, setRegistering] = useState(false);
@@ -239,7 +242,16 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
     return device;
   }
 
-  const dial = useCallback(async () => {
+  const dial = useCallback(async (overrideNumber?: string) => {
+    // Never start a second call while one is already live. twilioCallRef is a
+    // ref (always current, unlike the twilioCallState closure), so this also
+    // catches a duplicate auto-dial firing during an in-progress call — the
+    // bug that produced phantom "ringing" rows stuck in the desk's EN COURS.
+    if (twilioCallRef.current) return;
+    // Dial an explicit number when given (the click-to-dial autodial passes it
+    // straight in) instead of trusting the dialNumber state closure, which may
+    // not have committed the freshly-set value yet.
+    const numberToDial = overrideNumber ?? dialNumber;
     setDialing(true);
     setDialError(null);
     try {
@@ -253,7 +265,7 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
         const reg = await fetch("/api/desk/sdk-call", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ to_e164: dialNumber }),
+          body: JSON.stringify({ to_e164: numberToDial }),
         });
         if (reg.ok) {
           const j = await reg.json();
@@ -291,7 +303,7 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
       }
 
       const params: Record<string, string> = {
-        To: dialNumber,
+        To: numberToDial,
         OrgId: handle.org_id,
       };
       if (humanFrom) params.HumanFrom = humanFrom;
@@ -436,11 +448,26 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
     setDialNumber(target);
     const nameParam = searchParams?.get("name");
     if (nameParam) setDialContactName(nameParam);
-    if (callParam && handle && !autoDialedRef.current) {
+
+    if (callParam) {
+      // Auto-dial needs the agent_handle loaded to attribute the call. Wait
+      // for it rather than stripping the URL prematurely — that would lose the
+      // number before we ever dial. autoDialedRef guards re-runs within a
+      // single mount; the URL strip below guards across mounts/reloads.
+      if (!handle || autoDialedRef.current) return;
       autoDialedRef.current = true;
-      void dial();
+      void dial(target);
     }
-  }, [searchParams, handle, dial]);
+
+    // Consume the click-to-dial params: strip them from the URL so a remount
+    // or reload of /desk can't re-apply them. For ?call= this is critical —
+    // otherwise the number stays in the address bar and auto-dials AGAIN on
+    // the next mount (autoDialedRef only lives for one mount), which is how a
+    // call "places itself" without the agent clicking and leaves a stuck
+    // phantom "ringing" row. replace() (not push) keeps Back from returning
+    // to the auto-dial URL.
+    router.replace(pathname, { scroll: false });
+  }, [searchParams, handle, dial, router, pathname]);
 
   const register = useCallback(async () => {
     setRegistering(true);
@@ -498,6 +525,13 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
     };
   }, []);
 
+  // Mirror activeCall into a ref so refreshCalls can read the current value
+  // without being re-created (and without a stale closure) on every change.
+  const activeCallRef = useRef<CallRow | null>(null);
+  useEffect(() => {
+    activeCallRef.current = activeCall;
+  }, [activeCall]);
+
   // Poll calls every 5s.
   const refreshCalls = useCallback(async () => {
     if (!handle) return;
@@ -506,11 +540,70 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
       if (!r.ok) return;
       const list = (await r.json()) as CallRow[];
       setCalls(list);
-      // Auto-elect the first ringing/in_progress call as "active" if none.
+      // First live (ringing/in_progress) call in the list, if any.
       const live = list.find(
         (c) => c.state === "ringing" || c.state === "in_progress",
       );
-      setActiveCall((prev) => prev ?? live ?? null);
+
+      // Reconcile the ContactPanel's active call against fresh data instead of
+      // latching onto the first snapshot forever. The old `prev ?? live` kept
+      // whatever was first elected and NEVER updated it — so when a call was
+      // hung up (state→ended, so it drops out of this ringing/in_progress
+      // query) the panel stayed frozen on "ringing" with the original start
+      // time and no end time.
+      const prev = activeCallRef.current;
+
+      if (!prev) {
+        // Nothing shown yet → elect the first live call.
+        setActiveCall(live ?? null);
+        return;
+      }
+
+      const fresh = list.find((c) => c.id === prev.id);
+      if (fresh) {
+        // Still live → refresh its fields (ringing→in_progress, answered_at…).
+        setActiveCall(fresh);
+        return;
+      }
+
+      if (prev.state === "ended" || prev.state === "failed") {
+        // Already showing the terminal sheet. Keep it so the agent can still
+        // read the outcome and add a note; switch only if a NEW call goes live.
+        if (live) setActiveCall(live);
+        return;
+      }
+
+      // prev just left the live list (was ringing/in_progress, now gone) → the
+      // call ended. Fetch its terminal row once so the panel shows the real
+      // state + end time ("Terminé : …") rather than the frozen "ringing".
+      try {
+        const rr = await fetch(`/api/calls/${prev.id}`);
+        if (rr.ok) {
+          const j = (await rr.json()) as { call?: Partial<CallRow> | null };
+          const c = j.call;
+          if (c && c.id) {
+            setActiveCall({
+              id: c.id,
+              direction: c.direction ?? prev.direction,
+              state: c.state ?? "ended",
+              from_e164: c.from_e164 ?? prev.from_e164,
+              to_e164: c.to_e164 ?? prev.to_e164,
+              room_id: c.room_id ?? null,
+              started_at: c.started_at ?? prev.started_at,
+              answered_at: c.answered_at ?? prev.answered_at,
+              ended_at: c.ended_at ?? new Date().toISOString(),
+              duration_secs: c.duration_secs ?? null,
+              contact_id: c.contact_id ?? prev.contact_id,
+              queue_id: c.queue_id ?? prev.queue_id,
+              contacts: c.contacts ?? prev.contacts,
+            });
+            return;
+          }
+        }
+      } catch {
+        /* fall through to electing the next live call */
+      }
+      setActiveCall(live ?? null);
     } catch {
       /* ignore */
     }
@@ -580,6 +673,35 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
     if (conn && conn.room === activeCall.room_id) return;
     void connect(activeCall.id);
   }, [activeCall?.id, activeCall?.room_id, status, conn, connect]);
+
+  // Incoming-call ringtone. Ring while a call assigned to this agent is in
+  // "ringing" state and we're online but not yet joined to its room. The
+  // confirmed gap Wati flagged: the desk only ever showed a silent "Sonne…"
+  // chip, so an agent on another browser tab would miss the call. Stops as
+  // soon as the call is answered/ends, the agent joins, or goes offline.
+  const ringingCall = useMemo(
+    () => calls.find((c) => c.state === "ringing") ?? null,
+    [calls],
+  );
+  const shouldRing =
+    !!ringingCall &&
+    status !== "offline" &&
+    !(conn && ringingCall.room_id && conn.room === ringingCall.room_id);
+  useEffect(() => {
+    const ring = getRingtone();
+    if (shouldRing) {
+      ring.start();
+      // Also nudge the browser tab title so an agent on another tab notices.
+      const prevTitle = document.title;
+      document.title = "📞 Appel entrant…";
+      return () => {
+        ring.stop();
+        document.title = prevTitle;
+      };
+    }
+    ring.stop();
+    return undefined;
+  }, [shouldRing]);
 
   const disconnect = useCallback(() => {
     setConn(null);
@@ -819,7 +941,7 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
           />
         )}
 
-        <div className="softphone-center" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(220px, 280px)", gap: 12, alignItems: "start" }}>
+        <div className="softphone-center softphone-center-cols">
           <div className="card" style={{ padding: 12 }}>
           <h3 style={{ marginTop: 0 }}>{t("Composer un numéro")}</h3>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
@@ -844,7 +966,7 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
               }}
             />
             <button
-              onClick={dial}
+              onClick={() => dial()}
               disabled={dialing || !/^\+\d{6,15}$/.test(dialNumber)}
               style={{ padding: "10px 16px", whiteSpace: "nowrap" }}
             >

@@ -128,18 +128,18 @@ export async function syncTwilioCalls(
 
   // Map existing rows for these CallSids in one query.
   const sids = calls.map((c) => str(c.sid)).filter(Boolean) as string[];
-  const existing = new Map<string, { id: string; state: string | null }>();
+  const existing = new Map<string, { id: string; state: string | null; answered_at: string | null }>();
   const CHUNK = 300;
   for (let i = 0; i < sids.length; i += CHUNK) {
     const slice = sids.slice(i, i + CHUNK);
     const { data } = await sb
       .from("calls")
-      .select("id, state, metadata")
+      .select("id, state, answered_at, metadata")
       .eq("org_id", orgId)
       .in("metadata->>twilio_call_sid", slice);
-    for (const r of (data ?? []) as Array<{ id: string; state: string | null; metadata: { twilio_call_sid?: string } | null }>) {
+    for (const r of (data ?? []) as Array<{ id: string; state: string | null; answered_at: string | null; metadata: { twilio_call_sid?: string } | null }>) {
       const sid = r.metadata?.twilio_call_sid;
-      if (sid) existing.set(sid, { id: r.id, state: r.state });
+      if (sid) existing.set(sid, { id: r.id, state: r.state, answered_at: r.answered_at });
     }
   }
 
@@ -189,13 +189,33 @@ export async function syncTwilioCalls(
         priceRaw: c.price ?? null,
         priceUnit: c.price_unit ?? null,
       });
-      // Only reconcile a row the webhook left stuck in an active state.
+      // answered_at backfill (Wati 2026-06-12: "ça n'a pas reconnu mes
+      // appels même si j'ai décroché"). On Trunking Terminating legs
+      // Twilio's `duration` counts from ANSWER — completed + duration>0
+      // is positive proof the callee picked up, even when our in-progress
+      // webhook never landed (the LiveKit-path race that leaves
+      // answered_at NULL, shows "ring 39s / Non décroché" in the
+      // dashboard, and biases auto-qualification toward PAS DE REPONSE).
+      // Reconstruct answered_at = end_time − duration.
+      const answeredPatch: Record<string, unknown> = {};
+      if (!row.answered_at && c.status === "completed" && duration > 0 && c.end_time) {
+        const endMs = Date.parse(c.end_time);
+        if (Number.isFinite(endMs)) {
+          answeredPatch.answered_at = new Date(endMs - duration * 1000).toISOString();
+        }
+      }
+      // Only reconcile state on a row the webhook left stuck in an
+      // active state; the answered_at backfill applies either way.
       if (ACTIVE_DB_STATES.has(row.state ?? "")) {
         await sb.from("calls").update({
           state,
           ended_at: c.end_time ? new Date(c.end_time).toISOString() : new Date().toISOString(),
           duration_secs: duration,
+          ...answeredPatch,
         }).eq("id", row.id).eq("org_id", orgId);
+        reconciled += 1;
+      } else if (Object.keys(answeredPatch).length > 0) {
+        await sb.from("calls").update(answeredPatch).eq("id", row.id).eq("org_id", orgId);
         reconciled += 1;
       } else {
         skippedExisting += 1;

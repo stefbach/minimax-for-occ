@@ -49,8 +49,12 @@ interface DeskTask {
   updated_at: string;
 }
 
+// display_name / e164 ajoutés 15/06/2026 (Wati supervise — patients sans
+// détails). Ces colonnes dénormalisées remplissent le nom/téléphone même
+// quand contact_id est NULL (ex : leads_rdv_* sans contact lié). Fallback
+// chain dans toTask : contacts.X → row.X dénormalisé → calls.to_e164.
 const TASK_SELECT =
-  "id, org_id, contact_id, original_call_id, transferred_by_agent_id, qualification, transfer_reason, scheduled_for, assigned_to, status, notes, outcome_call_id, outcome_disposition, created_at, updated_at, contacts(id, display_name, e164)";
+  "id, org_id, contact_id, original_call_id, transferred_by_agent_id, qualification, transfer_reason, scheduled_for, assigned_to, status, notes, outcome_call_id, outcome_disposition, display_name, e164, created_at, updated_at, contacts(id, display_name, e164)";
 
 export async function GET(req: Request) {
   if (!hasSupabase()) {
@@ -249,8 +253,10 @@ export async function GET(req: Request) {
       org_id: r.org_id,
       contact: {
         id: contact?.id ?? r.contact_id,
-        display_name: contact?.display_name ?? callPhone?.name ?? null,
-        e164: contact?.e164 ?? callPhone?.e164 ?? null,
+        // Chaîne de résolution (15/06/2026) : contacts JOIN → colonnes
+        // dénormalisées sur le row (display_name/e164) → fallback call.
+        display_name: contact?.display_name ?? r.display_name ?? callPhone?.name ?? null,
+        e164: contact?.e164 ?? r.e164 ?? callPhone?.e164 ?? null,
       },
       qualification: r.qualification,
       transfer_reason: r.transfer_reason,
@@ -289,6 +295,10 @@ type Row = {
   status: string;
   notes: string | null;
   outcome_disposition: string | null;
+  // Colonnes dénormalisées (15/06/2026) — préférées sur le JOIN contacts
+  // quand celui-ci ne résout pas (lead leads_rdv sans contact).
+  display_name: string | null;
+  e164: string | null;
   created_at: string;
   updated_at: string;
   contacts:
@@ -308,8 +318,11 @@ function rowToTask(raw: unknown): DeskTask {
     org_id: r.org_id,
     contact: {
       id: contact?.id ?? r.contact_id,
-      display_name: contact?.display_name ?? null,
-      e164: contact?.e164 ?? null,
+      // Fallback sur les colonnes dénormalisées (15/06/2026) : assure que
+      // le superviseur voit toujours un nom/téléphone, même pour les leads
+      // leads_rdv sans contact lié.
+      display_name: contact?.display_name ?? r.display_name ?? null,
+      e164: contact?.e164 ?? r.e164 ?? null,
     },
     qualification: r.qualification,
     transfer_reason: r.transfer_reason,

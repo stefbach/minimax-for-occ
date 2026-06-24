@@ -234,10 +234,12 @@ const EN: Record<string, string> = {
   "Assignation…": "Assigning…",
   "Assigné à": "Assigned to",
   "Assigner": "Assign",
+  "Assigner à": "Assign to",
   "Assigner à un coordinateur": "Assign to a coordinator",
   "Désassigner": "Unassign",
   "Désassignation…": "Unassigning…",
   "Désassigné": "Unassigned",
+  "Échec — réessayer": "Failed — try again",
   // ── NHS S2: drill-down des cards ──
   "patient(s) concerné(s)": "patient(s) concerned",
   "affichés": "shown",
@@ -1303,6 +1305,13 @@ const EN: Record<string, string> = {
   // ── Help drawer ──
   "Aide contextuelle": "Contextual help",
   "Aide": "Help",
+
+  // NhsReportDetailView — documents section
+  "fichiers": "files",
+  "catégories": "categories",
+  "Chargement des documents…": "Loading documents…",
+  "Aucun dossier trouvé dans Supabase pour ce patient.": "No dossier found in Supabase for this patient.",
+  "Aucun document disponible.": "No documents available.",
 };
 
 function readLang(): Lang {

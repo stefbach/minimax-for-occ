@@ -1,9 +1,15 @@
 export type LlmProvider = "deepseek" | "openai" | "anthropic" | "minimax";
 
+/** Telephony agents speak on calls (campaigns); management agents run
+ *  automations (workflows: email/WhatsApp follow-ups, row updates). */
+export type AgentPurpose = "telephony" | "management";
+
 export interface Agent {
   id: string;
   name: string;
   description: string | null;
+  /** Defaults to 'telephony' for every existing agent (column default). */
+  purpose: AgentPurpose;
   language: string;
   llm_provider: LlmProvider;
   llm_model: string;
@@ -13,6 +19,17 @@ export interface Agent {
   tts_volume: number;
   tts_pitch: number;
   tts_model: string | null;
+  // Advanced TTS knobs exposed per provider (Wati 16/06).
+  //  Cartesia    : tts_language (force ISO code instead of auto-detect)
+  //  ElevenLabs  : tts_stability, tts_similarity_boost, tts_style, tts_speaker_boost
+  //  MiniMax     : tts_pitch (already), tts_emotion (already), tts_volume (already),
+  //                tts_english_normalization
+  tts_stability: number | null;
+  tts_similarity_boost: number | null;
+  tts_style: number | null;
+  tts_speaker_boost: boolean | null;
+  tts_language: string | null;
+  tts_english_normalization: boolean | null;
   voice_style: string | null;
   system_prompt: string;
   greeting: string | null;

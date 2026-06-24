@@ -163,74 +163,27 @@ export function CallNotePanel({ e164, callActive, lastCallEndedAt, lastCallId }:
     }
   }
 
+  // Wati 16/06 — removed the visible "Notes pendant l'appel" card. The
+  // right-hand ContactPanel already exposes a note input + interactions
+  // history, no need for a duplicate textarea here. We keep this component
+  // mounted because it still owns the post-call qualification dialog,
+  // which fires once the call ends.
+  // Suppress unused-variable noise from the lookup/lead flow we kept for
+  // the qualification submission (contact_id link) but don't render here.
+  void lookup;
+  void noteDraft;
+  void setNoteDraft;
+  void savingNote;
+  void savedAt;
+  void saveNote;
+  void creating;
+  void createDraft;
+  void setCreateDraft;
+  void createErr;
+  void createLead;
+  void callActive;
   return (
-    <div className="card" style={{ padding: 12, display: "flex", flexDirection: "column", gap: 10, minWidth: 260, maxWidth: 360 }}>
-      <h3 style={{ margin: 0, fontSize: 14 }}>{t("Notes pendant l'appel")}</h3>
-
-      {lookup.state === "idle" && (
-        <div className="muted" style={{ fontSize: 12 }}>{t("Tape un numéro pour rechercher le lead.")}</div>
-      )}
-      {lookup.state === "loading" && (
-        <div className="muted" style={{ fontSize: 12 }}>{t("Recherche du lead…")}</div>
-      )}
-
-      {lookup.state === "found" && (
-        <>
-          <div style={{ fontSize: 13 }}>
-            <strong>{lookup.display_name ?? t("Lead trouvé")}</strong>
-            <span className="muted" style={{ marginLeft: 8, fontSize: 11 }}>{e164}</span>
-          </div>
-          <textarea
-            value={noteDraft}
-            onChange={(e) => setNoteDraft(e.target.value)}
-            rows={6}
-            placeholder={t("Notes prises pendant l'appel…")}
-            style={{ width: "100%", resize: "vertical", fontSize: 13, fontFamily: "inherit" }}
-            disabled={!callActive && lookup.note === noteDraft}
-          />
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <button onClick={saveNote} disabled={savingNote || noteDraft === (lookup.note ?? "")}>
-              {savingNote ? t("Enregistrement…") : t("Enregistrer")}
-            </button>
-            {savedAt && Date.now() - savedAt < 3000 && (
-              <span style={{ color: "var(--good)", fontSize: 12 }}>{t("✓ Sauvegardé")}</span>
-            )}
-          </div>
-        </>
-      )}
-
-      {lookup.state === "not_found" && (
-        <>
-          <div className="muted" style={{ fontSize: 12, padding: "6px 0" }}>
-            {t("Lead introuvable. Créer la fiche :")}
-          </div>
-          <input
-            value={createDraft.nom}
-            onChange={(e) => setCreateDraft((d) => ({ ...d, nom: e.target.value }))}
-            placeholder={t("Nom complet *")}
-            style={{ fontSize: 13 }}
-          />
-          <input
-            value={createDraft.email}
-            onChange={(e) => setCreateDraft((d) => ({ ...d, email: e.target.value }))}
-            placeholder={t("Email (optionnel)")}
-            type="email"
-            style={{ fontSize: 13 }}
-          />
-          <textarea
-            value={createDraft.note}
-            onChange={(e) => setCreateDraft((d) => ({ ...d, note: e.target.value }))}
-            rows={3}
-            placeholder={t("Note initiale (optionnel)")}
-            style={{ width: "100%", resize: "vertical", fontSize: 13, fontFamily: "inherit" }}
-          />
-          {createErr && <div style={{ color: "var(--bad)", fontSize: 12 }}>{createErr}</div>}
-          <button onClick={createLead} disabled={creating || !createDraft.nom.trim()}>
-            {creating ? t("Création…") : t("Créer le lead")}
-          </button>
-        </>
-      )}
-
+    <>
       {showQualDialog && lastCallId && (
         <div
           onClick={() => !qualSaving && setShowQualDialog(false)}
@@ -264,6 +217,6 @@ export function CallNotePanel({ e164, callActive, lastCallEndedAt, lastCallId }:
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }

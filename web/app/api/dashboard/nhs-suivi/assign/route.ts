@@ -12,14 +12,14 @@ export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   await requestOrgId(request); // auth context — dashboard is behind login
-  let body: { lead_id?: string; phone?: string; assigned_to?: string; unassign?: boolean; reason?: string };
+  let body: { lead_id?: string; phone?: string; name?: string; assigned_to?: string; unassign?: boolean; reason?: string };
   try {
     body = await request.json();
   } catch {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
-  if ((!body.lead_id && !body.phone) || (!body.assigned_to && !body.unassign)) {
-    return NextResponse.json({ error: "lead_id (ou phone) et assigned_to (ou unassign) requis" }, { status: 400 });
+  if ((!body.lead_id && !body.phone && !body.name) || (!body.assigned_to && !body.unassign)) {
+    return NextResponse.json({ error: "lead_id (ou phone ou name) et assigned_to (ou unassign) requis" }, { status: 400 });
   }
   const legacy = nhsLegacyClient();
   let leadId = body.lead_id ?? null;
@@ -34,6 +34,37 @@ export async function POST(request: Request) {
     leadId = (data as { id: string } | null)?.id ?? null;
     if (!leadId) {
       return NextResponse.json({ error: "Aucun lead avec ce numéro" }, { status: 404 });
+    }
+  }
+  // The static NHS_REPORT views only know the patient name — resolve the lead
+  // through nhs_dossiers (which carries the canonical lead_id), exact match
+  // first then a first-word + last-word fuzzy match.
+  if (!leadId && body.name) {
+    const name = body.name.trim();
+    const { data: exact } = await legacy
+      .from("nhs_dossiers")
+      .select("lead_id")
+      .ilike("nom", name)
+      .not("lead_id", "is", null)
+      .limit(1)
+      .maybeSingle();
+    leadId = (exact as { lead_id: string } | null)?.lead_id ?? null;
+    if (!leadId) {
+      const parts = name.split(/\s+/);
+      const first = parts[0];
+      const last = parts[parts.length - 1];
+      const { data: fuzzy } = await legacy
+        .from("nhs_dossiers")
+        .select("lead_id")
+        .ilike("nom", `%${first}%`)
+        .ilike("nom", `%${last}%`)
+        .not("lead_id", "is", null)
+        .limit(1)
+        .maybeSingle();
+      leadId = (fuzzy as { lead_id: string } | null)?.lead_id ?? null;
+    }
+    if (!leadId) {
+      return NextResponse.json({ error: "Aucun dossier pour ce patient" }, { status: 404 });
     }
   }
   if (body.unassign) {

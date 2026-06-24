@@ -239,6 +239,34 @@ export async function runDynamicSelection(sb: SupabaseClient, campaign: Campaign
       "PAS INTERESSE",
       "A PASSER A L'HUMAIN",
     ];
+    // Cross-row blacklist (Wati 15/06/2026) : si un patient a plusieurs rows
+    // dans la même table (ex : doublon import + relance), et qu'au moins UN
+    // row a une qualif négative ou do_not_call=true, on n'appelle AUCUN row
+    // avec ce téléphone. Avant, on n'appelait que le row taggé, et le
+    // doublon "propre" passait au travers. Pré-fetche les téléphones
+    // blacklistés (tous statuts, pas juste ACTIF — un dossier clos avec
+    // qualif négative reste valide comme bloquant).
+    const blacklistedPhones = new Set<string>();
+    {
+      const PAGE_BL = 1000;
+      for (let from = 0; from < 50000; from += PAGE_BL) {
+        const { data: blRows, error: blErr } = await sb
+          .from(table)
+          .select(phoneCol)
+          .or(
+            `do_not_call.eq.true,qualification.in.(${NEGATIVE_QUALS.map((q) => `"${q}"`).join(",")})`,
+          )
+          .order("id", { ascending: true })
+          .range(from, from + PAGE_BL - 1);
+        if (blErr) throw new Error(blErr.message);
+        const batch = (blRows ?? []) as Record<string, unknown>[];
+        for (const r of batch) {
+          const p = String(r[phoneCol] ?? "").trim();
+          if (p) blacklistedPhones.add(p);
+        }
+        if (batch.length < PAGE_BL) break;
+      }
+    }
     // Paginate with .range() — PostgREST caps every response at its
     // server-side max-rows (1000 by default) REGARDLESS of .limit().
     // Until 2026-06-12 this silently truncated the scan to the first
@@ -266,10 +294,20 @@ export async function runDynamicSelection(sb: SupabaseClient, campaign: Campaign
       if (batch.length < PAGE) break;
     }
 
-    // Compute phase + filter phone.
+    // Compute phase + filter phone + cross-row blacklist.
+    // blacklistedPhones rejette tout row dont le téléphone a un autre row
+    // dans la même table avec qualif négative ou do_not_call=true
+    // (Wati 15/06/2026 : un doublon "propre" ne doit pas hériter d'un
+    // rappel quand un autre row du même patient l'a déjà décliné).
     const eligible = all
       .map((r) => ({ row: r, phase: computePhase(r, engine, now) }))
-      .filter((x) => x.phase !== null && phoneOk(String(x.row[phoneCol] ?? ""), engine.selection));
+      .filter((x) => {
+        if (x.phase === null) return false;
+        const phone = String(x.row[phoneCol] ?? "").trim();
+        if (!phoneOk(phone, engine.selection)) return false;
+        if (blacklistedPhones.has(phone)) return false;
+        return true;
+      });
 
     // Priority: callbacks first, then phase order, fresh (J1/ONCE) capped per day.
     const callbacks = eligible.filter((x) => x.phase === "RAPPEL");
