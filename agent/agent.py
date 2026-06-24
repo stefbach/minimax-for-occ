@@ -1088,6 +1088,15 @@ def _tts_for(agent: Optional[AxonAgent], sample_rate: Optional[int] = None):
     return _cartesia_tts_for(agent, sample_rate)
 
 
+# Proven OCC English Cartesia voice (Charlotte-old). Used ONLY as the last-
+# resort voice when an ElevenLabs/Replicate/MiniMax agent falls back to Cartesia
+# and would otherwise hand Cartesia an unresolvable provider-prefixed voice_id
+# (→ "no audio frames" → silent call). Override with CARTESIA_VOICE_ID.
+_CARTESIA_FALLBACK_VOICE_ID = os.getenv(
+    "CARTESIA_FALLBACK_VOICE_ID", "d1d9c946-7cfc-4378-85a4-07d09827cb7e"
+)
+
+
 def _cartesia_tts_for(agent: Optional[AxonAgent], sample_rate: Optional[int] = None) -> cartesia.TTS:
     """Cartesia Sonic TTS — honors the per-agent voice/language/speed.
 
@@ -1126,6 +1135,26 @@ def _cartesia_tts_for(agent: Optional[AxonAgent], sample_rate: Optional[int] = N
         (agent.tts_voice_id if agent and agent.tts_voice_id else None)
         or os.getenv("CARTESIA_VOICE_ID")
     )
+    # Defensive (Wati 24/06) — the silent-call root cause. When an agent routed
+    # to ElevenLabs/Replicate/MiniMax FALLS BACK to Cartesia (e.g. ElevenLabs
+    # init/selection failed for this call), its tts_voice_id is a provider-
+    # prefixed id like "elevenlabs:turbo:R3I0jGceivkHLDdoBi9a" that Cartesia
+    # cannot resolve. Cartesia then pushes ZERO audio frames ("no audio frames
+    # were pushed for text: …") and the agent stays SILENT for the WHOLE call
+    # (tts_chars=0) while the LLM transcript still fills in — exactly the
+    # "agent muet / transcript faux" calls of 24/06. A colon-prefixed id is
+    # NEVER a valid Cartesia voice (Cartesia voices are bare UUIDs), so swap it
+    # for a real Cartesia voice (env override, else the proven OCC English
+    # voice) so the fallback actually SPEAKS instead of producing dead air.
+    if voice and ":" in str(voice):
+        _bad_voice = voice
+        voice = os.getenv("CARTESIA_VOICE_ID") or _CARTESIA_FALLBACK_VOICE_ID
+        logger.warning(
+            "cartesia fallback: agent voice_id %r is not a Cartesia voice "
+            "(ElevenLabs likely failed to init for this call) — using %r so the "
+            "agent isn't silent",
+            _bad_voice, voice,
+        )
 
     speed = (
         float(agent.tts_speed)
@@ -1249,6 +1278,12 @@ def _build_save_contact_tool(
         CRM record. Call this as soon as you have confirmed values — don't wait
         until the end of the call. Safe to call multiple times; fields merge.
 
+        ⚠️ For callback requests: If the patient asks to be called back at a
+        SPECIFIC DATE/TIME (e.g., "rappelle-moi le 25 juin à 14h"), use
+        transfer_to_human(reason="...", callback_date="2026-06-25",
+        callback_time="14:00") instead. Do NOT use this tool for callback requests
+        with specific times — the transfer_to_human tool handles scheduling.
+
         Args:
             fields_json: A JSON object of field→value pairs to save. Use the
                 field keys defined for this campaign, e.g.
@@ -1256,6 +1291,12 @@ def _build_save_contact_tool(
                  "nhs_wmp_status": "tier3", "patient_dob": "1985-04-12",
                  "allergies": "penicillin", "current_medications": "metformin"}.
                 Numbers as numbers, dates as YYYY-MM-DD strings.
+                Special qualification values:
+                  - "RDV CONFIRME" — appointment booked (use for confirmed bookings)
+                  - "RAPPEL" — patient wants a callback (use only for callbacks
+                    without specific times; specific-time callbacks → transfer_to_human)
+                  - "PAS INTERESSE" — patient explicitly not interested
+                  - "FAUX NUMERO" — ONLY if patient explicitly says "wrong number"
             display_name: Optional — the patient's full name if newly confirmed.
             email: Optional — the patient's email if newly confirmed.
             notes: Optional — a short free-text note to append about this call.
@@ -1734,6 +1775,24 @@ class AxonVoiceAgent(Agent):
             preroll = float(os.getenv("GREETING_PREROLL_SECONDS", "0.4"))
             if preroll > 0:
                 await asyncio.sleep(preroll)
+            # Wati 24/06 — ARM the opener-response budget BEFORE the greeting
+            # say(), not after. Root cause of the "How can I help you today?"
+            # hallucination on répondeur / early-answer calls (Rachel Brant,
+            # Christabel Probert 24/06): the canned greeting say() below is
+            # NON-interruptible and blocks ~2-3 s. On a voicemail / early-answer
+            # the callee audio ("Hi.", the répondeur's opener) reaches STT WHILE
+            # that say() is still awaiting — so on_user_turn_completed fired with
+            # _opener_replies_left STILL 0 (it used to be set only AFTER say()
+            # returned). With the budget at 0 the bare opener fell straight
+            # through to the LLM, which improvised "Hello! How can I help you
+            # today? Are you interested in exploring bariatric surgery…" — NOT
+            # Charlotte's scripted "Hello am I speaking with {{firstname}}?".
+            # Arming the budget first means an early "Hi."/"Hello?" re-fires the
+            # canned greeting (via _say_regreet) and suppresses the LLM reply,
+            # closing the race. _BARE_OPENER_RE only matches pure openers, so a
+            # real substantive "Yes, speaking" from someone who DID hear the
+            # greeting still goes to the LLM — no double-greeting for them.
+            self._opener_replies_left = 2
             _b = _t.monotonic()
             logger.info("greeting: say() begin (on-answer)")
             try:
@@ -1759,23 +1818,9 @@ class AxonVoiceAgent(Agent):
                 )
             except Exception:
                 logger.debug("LLM on-answer warmup not scheduled (non-fatal)", exc_info=True)
-            # Wati 18/06 — ARM the opener-response budget in on-answer mode too.
-            # History: it used to be 0 here, on the theory that the agent had
-            # ALREADY greeted at pickup so any "Hello?" came from someone who
-            # DID hear it. Real outbound calls disproved that: the carrier's
-            # early-answer / ringback connects the callee's audio a beat AFTER
-            # sip.callStatus flips to "active", so the greeting routinely plays
-            # into a dead leg and the patient hears NOTHING. They then say
-            # "Hello?" — and with the budget at 0 that bare opener fell straight
-            # through to the LLM, which improvised generic assistant-speak
-            # ("I just wanted to confirm the identity. How can I assist you
-            # today?") — absurd on a call WE placed. Arming the budget makes a
-            # bare opener re-fire the identity question (politely varied via
-            # _say_regreet prefixes) instead. _BARE_OPENER_RE only matches pure
-            # openers (hello/hi/hey/who's this), so a real "Yes" / substantive
-            # answer from someone who DID hear the greeting still goes to the
-            # LLM — no double-greeting for them.
-            self._opener_replies_left = 2
+            # NOTE: the opener-response budget (_opener_replies_left = 2) is now
+            # armed BEFORE the greeting say() above (Wati 24/06 race fix), so it
+            # is intentionally NOT re-set here.
             return
 
         if sp is not None:
@@ -2359,6 +2404,11 @@ def _install_call_hygiene(
     # "press hash" inside their first 10 s is implausible, so the window
     # stays safe against false REPONDEUR on humans.
     voicemail_detect_window = float(os.getenv("VOICEMAIL_DETECT_WINDOW_SECS", "10.0"))
+    # Maximum duration for a voicemail call after detection. Once voicemail
+    # is detected, we should cut the call quickly to avoid paying for long
+    # TTS on a voicemail announcement. Default 15s to handle various carrier
+    # greetings while still being much shorter than full message playback.
+    voicemail_max_duration = float(os.getenv("VOICEMAIL_MAX_DURATION_SECS", "15.0"))
 
     # Distress / safety phrases that MUST trigger immediate handoff in a
     # healthcare context. We listen across the WHOLE call (not just the first
@@ -2407,6 +2457,7 @@ def _install_call_hygiene(
         "call_started_at": _t.monotonic(),
         "goodbye_armed_at": None,  # monotonic ts when goodbye phrase was detected
         "hung_up": False,
+        "voicemail_detected_at": None,  # monotonic ts when voicemail was detected
         # The agent is considered 'active' (speaking / thinking) while
         # session.agent_state is "speaking" or "thinking". The idle watchdog
         # skips its hangup check while the agent is active so a long TTS
@@ -2747,6 +2798,7 @@ def _install_call_hygiene(
                 return
             if _voicemail_re.search(str(text)):
                 clog.info("call hygiene: voicemail detected via STT (t=%.1fs after first speech): %r", elapsed, str(text)[:120])
+                state["voicemail_detected_at"] = now_ts
                 asyncio.create_task(_hangup("voicemail detected via STT"))
                 return
             # STRUCTURAL HEURISTIC — monologue without our reply.
@@ -2777,6 +2829,7 @@ def _install_call_hygiene(
                     "(t=%.1fs, %d consecutive customer turns, %d words): %r",
                     elapsed, len(turns), total_words, " | ".join(turns)[:160],
                 )
+                state["voicemail_detected_at"] = now_ts
                 asyncio.create_task(_hangup("voicemail detected via monologue heuristic"))
         except Exception:
             clog.debug("call hygiene: voicemail STT check failed", exc_info=True)
@@ -2980,6 +3033,17 @@ def _install_call_hygiene(
                     await _hangup(
                         f"idle {effective_idle:.0f}s — likely voicemail or dropped audio"
                     )
+                    return
+                # Voicemail max-duration enforcement. Once voicemail is detected
+                # (either via STT regex or monologue heuristic), enforce a hard
+                # timeout so we don't pay for extended TTS on a voicemail greeting.
+                vm_detected_at = state.get("voicemail_detected_at")
+                if vm_detected_at is not None and (now - vm_detected_at) >= voicemail_max_duration:
+                    clog.info(
+                        "watchdog: voicemail call reached max duration (%.0fs)",
+                        voicemail_max_duration,
+                    )
+                    await _hangup(f"voicemail max duration ({voicemail_max_duration:.0f}s) exceeded")
                     return
                 # Post-greeting / pre-user-speech voicemail catcher
                 # (Wati June 10 v7 — Joanne Houston 42 s, Winifred Jonathan
