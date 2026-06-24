@@ -50,17 +50,20 @@ html[data-theme="light"] {
   --info: #2563eb;
 }
 
-/* Date input calendar icon — match the muted text colour used throughout the
-   dashboard so it blends with the other Lucide icons (not orange).
-   Dark theme: invert the black browser icon to a light colour;
-   Light theme: keep dark but reduce opacity to match muted text. */
+/* Date input calendar icon — the inputs use colorScheme:"dark" inline so the
+   browser renders the icon as white regardless of theme. Reset to black with
+   brightness(0) first, then shift to the desired colour.
+   Dark theme: black → invert → white/light at 65% opacity.
+   Light theme: black at 50% opacity (visible on white background). */
 input[type="date"]::-webkit-calendar-picker-indicator {
-  filter: invert(1) opacity(0.55);
+  filter: brightness(0) invert(1);
   cursor: pointer;
+  opacity: 0.65;
 }
 html[data-theme="light"] input[type="date"]::-webkit-calendar-picker-indicator {
-  filter: invert(0) opacity(0.5);
+  filter: brightness(0);
   cursor: pointer;
+  opacity: 0.5;
 }
 
 * { box-sizing: border-box; }
