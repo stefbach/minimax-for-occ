@@ -26,11 +26,20 @@ export const WHATSAPP_TEMPLATE_SIDS: Record<string, string> = {
   v2_post_agent3_message: "HXb24f054eaf3b374bf3bdaebefb470ec0",
   s2_application_documentation_followup__assistance: "HX1ea584f9b5f67568a1f423cae318bdc8",
   post_agent3_message: "HX080db596baf5d3547f8fb75d8dec2941",
+  new_whatsapp_number_notice: "HX305c25a3d8f083a444add95041649d61",
 };
+
+/** Registered OCC SMS sender — same number as WhatsApp. Override via env. */
+const DEFAULT_SMS_FROM = "+447700162160";
 
 function whatsappFrom(): string {
   const f = (process.env.TWILIO_WHATSAPP_FROM || DEFAULT_WHATSAPP_FROM).trim();
   return f.startsWith("whatsapp:") ? f : `whatsapp:${f}`;
+}
+
+function smsFrom(): string {
+  const f = (process.env.TWILIO_SMS_FROM || DEFAULT_SMS_FROM).trim();
+  return f.startsWith("+") ? f : "+" + f.replace(/[^0-9]/g, "");
 }
 
 /** Normalise any phone shape to Twilio's `whatsapp:+E164` form. */
@@ -87,4 +96,11 @@ export async function sendWhatsAppTemplate(
 /** Send a free-form WhatsApp message (only deliverable inside the 24h window). */
 export async function sendWhatsAppFreeform(phone: string, body: string): Promise<void> {
   await twilioMessage({ To: toWhatsApp(phone), From: whatsappFrom(), Body: body });
+}
+
+/** Send a plain SMS via Twilio (no template / approval required). */
+export async function sendSms(phone: string, body: string): Promise<void> {
+  const cleaned = phone.trim().replace(/^whatsapp:/, "");
+  const to = cleaned.startsWith("+") ? cleaned : "+" + cleaned.replace(/[^0-9]/g, "");
+  await twilioMessage({ To: to, From: smsFrom(), Body: body });
 }
