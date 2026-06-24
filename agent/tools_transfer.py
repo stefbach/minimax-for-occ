@@ -207,7 +207,7 @@ def build_transfer_to_human_tool(
             "cannot resolve (complex medical question, billing dispute, "
             "anything outside this call's scope). Do not try to convince "
             "them otherwise. A human team member will call them back on the "
-            "next business day. Always pass a short `reason` so the human "
+            "next business day (or at a date/time the patient specified). Always pass a short `reason` so the human "
             "starts briefed."
         ),
     )
@@ -222,8 +222,26 @@ def build_transfer_to_human_tool(
                 "callback task on the agent's desk."
             ),
         ],
+        callback_date: Annotated[
+            Optional[str],
+            (
+                "If the patient requested to be called back on a SPECIFIC DATE, "
+                "pass that date as YYYY-MM-DD (e.g. '2026-06-25'). "
+                "If they didn't request a specific date, pass None and we'll "
+                "schedule for the next business day."
+            ),
+        ] = None,
+        callback_time: Annotated[
+            Optional[str],
+            (
+                "If the patient requested a specific callback TIME, pass it as HH:MM "
+                "(24-hour format, e.g. '14:30'). The date must also be provided for "
+                "this to take effect. If no specific time was given, pass None."
+            ),
+        ] = None,
     ) -> str:
-        """Schedule a human follow-up call for the next business day.
+        """Schedule a human follow-up call for the next business day (or at a date/time
+        the patient requested).
 
         Always tagged with OCC qualification `A PASSER A L'HUMAIN` so it
         surfaces consistently across the dashboard, /desk Pool partagé, and
@@ -231,6 +249,31 @@ def build_transfer_to_human_tool(
         can read out. Never blocks the call: on HTTP failure we still confirm
         to the patient and log a warning.
         """
+        # Construct scheduled_for if the patient specified a callback date/time
+        scheduled_for_iso: Optional[str] = None
+        if callback_date:
+            try:
+                from datetime import datetime as _dt, timezone as _tz
+                # Parse the date (YYYY-MM-DD)
+                base_dt = _dt.fromisoformat(callback_date)
+                # Add time if provided (HH:MM), default to 09:00 UTC if only date given
+                if callback_time:
+                    time_parts = callback_time.split(":")
+                    hour = int(time_parts[0]) if len(time_parts) > 0 else 9
+                    minute = int(time_parts[1]) if len(time_parts) > 1 else 0
+                    base_dt = base_dt.replace(hour=hour, minute=minute)
+                else:
+                    base_dt = base_dt.replace(hour=9, minute=0)
+                # Use UTC timezone
+                base_dt = base_dt.replace(tzinfo=_tz.utc)
+                scheduled_for_iso = base_dt.isoformat()
+            except (ValueError, IndexError):
+                # If parsing fails, fall back to default (next business day)
+                logger.warning(
+                    "transfer_to_human: failed to parse callback_date=%s callback_time=%s",
+                    callback_date, callback_time,
+                )
+
         payload = {
             "org_id": org_id,
             "contact_id": contact_id,
@@ -239,6 +282,8 @@ def build_transfer_to_human_tool(
             "qualification": _OCC_HANDOFF_QUALIFICATION,
             "reason": reason,
         }
+        if scheduled_for_iso:
+            payload["scheduled_for"] = scheduled_for_iso
         ok, task_id, err = await _post_transfer(
             base_url=base_url, token=token, payload=payload,
         )

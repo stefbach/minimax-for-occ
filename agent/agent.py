@@ -2264,6 +2264,11 @@ def _install_call_hygiene(
     # "press hash" inside their first 10 s is implausible, so the window
     # stays safe against false REPONDEUR on humans.
     voicemail_detect_window = float(os.getenv("VOICEMAIL_DETECT_WINDOW_SECS", "10.0"))
+    # Maximum duration for a voicemail call after detection. Once voicemail
+    # is detected, we should cut the call quickly to avoid paying for long
+    # TTS on a voicemail announcement. Default 15s to handle various carrier
+    # greetings while still being much shorter than full message playback.
+    voicemail_max_duration = float(os.getenv("VOICEMAIL_MAX_DURATION_SECS", "15.0"))
 
     # Distress / safety phrases that MUST trigger immediate handoff in a
     # healthcare context. We listen across the WHOLE call (not just the first
@@ -2312,6 +2317,7 @@ def _install_call_hygiene(
         "call_started_at": _t.monotonic(),
         "goodbye_armed_at": None,  # monotonic ts when goodbye phrase was detected
         "hung_up": False,
+        "voicemail_detected_at": None,  # monotonic ts when voicemail was detected
         # The agent is considered 'active' (speaking / thinking) while
         # session.agent_state is "speaking" or "thinking". The idle watchdog
         # skips its hangup check while the agent is active so a long TTS
@@ -2652,6 +2658,7 @@ def _install_call_hygiene(
                 return
             if _voicemail_re.search(str(text)):
                 clog.info("call hygiene: voicemail detected via STT (t=%.1fs after first speech): %r", elapsed, str(text)[:120])
+                state["voicemail_detected_at"] = now_ts
                 asyncio.create_task(_hangup("voicemail detected via STT"))
                 return
             # STRUCTURAL HEURISTIC — monologue without our reply.
@@ -2682,6 +2689,7 @@ def _install_call_hygiene(
                     "(t=%.1fs, %d consecutive customer turns, %d words): %r",
                     elapsed, len(turns), total_words, " | ".join(turns)[:160],
                 )
+                state["voicemail_detected_at"] = now_ts
                 asyncio.create_task(_hangup("voicemail detected via monologue heuristic"))
         except Exception:
             clog.debug("call hygiene: voicemail STT check failed", exc_info=True)
@@ -2885,6 +2893,17 @@ def _install_call_hygiene(
                     await _hangup(
                         f"idle {effective_idle:.0f}s — likely voicemail or dropped audio"
                     )
+                    return
+                # Voicemail max-duration enforcement. Once voicemail is detected
+                # (either via STT regex or monologue heuristic), enforce a hard
+                # timeout so we don't pay for extended TTS on a voicemail greeting.
+                vm_detected_at = state.get("voicemail_detected_at")
+                if vm_detected_at is not None and (now - vm_detected_at) >= voicemail_max_duration:
+                    clog.info(
+                        "watchdog: voicemail call reached max duration (%.0fs)",
+                        voicemail_max_duration,
+                    )
+                    await _hangup(f"voicemail max duration ({voicemail_max_duration:.0f}s) exceeded")
                     return
                 # Post-greeting / pre-user-speech voicemail catcher
                 # (Wati June 10 v7 — Joanne Houston 42 s, Winifred Jonathan
