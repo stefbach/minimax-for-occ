@@ -84,7 +84,7 @@ function ClickCard({
   );
 }
 
-export function DirectorTab({ from, to, direction, leadsSource = "prod", system = "all", slot = "all", global = DEFAULT_GLOBAL_FILTERS, refreshKey = 0 }: { from: string; to: string; direction: string; leadsSource?: "prod" | "test"; system?: "all" | "retell" | "axon"; slot?: "all" | "morning" | "afternoon" | "evening"; global?: GlobalFilters; refreshKey?: number }) {
+export function DirectorTab({ from, to, direction, leadsSource = "prod", system = "all", slot = "all", global = DEFAULT_GLOBAL_FILTERS, refreshKey = 0, campaignId }: { from: string; to: string; direction: string; leadsSource?: "prod" | "test"; system?: "all" | "retell" | "axon"; slot?: "all" | "morning" | "afternoon" | "evening"; global?: GlobalFilters; refreshKey?: number; campaignId?: string }) {
   const t = useT();
   const [data, setData] = useState<DirectorResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -134,6 +134,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
     if (direction !== "all") qs.set("direction", direction);
     if (system !== "all") qs.set("system", system);
     if (slot !== "all") qs.set("slot", slot);
+    if (campaignId && campaignId !== "all") qs.set("campaign_id", campaignId);
     appendGlobalFilters(qs, global);
     fetch(`/api/dashboard/director?${qs}`, { cache: "no-store" })
       .then(async (r) => {
@@ -147,7 +148,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
       .finally(() => {
         if (loadTokenRef.current === token) setLoading(false);
       });
-  }, [from, to, direction, threshold, leadsSource, system, slot, global]);
+  }, [from, to, direction, threshold, leadsSource, system, slot, global, campaignId]);
 
   useEffect(() => {
     loadDirector();
@@ -155,7 +156,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
     // deps change before it resolves — same effect as the previous `alive` flag.
     return () => { loadTokenRef.current++; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [from, to, direction, threshold, leadsSource, system, slot, gfKey, reloadKey, refreshKey]);
+  }, [from, to, direction, threshold, leadsSource, system, slot, gfKey, reloadKey, refreshKey, campaignId]);
 
   // AI qualification is automatic: any answered call left in the "autre" bucket
   // is classified by the AI from its transcript. New calls are handled at

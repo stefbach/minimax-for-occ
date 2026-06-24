@@ -156,6 +156,7 @@ export async function GET(request: Request) {
   const leadsSource: LeadsSource = searchParams.get("leads_source") === "test" ? "test" : "prod";
   const leadsTable = leadsTableFor(leadsSource);
   const system = parseCallSystem(searchParams.get("system"));
+  const campaignId = searchParams.get("campaign_id");
   // Global filter-bar constraints (durée / qualification / source / agent /
   // tentative / éligibilité / décroché / recherche). All-pass when absent.
   const gf = parseGlobalFilters((k) => searchParams.get(k));
@@ -179,6 +180,7 @@ export async function GET(request: Request) {
         .lte("started_at", to.toISOString())
         .order("started_at", { ascending: true });
       if (dbDirection) q = q.eq("direction", dbDirection);
+      if (campaignId && campaignId !== "all") q = q.eq("campaign_id", campaignId);
       return q as unknown as Rangeable<any>;
     },
     { maxRows: ROW_CAP + 1000 },

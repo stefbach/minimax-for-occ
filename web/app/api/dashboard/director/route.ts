@@ -138,6 +138,7 @@ export async function GET(request: Request) {
   const leadsSource: LeadsSource = searchParams.get("leads_source") === "test" ? "test" : "prod";
   const leadsTable = leadsTableFor(leadsSource);
   const system = parseCallSystem(searchParams.get("system"));
+  const campaignId = searchParams.get("campaign_id");
   // Optional slot filter: limit every KPI on the page to calls that
   // started during the chosen UK calling window. Computed below with
   // slotForDate so the SQL stays simple (broad time range) and the
@@ -170,6 +171,7 @@ export async function GET(request: Request) {
       .lte("started_at", to.toISOString())
       .order("started_at", { ascending: false });
     if (dbDirection) q = q.eq("direction", dbDirection);
+    if (campaignId && campaignId !== "all") q = q.eq("campaign_id", campaignId);
     return q as unknown as Rangeable<CallRow>;
   });
   if (error) return NextResponse.json({ error }, { status: 500 });

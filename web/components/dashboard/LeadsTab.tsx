@@ -14,19 +14,20 @@ type Props = {
   global?: Filters;
   refreshKey?: number;
   orgId?: string;
+  campaignId?: string;
 };
 
-export function LeadsTab({ from, to, direction, leadsSource, system, global, refreshKey, orgId }: Props) {
+export function LeadsTab({ from, to, direction, leadsSource, system, global, refreshKey, orgId, campaignId }: Props) {
   const t = useT();
   const [data, setData] = useState<LeadsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const hasData = useRef(false);
-  const paramsRef = useRef({ from, to, direction, leadsSource, system, global, orgId });
-  paramsRef.current = { from, to, direction, leadsSource, system, global, orgId };
+  const paramsRef = useRef({ from, to, direction, leadsSource, system, global, orgId, campaignId });
+  paramsRef.current = { from, to, direction, leadsSource, system, global, orgId, campaignId };
 
   const fetchData = useCallback(async () => {
-    const { from, to, direction, leadsSource, system, global, orgId } = paramsRef.current;
+    const { from, to, direction, leadsSource, system, global, orgId, campaignId } = paramsRef.current;
     try {
       if (!hasData.current) setLoading(true);
       setError(null);
@@ -45,6 +46,7 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
         ...(global && global.sources.length && { gf_src: global.sources.join(",") }),
         ...(global && global.q && { gf_q: global.q }),
         ...(orgId && { org_id: orgId }),
+        ...(campaignId && campaignId !== "all" && { campaign_id: campaignId }),
       });
       const res = await fetch(`/api/dashboard/leads?${qs}`, { cache: "no-store" });
       if (!res.ok) {

@@ -57,6 +57,7 @@ export async function GET(request: Request) {
   const leadsSource: LeadsSource = searchParams.get("leads_source") === "test" ? "test" : "prod";
   const leadsTable = leadsTableFor(leadsSource);
   const system = parseCallSystem(searchParams.get("system"));
+  const campaignId = searchParams.get("campaign_id");
   const gf = parseGlobalFilters((k) => searchParams.get(k));
 
   const sb = supabaseServer();
@@ -71,6 +72,7 @@ export async function GET(request: Request) {
         .gte("started_at", from.toISOString())
         .lte("started_at", to.toISOString())
         .order("started_at", { ascending: true });
+      if (campaignId && campaignId !== "all") q = q.eq("campaign_id", campaignId);
       return q as unknown as Rangeable<any>;
     },
     { maxRows: ROW_CAP + 1000 },

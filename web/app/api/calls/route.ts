@@ -81,6 +81,9 @@ export async function GET(request: Request) {
   if (dir === "inbound" || dir === "in") q = q.eq("direction", "in");
   else if (dir === "outbound" || dir === "out") q = q.eq("direction", "out");
 
+  const campaignId = searchParams.get("campaign_id");
+  if (campaignId && campaignId !== "all") q = q.eq("campaign_id", campaignId);
+
   const { data, error } = await q;
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
