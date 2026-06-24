@@ -1215,6 +1215,12 @@ def _build_save_contact_tool(
         CRM record. Call this as soon as you have confirmed values — don't wait
         until the end of the call. Safe to call multiple times; fields merge.
 
+        ⚠️ For callback requests: If the patient asks to be called back at a
+        SPECIFIC DATE/TIME (e.g., "rappelle-moi le 25 juin à 14h"), use
+        transfer_to_human(reason="...", callback_date="2026-06-25",
+        callback_time="14:00") instead. Do NOT use this tool for callback requests
+        with specific times — the transfer_to_human tool handles scheduling.
+
         Args:
             fields_json: A JSON object of field→value pairs to save. Use the
                 field keys defined for this campaign, e.g.
@@ -1222,6 +1228,12 @@ def _build_save_contact_tool(
                  "nhs_wmp_status": "tier3", "patient_dob": "1985-04-12",
                  "allergies": "penicillin", "current_medications": "metformin"}.
                 Numbers as numbers, dates as YYYY-MM-DD strings.
+                Special qualification values:
+                  - "RDV CONFIRME" — appointment booked (use for confirmed bookings)
+                  - "RAPPEL" — patient wants a callback (use only for callbacks
+                    without specific times; specific-time callbacks → transfer_to_human)
+                  - "PAS INTERESSE" — patient explicitly not interested
+                  - "FAUX NUMERO" — ONLY if patient explicitly says "wrong number"
             display_name: Optional — the patient's full name if newly confirmed.
             email: Optional — the patient's email if newly confirmed.
             notes: Optional — a short free-text note to append about this call.

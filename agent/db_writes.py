@@ -1099,7 +1099,15 @@ def auto_qualify_call(call_id: Optional[str]) -> None:
                     r"|\bstop\s+calling\b"
                     r"|\bremove\s+me\s+(from|off)\b"
                     r"|\bplease\s+(do\s+not|don'?t)\s+(contact|call)\s+me\b"
-                    r"|\btake\s+me\s+off\s+(your\s+)?(list|database)\b",
+                    r"|\btake\s+me\s+off\s+(your\s+)?(list|database)\b"
+                    # French variants for explicit refusal
+                    r"|(?:non|pas)\s+(?:d'?)?intéress"
+                    r"|pas\s+(?:du\s+)?tout\s+intéress"
+                    r"|ne\s+m'?(?:intéress|appell)"
+                    r"|pas\s+(?:de\s+)?temps\s+pour\s+(?:ca|cela|ça)"
+                    r"|arrêt(?:ez|e)\s+(?:de\s+)?m'?(?:appel|contact)"
+                    r"|suppress(?:ez)?[-\s]*moi\s+de\s+la\s+(?:liste|base)"
+                    r"|(?:ne|pas|no)\s+merci",
                     joined_full,
                 ):
                     intent_qual = "PAS INTERESSE"

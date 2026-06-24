@@ -207,7 +207,9 @@ def build_transfer_to_human_tool(
             "cannot resolve (complex medical question, billing dispute, "
             "anything outside this call's scope). Do not try to convince "
             "them otherwise. A human team member will call them back on the "
-            "next business day (or at a date/time the patient specified). Always pass a short `reason` so the human "
+            "next business day (or at a date/time the patient specified if they "
+            "requested one — pass callback_date and callback_time when they ask "
+            "for a specific day/time). Always pass a short `reason` so the human "
             "starts briefed."
         ),
     )
