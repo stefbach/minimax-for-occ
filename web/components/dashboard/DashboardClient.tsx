@@ -361,7 +361,7 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
         {tab !== "nhs" && tab !== "overview" && (() => {
           const active = TABS.find((x) => x.id === tab);
           if (!active) return null;
-          const periodScoped = tab === "overview" || tab === "stats" || tab === "logs" || tab === "ai" || tab === "leads";
+          const periodScoped = tab === "stats" || tab === "logs" || tab === "ai" || tab === "leads";
           return (
             <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
               <h2 style={{ margin: 0, fontSize: 19 }}>
