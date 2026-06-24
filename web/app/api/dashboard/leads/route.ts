@@ -134,13 +134,15 @@ export async function GET(request: Request) {
     );
   }
 
-  // Group calls by contact_id
+  // Group calls by phone number (to_e164) to count unique people called.
+  // Fallback to contact_id if no phone, then skip if neither exists.
   const byContact = new Map<string, CallRow[]>();
   for (const r of rows) {
-    if (!r.contact_id) continue;
-    const contact = byContact.get(r.contact_id) ?? [];
+    const key = r.to_e164 ?? r.contact_id;
+    if (!key) continue;
+    const contact = byContact.get(key) ?? [];
     contact.push(r);
-    byContact.set(r.contact_id, contact);
+    byContact.set(key, contact);
   }
 
   // Calculate stats
