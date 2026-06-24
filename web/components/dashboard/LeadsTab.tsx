@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { LeadsResponse } from "@/app/api/dashboard/leads/route";
 import { useT } from "@/lib/i18n";
 import type { Filters } from "./PeriodBar";
@@ -21,10 +21,11 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
   const [data, setData] = useState<LeadsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const hasData = useRef(false);
 
   const fetchData = useCallback(async () => {
     try {
-      setLoading(true);
+      if (!hasData.current) setLoading(true); // only blank out on first load
       setError(null);
       const qs = new URLSearchParams({
         from,
@@ -48,6 +49,7 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
         throw new Error(j.error || `HTTP ${res.status}`);
       }
       const j = (await res.json()) as LeadsResponse;
+      hasData.current = true;
       setData(j);
     } catch (e) {
       setError(e instanceof Error ? e.message : "fetch error");
