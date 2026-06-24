@@ -166,7 +166,7 @@ export async function GET(request: Request) {
     calls.forEach((r, i) => {
       const attempt = Math.min(i + 1, 10); // cap at "10+"
       const agg = attemptMap.get(attempt) ?? { contacts: 0, calls: 0 };
-      if (i === 0) agg.contacts += 1; // count contact once per first call
+      agg.contacts += 1; // count this lead at each attempt level
       agg.calls += 1;
       attemptMap.set(attempt, agg);
     });
