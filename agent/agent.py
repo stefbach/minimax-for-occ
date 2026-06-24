@@ -1054,6 +1054,15 @@ def _tts_for(agent: Optional[AxonAgent], sample_rate: Optional[int] = None):
     return _cartesia_tts_for(agent, sample_rate)
 
 
+# Proven OCC English Cartesia voice (Charlotte-old). Used ONLY as the last-
+# resort voice when an ElevenLabs/Replicate/MiniMax agent falls back to Cartesia
+# and would otherwise hand Cartesia an unresolvable provider-prefixed voice_id
+# (→ "no audio frames" → silent call). Override with CARTESIA_VOICE_ID.
+_CARTESIA_FALLBACK_VOICE_ID = os.getenv(
+    "CARTESIA_FALLBACK_VOICE_ID", "d1d9c946-7cfc-4378-85a4-07d09827cb7e"
+)
+
+
 def _cartesia_tts_for(agent: Optional[AxonAgent], sample_rate: Optional[int] = None) -> cartesia.TTS:
     """Cartesia Sonic TTS — honors the per-agent voice/language/speed.
 
@@ -1092,6 +1101,26 @@ def _cartesia_tts_for(agent: Optional[AxonAgent], sample_rate: Optional[int] = N
         (agent.tts_voice_id if agent and agent.tts_voice_id else None)
         or os.getenv("CARTESIA_VOICE_ID")
     )
+    # Defensive (Wati 24/06) — the silent-call root cause. When an agent routed
+    # to ElevenLabs/Replicate/MiniMax FALLS BACK to Cartesia (e.g. ElevenLabs
+    # init/selection failed for this call), its tts_voice_id is a provider-
+    # prefixed id like "elevenlabs:turbo:R3I0jGceivkHLDdoBi9a" that Cartesia
+    # cannot resolve. Cartesia then pushes ZERO audio frames ("no audio frames
+    # were pushed for text: …") and the agent stays SILENT for the WHOLE call
+    # (tts_chars=0) while the LLM transcript still fills in — exactly the
+    # "agent muet / transcript faux" calls of 24/06. A colon-prefixed id is
+    # NEVER a valid Cartesia voice (Cartesia voices are bare UUIDs), so swap it
+    # for a real Cartesia voice (env override, else the proven OCC English
+    # voice) so the fallback actually SPEAKS instead of producing dead air.
+    if voice and ":" in str(voice):
+        _bad_voice = voice
+        voice = os.getenv("CARTESIA_VOICE_ID") or _CARTESIA_FALLBACK_VOICE_ID
+        logger.warning(
+            "cartesia fallback: agent voice_id %r is not a Cartesia voice "
+            "(ElevenLabs likely failed to init for this call) — using %r so the "
+            "agent isn't silent",
+            _bad_voice, voice,
+        )
 
     speed = (
         float(agent.tts_speed)
