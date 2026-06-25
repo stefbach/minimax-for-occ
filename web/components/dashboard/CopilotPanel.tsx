@@ -3,8 +3,10 @@
 import { useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
+import { useT } from "@/lib/i18n";
 
 export function CopilotPanel({ orgId, fullPage = false }: { orgId?: string; fullPage?: boolean }) {
+  const t = useT();
   const [input, setInput] = useState("");
   const { messages, sendMessage, status, error } = useChat({
     transport: new DefaultChatTransport({
@@ -46,15 +48,14 @@ export function CopilotPanel({ orgId, fullPage = false }: { orgId?: string; full
       <header>
         <h2 style={{ margin: 0, fontSize: 15 }}>Co-pilot manager</h2>
         <div className="muted" style={{ fontSize: 12 }}>
-          Pose une question sur l&apos;activité du jour.
+          {t("Pose une question sur l'activité du jour.")}
         </div>
       </header>
 
       <div className="chat-log" style={{ minHeight: 0 }}>
         {messages.length === 0 && (
           <div style={{ color: "var(--muted)", padding: 8, fontSize: 13 }}>
-            Essaie : « Quels appels ont été abandonnés aujourd&apos;hui ? » ou « Quelle
-            campagne avance le plus vite ? »
+            {t("Essaie : « Quels appels ont été abandonnés aujourd'hui ? » ou « Quelle campagne avance le plus vite ? »")}
           </div>
         )}
         {messages.map((m) => (
@@ -76,7 +77,7 @@ export function CopilotPanel({ orgId, fullPage = false }: { orgId?: string; full
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Votre question…"
+          placeholder={t("Votre question…")}
           disabled={isLoading}
         />
         <button type="submit" disabled={isLoading || !input.trim()}>

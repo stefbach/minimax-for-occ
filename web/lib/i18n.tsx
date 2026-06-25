@@ -132,6 +132,8 @@ const EN: Record<string, string> = {
   // ── Co-pilot ──
   "Co-pilot manager": "Manager co-pilot",
   "Pose une question sur l'activité du jour.": "Ask a question about today's activity.",
+  "Pose une question en langage naturel sur l'activité de tes appels.": "Ask a question about your call activity in plain language.",
+  "Essaie : « Quels appels ont été abandonnés aujourd'hui ? » ou « Quelle campagne avance le plus vite ? »": "Try: \"Which calls were abandoned today?\" or \"Which campaign is moving fastest?\"",
   "Votre question…": "Your question…",
   // ── Live monitor ──
   "Live Monitor": "Live Monitor",
