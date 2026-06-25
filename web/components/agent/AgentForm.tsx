@@ -511,6 +511,12 @@ export function AgentForm({ initial }: { initial?: Agent }) {
           model: ttsModel || "sonic-3.5",
           speed: speed !== 1.0 ? speed : undefined,
           language: CARTESIA_LANGUAGE[language] ?? undefined,
+          // Send the agent's REAL ElevenLabs voice settings so the preview
+          // matches the live call (ignored by non-ElevenLabs voices).
+          stability: stability ?? undefined,
+          similarity_boost: similarityBoost ?? undefined,
+          style: styleVal ?? undefined,
+          use_speaker_boost: speakerBoost,
         }),
       });
       if (!r.ok) {
