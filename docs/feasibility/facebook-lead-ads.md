@@ -2,7 +2,8 @@
 
 > Date : 2026-06-25 · Statut : **specs validées, non implémenté** · Périmètre : recevoir un lead
 > Facebook (Lead Ad), récupérer ses coordonnées via la Graph API, l'enregistrer dans Supabase,
-> et déclencher un appel vocal IA **dans la minute**.
+> déclencher un appel vocal IA **dans la minute**, puis **renvoyer les conversions** (RDV / vente)
+> à Meta (Conversions API) pour optimiser le ciblage.
 >
 > Décision d'architecture (validée avec le métier) : **tout isolé** de la campagne actuelle —
 > table dédiée, agent(s) IA dédié(s), campagne dédiée, numéro dédié — via une **route Facebook
@@ -22,8 +23,8 @@
 - même un **template n8n Facebook Lead Ads** déjà écrit (`n8n/templates/facebook-lead-ads-to-axon.json`).
 
 Le seul maillon réellement manquant est l'**enrichissement Graph API** (récupérer `field_data`
-à partir du `leadgen_id`) + la route native qui orchestre tout. Le reste est de l'assemblage et
-de la configuration côté Meta.
+à partir du `leadgen_id`) + la route native qui orchestre tout, plus la **boucle retour** vers Meta
+(Conversions API). Le reste est de l'assemblage et de la configuration côté Meta.
 
 > ⚠️ Piège n°1 à intégrer dès le départ : pour qu'un lead soit **appelé dans la minute**, il doit
 > atterrir dans **`campaign_targets`** (la file du dialer), **pas** dans une table métier type
@@ -41,7 +42,9 @@ de la configuration côté Meta.
 6. [Partie C — Pourquoi le « dans la minute » fonctionne](#6-partie-c--pourquoi-le-dans-la-minute-fonctionne)
 7. [Partie D — Ordre de réalisation](#7-partie-d--ordre-de-réalisation)
 8. [Partie E — Risques & pièges](#8-partie-e--risques--pièges)
-9. [Annexes](#9-annexes)
+9. [Boucle retour vers Meta — Conversions API](#9-boucle-retour-vers-meta--conversions-api-conversion-leads)
+10. [Explications simples (FAQ)](#10-explications-simples-faq)
+11. [Annexes](#11-annexes)
 
 ---
 
@@ -58,10 +61,11 @@ de la configuration côté Meta.
 [AXON]  POST /api/facebook/leadgen          ← route NATIVE à créer
    1. vérifie la signature Meta (X-Hub-Signature-256 = HMAC-SHA256(body, APP_SECRET))
    2. répond 200 immédiatement
-   3. appelle la Graph API avec le Page Token → récupère field_data (tél, nom, email…)
-   4. INSERT dans la table dédiée  leads_facebook  (+ colonnes d'attribution pub)
-   5. UPSERT contacts (org_id, e164)
-   6. INSERT campaign_targets dans la CAMPAGNE DÉDIÉE :
+   3. filtre sur form_id (campagne dédiée) — ignore les autres formulaires de la Page
+   4. appelle la Graph API avec le Page Token → récupère field_data (tél, nom, email…)
+   5. INSERT dans la table dédiée  leads_facebook  (+ colonnes d'attribution pub)
+   6. UPSERT contacts (org_id, e164)
+   7. INSERT campaign_targets dans la CAMPAGNE DÉDIÉE :
         priority=0, next_attempt_at=now(),
         source_metadata = { physical_table:'leads_facebook', row_id, phase:'J1' }
         │
@@ -70,6 +74,10 @@ de la configuration côté Meta.
         │
         ▼
 [Fin d'appel]  POST /api/calls/[id]/sync-lead  → réécrit le résultat dans leads_facebook
+        │
+        ▼
+[RDV CONFIRME / VENTE]  AXON → Meta (Conversions API), événement rattaché au leadgen_id
+   → Meta optimise le ciblage vers les profils qui CONVERTISSENT (pas juste qui remplissent)
 ```
 
 **« Comment Facebook se relie à Supabase ? »** — Il n'y a **aucune connexion directe**. Meta n'envoie
@@ -146,7 +154,7 @@ C'est le point d'architecture le plus important à comprendre.
 choses distinctes. Le **chemin minute = `campaign_targets`**. La table dédiée FB sera, elle, le
 **registre métier + attribution**, et le **write-back** (`sync-lead`) y réécrira le résultat de
 l'appel — à condition que le `campaign_target` porte `source_metadata.physical_table` + `row_id`
-(voir §5.6 et annexe 9.2). `leads_rdv.next_call_at` existe mais n'est lu **que par l'UI**
+(voir §5.6 et annexe 11.2). `leads_rdv.next_call_at` existe mais n'est lu **que par l'UI**
 (`PatientDrawer.tsx`, `NhsSuiviTab.tsx`), **pas** par le dialer.
 
 ---
@@ -157,11 +165,11 @@ l'appel — à condition que le `campaign_target` porte `source_metadata.physica
 > courante** au moment de l'implémentation. Les mécaniques ci-dessous sont stables depuis des années.
 
 ### A1. Pré-requis « business »
-- **Meta Business Manager** (business.facebook.com) propriétaire de la **Page Facebook** OCC.
-  *(Les Lead Ads sont toujours rattachées à une Page.)*
+- **Meta Business Portfolio / Business Manager** (business.facebook.com) propriétaire de la
+  **Page Facebook** OCC. *(Les Lead Ads sont toujours rattachées à une Page.)* — **déjà en place.**
 - **Compte publicitaire** (Ad Account) + moyen de paiement.
-- **Business Verification** du Business Manager — nécessaire pour l'accès avancé aux leads (A2).
-  **À lancer tôt** (délai de plusieurs jours).
+- **Business Verification** du Business Portfolio — nécessaire pour l'accès avancé aux leads (A2).
+  **À lancer tôt** (délai de plusieurs jours). Voir la procédure simple en §10.2.
 
 ### A2. L'application Meta (le « connecteur » technique)
 Sur developers.facebook.com :
@@ -194,6 +202,11 @@ Dans l'App Meta → **Webhooks** → objet **Page** :
 4. **Abonner la Page précise** : `POST /{page_id}/subscribed_apps` avec `subscribed_fields=leadgen`
    (Page Token). Sans cette étape, la Page n'émet aucun webhook.
 
+> ⚠️ **Isolation (important)** : l'abonnement est au niveau de la **Page**. **Tous** les formulaires
+> de la Page OCC (y compris ceux de la campagne actuelle) déclencheront ce webhook. La route AXON
+> **doit filtrer sur le(s) `form_id`** de la nouvelle campagne dédiée pour ne traiter qu'eux et laisser
+> les autres leads suivre leur chemin actuel (cf. `FACEBOOK_FORM_IDS`, §B6/B7).
+
 ### A5. La campagne publicitaire Lead Ads (Ads Manager)
 1. **Objectif** = *Leads* (Génération de prospects).
 2. **Ad set** : audience, budget, placements.
@@ -205,15 +218,17 @@ Dans l'App Meta → **Webhooks** → objet **Page** :
    - ⚠️ **Le libellé des champs compte** : la route mappera `phone_number`/`phone`/`mobile`,
      `first_name`/`full_name`, etc. Les questions personnalisées arrivent avec leur **label** comme clé.
    - **Consentement d'appel** : ajouter une mention de consentement à être rappelé par téléphone.
-4. Plusieurs formulaires/ad sets possibles : tous déclenchent le même webhook `leadgen` ; l'attribution
-   (`form_id`, `ad_id`) est dans le payload.
+4. **Campagne existante → duplicate** : on **duplique** la campagne actuelle avec de **nouveaux
+   visuels** (pas de création de zéro). Tous les formulaires de la Page déclenchent le même webhook
+   `leadgen` ; l'attribution (`form_id`, `ad_id`) est dans le payload. **Noter le `form_id`** du
+   formulaire dupliqué — il sert au filtre d'isolation (§A4, §B6).
 
 ### A6. Comment Facebook se relie à Supabase — explicite
 - **Aucune connexion directe.** Le seul lien : **webhook `leadgen` → route AXON → Graph API →
   écriture Supabase**.
 - Meta n'envoie **que** `leadgen_id` (+ `form_id`/`ad_id`/`page_id`/`created_time`). Les coordonnées
   réelles ne sont **récupérables que via la Graph API** avec le Page Token. D'où l'étape
-  d'enrichissement obligatoire.
+  d'enrichissement obligatoire. *(Version « simple » en §10.1.)*
 
 ### A7. Tester sans dépenser
 - **Lead Ads Testing Tool** : `developers.facebook.com/tools/lead-ads-testing`. Sélectionner Page +
@@ -225,7 +240,7 @@ Dans l'App Meta → **Webhooks** → objet **Page** :
 ## 5. Partie B — Côté AXON / Supabase
 
 ### B1. La table dédiée `leads_facebook`
-Nouvelle table (via migration `supabase/migrations/00XX_leads_facebook.sql`). Trois familles de colonnes :
+Nouvelle table (via migration `supabase/migrations/00XX_leads_facebook.sql`). Quatre familles de colonnes :
 
 **(a) Colonnes « contrat » du write-back `sync-lead`** *(toutes optionnelles — la route est défensive
 `has(col)`, mais sans elles on perd le suivi)* :
@@ -240,6 +255,9 @@ Nouvelle table (via migration `supabase/migrations/00XX_leads_facebook.sql`). Tr
 `platform`, `created_time`, `raw jsonb`.
 
 **(c) Colonnes métier** issues du formulaire (poids, taille, éligibilité…).
+
+**(d) Colonnes de vente / conversion** *(pour renvoyer les conversions à Meta — §9)* :
+`vente_status`, `vente_value` (montant), `vente_at`, `capi_sent_at` (anti-doublon du renvoi).
 
 Schéma proposé (illustratif, **à créer lors de l'implémentation**) :
 
@@ -275,7 +293,12 @@ create table if not exists public.leads_facebook (
   taille                    numeric,
   bmi                       numeric,
   note                      text,
-  date_creation             timestamptz default now()
+  date_creation             timestamptz default now(),
+  -- vente / conversion (pour la boucle Conversions API, §9)
+  vente_status              text,                   -- ex: 'rdv_confirme' | 'vendu'
+  vente_value               numeric,                -- montant de la vente (valeur de conversion)
+  vente_at                  timestamptz,
+  capi_sent_at              timestamptz             -- horodatage du renvoi à Meta (idempotence)
 );
 ```
 
@@ -324,9 +347,10 @@ Calquée sur `web/app/api/leads/inbound/route.ts` + `retell/webhook`.
   2. **Répondre 200 tout de suite** (Meta réessaie sinon) ; enrichir + écrire en tâche après-réponse
      (`after()` de `next/server`).
   3. Parcourir `entry[].changes[]` où `field==='leadgen'` → `leadgen_id`, `form_id`, `ad_id`,
-     `page_id`, `created_time`.
+     `page_id`, `created_time`. **Filtrer sur `FACEBOOK_FORM_IDS`** : si le `form_id` n'appartient pas
+     à la campagne dédiée → ignorer (200, no-op), pour rester isolé des autres formulaires de la Page.
   4. **Graph API** : `GET https://graph.facebook.com/v{VERSION}/{leadgen_id}?fields=field_data,created_time,ad_id,form_id&access_token={FACEBOOK_PAGE_ACCESS_TOKEN}`
-     → aplatir `field_data` en `{ phone, nom, email, … }` (voir annexe 9.1).
+     → aplatir `field_data` en `{ phone, nom, email, … }` (voir annexe 11.1).
   5. **Normaliser le téléphone en E.164** (réutiliser `normalisePhoneToE164` du dialer — défaut UK).
   6. **UPSERT** `leads_facebook` sur `leadgen_id` → récupérer `row_id`.
   7. **UPSERT** `contacts` `(org_id, e164)`.
@@ -348,7 +372,10 @@ Calquée sur `web/app/api/leads/inbound/route.ts` + `retell/webhook`.
 | `FACEBOOK_APP_SECRET` | vérif. `X-Hub-Signature-256` du `POST` |
 | `FACEBOOK_PAGE_ACCESS_TOKEN` | appels Graph API (System User token recommandé) |
 | `FACEBOOK_GRAPH_VERSION` | version Graph (ex. `v21.0` — mettre la version courante) |
-| `FACEBOOK_CAMPAIGN_ID` | la campagne dédiée à alimenter |
+| `FACEBOOK_CAMPAIGN_ID` | la campagne AXON dédiée à alimenter |
+| `FACEBOOK_FORM_IDS` | liste des `form_id` à traiter (filtre d'isolation, §A4/B6) |
+| `FACEBOOK_DATASET_ID` | id du Dataset/Pixel pour la Conversions API (§9) |
+| `FACEBOOK_CAPI_TOKEN` | token Conversions API (événements sortants RDV/vente, §9) |
 
 ⚠️ **Ne PAS** mettre ces secrets dans `web/.env.production` (commité) — uniquement variables Vercel.
 
@@ -369,11 +396,13 @@ compose **tout target `pending` échu** au prochain *poll* (`POLL_INTERVAL_MS=30
    (dépendance la plus longue).
 2. Créer la **table dédiée** `leads_facebook` (+ contrainte unique `leadgen_id`).
 3. Créer **agent(s) dédié(s)** + **numéro dédié** + **campagne dédiée** (`static`, `running`).
-4. Développer la **route native** (`GET` + `POST` + Graph API + écritures).
-5. Ajouter les **variables Vercel**.
+4. Développer la **route native** (`GET` + `POST` + filtre `form_id` + Graph API + écritures).
+5. Ajouter les **variables Vercel** (entrant + Conversions API).
 6. **Tester** end-to-end avec le **Lead Ads Testing Tool** (sans pub).
 7. Configurer le **webhook Meta** (callback + verify token + abonnement `leadgen` de la Page).
-8. **Lancer la pub** (petit budget) → vérifier appel < 1 min + write-back dans `leads_facebook`.
+8. **Lancer la pub** (campagne dupliquée, petit budget) → vérifier appel < 1 min + write-back.
+9. **Brancher la Conversions API** (§9) : au passage RDV CONFIRME / VENTE, renvoyer l'événement à
+   Meta ; vérifier la réception dans le **Gestionnaire d'événements** Meta.
 
 ---
 
@@ -398,6 +427,11 @@ compose **tout target `pending` échu** au prochain *poll* (`POLL_INTERVAL_MS=30
    plutôt que planter.
 9. **Latence/qualité voix** : orthogonal à ce webhook, mais `AUDIT_APPELS_IA.md` documente une latence
    pipeline élevée — pertinent pour la *qualité* de l'appel déclenché, pas pour le déclenchement.
+10. **Isolation `form_id`** : sans le filtre, le webhook capterait **tous** les leads de la Page OCC
+    (y compris la campagne actuelle) → garder `FACEBOOK_FORM_IDS` à jour à chaque nouvelle campagne.
+11. **Conversions API** : garder le `leadgen_id` (ou un identifiant de matching) sur chaque lead, sinon
+    Meta ne peut pas rattacher la conversion. Renvoyer l'événement **une seule fois** (`capi_sent_at`) ;
+    la vente arrive souvent **plusieurs jours** après le lead (fenêtre de conversion à prévoir).
 
 > **Note cadence J1/J3/J5** : pour des relances multi-jours comme sur `leads_rdv`, il faudrait passer
 > la campagne en `mode='dynamic'`, enregistrer la table dans `tenant_data_tables`, et fournir un
@@ -407,9 +441,72 @@ compose **tout target `pending` échu** au prochain *poll* (`POLL_INTERVAL_MS=30
 
 ---
 
-## 9. Annexes
+## 9. Boucle retour vers Meta — Conversions API (Conversion Leads)
 
-### 9.1 Mapping `field_data` (formulaire FB → colonnes)
+**Pourquoi.** Par défaut, Meta optimise la diffusion pour des gens qui **remplissent** le formulaire,
+pas qui **achètent**. Sans signal de conversion, on paie pour du volume de leads, pas pour des ventes.
+
+**Principe.** Quand un lead progresse (RDV CONFIRME, puis VENTE), AXON **renvoie un événement à Meta**
+via la **Conversions API**, rattaché au `leadgen_id` conservé à l'entrée (ou via *advanced matching*
+email/téléphone hachés). Meta apprend le profil des leads qui convertissent et **réoriente le ciblage**
+(optimisation « Conversion Leads »).
+
+**Flux.**
+```
+[AXON] qualification → RDV CONFIRME / VENTE  (write-back sync-lead, ou MAJ manuelle/CRM pour la vente)
+   → POST https://graph.facebook.com/v{VERSION}/{DATASET_ID}/events?access_token={CAPI_TOKEN}
+        { event_name, event_time, action_source:'system_generated',
+          user_data:{ lead_id  |  em/ph hachés },
+          custom_data:{ value, currency } }
+   → Meta Gestionnaire d'événements → optimisation du ciblage
+```
+
+**Points de déclenchement.**
+- **RDV CONFIRME** : signal précoce, émis par l'appel IA → naturel dans `sync-lead`
+  (`web/app/api/calls/[id]/sync-lead/route.ts`, là où `qualification`/`cycle_status` sont écrits).
+- **VENTE** : se produit **après** l'appel (post-RDV) → déclenché par une mise à jour de statut
+  (desk AXON, automatisation, ou CRM) sur `leads_facebook.vente_status`.
+
+**À prévoir.** Variables `FACEBOOK_DATASET_ID` + `FACEBOOK_CAPI_TOKEN` ; colonnes `vente_status`,
+`vente_value`, `vente_at`, `capi_sent_at` (§B1) ; renvoi **idempotent** (une fois par étape via
+`capi_sent_at`). Boucle parfaitement avec la traçabilité (mêmes identifiants `leadgen_id`/`form_id`).
+
+---
+
+## 10. Explications simples (FAQ)
+
+### 10.1 Connecter le formulaire Facebook à Supabase
+Il n'y a **aucun lien direct** : le formulaire ne sait pas écrire dans Supabase. Le pont est
+automatique, en 3 temps : **(1)** le prospect remplit le formulaire → Meta prévient AXON via une URL
+(le « webhook ») : « nouveau lead n°X » ; **(2)** AXON rappelle Facebook (Graph API) avec une clé
+d'accès pour récupérer les coordonnées du lead n°X ; **(3)** AXON les enregistre dans Supabase et lance
+l'appel. *Image : Facebook donne un numéro de ticket, on le présente au guichet (Graph API) pour
+récupérer le colis (les données), puis on le range dans l'entrepôt (Supabase).*
+
+### 10.2 Faire vérifier le Business Portfolio (Business Verification)
+Le « Business Portfolio » est ton compte entreprise Meta (business.facebook.com). Meta veut **prouver
+que l'entreprise est réelle** avant de donner accès aux données des leads. Parcours : *Paramètres de
+l'entreprise → Centre de sécurité → Vérification de l'entreprise* → renseigner les infos légales
+(raison sociale, adresse, téléphone, site) → téléverser un **document officiel** (immatriculation /
+facture au nom de la société) → Meta confirme via un canal officiel (email/téléphone). Délai : quelques
+jours. **Important** : nom + adresse doivent correspondre **exactement** aux documents, sinon refus.
+
+### 10.3 Traçabilité des formulaires (jusqu'à la vente)
+Objectif : pouvoir dire « cette vente vient de **tel formulaire / telle pub** ». Chaque lead dans
+`leads_facebook` garde son origine (`leadgen_id`, `form_id`, `ad_id`, `adset_id`, `fb_campaign_id`,
+`page_id`). Ces étiquettes **restent attachées** quand le lead devient RDV puis VENTE → rapport
+« ventes par formulaire / par visuel » et **coût réel par vente** de chaque pub. C'est ce que
+`leads_rdv` ne permettait pas (aucune attribution) ; la table dédiée le corrige.
+
+### 10.4 Renvoyer les conversions (RDV/vente) à Meta pour ajuster le ciblage
+Voir **§9**. En une phrase : quand un lead convertit, on le **dit à Meta** (Conversions API) pour qu'il
+cible des profils similaires → meilleurs leads, moins de déchet, coût par vente en baisse.
+
+---
+
+## 11. Annexes
+
+### 11.1 Mapping `field_data` (formulaire FB → colonnes)
 
 Le payload Graph API renvoie `field_data` comme une liste `[{ name, values: [...] }]`. Aplatir en
 normalisant la clé (`name` en minuscules, non-alphanum → `_`), puis mapper avec des *fallbacks*
@@ -427,7 +524,7 @@ normalisant la clé (`name` en minuscules, non-alphanum → `_`), puis mapper av
 > ⚠️ Les questions personnalisées arrivent avec leur **libellé exact** comme `name` → figer les
 > libellés du formulaire FB pour ne pas casser le mapping.
 
-### 9.2 Contrat du write-back `sync-lead` (`web/app/api/calls/[id]/sync-lead/route.ts`)
+### 11.2 Contrat du write-back `sync-lead` (`web/app/api/calls/[id]/sync-lead/route.ts`)
 
 - Se déclenche en fin d'appel (depuis le worker agent), authentif. optionnelle par `APP_SHARED_TOKEN`.
 - Retrouve le `campaign_target` (via `last_call_id`, ou fallback dernier target `data_table_dynamic`
@@ -440,8 +537,10 @@ normalisant la clé (`name` en minuscules, non-alphanum → `_`), puis mapper av
   (`RDV`/`CLOS`/`HUMAIN` selon issue), `voicemail_detected`.
 - Idempotent : si `last_call_id` == call courant → skip.
 - Filet de sécurité : crée un `human_callback_tasks` si issue `A PASSER A L'HUMAIN` / `SUIVI REQUIS`.
+- 💡 **Point d'accroche Conversions API (§9)** : c'est ici que `qualification` devient `RDV CONFIRME`
+  → endroit naturel pour déclencher le renvoi de conversion à Meta.
 
-### 9.3 Fichiers clés (référence)
+### 11.3 Fichiers clés (référence)
 
 | Sujet | Fichier |
 |---|---|
@@ -457,7 +556,7 @@ normalisant la clé (`name` en minuscules, non-alphanum → `_`), puis mapper av
 | Template n8n FB (référence) | `n8n/templates/facebook-lead-ads-to-axon.json` |
 | Doc connecteurs | `docs/CONNECTORS.md` |
 
-### 9.4 Schéma de référence `leads_rdv` (base lime-window, à titre comparatif)
+### 11.4 Schéma de référence `leads_rdv` (base lime-window, à titre comparatif)
 
 Table tenant OCC (non présente dans les migrations). Colonnes d'attribution publicitaire **présentes** :
 `source_lead` (varchar, générique), `form_facebook` (varchar, texte libre). **Manquantes** :
