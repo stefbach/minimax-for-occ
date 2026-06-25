@@ -378,7 +378,14 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
 
         {tab === "overview" && (
           <>
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <div style={{
+              display: "flex", gap: 10, flexWrap: "wrap",
+              background: "var(--panel)",
+              border: "1px solid var(--border)",
+              borderLeft: "4px solid var(--accent)",
+              borderRadius: 10,
+              padding: "14px 18px",
+            }}>
               <Link href="/agents/new" style={{ textDecoration: "none" }}>
                 <button>{t("+ Nouvel agent")}</button>
               </Link>
