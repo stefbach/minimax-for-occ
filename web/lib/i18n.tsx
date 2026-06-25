@@ -567,6 +567,8 @@ const EN: Record<string, string> = {
   "NON ELIGIBLE": "NOT ELIGIBLE",
   "NE PAS RAPPELER": "DO NOT CALL",
   "SUIVI REQUIS": "FOLLOW-UP REQUIRED",
+  "Ce tableau ne liste que les leads en attente d'un humain. L'option « Agent IA » du menu d'assignation clôture la tâche et la retire d'ici — le lead repart automatiquement dans le dialer. Il n'y a donc rien à filtrer sous « Agent IA ».":
+    "This board only lists leads awaiting a human. The \"Agent IA\" option in the assignment menu closes the task and removes it from here — the lead automatically goes back to the dialer. So there is nothing to filter under \"Agent IA\".",
   // ── Stats tab ──
   "RDV obtenus": "Appointments booked",
   "des appels": "of calls",
