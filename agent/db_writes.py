@@ -645,6 +645,9 @@ _CALLBACK_QUAL_PATTERNS = (
     # Explicit callback / human transfer signals
     "rappel", "callback", "call_back", "call back", "follow_up", "follow up",
     "humain", "human", "to_human", "passer", "transferred_to_human",
+    # Warm lead that reached a specialist (agent 2/3) but didn't book →
+    # needs human follow-up (SUIVI REQUIS).
+    "suivi",
 )
 
 
@@ -1120,8 +1123,18 @@ def auto_qualify_call(call_id: Optional[str]) -> None:
                 qual = "RAPPEL"
                 qualification_source = "audio_drop_heuristic"
             elif handoff_count > 0:
-                qual = "A PASSER A L'HUMAIN"
-                qualification_source = "auto_inferred"
+                # Wati 25/06 — an INTERNAL swarm handoff fired (Charlotte→
+                # Isabelle→Victoria) but no explicit close was written. That
+                # means the patient REACHED a specialist (agent 2/3) yet the
+                # call ended WITHOUT RDV CONFIRME — a warm lead that needs human
+                # follow-up, NOT someone who asked for a human. The genuine
+                # "asked for a human" path is the transfer_to_human tool, which
+                # writes its own explicit "A PASSER A L'HUMAIN" and never reaches
+                # this heuristic. Before this fix, ANY persona swap was
+                # mislabelled A PASSER A L'HUMAIN (e.g. an ineligible-BMI patient
+                # who merely talked to Isabelle), flooding the human desk.
+                qual = "SUIVI REQUIS"
+                qualification_source = "reached_specialist"
             elif intent_qual is not None:
                 qual = intent_qual
                 qualification_source = intent_source or "auto_inferred"

@@ -13,6 +13,7 @@ export type QualBucket =
   | "faux_numero"
   | "non_eligible"
   | "ne_pas_rappeler"
+  | "suivi_requis"
   | "autre";
 
 export const QUAL_BUCKETS: { key: QualBucket; label: string }[] = [
@@ -25,6 +26,7 @@ export const QUAL_BUCKETS: { key: QualBucket; label: string }[] = [
   { key: "faux_numero", label: "FAUX NUMERO" },
   { key: "non_eligible", label: "NON ELIGIBLE" },
   { key: "ne_pas_rappeler", label: "NE PAS RAPPELER" },
+  { key: "suivi_requis", label: "SUIVI REQUIS" },
 ];
 
 export function normalizeQualification(raw: string | null | undefined): QualBucket {
@@ -43,6 +45,9 @@ export function normalizeQualification(raw: string | null | undefined): QualBuck
   // transfer_to_human tool fired. Accept both [àa] and tolerate the space
   // between the apostrophe and 'humain' that real text carries.
   if (/(passer[\s_-]*(?:[àa][\s_-]*l['''][\s_-]*)?humain|to[\s_-]*human|human[\s_-]*callback|escalat)/.test(s)) return "passer_humain";
+  // Reached agent 2/3 (Isabelle/Victoria) without booking — warm lead, human
+  // follow-up required. Must precede the generic rappel/follow-up rule below.
+  if (/(suivi[\s_-]*requis|suivi|reached[\s_-]*specialist|follow[\s_-]*up[\s_-]*required)/.test(s)) return "suivi_requis";
   if (/(rappel|callback|call[\s_-]*back|follow[\s_-]*up)/.test(s)) return "rappel";
   if (/(pas[\s_-]*intéress|pas[\s_-]*interess|not[\s_-]*interest|declin|refus)/.test(s)) return "pas_interesse";
   if (/(répondeur|repondeur|voicemail|machine|amd_machine)/.test(s)) return "repondeur";
