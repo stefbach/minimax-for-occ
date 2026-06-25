@@ -312,6 +312,7 @@ function TaskSection({
                       onChange={(e) => onReassign(task.id, e.target.value || null)}
                     >
                       <option value="">— {t("Pool")} —</option>
+                      <option value="__AI__">🤖 {t("Agent IA")}</option>
                       {activeAgents.map((a) => (
                         <option key={a.user_id} value={a.user_id}>{a.display_name}</option>
                       ))}

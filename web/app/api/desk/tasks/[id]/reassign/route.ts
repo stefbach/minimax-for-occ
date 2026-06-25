@@ -42,6 +42,8 @@ export async function PATCH(
     return NextResponse.json({ error: "assigned_to required" }, { status: 400 });
   }
   const target = body.assigned_to;
+  // Sentinel: "__AI__" hands the lead back to the AI dialer (not a real user).
+  const isAI = target === "__AI__";
 
   const sb = await supabaseSession();
   const { data: auth } = await sb.auth.getUser();
@@ -55,8 +57,9 @@ export async function PATCH(
   }
   const admin = supabaseServer();
 
-  // Verify the target belongs to this org (unless it's null = unassign).
-  if (target) {
+  // Verify the target belongs to this org (unless it's null = unassign, or the
+  // "__AI__" sentinel = hand the lead back to the AI dialer).
+  if (target && !isAI) {
     const { data: m, error: mErr } = await admin
       .from("memberships")
       .select("user_id")
@@ -74,12 +77,31 @@ export async function PATCH(
 
   const { data: row, error } = await admin
     .from("human_callback_tasks")
-    .select("id, assigned_to, status")
+    .select("id, assigned_to, status, e164, contact_id")
     .eq("id", id)
     .eq("org_id", orgId)
     .maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!row) return NextResponse.json({ error: "not found" }, { status: 404 });
+
+  // "Agent IA": close the human task and reactivate the lead so the dialer
+  // re-includes it (Wati 25/06). cycle_status→ACTIF + qualification→RAPPEL
+  // (callback now) makes dynamic selection pick it up at the next slot.
+  if (isAI) {
+    const { error: aiErr } = await admin
+      .from("human_callback_tasks")
+      .update({ assigned_to: null, status: "cancelled", updated_at: new Date().toISOString() })
+      .eq("id", id)
+      .eq("org_id", orgId);
+    if (aiErr) return NextResponse.json({ error: aiErr.message }, { status: 500 });
+    await reactivateLeadForAI(
+      admin,
+      orgId,
+      (row as { e164?: string | null }).e164 ?? null,
+      (row as { contact_id?: string | null }).contact_id ?? null,
+    );
+    return NextResponse.json({ ok: true, task_id: id, handed_to: "ai" });
+  }
 
   const patch: Record<string, unknown> = {
     assigned_to: target,
@@ -102,4 +124,60 @@ export async function PATCH(
   if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 });
 
   return NextResponse.json({ ok: true, task_id: id });
+}
+
+/**
+ * Hand a lead back to the AI dialer: set the lead row ACTIF + RAPPEL (callback
+ * now) so dynamic selection re-includes it at the next slot. Best-effort —
+ * resolves the org's dynamic data table + column mapping from a campaign
+ * engine; no-op if it can't resolve (e.g. a non-dynamic tenant). Never throws.
+ */
+async function reactivateLeadForAI(
+  admin: ReturnType<typeof supabaseServer>,
+  orgId: string,
+  e164: string | null,
+  contactId: string | null,
+): Promise<void> {
+  try {
+    let phone = e164;
+    if (!phone && contactId) {
+      const { data: c } = await admin
+        .from("contacts").select("e164").eq("id", contactId).maybeSingle();
+      phone = (c as { e164?: string | null } | null)?.e164 ?? null;
+    }
+    if (!phone) return;
+    const { data: camps } = await admin
+      .from("campaigns")
+      .select("data_table_id, metadata, state")
+      .eq("org_id", orgId);
+    type Camp = {
+      data_table_id: string | null;
+      metadata: { engine?: Record<string, unknown> } | null;
+      state: string | null;
+    };
+    const list = (camps ?? []) as Camp[];
+    const hasEngine = (c: Camp) => !!c.metadata?.engine && !!c.data_table_id;
+    const camp = list.find((c) => c.state === "running" && hasEngine(c)) ?? list.find(hasEngine);
+    if (!camp) return;
+    const engine = camp.metadata!.engine as {
+      selection?: { status_column?: string };
+      callback?: { datetime_column?: string };
+    };
+    const statusCol = engine.selection?.status_column ?? "qualification";
+    const cbCol = engine.callback?.datetime_column ?? null;
+    const { data: reg } = await admin
+      .from("tenant_data_tables")
+      .select("physical_table, phone_column")
+      .eq("id", camp.data_table_id)
+      .eq("org_id", orgId)
+      .maybeSingle();
+    if (!reg) return;
+    const table = (reg as { physical_table: string }).physical_table;
+    const phoneCol = (reg as { phone_column: string | null }).phone_column || "numero_telephone";
+    const upd: Record<string, unknown> = { cycle_status: "ACTIF", [statusCol]: "RAPPEL" };
+    if (cbCol) upd[cbCol] = new Date().toISOString();
+    await admin.from(table).update(upd).eq(phoneCol, phone);
+  } catch (e) {
+    console.error("reactivateLeadForAI failed", e);
+  }
 }
