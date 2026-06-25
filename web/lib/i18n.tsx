@@ -20,6 +20,8 @@ const EN: Record<string, string> = {
   "Avancé": "Advanced",
   // ── Sidebar items ──
   "Démarrage guidé": "Guided start",
+  "Rapports pilotage": "Management reports",
+  "Appel sortant": "Outbound call",
   "Tableau d'analyse": "Analytics",
   "Mon poste": "My desk",
   "Agents": "Agents",
@@ -586,6 +588,17 @@ const EN: Record<string, string> = {
   "Sauvegarder": "Save",
   "Enregistré.": "Saved.",
   "Pris en charge.": "Claimed.",
+  // ── Landing / home page ──
+  "Le centre de pilotage de vos opérations vocales.": "The control centre for your voice operations.",
+  "Axon orchestre des agents IA et des agents humains sur le même numéro, sur la même file d'attente. Inbound + outbound. Téléphonie Twilio, voix MiniMax, cerveau OpenAI / Anthropic / MiniMax, RAG Supabase, flows visuels, supervision live.": "Axon orchestrates AI agents and human agents on the same number, the same queue. Inbound + outbound. Twilio telephony, MiniMax voice, OpenAI / Anthropic / MiniMax brain, Supabase RAG, visual flows, live supervision.",
+  "Aller à mon espace": "Go to my space",
+  "Nouvel agent IA": "New AI agent",
+  "Agents IA récents": "Recent AI agents",
+  "Cliquez pour ouvrir la session ou éditer la configuration.": "Click to open the session or edit the configuration.",
+  "Tous les agents": "All agents",
+  "Pas encore d'agent IA": "No AI agent yet",
+  "Commencez par en créer un.": "Start by creating one.",
+  "Créer mon premier agent": "Create my first agent",
   // ── Mes patients page ──
   "Mes patients": "My patients",
   "Liste complète des patients que tu as traités, avec recherche et filtres. Cliquer une ligne ouvre le détail dans Mon poste.": "Full list of patients you have handled, with search and filters. Click a row to open the detail in My desk.",
