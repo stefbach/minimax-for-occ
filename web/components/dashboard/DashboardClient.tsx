@@ -261,6 +261,7 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
               leadsSource={filters.leadsSource}
               system={filters.system}
               periodLabel={periodLabelFor(period)}
+              campaignId={filters.campaignId}
             />
           </>
         )}
@@ -274,7 +275,7 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
 
         {tab === "live" && <LiveMonitorClient leadsSource={filters.leadsSource} system={filters.system} />}
 
-        {tab === "errors" && <ErrorsAlertsTab />}
+        {tab === "errors" && <ErrorsAlertsTab campaignId={filters.campaignId} />}
 
         {tab === "nhs" && showNhs && <NhsSuiviTab />}
       </div>

@@ -13,10 +13,11 @@ import type {
 type Index = Record<string, InsightsCallIndexEntry>;
 
 export function AiInsightsTab({
-  from, to, direction, leadsSource, system, periodLabel,
+  from, to, direction, leadsSource, system, periodLabel, campaignId,
 }: {
   from: string; to: string; direction: string;
   leadsSource: "prod" | "test"; system: "all" | "retell" | "axon"; periodLabel: string;
+  campaignId?: string;
 }) {
   const t = useT();
   const [data, setData] = useState<InsightsResponse | null>(null);
@@ -26,7 +27,7 @@ export function AiInsightsTab({
   const [openCall, setOpenCall] = useState<DrillCall | null>(null);
 
   // A change of period/filters invalidates the current report.
-  useEffect(() => { setData(null); setStarted(false); setError(null); }, [from, to, direction, leadsSource, system]);
+  useEffect(() => { setData(null); setStarted(false); setError(null); }, [from, to, direction, leadsSource, system, campaignId]);
 
   const run = useCallback(async (force: boolean) => {
     setLoading(true); setError(null); setStarted(true);
@@ -34,7 +35,7 @@ export function AiInsightsTab({
       const r = await fetch("/api/dashboard/insights", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ from, to, direction, leads_source: leadsSource, system, period_label: periodLabel, force_refresh: force }),
+        body: JSON.stringify({ from, to, direction, leads_source: leadsSource, system, period_label: periodLabel, campaign_id: campaignId, force_refresh: force }),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
@@ -44,7 +45,7 @@ export function AiInsightsTab({
     } finally {
       setLoading(false);
     }
-  }, [from, to, direction, leadsSource, system, periodLabel]);
+  }, [from, to, direction, leadsSource, system, periodLabel, campaignId]);
 
   const index: Index = data?.calls_index ?? {};
   const nameFor = (id: string) => index[id]?.name ?? `Call ${id.slice(0, 8)}`;
