@@ -3628,6 +3628,22 @@ async def entrypoint(ctx: JobContext) -> None:
         "resolved agent_id=%s (room_meta=%s, p_attrs_keys=%s, p_meta=%s)",
         agent_id, bool(ctx.room.metadata), list(p_attrs.keys()), bool(p_meta),
     )
+
+    # ── Human-first inbound routing (Wati 25/06) ────────────────────────────
+    # STRICTLY gated: env flag OFF by default + inbound only. Never affects the
+    # outbound campaign. If an ONLINE human is assigned to the dialed number we
+    # ring them first; the AI yields (returns) when a human picks up. The whole
+    # routine lives in agent/human_first.py and is a no-op for outbound calls.
+    if os.getenv("HUMAN_FIRST_INBOUND") == "1" and call_id:
+        _dir = str(p_attrs.get("sip.h.x-lk-direction") or "").lower()
+        if _dir in ("in", "inbound"):
+            try:
+                from human_first import try_human_first
+                if await try_human_first(ctx, call_id, clog):
+                    return  # a human took the call — the AI does not greet
+            except Exception:
+                clog.exception("[human-first] routine error — AI continues normally")
+
     # Resolve campaign_id now (same sip.h.* gotcha as agent_id: the real value
     # is in the forwarded SIP header attribute; `axon.campaign_id` is the broken
     # dispatch-rule mapping that yields the literal "X-LK-Campaign-Id").

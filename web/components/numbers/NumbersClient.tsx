@@ -24,6 +24,7 @@ export interface PhoneNumberRow {
   notes?: string | null;
   is_default?: boolean | null;
   inbound_enabled?: boolean | null;
+  human_first_enabled?: boolean | null;
   created_at: string;
 }
 
@@ -835,19 +836,35 @@ export function NumbersClient({
                       </label>
                     </td>
                     <td>
-                      <label
-                        style={{ display: "inline-flex", gap: 6, alignItems: "center" }}
-                        title="Quand ON, l'agent / la file décroche les appels ENTRANTS sur ce numéro. OFF = aucun décrochage (sécurité)."
-                      >
-                        <input
-                          type="checkbox"
-                          checked={!!n.inbound_enabled}
-                          onChange={(e) => patch(n.id, { inbound_enabled: e.target.checked })}
-                        />
-                        {n.inbound_enabled
-                          ? <span className="tag good">entrant ON</span>
-                          : <span className="tag">entrant OFF</span>}
-                      </label>
+                      <div style={{ display: "grid", gap: 4 }}>
+                        <label
+                          style={{ display: "inline-flex", gap: 6, alignItems: "center" }}
+                          title="Quand ON, ce numéro décroche les appels ENTRANTS. OFF = aucun décrochage (sécurité)."
+                        >
+                          <input
+                            type="checkbox"
+                            checked={!!n.inbound_enabled}
+                            onChange={(e) => patch(n.id, { inbound_enabled: e.target.checked })}
+                          />
+                          {n.inbound_enabled
+                            ? <span className="tag good">entrant ON</span>
+                            : <span className="tag">entrant OFF</span>}
+                        </label>
+                        <label
+                          style={{ display: "inline-flex", gap: 6, alignItems: "center", fontSize: 11, opacity: n.inbound_enabled ? 1 : 0.5 }}
+                          title="Humain d'abord : faire sonner les agents humains assignés (en ligne) AVANT Charlotte. Décoché = Charlotte (IA) répond directement."
+                        >
+                          <input
+                            type="checkbox"
+                            checked={!!n.human_first_enabled}
+                            disabled={!n.inbound_enabled}
+                            onChange={(e) => patch(n.id, { human_first_enabled: e.target.checked })}
+                          />
+                          {n.human_first_enabled
+                            ? <span className="tag">👤 humain d'abord</span>
+                            : <span className="muted">IA seulement</span>}
+                        </label>
+                      </div>
                     </td>
                     <td style={{ textAlign: "right" }}>
                       <div style={{ display: "inline-flex", gap: 6 }}>
