@@ -9,9 +9,9 @@ export default function ConnectionsPage() {
     <>
       <div className="page-header">
         <div>
-          <h1>Connexions</h1>
+          <h1>Connections</h1>
           <div className="subtitle">
-            Tes accès email (SMTP) et WhatsApp (WATI). Tes agents de gestion s&apos;en servent pour envoyer.
+            Your email (SMTP) and WhatsApp (WATI) credentials. Your management agents use these to send messages.
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>

@@ -272,13 +272,24 @@ export function NativeAutomationsPanel() {
     );
   }
 
+  function normalizeGroupLabel(raw: string): string {
+    const map: Record<string, string> = {
+      "DÉCLENCHEURS AUTOMATIQUES (CRON)": "Automatic triggers (CRON)",
+      "Déclencheurs automatiques (CRON)": "Automatic triggers (CRON)",
+      "Sous-agents pipeline": "Pipeline sub-agents (called by the orchestrator)",
+      "SOUS-AGENTS PIPELINE": "Pipeline sub-agents (called by the orchestrator)",
+      "Automations": "Automations",
+    };
+    return map[raw] ?? raw;
+  }
+
   // Group by group_label (preserving the API's sort order); number the
   // sub-agents so their execution order (2,3,5,7,6,4) is explicit.
   const groups: Array<{ label: string; items: Wf[] }> = [];
   const groupIndex = new Map<string, number>();
   for (const wf of wfs) {
     const label =
-      wf.group_label ||
+      (wf.group_label ? normalizeGroupLabel(wf.group_label) : null) ||
       (wf.trigger?.type === "table_scan"
         ? "Automatic triggers (CRON)"
         : wf.trigger?.type === "callable"
