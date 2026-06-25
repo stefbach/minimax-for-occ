@@ -149,6 +149,22 @@ export function SupervisePageClient() {
         </div>
       </div>
 
+      <div
+        className="card"
+        style={{
+          padding: "8px 12px",
+          fontSize: 12,
+          color: "var(--muted)",
+          display: "flex",
+          gap: 8,
+          alignItems: "flex-start",
+          borderStyle: "dashed",
+        }}
+      >
+        <span aria-hidden>ℹ️</span>
+        <span>{t("Ce tableau ne liste que les leads en attente d'un humain. L'option « Agent IA » du menu d'assignation clôture la tâche et la retire d'ici — le lead repart automatiquement dans le dialer. Il n'y a donc rien à filtrer sous « Agent IA ».")}</span>
+      </div>
+
       {err && (
         <div className="card" style={{ borderColor: "var(--bad)" }}>
           <div style={{ color: "var(--bad)", fontSize: 13 }}>{err}</div>
