@@ -11,6 +11,7 @@ import {
   effectiveModules,
   type ModuleId,
 } from "@/lib/permissions";
+import { MemberNumbersModal } from "./MemberNumbersModal";
 
 const ROLE_LABEL: Record<string, { label: string; tone: string }> = {
   super_admin: { label: "Super admin", tone: "var(--bad)" },
@@ -215,6 +216,7 @@ function MemberCard({
   const [menuOpen, setMenuOpen] = useState(false);
   const [editingRole, setEditingRole] = useState(false);
   const [permissionsOpen, setPermissionsOpen] = useState(false);
+  const [numbersOpen, setNumbersOpen] = useState(false);
   const [newRole, setNewRole] = useState<string>(m.role);
   const [busy, setBusy] = useState(false);
 
@@ -371,6 +373,13 @@ function MemberCard({
           </button>
           <button
             className="ghost"
+            onClick={() => { setNumbersOpen(true); setMenuOpen(false); }}
+            style={{ display: "block", width: "100%", textAlign: "left", padding: "6px 10px", border: "none", background: "transparent" }}
+          >
+            {t("Numéros entrants")}
+          </button>
+          <button
+            className="ghost"
             onClick={toggleActive}
             style={{
               display: "block",
@@ -394,6 +403,13 @@ function MemberCard({
           onToast={onToast}
         />
       )}
+      {numbersOpen && (
+        <MemberNumbersModal
+          member={m}
+          onClose={() => setNumbersOpen(false)}
+          onToast={onToast}
+        />
+      )}
     </div>
   );
 }
@@ -412,6 +428,7 @@ function MemberRow({
   const [menuOpen, setMenuOpen] = useState(false);
   const [editingRole, setEditingRole] = useState(false);
   const [permissionsOpen, setPermissionsOpen] = useState(false);
+  const [numbersOpen, setNumbersOpen] = useState(false);
   const [newRole, setNewRole] = useState<string>(m.role);
   const [busy, setBusy] = useState(false);
 
@@ -587,6 +604,13 @@ function MemberRow({
             </button>
             <button
               className="ghost"
+              onClick={() => { setNumbersOpen(true); setMenuOpen(false); }}
+              style={{ display: "block", width: "100%", textAlign: "left", padding: "6px 10px", border: "none", background: "transparent" }}
+            >
+              {t("Numéros entrants")}
+            </button>
+            <button
+              className="ghost"
               onClick={toggleActive}
               style={{
                 display: "block",
@@ -607,6 +631,13 @@ function MemberRow({
             member={m}
             onClose={() => setPermissionsOpen(false)}
             onSaved={onChanged}
+            onToast={onToast}
+          />
+        )}
+        {numbersOpen && (
+          <MemberNumbersModal
+            member={m}
+            onClose={() => setNumbersOpen(false)}
             onToast={onToast}
           />
         )}
