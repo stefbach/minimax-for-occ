@@ -586,6 +586,15 @@ const EN: Record<string, string> = {
   "Sauvegarder": "Save",
   "Enregistré.": "Saved.",
   "Pris en charge.": "Claimed.",
+  // ── Mes patients page ──
+  "Mes patients": "My patients",
+  "Liste complète des patients que tu as traités, avec recherche et filtres. Cliquer une ligne ouvre le détail dans Mon poste.": "Full list of patients you have handled, with search and filters. Click a row to open the detail in My desk.",
+  "Tous les statuts": "All statuses",
+  "Qualification (filtre)": "Qualification (filter)",
+  "Trier: nom": "Sort: name",
+  "Suivant": "Next",
+  "Total": "Total",
+  "Page": "Page",
   // ── Supervision live page ──
   "Supervision live": "Live supervision",
   "Qui est en ligne, qui parle avec qui, depuis combien de temps. Mise à jour automatique toutes les 5 secondes.": "Who is online, who is talking to whom, for how long. Auto-updated every 5 seconds.",
