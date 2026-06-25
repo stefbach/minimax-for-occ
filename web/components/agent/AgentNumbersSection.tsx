@@ -87,26 +87,49 @@ export function AgentNumbersSection({ agentId }: { agentId: string }) {
       ) : (
         <>
           {numbers.length === 0 && <div className="muted">Aucun numéro dans l'organisation.</div>}
-          <div style={{ display: "grid", gap: 6 }}>
-            {numbers.map((n) => (
-              <label key={n.id} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13 }}>
-                <input
-                  type="checkbox"
-                  checked={sel.has(n.id)}
-                  onChange={(e) => toggle(n.id, e.target.checked)}
-                />
-                <span className="kbd">{n.e164}</span>
-                {n.label && <span className="muted">{n.label}</span>}
-                {n.inbound_enabled ? (
-                  <span className="tag good" style={{ fontSize: 10 }}>entrant ON</span>
-                ) : (
-                  <span className="tag" style={{ fontSize: 10 }}>entrant OFF</span>
-                )}
-                {n.taken_by && !sel.has(n.id) && (
-                  <span className="muted" style={{ fontSize: 11 }}>· actuellement : {n.taken_by}</span>
-                )}
-              </label>
-            ))}
+          <div style={{ display: "grid", gap: 8 }}>
+            {numbers.map((n) => {
+              const checked = sel.has(n.id);
+              return (
+                <label
+                  key={n.id}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "auto auto 1fr auto",
+                    alignItems: "center",
+                    gap: 10,
+                    width: "100%",
+                    margin: 0,
+                    padding: "9px 12px",
+                    fontSize: 13,
+                    fontWeight: 400,
+                    color: "var(--text)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 8,
+                    cursor: "pointer",
+                    background: checked ? "var(--bg-2)" : "transparent",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={(e) => toggle(n.id, e.target.checked)}
+                  />
+                  <span className="kbd" style={{ whiteSpace: "nowrap" }}>{n.e164}</span>
+                  <span style={{ color: "var(--muted)", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {n.label || "—"}
+                    {n.taken_by && !checked && (
+                      <span style={{ fontSize: 11 }}> · actuellement : {n.taken_by}</span>
+                    )}
+                  </span>
+                  {n.inbound_enabled ? (
+                    <span className="tag good" style={{ fontSize: 10, whiteSpace: "nowrap" }}>entrant ON</span>
+                  ) : (
+                    <span className="tag" style={{ fontSize: 10, whiteSpace: "nowrap" }}>entrant OFF</span>
+                  )}
+                </label>
+              );
+            })}
           </div>
           {err && <div style={{ color: "var(--bad)", fontSize: 13, marginTop: 8 }}>{err}</div>}
           <div style={{ marginTop: 12, display: "flex", gap: 10, alignItems: "center" }}>
