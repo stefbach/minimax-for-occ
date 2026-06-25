@@ -53,16 +53,16 @@ interface AvailableNumber {
 
 const COUNTRY_OPTIONS = [
   { code: "FR", name: "France" },
-  { code: "US", name: "États-Unis" },
+  { code: "US", name: "United States" },
   { code: "CA", name: "Canada" },
-  { code: "GB", name: "Royaume-Uni" },
-  { code: "BE", name: "Belgique" },
-  { code: "CH", name: "Suisse" },
-  { code: "DE", name: "Allemagne" },
-  { code: "ES", name: "Espagne" },
-  { code: "IT", name: "Italie" },
-  { code: "NL", name: "Pays-Bas" },
-  { code: "MU", name: "Maurice" },
+  { code: "GB", name: "United Kingdom" },
+  { code: "BE", name: "Belgium" },
+  { code: "CH", name: "Switzerland" },
+  { code: "DE", name: "Germany" },
+  { code: "ES", name: "Spain" },
+  { code: "IT", name: "Italy" },
+  { code: "NL", name: "Netherlands" },
+  { code: "MU", name: "Mauritius" },
 ];
 
 const JURISDICTION_OPTIONS = [
@@ -71,7 +71,7 @@ const JURISDICTION_OPTIONS = [
   { value: "EU_GDPR",  label: "EU GDPR" },
   { value: "GDPR_UK",  label: "UK GDPR" },
   { value: "MU_ICTA",  label: "MU ICTA" },
-  { value: "OTHER",    label: "Autre" },
+  { value: "OTHER",    label: "Other" },
 ];
 
 type StatusFilter = "" | "active" | "inactive";
@@ -89,8 +89,8 @@ function HealthBadge({ row }: { row: PhoneNumberRow }) {
   const h = healthOf(row);
   if (h === "active") return <span className="tag good">● Active</span>;
   if (h === "dormant") return <span className="tag" style={{ color: "var(--bad)" }}>● Dormant</span>;
-  if (h === "low_volume") return <span className="tag" style={{ color: "var(--warn,#b58900)" }}>● Faible</span>;
-  return <span className="tag muted">○ Jamais utilisé</span>;
+  if (h === "low_volume") return <span className="tag" style={{ color: "var(--warn,#b58900)" }}>● Low</span>;
+  return <span className="tag muted">○ Never used</span>;
 }
 
 export function NumbersClient({
@@ -202,7 +202,7 @@ export function NumbersClient({
     setSearching(false);
     if (!r.ok) {
       const j = await r.json().catch(() => ({}));
-      setSearchError(j.error ?? "Recherche Twilio en échec");
+      setSearchError(j.error ?? "Twilio search failed");
       return;
     }
     setResults((await r.json()) as AvailableNumber[]);
@@ -220,14 +220,14 @@ export function NumbersClient({
     setPurchasing(null);
     if (!r.ok) {
       const j = await r.json().catch(() => ({}));
-      setActionError(j.error ?? "Achat en échec");
+      setActionError(j.error ?? "Purchase failed");
       return;
     }
     const j = await r.json().catch(() => ({} as { webhook_warning?: string }));
     setActionNote(
       j?.webhook_warning
-        ? `Numéro ${phoneNumber} acheté mais webhook non configuré: ${j.webhook_warning}`
-        : `Numéro ${phoneNumber} acheté et webhook Twilio configuré automatiquement.`,
+        ? `Number ${phoneNumber} purchased but webhook not configured: ${j.webhook_warning}`
+        : `Number ${phoneNumber} purchased and Twilio webhook configured automatically.`,
     );
     setResults((cur) => (cur ? cur.filter((n) => n.phoneNumber !== phoneNumber) : cur));
     refresh();
@@ -237,7 +237,7 @@ export function NumbersClient({
     e.preventDefault();
     const e164 = importE164.trim();
     if (!/^\+\d{6,15}$/.test(e164)) {
-      setActionError("Numéro invalide : format E.164 attendu (ex: +447700162160).");
+      setActionError("Invalid number: E.164 format required (e.g. +447700162160).");
       return;
     }
     setImporting(true);
@@ -254,14 +254,14 @@ export function NumbersClient({
     setImporting(false);
     if (!r.ok) {
       const j = await r.json().catch(() => ({}));
-      setActionError(j.error ?? "Import en échec");
+      setActionError(j.error ?? "Import failed");
       return;
     }
     const j = await r.json().catch(() => ({} as { webhook_warning?: string }));
     setActionNote(
       j?.webhook_warning
-        ? `Numéro ${e164} importé mais webhook non reconfiguré: ${j.webhook_warning}`
-        : `Numéro ${e164} importé et webhook Twilio reconfiguré automatiquement.`,
+        ? `Number ${e164} imported but webhook not reconfigured: ${j.webhook_warning}`
+        : `Number ${e164} imported and Twilio webhook reconfigured automatically.`,
     );
     setImportE164("");
     setImportLabel("");
@@ -269,7 +269,7 @@ export function NumbersClient({
   }
 
   async function release(row: PhoneNumberRow) {
-    if (!confirm(`Libérer ${row.e164} ? Le numéro sera supprimé de Twilio et de la base.`)) return;
+    if (!confirm(`Release ${row.e164}? The number will be deleted from Twilio and the database.`)) return;
     setActionError(null);
     setActionNote(null);
     const r = await fetch(`/api/numbers?id=${row.id}`, { method: "DELETE" });
@@ -292,7 +292,7 @@ export function NumbersClient({
     });
     if (!r.ok) {
       const j = await r.json().catch(() => ({}));
-      setActionError(j.error ?? "Mise à jour en échec");
+      setActionError(j.error ?? "Update failed");
       return;
     }
     const updated = (await r.json()) as PhoneNumberRow;
@@ -305,10 +305,10 @@ export function NumbersClient({
     const r = await fetch(`/api/numbers/${row.id}/configure-webhook`, { method: "POST" });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) {
-      setActionError(j.error ?? "Configuration webhook en échec");
+      setActionError(j.error ?? "Webhook configuration failed");
       return;
     }
-    setActionNote(`Webhook reconfiguré pour ${row.e164}.`);
+    setActionNote(`Webhook reconfigured for ${row.e164}.`);
     if (j?.row) {
       setRows((cur) => cur.map((n) => (n.id === row.id ? (j.row as PhoneNumberRow) : n)));
     } else {
@@ -323,7 +323,7 @@ export function NumbersClient({
   ) {
     if (selected.size === 0) return;
     const ids = Array.from(selected);
-    if (action === "delete" && !confirm(`Supprimer ${ids.length} numéro(s) ? Ils seront aussi libérés chez Twilio.`)) {
+    if (action === "delete" && !confirm(`Delete ${ids.length} number(s)? They will also be released from Twilio.`)) {
       return;
     }
     setBulkBusy(true);
@@ -337,13 +337,13 @@ export function NumbersClient({
     setBulkBusy(false);
     if (!r.ok) {
       const j = await r.json().catch(() => ({}));
-      setActionError(j.error ?? "Bulk action en échec");
+      setActionError(j.error ?? "Bulk action failed");
       return;
     }
     const j = await r.json().catch(() => ({}));
     setActionNote(
-      `Action « ${action} » appliquée à ${j.affected ?? ids.length} numéro(s).${
-        j.warnings?.length ? ` (${j.warnings.length} avertissement(s))` : ""
+      `Action "${action}" applied to ${j.affected ?? ids.length} number(s).${
+        j.warnings?.length ? ` (${j.warnings.length} warning(s))` : ""
       }`,
     );
     clearSelection();
@@ -360,11 +360,11 @@ export function NumbersClient({
     <div style={{ display: "grid", gap: 16 }}>
       {/* ─── Search & purchase ─── */}
       <div className="card" data-numbers-search>
-        <h3 style={{ marginTop: 0 }}>Rechercher et acheter un numéro</h3>
+        <h3 style={{ marginTop: 0 }}>Search and buy a number</h3>
         <form onSubmit={doSearch} style={{ display: "grid", gap: 10 }}>
           <div className="form-row">
             <div>
-              <label>Pays</label>
+              <label>Country</label>
               <select
                 value={searchCountry}
                 onChange={(e) => setSearchCountry(e.target.value)}
@@ -386,23 +386,23 @@ export function NumbersClient({
               >
                 <option value="local">Local</option>
                 <option value="mobile">Mobile</option>
-                <option value="tollfree">Numéro vert (toll-free)</option>
+                <option value="tollfree">Toll-free</option>
               </select>
             </div>
           </div>
           <div className="form-row">
             <div>
-              <label>Indicatif régional (optionnel, US/CA)</label>
+              <label>Area code (optional, US/CA)</label>
               <input
                 value={searchArea}
                 onChange={(e) => setSearchArea(e.target.value)}
-                placeholder="ex: 415"
+                placeholder="e.g. 415"
                 disabled={!twilioReady}
               />
             </div>
             <div style={{ display: "flex", alignItems: "flex-end" }}>
               <button type="submit" disabled={!twilioReady || searching}>
-                {searching ? "Recherche…" : "Rechercher"}
+                {searching ? "Searching…" : "Search"}
               </button>
             </div>
           </div>
@@ -415,14 +415,14 @@ export function NumbersClient({
           <div style={{ marginTop: 14 }}>
             {results.length === 0 ? (
               <div className="muted" style={{ fontSize: 13 }}>
-                Aucun numéro disponible pour ces critères.
+                No numbers available for these criteria.
               </div>
             ) : (
               <table className="list">
                 <thead>
                   <tr>
-                    <th>Numéro</th>
-                    <th>Localité</th>
+                    <th>Number</th>
+                    <th>Locality</th>
                     <th>Capabilities</th>
                     <th></th>
                   </tr>
@@ -449,7 +449,7 @@ export function NumbersClient({
                           onClick={() => purchase(n.phoneNumber)}
                           disabled={purchasing === n.phoneNumber}
                         >
-                          {purchasing === n.phoneNumber ? "Achat…" : "Acheter"}
+                          {purchasing === n.phoneNumber ? "Buying…" : "Buy"}
                         </button>
                       </td>
                     </tr>
@@ -463,17 +463,17 @@ export function NumbersClient({
 
       {/* ─── Import an existing Twilio number ─── */}
       <div className="card">
-        <h3 style={{ marginTop: 0 }}>Importer un numéro Twilio existant</h3>
+        <h3 style={{ marginTop: 0 }}>Import an existing Twilio number</h3>
         <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
-          Pour un numéro déjà acheté sur Twilio (avant Axon, ou ailleurs). Axon
-          vérifie que le numéro appartient bien au compte Twilio relié, puis
-          (re)configure ses webhooks (VoiceUrl + StatusCallback) pour qu&apos;il
-          se comporte comme un numéro acheté via Axon.
+          For a number already purchased on Twilio (before Axon, or elsewhere). Axon
+          verifies that the number belongs to the linked Twilio account, then
+          (re)configures its webhooks (VoiceUrl + StatusCallback) so it
+          behaves like a number purchased through Axon.
         </p>
         <form onSubmit={importExisting} style={{ display: "grid", gap: 10 }}>
           <div className="form-row">
             <div>
-              <label>Numéro (E.164)</label>
+              <label>Number (E.164)</label>
               <input
                 value={importE164}
                 onChange={(e) => setImportE164(e.target.value)}
@@ -483,18 +483,18 @@ export function NumbersClient({
               />
             </div>
             <div>
-              <label>Label (optionnel)</label>
+              <label>Label (optional)</label>
               <input
                 value={importLabel}
                 onChange={(e) => setImportLabel(e.target.value)}
-                placeholder="ex: ligne UK principale"
+                placeholder="e.g. UK main line"
                 disabled={!twilioReady || importing}
               />
             </div>
           </div>
           <div>
             <button type="submit" disabled={!twilioReady || importing || !importE164.trim()}>
-              {importing ? "Import…" : "Importer ce numéro"}
+              {importing ? "Importing…" : "Import this number"}
             </button>
           </div>
         </form>
@@ -515,43 +515,43 @@ export function NumbersClient({
       <div className="card" style={{ display: "grid", gap: 10 }}>
         <div className="form-row" style={{ flexWrap: "wrap" }}>
           <div style={{ flex: "1 1 180px" }}>
-            <label>Recherche (numéro / label)</label>
+            <label>Search (number / label)</label>
             <input
               value={fSearch}
               onChange={(e) => setFSearch(e.target.value)}
-              placeholder="ex: +33, support…"
+              placeholder="e.g. +33, support…"
             />
           </div>
           <div>
-            <label>Pays</label>
+            <label>Country</label>
             <select value={fCountry} onChange={(e) => setFCountry(e.target.value)}>
-              <option value="">Tous</option>
+              <option value="">All</option>
               {countryFacets.map((c) => (
                 <option key={c} value={c}>{c}</option>
               ))}
             </select>
           </div>
           <div>
-            <label>État</label>
+            <label>Status</label>
             <select value={fStatus} onChange={(e) => setFStatus(e.target.value as StatusFilter)}>
-              <option value="">Tous</option>
-              <option value="active">Actif</option>
-              <option value="inactive">Inactif</option>
+              <option value="">All</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
             </select>
           </div>
           <div>
-            <label>Santé</label>
+            <label>Health</label>
             <select value={fHealth} onChange={(e) => setFHealth(e.target.value)}>
-              <option value="">Toutes</option>
+              <option value="">All</option>
               <option value="active">Active</option>
               <option value="dormant">Dormant</option>
-              <option value="never_used">Jamais utilisé</option>
+              <option value="never_used">Never used</option>
             </select>
           </div>
           <div>
             <label>Queue</label>
             <select value={fQueue} onChange={(e) => setFQueue(e.target.value)}>
-              <option value="">Toutes</option>
+              <option value="">All</option>
               {queues.map((q) => (
                 <option key={q.id} value={q.id}>{q.name}</option>
               ))}
@@ -560,7 +560,7 @@ export function NumbersClient({
           <div>
             <label>Agent</label>
             <select value={fAgent} onChange={(e) => setFAgent(e.target.value)}>
-              <option value="">Tous</option>
+              <option value="">All</option>
               {agents.map((a) => (
                 <option key={a.id} value={a.id}>{a.display_name ?? a.id.slice(0, 6)}</option>
               ))}
@@ -578,12 +578,12 @@ export function NumbersClient({
                 setFSearch("");
               }}
             >
-              Réinitialiser
+              Reset
             </button>
           </div>
         </div>
         <div className="muted" style={{ fontSize: 12 }}>
-          {filtered.length} / {rows.length} numéros affichés
+          {filtered.length} / {rows.length} numbers shown
         </div>
       </div>
 
@@ -599,9 +599,9 @@ export function NumbersClient({
             borderColor: "var(--accent, #4f46e5)",
           }}
         >
-          <strong>{selected.size} numéro(s) sélectionné(s)</strong>
-          <button disabled={bulkBusy} onClick={() => bulk("activate")}>Activer</button>
-          <button disabled={bulkBusy} onClick={() => bulk("deactivate")}>Désactiver</button>
+          <strong>{selected.size} number(s) selected</strong>
+          <button disabled={bulkBusy} onClick={() => bulk("activate")}>Activate</button>
+          <button disabled={bulkBusy} onClick={() => bulk("deactivate")}>Deactivate</button>
           <select
             disabled={bulkBusy}
             defaultValue=""
@@ -612,8 +612,8 @@ export function NumbersClient({
               else if (v) bulk("assign_queue", { queue_id: v });
             }}
           >
-            <option value="">Assigner queue…</option>
-            <option value="__clear__">— Retirer la queue —</option>
+            <option value="">Assign queue…</option>
+            <option value="__clear__">— Remove queue —</option>
             {queues.map((q) => (
               <option key={q.id} value={q.id}>{q.name}</option>
             ))}
@@ -628,8 +628,8 @@ export function NumbersClient({
               else if (v) bulk("assign_agent", { agent_handle_id: v });
             }}
           >
-            <option value="">Assigner agent…</option>
-            <option value="__clear__">— Retirer l&apos;agent —</option>
+            <option value="">Assign agent…</option>
+            <option value="__clear__">— Remove agent —</option>
             {agents.map((a) => (
               <option key={a.id} value={a.id}>{a.display_name ?? a.id.slice(0, 6)}</option>
             ))}
@@ -644,17 +644,17 @@ export function NumbersClient({
               else if (v) bulk("assign_flow", { flow_id: v });
             }}
           >
-            <option value="">Assigner flow…</option>
-            <option value="__clear__">— Retirer le flow —</option>
+            <option value="">Assign flow…</option>
+            <option value="__clear__">— Remove flow —</option>
             {flows.map((f) => (
               <option key={f.id} value={f.id}>{f.name}</option>
             ))}
           </select>
           <button className="danger" disabled={bulkBusy} onClick={() => bulk("delete")}>
-            Supprimer
+            Delete
           </button>
           <button type="button" onClick={clearSelection} disabled={bulkBusy}>
-            Effacer sélection
+            Clear selection
           </button>
         </div>
       )}
@@ -664,12 +664,11 @@ export function NumbersClient({
         {rows.length === 0 ? (
           <div style={{ padding: 20, display: "grid", gap: 10 }}>
             <div style={{ color: "var(--muted)" }}>
-              Aucun numéro provisionné pour l&apos;instant.
+              No numbers provisioned yet.
             </div>
             <div className="muted" style={{ fontSize: 12, lineHeight: 1.5, maxWidth: 560 }}>
-              Achetez un numéro Twilio pour le brancher sur un flow IVR, une file
-              d&apos;attente ou un agent IA. Le webhook Twilio est configuré
-              automatiquement à l&apos;achat.
+              Buy a Twilio number to connect it to an IVR flow, a queue or an AI agent.
+              The Twilio webhook is configured automatically on purchase.
             </div>
             <div>
               <button
@@ -679,9 +678,9 @@ export function NumbersClient({
                   el?.querySelector<HTMLInputElement>("input")?.focus();
                 }}
                 disabled={!twilioReady}
-                title={!twilioReady ? "Twilio non configuré (variables d'env manquantes)" : ""}
+                title={!twilioReady ? "Twilio not configured (missing env variables)" : ""}
               >
-                Acheter un numéro
+                Buy a number
               </button>
             </div>
           </div>
@@ -692,18 +691,18 @@ export function NumbersClient({
                 <th style={{ width: 28 }}>
                   <input
                     type="checkbox"
-                    aria-label="Tout sélectionner"
+                    aria-label="Select all"
                     checked={allFilteredSelected}
                     onChange={(e) => toggleAll(e.target.checked)}
                   />
                 </th>
-                <th>Numéro</th>
-                <th>Pays</th>
+                <th>Number</th>
+                <th>Country</th>
                 <th>Routing</th>
                 <th>Health</th>
                 <th>Webhook</th>
                 <th>Compliance</th>
-                <th>Actif</th>
+                <th>Active</th>
                 <th></th>
               </tr>
             </thead>
@@ -741,7 +740,7 @@ export function NumbersClient({
                           onChange={(e) => patch(n.id, { flow_id: e.target.value || null })}
                           style={{ fontSize: 12 }}
                         >
-                          <option value="">— Flow: aucun —</option>
+                          <option value="">— Flow: none —</option>
                           {flows.map((f) => (
                             <option key={f.id} value={f.id}>Flow: {f.name}</option>
                           ))}
@@ -751,7 +750,7 @@ export function NumbersClient({
                           onChange={(e) => patch(n.id, { queue_id: e.target.value || null })}
                           style={{ fontSize: 12 }}
                         >
-                          <option value="">— Queue: aucune —</option>
+                          <option value="">— Queue: none —</option>
                           {queues.map((q) => (
                             <option key={q.id} value={q.id}>Queue: {q.name}</option>
                           ))}
@@ -761,7 +760,7 @@ export function NumbersClient({
                           onChange={(e) => patch(n.id, { agent_handle_id: e.target.value || null })}
                           style={{ fontSize: 12 }}
                         >
-                          <option value="">— Agent: aucun —</option>
+                          <option value="">— Agent: none —</option>
                           {agents.map((a) => (
                             <option key={a.id} value={a.id}>Agent: {a.display_name ?? a.id.slice(0, 6)}</option>
                           ))}
@@ -784,15 +783,15 @@ export function NumbersClient({
                     </td>
                     <td>
                       {n.webhook_configured ? (
-                        <span className="tag good">✓ Configuré</span>
+                        <span className="tag good">✓ Configured</span>
                       ) : (
                         <div style={{ display: "grid", gap: 4 }}>
-                          <span className="tag" style={{ color: "var(--warn,#b58900)" }}>⚠ À configurer</span>
+                          <span className="tag" style={{ color: "var(--warn,#b58900)" }}>⚠ To configure</span>
                           <button
                             style={{ padding: "3px 7px", fontSize: 11 }}
                             onClick={() => reconfigureWebhook(n)}
                           >
-                            Configurer
+                            Configure
                           </button>
                         </div>
                       )}
@@ -829,7 +828,7 @@ export function NumbersClient({
                           checked={n.active}
                           onChange={(e) => patch(n.id, { active: e.target.checked })}
                         />
-                        {n.active ? <span className="tag good">actif</span> : <span className="tag">inactif</span>}
+                        {n.active ? <span className="tag good">active</span> : <span className="tag">inactive</span>}
                       </label>
                     </td>
                     <td style={{ textAlign: "right" }}>
@@ -843,14 +842,14 @@ export function NumbersClient({
                             fontSize: 12,
                           }}
                         >
-                          Réglages
+                          Settings
                         </a>
                         <button
                           className="danger"
                           style={{ padding: "5px 9px" }}
                           onClick={() => release(n)}
                         >
-                          Libérer
+                          Release
                         </button>
                       </div>
                     </td>
@@ -860,7 +859,7 @@ export function NumbersClient({
               {filtered.length === 0 && rows.length > 0 && (
                 <tr>
                   <td colSpan={9} style={{ padding: 14, color: "var(--muted)" }}>
-                    Aucun numéro ne correspond aux filtres.
+                    No numbers match the filters.
                   </td>
                 </tr>
               )}

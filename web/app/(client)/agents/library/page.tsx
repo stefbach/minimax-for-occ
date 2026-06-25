@@ -17,14 +17,13 @@ export default async function PersonaLibraryPage() {
     <>
       <div className="page-header">
         <div>
-          <h1>Bibliothèque persona</h1>
+          <h1>Persona library</h1>
           <div className="subtitle">
-            {personas.length} modèle{personas.length === 1 ? "" : "s"} prêt
-            {personas.length === 1 ? "" : "s"} à cloner dans votre organisation
+            {personas.length} template{personas.length === 1 ? "" : "s"} ready to clone into your organisation
           </div>
         </div>
         <Link href="/agents">
-          <button className="ghost">← Mes agents</button>
+          <button className="ghost">← My agents</button>
         </Link>
       </div>
 

@@ -168,12 +168,11 @@ export function TeamsClient({ initial, agents }: { initial: TeamRow[]; agents: A
       <div className="card" style={{ padding: 0, overflow: "hidden" }}>
         {teams.length === 0 ? (
           <div style={{ padding: 20, display: "grid", gap: 10 }}>
-            <div style={{ color: "var(--muted)" }}>Aucune team pour l&apos;instant.</div>
+            <div style={{ color: "var(--muted)" }}>No teams yet.</div>
             <div className="muted" style={{ fontSize: 12, lineHeight: 1.5, maxWidth: 560 }}>
-              Une <em>team</em> est un groupe d&apos;agents IA orchestrés par un agent lead.
-              Le lead route les conversations vers le bon spécialiste via le tool
-              <code> transfer_to_specialist</code>. Utilisez le formulaire ci-dessus
-              pour créer votre première team.
+              A <em>team</em> is a group of AI agents orchestrated by a lead agent.
+              The lead routes conversations to the right specialist via the{" "}
+              <code>transfer_to_specialist</code> tool. Use the form above to create your first team.
             </div>
             <div>
               <button
@@ -209,8 +208,8 @@ export function TeamsClient({ initial, agents }: { initial: TeamRow[]; agents: A
                           className="ghost"
                           style={{ padding: "4px 8px", marginRight: 8 }}
                           onClick={() => setExpanded(expanded === team.id ? null : team.id)}
-                          title="Voir / éditer les membres"
-                          aria-label={expanded === team.id ? `Réduire la team ${team.name}` : `Voir les membres de ${team.name}`}
+                          title="View / edit members"
+                          aria-label={expanded === team.id ? `Collapse team ${team.name}` : `View members of ${team.name}`}
                           aria-expanded={expanded === team.id}
                         >
                           <span aria-hidden="true">{expanded === team.id ? "▾" : "▸"}</span>
@@ -248,7 +247,7 @@ export function TeamsClient({ initial, agents }: { initial: TeamRow[]; agents: A
                             </div>
 
                             <div style={{ fontSize: 12, color: "var(--muted)" }}>
-                              Membres (specialty + description sont visibles du LLM pour le tool <code>transfer_to_specialist</code>)
+                              Members (specialty + description are visible to the LLM for the <code>transfer_to_specialist</code> tool)
                             </div>
 
                             {ms.length === 0 ? (
@@ -295,7 +294,7 @@ export function TeamsClient({ initial, agents }: { initial: TeamRow[]; agents: A
                                   value={d.agent_id}
                                   onChange={(e) => setDraftField(team.id, "agent_id", e.target.value)}
                                 >
-                                  <option value="">— choisir —</option>
+                                  <option value="">— choose —</option>
                                   {agents
                                     .filter((a) => !ms.some((m) => m.agent_id === a.id))
                                     .map((a) => (
@@ -315,7 +314,7 @@ export function TeamsClient({ initial, agents }: { initial: TeamRow[]; agents: A
 <label style={{ fontSize: 11 }}>{tr("Description visible au LLM")}</label>
                                 <input
                                   value={d.transfer_description}
-                                  placeholder="Transfère ici pour les questions de facturation…"
+                                  placeholder="Transfer here for billing questions…"
                                   onChange={(e) => setDraftField(team.id, "transfer_description", e.target.value)}
                                 />
                               </div>

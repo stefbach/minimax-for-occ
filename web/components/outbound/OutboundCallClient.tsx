@@ -39,12 +39,12 @@ export function OutboundCallClient({
     setSuccess(null);
 
     if (!agentId) {
-      setError("Sélectionne un agent IA.");
+      setError("Select an AI agent.");
       return;
     }
     const trimmed = to.trim();
     if (!/^\+\d{6,15}$/.test(trimmed)) {
-      setError("Le numéro doit être au format E.164 (ex. +33756123456).");
+      setError("Number must be in E.164 format (e.g. +33756123456).");
       return;
     }
 
@@ -70,7 +70,7 @@ export function OutboundCallClient({
         setError(data.error ?? `HTTP ${r.status}`);
         return;
       }
-      setSuccess(`Appel lancé. ID : ${data.call_id ?? "—"}`);
+      setSuccess(`Call started. ID: ${data.call_id ?? "—"}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -82,9 +82,8 @@ export function OutboundCallClient({
     return (
       <section className="card">
         <p className="muted">
-          Aucun agent IA n&apos;est configuré dans cette organisation. Créez-en
-          un dans la page <a href="/agents">Agents</a> avant de lancer un
-          appel.
+          No AI agent is configured in this organization. Create one on the{" "}
+          <a href="/agents">Agents</a> page before placing a call.
         </p>
       </section>
     );
@@ -95,7 +94,7 @@ export function OutboundCallClient({
       <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           <span style={{ fontSize: 12, color: "var(--muted)" }}>
-            Agent IA <span style={{ color: "var(--bad)" }}>*</span>
+            AI Agent <span style={{ color: "var(--bad)" }}>*</span>
           </span>
           <select
             value={agentId}
@@ -107,7 +106,7 @@ export function OutboundCallClient({
             {agents.map((a) => (
               <option key={a.id} value={a.id}>
                 {a.name}
-                {a.voice ? ` — voix: ${a.voice}` : ""}
+                {a.voice ? ` — voice: ${a.voice}` : ""}
               </option>
             ))}
           </select>
@@ -115,7 +114,7 @@ export function OutboundCallClient({
 
         <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           <span style={{ fontSize: 12, color: "var(--muted)" }}>
-            Numéro à appeler (E.164) <span style={{ color: "var(--bad)" }}>*</span>
+            Number to call (E.164) <span style={{ color: "var(--bad)" }}>*</span>
           </span>
           <input
             type="tel"
@@ -130,37 +129,37 @@ export function OutboundCallClient({
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
           <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <span style={{ fontSize: 12, color: "var(--muted)" }}>Prénom du destinataire</span>
+            <span style={{ fontSize: 12, color: "var(--muted)" }}>Recipient first name</span>
             <input
               type="text"
               value={firstname}
               onChange={(e) => setFirstname(e.target.value)}
-              placeholder="(optionnel)"
+              placeholder="(optional)"
               disabled={busy}
               style={{ padding: "8px 10px", borderRadius: 6, border: "1px solid var(--border)" }}
             />
           </label>
           <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <span style={{ fontSize: 12, color: "var(--muted)" }}>Nom du destinataire</span>
+            <span style={{ fontSize: 12, color: "var(--muted)" }}>Recipient last name</span>
             <input
               type="text"
               value={lastname}
               onChange={(e) => setLastname(e.target.value)}
-              placeholder="(optionnel)"
+              placeholder="(optional)"
               disabled={busy}
               style={{ padding: "8px 10px", borderRadius: 6, border: "1px solid var(--border)" }}
             />
           </label>
         </div>
         <p className="muted" style={{ fontSize: 11, margin: 0 }}>
-          Substitués dans le greeting et le system prompt en place de{" "}
+          Substituted in the greeting and system prompt in place of{" "}
           <code>{"{{firstname}}"}</code> / <code>{"{{lastname}}"}</code>.
         </p>
 
         {scripts.length > 0 && (
           <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             <span style={{ fontSize: 12, color: "var(--muted)" }}>
-              Script à dérouler (optionnel)
+              Script to run (optional)
             </span>
             <select
               value={scriptId}
@@ -168,7 +167,7 @@ export function OutboundCallClient({
               disabled={busy}
               style={{ padding: "8px 10px", borderRadius: 6, border: "1px solid var(--border)" }}
             >
-              <option value="">— Aucun script (system prompt brut)</option>
+              <option value="">— No script (raw system prompt)</option>
               {scripts.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}
@@ -191,7 +190,7 @@ export function OutboundCallClient({
 
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
           <button type="submit" disabled={busy || !to.trim() || !agentId}>
-            {busy ? "Lancement…" : "☎ Lancer l'appel"}
+            {busy ? "Starting…" : "☎ Start call"}
           </button>
         </div>
       </form>

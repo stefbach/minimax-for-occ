@@ -28,36 +28,36 @@ export default async function AgentsPage() {
           <div className="subtitle">{agents.length} agent{agents.length === 1 ? "" : "s"}</div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <Link href="/agents/new"><button>+ Nouvel agent</button></Link>
+          <Link href="/agents/new"><button>+ New agent</button></Link>
           <HelpButton contextKey="agents" />
         </div>
       </div>
 
       {!hasSupabase() ? (
         <div className="card">
-          <h3>Supabase non configuré</h3>
+          <h3>Supabase not configured</h3>
           <p className="muted">
-            Allez dans <Link href="/settings">Paramètres</Link> ou définissez les env vars{" "}
-            <span className="kbd">SUPABASE_URL</span> et{" "}
-            <span className="kbd">SUPABASE_SERVICE_ROLE_KEY</span> dans Vercel.
+            Go to <Link href="/settings">Settings</Link> or set the env vars{" "}
+            <span className="kbd">SUPABASE_URL</span> and{" "}
+            <span className="kbd">SUPABASE_SERVICE_ROLE_KEY</span> in Vercel.
           </p>
         </div>
       ) : agents.length === 0 ? (
         <div className="card">
-          <h3>Vous n&apos;avez pas encore d&apos;agent</h3>
-          <p className="muted">Cliquez « Nouvel agent » pour commencer.</p>
+          <h3>No agents yet</h3>
+          <p className="muted">Click &lsquo;New agent&rsquo; to get started.</p>
         </div>
       ) : (
         <div className="card" style={{ padding: 0, overflow: "hidden" }}>
           <table className="list">
             <thead>
               <tr>
-                <th>Nom</th>
+                <th>Name</th>
                 <th>LLM</th>
-                <th>Voix</th>
-                <th>Langue</th>
+                <th>Voice</th>
+                <th>Language</th>
                 <th>RAG</th>
-                <th>Mis à jour</th>
+                <th>Updated</th>
                 <th></th>
               </tr>
             </thead>
@@ -72,7 +72,7 @@ export default async function AgentsPage() {
                   </td>
                   <td><span className="tag">{a.llm_provider}/{a.llm_model}</span></td>
                   <td>
-                    {a.tts_voice_id ? <span className="kbd">{a.tts_voice_id}</span> : <em style={{ color: "var(--muted)" }}>défaut</em>}
+                    {a.tts_voice_id ? <span className="kbd">{a.tts_voice_id}</span> : <em style={{ color: "var(--muted)" }}>default</em>}
                     {a.tts_model && <div style={{ color: "var(--muted)", fontSize: 11 }}>{a.tts_model}</div>}
                   </td>
                   <td>{a.language}</td>
@@ -80,7 +80,7 @@ export default async function AgentsPage() {
                   <td style={{ color: "var(--muted)" }}>{new Date(a.updated_at).toLocaleString()}</td>
                   <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                     <Link href={`/agents/${a.id}/edit`}>
-                      <button className="ghost" style={{ padding: "6px 10px" }}>Éditer</button>
+                      <button className="ghost" style={{ padding: "6px 10px" }}>Edit</button>
                     </Link>
                   </td>
                 </tr>

@@ -67,14 +67,14 @@ export default async function WorkflowsPage() {
     <>
       <div className="page-header">
         <div>
-          <h1>Automatisation</h1>
+          <h1>Automation</h1>
           <div className="subtitle">
-            Workflows natifs Axon : déclencheur cron, filtres, actions (email,
-            WhatsApp, mise à jour), credentials gérés côté serveur.
+            Native Axon workflows: cron trigger, filters, actions (email,
+            WhatsApp, update), server-side managed credentials.
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <Link href="/workflows/approvals"><button className="ghost">À valider</button></Link>
+          <Link href="/workflows/approvals"><button className="ghost">Pending</button></Link>
           <Link href="/workflows/connections"><button className="ghost">⚙️ Connexions</button></Link>
           <Link href="/workflows/n8n">
             <button className="ghost">Flows n8n ({n8nCount}) →</button>
