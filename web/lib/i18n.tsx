@@ -1323,6 +1323,23 @@ const EN: Record<string, string> = {
   "Chargement des documents…": "Loading documents…",
   "Aucun dossier trouvé dans Supabase pour ce patient.": "No dossier found in Supabase for this patient.",
   "Aucun document disponible.": "No documents available.",
+
+  // ── Missing entries (gap-fill) ──
+  "+ Ajouter / mettre à jour": "+ Add / update",
+  "Aucune erreur enregistrée.": "No errors logged.",
+  "Credential enregistré.": "Credential saved.",
+  "Déclencheurs automatiques (CRON)": "Automatic triggers (CRON)",
+  "Démarrer": "Start",
+  "Enregistrement échoué :": "Save failed:",
+  "Enregistré ·": "Saved ·",
+  "Marquer terminé": "Mark as done",
+  "Ordre d'exécution dans le pipeline": "Execution order in pipeline",
+  "Sous-agents du pipeline (appelés par l'orchestrateur)": "Pipeline sub-agents (called by orchestrator)",
+  "ai_brain · send_email_smtp · send_wati_template · send_whatsapp_session · update_row · telegram_notify · call_automation … — modèles {{colonne}} acceptés":
+    "ai_brain · send_email_smtp · send_wati_template · send_whatsapp_session · update_row · telegram_notify · call_automation … — {{column}} templates accepted",
+  "priorité": "priority",
+  "type table_scan|callable · every_minutes · table · data_source_credential_id · filters [{column, op, value}] · max_rows_per_run":
+    "type table_scan|callable · every_minutes · table · data_source_credential_id · filters [{column, op, value}] · max_rows_per_run",
 };
 
 function readLang(): Lang {
