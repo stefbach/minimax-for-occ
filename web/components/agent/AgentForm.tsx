@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import type { Agent, AgentInput, LlmProvider, Voice } from "@/lib/types";
 import { PromptEditor } from "@/components/agents/PromptEditor";
 import { parsePersona, serializePersona } from "@/lib/personas/parser";
+import { AgentNumbersSection } from "@/components/agent/AgentNumbersSection";
 
 type ModelOption = { id: string; label: string };
 
@@ -1284,6 +1285,8 @@ export function AgentForm({ initial }: { initial?: Agent }) {
       )}
 
       {error && <div className="card" style={{ borderColor: "var(--bad)", color: "var(--bad)" }}>{error}</div>}
+
+      {initial?.id && <AgentNumbersSection agentId={initial.id} />}
 
       <div style={{ display: "flex", gap: 10, justifyContent: "space-between" }}>
         <button type="submit" disabled={busy || !name}>
