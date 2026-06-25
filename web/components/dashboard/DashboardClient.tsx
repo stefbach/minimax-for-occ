@@ -11,6 +11,7 @@ import { CampaignsTable } from "./CampaignsTable";
 import { HelpButton } from "@/components/help/HelpButton";
 import { LiveMonitorClient } from "@/components/live/LiveMonitorClient";
 import { CallLogsTab } from "./CallLogsTab";
+import { InboundTab } from "./InboundTab";
 import { StatsTab } from "./StatsTab";
 import { DirectorTab } from "./DirectorTab";
 import { AiInsightsTab } from "./AiInsightsTab";
@@ -24,11 +25,12 @@ import { ReportButton } from "./ReportButton";
 import { ApiStatusPill } from "./ApiStatusPill";
 import { useT } from "@/lib/i18n";
 
-type TabId = "overview" | "stats" | "logs" | "live" | "errors" | "ai" | "leads" | "nhs";
+type TabId = "overview" | "stats" | "logs" | "entrants" | "live" | "errors" | "ai" | "leads" | "nhs";
 const ALL_TABS: { id: TabId; label: string; icon: string }[] = [
   { id: "overview", label: "Vue d'ensemble", icon: "🏠" },
   { id: "stats", label: "Statistiques", icon: "📊" },
   { id: "logs", label: "Call Logs", icon: "📋" },
+  { id: "entrants", label: "Entrants", icon: "📥" },
   { id: "live", label: "Live", icon: "🔴" },
   { id: "errors", label: "Erreurs & Alertes", icon: "⚠️" },
   { id: "ai", label: "AI Insights", icon: "✨" },
@@ -188,7 +190,7 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
         {tab !== "nhs" && (() => {
           const active = TABS.find((x) => x.id === tab);
           if (!active) return null;
-          const periodScoped = tab === "overview" || tab === "stats" || tab === "logs" || tab === "ai" || tab === "leads";
+          const periodScoped = tab === "overview" || tab === "stats" || tab === "logs" || tab === "entrants" || tab === "ai" || tab === "leads";
           return (
             <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
               <h2 style={{ margin: 0, fontSize: 19 }}>
@@ -239,6 +241,13 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
           <>
             <PeriodBar period={period} filters={filters} onPeriod={setPeriod} onFilters={setFilters} />
             <CallLogsTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} system={filters.system} global={filters} />
+          </>
+        )}
+
+        {tab === "entrants" && (
+          <>
+            <PeriodBar period={period} filters={filters} onPeriod={setPeriod} onFilters={setFilters} />
+            <InboundTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} system={filters.system} global={filters} />
           </>
         )}
 
