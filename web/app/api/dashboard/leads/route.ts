@@ -21,6 +21,7 @@ export type LeadsStats = {
   rdv_confirmed: number;
   rdv_transfer: number;
   calls_distribution: { attempt: number; contacts: number; calls: number }[];
+  orphan_calls: number; // calls with no to_e164 and no contact_id — excluded from distribution
 };
 
 export type LeadsResponse = {
@@ -141,10 +142,14 @@ export async function GET(request: Request) {
 
   // Group calls by phone number (to_e164) to count unique people called.
   // Fallback to contact_id if no phone, then skip if neither exists.
+  let orphanCalls = 0;
   const byContact = new Map<string, CallRow[]>();
   for (const r of rows) {
     const key = r.to_e164 ?? r.contact_id;
-    if (!key) continue;
+    if (!key) {
+      orphanCalls++;
+      continue;
+    }
     const contact = byContact.get(key) ?? [];
     contact.push(r);
     byContact.set(key, contact);
@@ -187,6 +192,7 @@ export async function GET(request: Request) {
     rdv_confirmed: rdvConfirmed,
     rdv_transfer: rdvTransfer,
     calls_distribution,
+    orphan_calls: orphanCalls,
   };
 
   const body: LeadsResponse = {

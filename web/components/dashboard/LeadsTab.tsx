@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { LeadsResponse } from "@/app/api/dashboard/leads/route";
-import { useT } from "@/lib/i18n";
 import type { Filters } from "./PeriodBar";
 
 type Props = {
@@ -18,7 +17,6 @@ type Props = {
 };
 
 export function LeadsTab({ from, to, direction, leadsSource, system, global, refreshKey, orgId, campaignId }: Props) {
-  const t = useT();
   const [data, setData] = useState<LeadsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -68,18 +66,20 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
   }, [refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading) {
-    return <div className="card" style={{ padding: 20 }}>{t("Chargement…")}</div>;
+    return <div className="card" style={{ padding: 20 }}>Loading…</div>;
   }
 
   if (error) {
-    return <div className="card" style={{ padding: 20, color: "var(--bad)" }}>Erreur : {error}</div>;
+    return <div className="card" style={{ padding: 20, color: "var(--bad)" }}>Error: {error}</div>;
   }
 
   if (!data) {
-    return <div className="card" style={{ padding: 20 }}>{t("Aucune donnée")}</div>;
+    return <div className="card" style={{ padding: 20 }}>No data</div>;
   }
 
   const { stats } = data;
+  const orphanCalls = stats.orphan_calls ?? 0;
+  const distributionTotal = stats.calls_distribution.reduce((s, r) => s + r.calls, 0);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
@@ -92,7 +92,7 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
       >
         <div className="card" style={{ padding: 14 }}>
           <div style={{ color: "var(--muted)", fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4 }}>
-            {t("Leads uniques")}
+            Unique leads
           </div>
           <div
             style={{
@@ -106,13 +106,13 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
             {stats.total_unique_contacts}
           </div>
           <div style={{ fontSize: 12, color: "var(--muted)" }}>
-            {t("personnes différentes appelées")}
+            distinct people called
           </div>
         </div>
 
         <div className="card" style={{ padding: 14 }}>
           <div style={{ color: "var(--muted)", fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4 }}>
-            {t("Total appels")}
+            Total calls
           </div>
           <div
             style={{
@@ -126,13 +126,13 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
             {stats.total_calls}
           </div>
           <div style={{ fontSize: 12, color: "var(--muted)" }}>
-            {t("appels passés")}
+            calls made
           </div>
         </div>
 
         <div className="card" style={{ padding: 14 }}>
           <div style={{ color: "var(--muted)", fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4 }}>
-            {t("Appels / lead")}
+            Calls / lead
           </div>
           <div
             style={{
@@ -146,13 +146,13 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
             {stats.avg_calls_per_contact}
           </div>
           <div style={{ fontSize: 12, color: "var(--muted)" }}>
-            {t("moyenne par personne")}
+            average per person
           </div>
         </div>
 
         <div className="card" style={{ padding: 14 }}>
           <div style={{ color: "var(--muted)", fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4 }}>
-            {t("RDV confirmés")}
+            Appts confirmed
           </div>
           <div
             style={{
@@ -166,13 +166,13 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
             {stats.rdv_confirmed}
           </div>
           <div style={{ fontSize: 12, color: "var(--muted)" }}>
-            {t("conversion confirmée")}
+            confirmed conversion
           </div>
         </div>
 
         <div className="card" style={{ padding: 14 }}>
           <div style={{ color: "var(--muted)", fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4 }}>
-            {t("Transferts humain")}
+            Human transfers
           </div>
           <div
             style={{
@@ -186,19 +186,19 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
             {stats.rdv_transfer}
           </div>
           <div style={{ fontSize: 12, color: "var(--muted)" }}>
-            {t("à confirmer")}
+            to confirm
           </div>
         </div>
       </div>
 
       <div className="card" style={{ padding: 14 }}>
-        <h3 style={{ margin: "0 0 12px 0", fontSize: 14 }}>{t("Distribution des appels par lead")}</h3>
+        <h3 style={{ margin: "0 0 12px 0", fontSize: 14 }}>Call distribution per lead</h3>
         <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ borderBottom: "1px solid var(--border)" }}>
-              <th style={{ textAlign: "left", padding: "8px 0", fontWeight: 600 }}>{t("Tentatives")}</th>
-              <th style={{ textAlign: "right", padding: "8px 0", fontWeight: 600 }}>{t("Leads")}</th>
-              <th style={{ textAlign: "right", padding: "8px 0", fontWeight: 600 }}>{t("Appels")}</th>
+              <th style={{ textAlign: "left", padding: "8px 0", fontWeight: 600 }}>Attempt</th>
+              <th style={{ textAlign: "right", padding: "8px 0", fontWeight: 600 }}>Leads</th>
+              <th style={{ textAlign: "right", padding: "8px 0", fontWeight: 600 }}>Calls</th>
             </tr>
           </thead>
           <tbody>
@@ -215,7 +215,21 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
                 </td>
               </tr>
             ))}
+            {orphanCalls > 0 && (
+              <tr style={{ borderBottom: "1px solid var(--border)", color: "var(--muted)" }}>
+                <td style={{ padding: "8px 0", fontStyle: "italic" }}>Unlinked</td>
+                <td style={{ textAlign: "right", padding: "8px 0" }}>—</td>
+                <td style={{ textAlign: "right", padding: "8px 0" }}>{orphanCalls}</td>
+              </tr>
+            )}
           </tbody>
+          <tfoot>
+            <tr style={{ borderTop: "2px solid var(--border)", fontWeight: 700 }}>
+              <td style={{ padding: "8px 0" }}>Total</td>
+              <td style={{ textAlign: "right", padding: "8px 0" }}>—</td>
+              <td style={{ textAlign: "right", padding: "8px 0" }}>{distributionTotal + orphanCalls}</td>
+            </tr>
+          </tfoot>
         </table>
       </div>
     </div>
