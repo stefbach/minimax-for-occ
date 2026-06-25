@@ -36,6 +36,7 @@ export function SupervisePageClient() {
   const [openContact, setOpenContact] = useState<{ id: string; name: string | null; e164: string | null; headline?: string } | null>(null);
   // Wati June 10 v2: filter by qualification (RAPPEL, A PASSER A L'HUMAIN, …).
   const [qualFilter, setQualFilter] = useState<string>("all");
+  const [assigneeFilter, setAssigneeFilter] = useState<string>("all");
 
   const refresh = useCallback(async () => {
     setErr(null);
@@ -86,8 +87,13 @@ export function SupervisePageClient() {
   }
 
   const filteredTasks = useMemo(
-    () => qualFilter === "all" ? tasks : tasks.filter((t) => (t.qualification ?? "") === qualFilter),
-    [tasks, qualFilter],
+    () => tasks.filter((t) => {
+      if (qualFilter !== "all" && (t.qualification ?? "") !== qualFilter) return false;
+      if (assigneeFilter === "__pool__" && t.assigned_to) return false;
+      if (assigneeFilter !== "all" && assigneeFilter !== "__pool__" && t.assigned_to !== assigneeFilter) return false;
+      return true;
+    }),
+    [tasks, qualFilter, assigneeFilter],
   );
   const unassignedTasks = useMemo(() => filteredTasks.filter((t) => !t.assigned_to), [filteredTasks]);
   const assignedTasks = useMemo(() => filteredTasks.filter((t) => !!t.assigned_to), [filteredTasks]);
@@ -102,6 +108,12 @@ export function SupervisePageClient() {
   );
 
   const activeAgents = useMemo(() => agents.filter((a) => a.is_active), [agents]);
+  // Assignee filter options: active agents + any (inactive) agent still holding
+  // an open task, so the supervisor can filter the board by who owns the lead.
+  const assigneeOptions = useMemo(() => {
+    const assignedIds = new Set(tasks.map((t) => t.assigned_to).filter(Boolean) as string[]);
+    return agents.filter((a) => a.is_active || assignedIds.has(a.user_id));
+  }, [agents, tasks]);
 
   return (
     <div style={{ display: "grid", gap: 14 }}>
@@ -112,6 +124,16 @@ export function SupervisePageClient() {
             <option value="all">{t("Toutes")}</option>
             {distinctQuals.map((q) => (
               <option key={q} value={q}>{q}</option>
+            ))}
+          </select>
+        </label>
+        <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13 }}>
+          <span className="muted">{t("Assigné à")}</span>
+          <select value={assigneeFilter} onChange={(e) => setAssigneeFilter(e.target.value)} style={{ fontSize: 13 }}>
+            <option value="all">{t("Toutes")}</option>
+            <option value="__pool__">— {t("Pool")} —</option>
+            {assigneeOptions.map((a) => (
+              <option key={a.user_id} value={a.user_id}>{a.display_name}</option>
             ))}
           </select>
         </label>
