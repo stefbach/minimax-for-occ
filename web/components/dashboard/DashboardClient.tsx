@@ -195,7 +195,6 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
             <Phone size={20} style={{ flexShrink: 0 }} />
             <div>
               <h1 style={{ margin: 0 }}>{t("Tableau de bord des appels")}</h1>
-              <div className="subtitle">{t("Pilotage et analyse de vos appels Axon")}.</div>
             </div>
           </div>
           {/* page-header is already flex-wrap; the inner button cluster also
