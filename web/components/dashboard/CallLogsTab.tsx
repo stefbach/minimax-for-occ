@@ -69,6 +69,7 @@ const QUAL_TONE: Record<QualBucket, string> = {
   faux_numero: "var(--bad)",
   non_eligible: "var(--bad)",
   ne_pas_rappeler: "var(--bad)",
+  suivi_requis: "var(--warn)",
   autre: "var(--muted)",
 };
 
