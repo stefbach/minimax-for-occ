@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { requestOrgId } from "@/lib/request-org";
-import { leadNameMapFor, leadNameForPhone } from "@/lib/leads-source";
+import { leadNameMapFor, leadNameForPhone, callInLeadsScope, campaignScopeFor } from "@/lib/leads-source";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -73,6 +73,11 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const errorType = url.searchParams.get("error_type");
   const errorFromDate = url.searchParams.get("from");
+  const campaignId = url.searchParams.get("campaign_id");
+
+  const campaignScope = campaignId && campaignId !== "all"
+    ? await campaignScopeFor(campaignId)
+    : null;
 
   // ── 1. Error log ────────────────────────────────────────────────────────
   let errors: ErrorRow[] = [];
@@ -144,6 +149,7 @@ export async function GET(request: Request) {
         (r.metadata && (r.metadata as Record<string, unknown>).robot_awareness === "true") ||
         (r.metadata && (r.metadata as Record<string, unknown>).robot_awareness === true);
       const e164 = (r.direction === "in" || r.direction === "inbound") ? r.from_e164 : r.to_e164;
+      if (!callInLeadsScope(e164, campaignScope)) continue;
       const contact = Array.isArray(r.contacts) ? r.contacts[0] ?? null : r.contacts;
       const name = contact?.display_name ?? leadNameForPhone(e164, leadNames);
       if (ROBOT_RE.test(disp) || robotFlag) {
@@ -192,6 +198,7 @@ export async function GET(request: Request) {
       contact_id: string | null;
       answered_at: string | null;
     }>) {
+      if (!callInLeadsScope(r.to_e164 ?? null, campaignScope)) continue;
       const answered = !!r.answered_at;
       if (r.to_e164) {
         const cur = neverReachedMap.get(r.to_e164) ?? { attempts: 0, everAnswered: false };

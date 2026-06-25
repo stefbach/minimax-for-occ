@@ -3,7 +3,7 @@ import { fetchAllPaged, type Rangeable } from "@/lib/supabase-page";
 import { bucketForCall, type QualBucket } from "@/lib/qualification";
 import { isInbound, normalizeDirectionForDb } from "@/lib/call-direction";
 import {
-  callInLeadsScope, leadsScopeFor, leadNameMapFor, leadNameForPhone, type LeadsSource,
+  callInLeadsScope, leadsScopeFor, leadNameMapFor, leadNameForPhone, campaignScopeFor, type LeadsSource,
 } from "@/lib/leads-source";
 import { callMatchesSystem, type CallSystem } from "@/lib/call-system";
 import type { InsightsCallInput, InsightsCallIndexEntry } from "./types";
@@ -51,8 +51,9 @@ export async function loadInsightsCalls(args: {
   direction: string | null;
   leadsSource: LeadsSource;
   system: CallSystem;
+  campaignId?: string | null;
 }): Promise<LoadedCalls> {
-  const { orgId, from, to, direction, leadsSource, system } = args;
+  const { orgId, from, to, direction, leadsSource, system, campaignId } = args;
   const sb = supabaseServer();
   const dbDir = normalizeDirectionForDb(direction);
 
@@ -70,8 +71,9 @@ export async function loadInsightsCalls(args: {
     return q as unknown as Rangeable<Row>;
   });
 
-  const [scope, leadNames] = await Promise.all([
+  const [scope, campaignScope, leadNames] = await Promise.all([
     leadsScopeFor(leadsSource),
+    campaignId && campaignId !== "all" ? campaignScopeFor(campaignId) : Promise.resolve(null),
     leadNameMapFor(leadsSource),
   ]);
 
@@ -79,6 +81,7 @@ export async function loadInsightsCalls(args: {
     (r) =>
       !ACTIVE.has(r.state ?? "")
       && callInLeadsScope(r.to_e164, scope)
+      && callInLeadsScope(r.to_e164, campaignScope)
       && callMatchesSystem((r.metadata as { source?: string } | null)?.source, system),
   );
 
