@@ -20,6 +20,12 @@ export async function previewElevenLabsTTS(opts: {
   voice_id: string; // "elevenlabs:<family>:<voice>"
   text: string;
   speed?: number; // 0.7..1.2 (Flash/Turbo)
+  // Wati 25/06 — mirror the per-agent voice settings the LIVE telephony call
+  // uses (agent/elevenlabs_tts.py) so the studio preview = what patients hear.
+  stability?: number | null;
+  similarity_boost?: number | null;
+  style?: number | null;
+  use_speaker_boost?: boolean | null;
 }): Promise<{ audio: ArrayBuffer; format: string }> {
   const apiKey =
     process.env.ELEVEN_API_KEY || process.env.ELEVENLABS_API_KEY;
@@ -41,19 +47,24 @@ export async function previewElevenLabsTTS(opts: {
   // On laisse passer ce que le caller donne — l'API resout les 2.
   const url = `${ELEVENLABS_BASE}/text-to-speech/${encodeURIComponent(voiceRef)}`;
 
+  // Mirror the live telephony adapter so the preview reflects the real call.
+  // null/undefined → ElevenLabs API defaults (same as the call gets when an
+  // agent leaves a setting unset).
+  const voiceSettings: Record<string, unknown> = {
+    stability: opts.stability ?? 0.5,
+    similarity_boost: opts.similarity_boost ?? 0.75,
+  };
+  if (opts.style != null) voiceSettings.style = opts.style;
+  if (opts.use_speaker_boost != null) voiceSettings.use_speaker_boost = opts.use_speaker_boost;
+  if (opts.speed && opts.speed !== 1.0) {
+    // ElevenLabs Flash/Turbo : speed 0.7..1.2
+    voiceSettings.speed = Math.max(0.7, Math.min(1.2, opts.speed));
+  }
   const body: Record<string, unknown> = {
     text: opts.text,
     model_id: model,
-    voice_settings: {
-      stability: 0.5,
-      similarity_boost: 0.75,
-    },
+    voice_settings: voiceSettings,
   };
-  if (opts.speed && opts.speed !== 1.0) {
-    // ElevenLabs Flash/Turbo : speed 0.7..1.2
-    (body.voice_settings as Record<string, unknown>).speed =
-      Math.max(0.7, Math.min(1.2, opts.speed));
-  }
 
   const r = await fetch(url, {
     method: "POST",
