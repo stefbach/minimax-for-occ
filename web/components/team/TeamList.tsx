@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useT } from "@/lib/i18n";
 import type { TeamMember, TeamMembersResponse } from "@/app/api/team/members/route";
 import type { PendingInvitation, InvitesListResponse } from "@/app/api/team/invites/route";
 import {
@@ -44,7 +43,6 @@ function daysUntil(iso: string): number {
 type ToastState = { kind: "ok" | "err"; msg: string } | null;
 
 export function TeamList({ inviteOpenSignal = 0 }: { inviteOpenSignal?: number }) {
-  const t = useT();
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [invitations, setInvitations] = useState<PendingInvitation[]>([]);
   const [loading, setLoading] = useState(true);
@@ -95,7 +93,7 @@ export function TeamList({ inviteOpenSignal = 0 }: { inviteOpenSignal?: number }
   }, []);
 
   if (loading) {
-    return <div className="card"><p className="muted" style={{ margin: 0 }}>{t("Chargement…")}</p></div>;
+    return <div className="card"><p className="muted" style={{ margin: 0 }}>Loading…</p></div>;
   }
   if (error) {
     return <div className="card" style={{ borderColor: "var(--bad)", color: "var(--bad)" }}>{error}</div>;
@@ -147,12 +145,11 @@ function MembersTable({
   onChanged: () => void;
   onToast: (k: "ok" | "err", m: string) => void;
 }) {
-  const t = useT();
   if (members.length === 0) {
     return (
       <div className="card">
         <p className="muted" style={{ margin: 0 }}>
-          {t("Aucun membre — ajoutez-en via le bouton Inviter.")}
+          No members yet — add some via the Invite button.
         </p>
       </div>
     );
@@ -175,10 +172,10 @@ function MembersTable({
         <table className="list" style={{ fontSize: 13 }}>
           <thead>
             <tr>
-              <th style={{ textAlign: "left" }}>{t("Membre")}</th>
-              <th>{t("Rôle")}</th>
-              <th>{t("Statut")}</th>
-              <th>{t("Ajouté le")}</th>
+              <th style={{ textAlign: "left" }}>Member</th>
+              <th>Role</th>
+              <th>Status</th>
+              <th>Added on</th>
               <th></th>
             </tr>
           </thead>
@@ -210,7 +207,6 @@ function MemberCard({
   onChanged: () => void;
   onToast: (k: "ok" | "err", m: string) => void;
 }) {
-  const t = useT();
   const roleInfo = ROLE_LABEL[m.role] ?? { label: m.role, tone: "var(--muted)" };
   const [menuOpen, setMenuOpen] = useState(false);
   const [editingRole, setEditingRole] = useState(false);
@@ -239,7 +235,7 @@ function MemberCard({
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
-      onToast("ok", t("Rôle mis à jour."));
+      onToast("ok", "Role updated.");
       setEditingRole(false);
       onChanged();
     } catch (e) {
@@ -251,7 +247,7 @@ function MemberCard({
 
   async function toggleActive() {
     const willDisable = m.status === "active";
-    const msg = willDisable ? t("Désactiver ce membre ?") : t("Réactiver ce membre ?");
+    const msg = willDisable ? "Deactivate this member?" : "Reactivate this member?";
     if (!window.confirm(msg)) return;
     setBusy(true);
     setMenuOpen(false);
@@ -263,7 +259,7 @@ function MemberCard({
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
-      onToast("ok", willDisable ? t("Membre désactivé.") : t("Membre réactivé."));
+      onToast("ok", willDisable ? "Member deactivated." : "Member reactivated.");
       onChanged();
     } catch (e) {
       onToast("err", e instanceof Error ? e.message : "error");
@@ -283,7 +279,7 @@ function MemberCard({
           <div style={{ fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis" }}>
             {m.display_name || m.email || "—"}
             {m.is_self && (
-              <span className="muted" style={{ fontSize: 11, marginLeft: 6 }}>({t("vous")})</span>
+              <span className="muted" style={{ fontSize: 11, marginLeft: 6 }}>(you)</span>
             )}
           </div>
           {m.email && m.display_name && (
@@ -294,7 +290,7 @@ function MemberCard({
           className="ghost"
           onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }}
           disabled={busy || m.is_self}
-          title={m.is_self ? t("Vous ne pouvez pas modifier votre propre rôle.") : ""}
+          title={m.is_self ? "You cannot edit your own role." : ""}
           style={{ padding: "4px 12px", flexShrink: 0 }}
         >
           ⋯
@@ -310,11 +306,11 @@ function MemberCard({
             style={{ flex: "1 1 140px", padding: "6px 8px", fontSize: 13 }}
           >
             {INVITE_ROLES.map((r) => (
-              <option key={r} value={r}>{t(ROLE_LABEL[r]?.label ?? r)}</option>
+              <option key={r} value={r}>{ROLE_LABEL[r]?.label ?? r}</option>
             ))}
           </select>
           <button className="ghost" onClick={saveRole} disabled={busy} style={{ padding: "4px 10px", fontSize: 13 }}>
-            {t("Enregistrer")}
+            Save
           </button>
           <button
             className="ghost"
@@ -322,19 +318,19 @@ function MemberCard({
             disabled={busy}
             style={{ padding: "4px 10px", fontSize: 13 }}
           >
-            {t("Annuler")}
+            Cancel
           </button>
         </div>
       ) : (
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
           <span className="tag" style={{ color: roleInfo.tone, borderColor: roleInfo.tone }}>
-            {t(roleInfo.label)}
+            {roleInfo.label}
           </span>
           <span
             className={`tag ${m.status === "active" ? "good" : ""}`}
             style={m.status === "disabled" ? { color: "var(--muted)" } : {}}
           >
-            {m.status === "active" ? t("Actif") : t("Désactivé")}
+            {m.status === "active" ? "Active" : "Disabled"}
           </span>
           <span className="muted" style={{ fontSize: 12, marginLeft: "auto" }}>{fmtDate(m.created_at)}</span>
         </div>
@@ -360,14 +356,14 @@ function MemberCard({
             onClick={() => { setEditingRole(true); setMenuOpen(false); setNewRole(m.role); }}
             style={{ display: "block", width: "100%", textAlign: "left", padding: "6px 10px", border: "none", background: "transparent" }}
           >
-            {t("Changer le rôle")}
+            Change role
           </button>
           <button
             className="ghost"
             onClick={() => { setPermissionsOpen(true); setMenuOpen(false); }}
             style={{ display: "block", width: "100%", textAlign: "left", padding: "6px 10px", border: "none", background: "transparent" }}
           >
-            {t("Permissions")}
+            Permissions
           </button>
           <button
             className="ghost"
@@ -382,7 +378,7 @@ function MemberCard({
               color: m.status === "active" ? "var(--bad)" : "var(--good)",
             }}
           >
-            {m.status === "active" ? t("Désactiver") : t("Réactiver")}
+            {m.status === "active" ? "Deactivate" : "Reactivate"}
           </button>
         </div>
       )}
@@ -407,7 +403,6 @@ function MemberRow({
   onChanged: () => void;
   onToast: (k: "ok" | "err", msg: string) => void;
 }) {
-  const t = useT();
   const roleInfo = ROLE_LABEL[m.role] ?? { label: m.role, tone: "var(--muted)" };
   const [menuOpen, setMenuOpen] = useState(false);
   const [editingRole, setEditingRole] = useState(false);
@@ -439,7 +434,7 @@ function MemberRow({
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
-      onToast("ok", t("Rôle mis à jour."));
+      onToast("ok", "Role updated.");
       setEditingRole(false);
       onChanged();
     } catch (e) {
@@ -451,7 +446,7 @@ function MemberRow({
 
   async function toggleActive() {
     const willDisable = m.status === "active";
-    const msg = willDisable ? t("Désactiver ce membre ?") : t("Réactiver ce membre ?");
+    const msg = willDisable ? "Deactivate this member?" : "Reactivate this member?";
     if (!window.confirm(msg)) return;
     setBusy(true);
     setMenuOpen(false);
@@ -463,7 +458,7 @@ function MemberRow({
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
-      onToast("ok", willDisable ? t("Membre désactivé.") : t("Membre réactivé."));
+      onToast("ok", willDisable ? "Member deactivated." : "Member reactivated.");
       onChanged();
     } catch (e) {
       onToast("err", e instanceof Error ? e.message : "error");
@@ -479,7 +474,7 @@ function MemberRow({
           {m.display_name || m.email || "—"}
           {m.is_self && (
             <span className="muted" style={{ fontSize: 11, marginLeft: 6 }}>
-              ({t("vous")})
+              (you)
             </span>
           )}
         </div>
@@ -498,7 +493,7 @@ function MemberRow({
             >
               {INVITE_ROLES.map((r) => (
                 <option key={r} value={r}>
-                  {t(ROLE_LABEL[r]?.label ?? r)}
+                  {ROLE_LABEL[r]?.label ?? r}
                 </option>
               ))}
             </select>
@@ -508,7 +503,7 @@ function MemberRow({
               disabled={busy}
               style={{ padding: "2px 8px", fontSize: 12 }}
             >
-              {t("Enregistrer")}
+              Save
             </button>
             <button
               className="ghost"
@@ -519,12 +514,12 @@ function MemberRow({
               disabled={busy}
               style={{ padding: "2px 8px", fontSize: 12 }}
             >
-              {t("Annuler")}
+              Cancel
             </button>
           </div>
         ) : (
           <span className="tag" style={{ color: roleInfo.tone, borderColor: roleInfo.tone }}>
-            {t(roleInfo.label)}
+            {roleInfo.label}
           </span>
         )}
       </td>
@@ -533,7 +528,7 @@ function MemberRow({
           className={`tag ${m.status === "active" ? "good" : ""}`}
           style={m.status === "disabled" ? { color: "var(--muted)" } : {}}
         >
-          {m.status === "active" ? t("Actif") : t("Désactivé")}
+          {m.status === "active" ? "Active" : "Disabled"}
         </span>
       </td>
       <td className="muted" style={{ fontSize: 12 }}>{fmtDate(m.created_at)}</td>
@@ -545,7 +540,7 @@ function MemberRow({
             setMenuOpen((v) => !v);
           }}
           disabled={busy || m.is_self}
-          title={m.is_self ? t("Vous ne pouvez pas modifier votre propre rôle.") : ""}
+          title={m.is_self ? "You cannot edit your own role." : ""}
           style={{ padding: "4px 10px" }}
         >
           ⋯
@@ -576,14 +571,14 @@ function MemberRow({
               }}
               style={{ display: "block", width: "100%", textAlign: "left", padding: "6px 10px", border: "none", background: "transparent" }}
             >
-              {t("Changer le rôle")}
+              Change role
             </button>
             <button
               className="ghost"
               onClick={() => { setPermissionsOpen(true); setMenuOpen(false); }}
               style={{ display: "block", width: "100%", textAlign: "left", padding: "6px 10px", border: "none", background: "transparent" }}
             >
-              {t("Permissions")}
+              Permissions
             </button>
             <button
               className="ghost"
@@ -598,7 +593,7 @@ function MemberRow({
                 color: m.status === "active" ? "var(--bad)" : "var(--good)",
               }}
             >
-              {m.status === "active" ? t("Désactiver") : t("Réactiver")}
+              {m.status === "active" ? "Deactivate" : "Reactivate"}
             </button>
           </div>
         )}
@@ -624,25 +619,24 @@ function PendingSection({
   onChanged: () => void;
   onToast: (k: "ok" | "err", m: string) => void;
 }) {
-  const t = useT();
   const [busyId, setBusyId] = useState<string | null>(null);
 
   async function copy(url: string) {
     try {
       await navigator.clipboard.writeText(url);
-      onToast("ok", t("Lien copié dans le presse-papiers."));
+      onToast("ok", "Link copied to clipboard.");
     } catch {
-      onToast("err", t("Impossible de copier le lien."));
+      onToast("err", "Could not copy link.");
     }
   }
 
   async function revoke(id: string) {
-    if (!window.confirm(t("Révoquer cette invitation ?"))) return;
+    if (!window.confirm("Revoke this invitation?")) return;
     setBusyId(id);
     try {
       const r = await fetch(`/api/team/invites/${id}`, { method: "DELETE" });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
-      onToast("ok", t("Invitation révoquée."));
+      onToast("ok", "Invitation revoked.");
       onChanged();
     } catch (e) {
       onToast("err", e instanceof Error ? e.message : "error");
@@ -656,7 +650,7 @@ function PendingSection({
     try {
       const r = await fetch(`/api/team/invites/${id}?action=resend`, { method: "POST" });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
-      onToast("ok", t("Nouveau lien généré."));
+      onToast("ok", "New link generated.");
       onChanged();
     } catch (e) {
       onToast("err", e instanceof Error ? e.message : "error");
@@ -668,15 +662,15 @@ function PendingSection({
   return (
     <div className="card" style={{ padding: 0, overflow: "hidden" }}>
       <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: 8 }}>
-        <strong>{t("Invitations en attente")}</strong>
+        <strong>Pending invitations</strong>
         <span className="muted" style={{ fontSize: 12 }}>({rows.length})</span>
       </div>
       <table className="list" style={{ fontSize: 13 }}>
         <thead>
           <tr>
-            <th style={{ textAlign: "left" }}>{t("Email")}</th>
-            <th>{t("Rôle")}</th>
-            <th>{t("Expire")}</th>
+            <th style={{ textAlign: "left" }}>Email</th>
+            <th>Role</th>
+            <th>Expires</th>
             <th></th>
           </tr>
         </thead>
@@ -689,11 +683,11 @@ function PendingSection({
                 <td>{r.email}</td>
                 <td>
                   <span className="tag" style={{ color: roleInfo.tone, borderColor: roleInfo.tone }}>
-                    {t(roleInfo.label)}
+                    {roleInfo.label}
                   </span>
                 </td>
                 <td className="muted" style={{ fontSize: 12 }}>
-                  {t("Expire dans")} {d}{t("j")}
+                  Expires in {d} days
                 </td>
                 <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                   <button
@@ -702,7 +696,7 @@ function PendingSection({
                     style={{ padding: "4px 10px", marginRight: 6 }}
                     disabled={busyId === r.id}
                   >
-                    {t("Copier le lien")}
+                    Copy link
                   </button>
                   <button
                     className="ghost"
@@ -710,7 +704,7 @@ function PendingSection({
                     style={{ padding: "4px 10px", marginRight: 6 }}
                     disabled={busyId === r.id}
                   >
-                    {t("Renvoyer")}
+                    Resend
                   </button>
                   <button
                     className="ghost"
@@ -718,7 +712,7 @@ function PendingSection({
                     style={{ padding: "4px 10px", color: "var(--bad)", borderColor: "var(--bad)" }}
                     disabled={busyId === r.id}
                   >
-                    {t("Révoquer")}
+                    Revoke
                   </button>
                 </td>
               </tr>
@@ -742,7 +736,6 @@ function ModulesPicker({
   onToggle: (m: ModuleId, next: boolean) => void;
   disabled?: boolean;
 }) {
-  const t = useT();
   const set = new Set(selected);
   return (
     <div
@@ -775,7 +768,7 @@ function ModulesPicker({
               disabled={disabled}
               onChange={(e) => onToggle(m, e.target.checked)}
             />
-            <span>{t(MODULE_LABELS[m])}</span>
+            <span>{MODULE_LABELS[m]}</span>
           </label>
         );
       })}
@@ -794,7 +787,6 @@ function PermissionsModal({
   onSaved: () => void;
   onToast: (k: "ok" | "err", m: string) => void;
 }) {
-  const t = useT();
   // Seed with the user's current EFFECTIVE modules so unchecking starts from
   // what they can see today, not from an empty list.
   const initial = useMemo(
@@ -826,7 +818,7 @@ function PermissionsModal({
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
-      onToast("ok", t("Permissions enregistrées."));
+      onToast("ok", "Permissions saved.");
       onSaved();
       onClose();
     } catch (e) {
@@ -862,15 +854,15 @@ function PermissionsModal({
         }}
       >
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
-          <h3 style={{ margin: 0 }}>{t("Permissions")}</h3>
+          <h3 style={{ margin: 0 }}>Permissions</h3>
           <button className="ghost" onClick={onClose} style={{ padding: "2px 8px" }} disabled={busy}>×</button>
         </div>
         <p className="muted" style={{ margin: 0, fontSize: 13 }}>
           {member.display_name || member.email || member.user_id} ·{" "}
-          {t("Rôle")}: <span className="tag" style={{ marginLeft: 4 }}>{member.role}</span>
+          Role: <span className="tag" style={{ marginLeft: 4 }}>{member.role}</span>
         </p>
         <p className="muted" style={{ margin: 0, fontSize: 12 }}>
-          {t("Coche uniquement les modules visibles pour ce membre. Décoche pour les soustraire de son rôle par défaut.")}
+          Check only the modules visible to this member. Uncheck to remove from their default role.
         </p>
         <ModulesPicker selected={selected} onToggle={toggle} disabled={busy} />
         {err && <div style={{ color: "var(--bad)", fontSize: 13 }}>{err}</div>}
@@ -880,20 +872,20 @@ function PermissionsModal({
             className="ghost"
             onClick={() => void save(true)}
             disabled={busy}
-            title={t("Réinitialise à la liste par défaut du rôle.")}
+            title="Resets to the role's default list."
           >
-            {t("Restaurer les valeurs par défaut")}
+            Restore defaults
           </button>
           <div style={{ display: "flex", gap: 8 }}>
             <button type="button" className="ghost" onClick={onClose} disabled={busy}>
-              {t("Annuler")}
+              Cancel
             </button>
             <button
               type="button"
               onClick={() => void save(false)}
               disabled={busy || selected.length === 0}
             >
-              {busy ? t("Enregistrement…") : t("Enregistrer")}
+              {busy ? "Saving…" : "Save"}
             </button>
           </div>
         </div>
@@ -923,7 +915,6 @@ function InviteModal({
   onSent: () => void;
   onToast: (k: "ok" | "err", m: string) => void;
 }) {
-  const t = useT();
   const [email, setEmail] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState(() => suggestPassword());
@@ -988,12 +979,12 @@ function InviteModal({
 
   async function copyCredentials() {
     if (!created) return;
-    const text = `${t("Email")}: ${created.email}\n${t("Mot de passe")}: ${created.password}`;
+    const text = `Email: ${created.email}\nPassword: ${created.password}`;
     try {
       await navigator.clipboard.writeText(text);
-      onToast("ok", t("Identifiants copiés."));
+      onToast("ok", "Credentials copied.");
     } catch {
-      onToast("err", t("Impossible de copier."));
+      onToast("err", "Could not copy.");
     }
   }
 
@@ -1023,14 +1014,14 @@ function InviteModal({
         }}
       >
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
-          <h3 style={{ margin: 0 }}>{t("Créer un utilisateur")}</h3>
+          <h3 style={{ margin: 0 }}>Create user</h3>
           <button className="ghost" onClick={onClose} style={{ padding: "2px 8px" }}>×</button>
         </div>
 
         {!created ? (
           <form onSubmit={submit} style={{ display: "grid", gap: 12 }}>
             <div>
-              <label>{t("Email")}</label>
+              <label>Email</label>
               <input
                 type="email"
                 required
@@ -1041,16 +1032,16 @@ function InviteModal({
               />
             </div>
             <div>
-              <label>{t("Nom (optionnel)")}</label>
+              <label>Name (optional)</label>
               <input
                 type="text"
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
-                placeholder={t("Prénom Nom")}
+                placeholder="First Last"
               />
             </div>
             <div>
-              <label>{t("Mot de passe")}</label>
+              <label>Password</label>
               <div style={{ display: "flex", gap: 6 }}>
                 <input
                   type="text"
@@ -1064,32 +1055,32 @@ function InviteModal({
                   type="button"
                   className="ghost"
                   onClick={() => setPassword(suggestPassword())}
-                  title={t("Générer un autre mot de passe")}
+                  title="Generate another password"
                   style={{ padding: "4px 10px" }}
                 >
                   ↻
                 </button>
               </div>
               <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
-                {t("Minimum 8 caractères. Tu transmets ce mot de passe à la personne — elle pourra le changer plus tard.")}
+                Minimum 8 characters. Share this password with the person — they can change it later.
               </div>
             </div>
             <div>
-              <label>{t("Rôle")}</label>
+              <label>Role</label>
               <select
                 value={role}
                 onChange={(e) => handleRoleChange(e.target.value as (typeof INVITE_ROLES)[number])}
               >
                 {INVITE_ROLES.map((r) => (
                   <option key={r} value={r}>
-                    {t(ROLE_LABEL[r]?.label ?? r)}
+                    {ROLE_LABEL[r]?.label ?? r}
                   </option>
                 ))}
               </select>
             </div>
             <div>
               <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>
-                <label style={{ margin: 0 }}>{t("Accès")}</label>
+                <label style={{ margin: 0 }}>Access</label>
                 {!isDefault && (
                   <button
                     type="button"
@@ -1097,32 +1088,32 @@ function InviteModal({
                     onClick={() => setSelectedModules(defaultModulesForRole(role))}
                     style={{ padding: "2px 8px", fontSize: 12 }}
                   >
-                    {t("Accès complet du rôle")}
+                    Full role access
                   </button>
                 )}
               </div>
               <div className="muted" style={{ fontSize: 11, marginTop: 4, marginBottom: 6 }}>
-                {t("Coche uniquement les modules visibles pour cet utilisateur.")}
+                Check only the modules visible to this user.
               </div>
               <ModulesPicker selected={selectedModules} onToggle={toggleModule} disabled={busy} />
             </div>
             {err && <div style={{ color: "var(--bad)", fontSize: 13 }}>{err}</div>}
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
               <button type="button" className="ghost" onClick={onClose} disabled={busy}>
-                {t("Annuler")}
+                Cancel
               </button>
               <button type="submit" disabled={busy || !email || password.length < 8}>
-                {busy ? t("Création…") : t("Créer le compte")}
+                {busy ? "Creating…" : "Create account"}
               </button>
             </div>
           </form>
         ) : (
           <div style={{ display: "grid", gap: 12 }}>
             <div className="tag good" style={{ width: "fit-content" }}>
-              {t("Compte créé")}
+              Account created
             </div>
             <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-              {t("Transmets ces identifiants à la personne — c'est la seule fois où le mot de passe est affiché en clair.")}
+              Share these credentials with the person — this is the only time the password is shown in plain text.
             </p>
             <div
               style={{
@@ -1136,15 +1127,15 @@ function InviteModal({
                 gap: 4,
               }}
             >
-              <div><strong>{t("Email")} :</strong> {created.email}</div>
-              <div><strong>{t("Mot de passe")} :</strong> {created.password}</div>
+              <div><strong>Email :</strong> {created.email}</div>
+              <div><strong>Password :</strong> {created.password}</div>
             </div>
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
               <button type="button" className="ghost" onClick={onClose}>
-                {t("Fermer")}
+                Close
               </button>
               <button type="button" onClick={copyCredentials}>
-                {t("Copier les identifiants")}
+                Copy credentials
               </button>
             </div>
           </div>

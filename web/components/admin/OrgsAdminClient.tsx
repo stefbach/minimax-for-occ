@@ -2,7 +2,6 @@
 
 import { useState, useTransition, type ReactElement } from "react";
 import { useRouter } from "next/navigation";
-import { useT } from "@/lib/i18n";
 
 export interface OrgRow {
   id: string;
@@ -28,21 +27,21 @@ interface OwnerCredentials {
 // Free-form category with suggestions. The user can type anything; the
 // datalist just nudges toward common verticals so spelling stays consistent.
 const CATEGORY_SUGGESTIONS = [
-  "Clinique médicale",
-  "Hôtel",
+  "Medical clinic",
+  "Hotel",
   "Restaurant",
   "Call center",
-  "Cabinet d'avocats",
-  "Concessionnaire auto",
-  "Agence immobilière",
+  "Law firm",
+  "Car dealership",
+  "Real estate agency",
   "E-commerce",
-  "Autre",
+  "Other",
 ];
 
 function fmt(dt: string | null): string {
   if (!dt) return "—";
   try {
-    return new Date(dt).toLocaleDateString("fr-FR");
+    return new Date(dt).toLocaleDateString();
   } catch {
     return dt;
   }
@@ -54,27 +53,27 @@ function daysUntil(iso: string | null): number | null {
   return Math.max(0, Math.ceil(ms / (24 * 3600 * 1000)));
 }
 
-function statusBadge(s: Status, deletionAt: string | null, t: (s: string) => string): ReactElement {
+function statusBadge(s: Status, deletionAt: string | null): ReactElement {
   switch (s) {
     case "active":
-      return <span className="tag">{t("actif")}</span>;
+      return <span className="tag">active</span>;
     case "suspended":
       return (
         <span className="tag" style={{ background: "#b58105", color: "white" }}>
-          {t("suspendu")}
+          suspended
         </span>
       );
     case "archived":
       return (
         <span className="tag" style={{ background: "#555", color: "white" }}>
-          {t("archivé")}
+          archived
         </span>
       );
     case "pending_deletion": {
       const d = daysUntil(deletionAt);
       return (
         <span className="tag" style={{ background: "var(--bad)", color: "white" }}>
-          {t("suppression dans ") + String(d ?? "?") + "j"}
+          {"deletion in " + String(d ?? "?") + "d"}
         </span>
       );
     }
@@ -83,7 +82,6 @@ function statusBadge(s: Status, deletionAt: string | null, t: (s: string) => str
 
 export function OrgsAdminClient({ initial }: { initial: OrgRow[] }) {
   const router = useRouter();
-  const t = useT();
   const [rows, setRows] = useState<OrgRow[]>(initial);
 
   // Wizard form state
@@ -116,7 +114,7 @@ export function OrgsAdminClient({ initial }: { initial: OrgRow[] }) {
     e.preventDefault();
     setErr(null);
     if (!name.trim()) {
-      setErr(t("Le nom est requis."));
+      setErr("Name is required.");
       return;
     }
     setSubmitting(true);
@@ -136,7 +134,7 @@ export function OrgsAdminClient({ initial }: { initial: OrgRow[] }) {
       });
       const body = await r.json().catch(() => ({}));
       if (!r.ok) {
-        setErr(body.error || `Erreur ${r.status}`);
+        setErr(body.error || `Error ${r.status}`);
         return;
       }
       // Show credentials modal if an owner was provisioned.
@@ -159,7 +157,7 @@ export function OrgsAdminClient({ initial }: { initial: OrgRow[] }) {
     });
     if (!r.ok) {
       const body = await r.json().catch(() => ({}));
-      setErr(body.error || `Erreur ${r.status}`);
+      setErr(body.error || `Error ${r.status}`);
       return;
     }
     setRows((prev) =>
@@ -188,7 +186,7 @@ export function OrgsAdminClient({ initial }: { initial: OrgRow[] }) {
     });
     if (!r.ok) {
       const body = await r.json().catch(() => ({}));
-      setErr(body.error || `Erreur ${r.status}`);
+      setErr(body.error || `Error ${r.status}`);
       return;
     }
     startTransition(() => router.refresh());
@@ -200,11 +198,11 @@ export function OrgsAdminClient({ initial }: { initial: OrgRow[] }) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div className="muted" style={{ fontSize: 13 }}>
           {rows.length} client{rows.length > 1 ? "s" : ""} —{" "}
-          {rows.filter((r) => r.status === "active").length}{t(" actifs")}
+          {rows.filter((r) => r.status === "active").length} active
         </div>
         {!showForm && (
           <button className="primary" onClick={() => setShowForm(true)}>
-            {t("+ Créer un nouveau client")}
+            + Create new client
           </button>
         )}
       </div>
@@ -213,21 +211,21 @@ export function OrgsAdminClient({ initial }: { initial: OrgRow[] }) {
       {showForm && (
         <form onSubmit={createOrg} className="card" style={{ padding: 16, display: "grid", gap: 12 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-            <div style={{ fontWeight: 600, fontSize: 16 }}>{t("Créer un nouveau client")}</div>
+            <div style={{ fontWeight: 600, fontSize: 16 }}>Create new client</div>
             <button
               type="button"
               className="ghost"
               onClick={resetForm}
               style={{ fontSize: 12 }}
             >
-              {t("Annuler")}
+              Cancel
             </button>
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <div>
               <label style={{ fontSize: 12, color: "var(--muted)", display: "block", marginBottom: 4 }}>
-                {t("Nom du client *")}
+                Client name *
               </label>
               <input
                 placeholder="Obesity Care Clinic"
@@ -239,10 +237,10 @@ export function OrgsAdminClient({ initial }: { initial: OrgRow[] }) {
             </div>
             <div>
               <label style={{ fontSize: 12, color: "var(--muted)", display: "block", marginBottom: 4 }}>
-                {t("Slug (sous-domaine futur)")}
+                Slug (future subdomain)
               </label>
               <input
-                placeholder={t("auto-généré si vide")}
+                placeholder="auto-generated if empty"
                 value={slug}
                 onChange={(e) => setSlug(e.target.value)}
                 style={{ width: "100%", padding: "6px 8px" }}
@@ -250,11 +248,11 @@ export function OrgsAdminClient({ initial }: { initial: OrgRow[] }) {
             </div>
             <div style={{ gridColumn: "span 2" }}>
               <label style={{ fontSize: 12, color: "var(--muted)", display: "block", marginBottom: 4 }}>
-                {t("Catégorie")}
+                Category
               </label>
               <input
                 list="org-categories"
-                placeholder={t("Choisir ou taper une catégorie")}
+                placeholder="Choose or type a category"
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
                 style={{ width: "100%", padding: "6px 8px" }}
@@ -270,21 +268,21 @@ export function OrgsAdminClient({ initial }: { initial: OrgRow[] }) {
           {/* ── Owner section ────────────────────────────────────────── */}
           <div style={{ marginTop: 8, paddingTop: 12, borderTop: "1px solid var(--border)" }}>
             <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8 }}>
-              {t("Compte propriétaire (optionnel)")}
+              Owner account (optional)
             </div>
             <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
-              Si rempli, on crée le compte du patron du client avec le rôle{" "}
-              <span className="kbd">owner</span> et on te montre les credentials à lui transmettre.
-              Sinon, tu peux inviter l&apos;owner plus tard via la page Administration.
+              If filled in, we create the client owner account with the{" "}
+              <span className="kbd">owner</span> role and show you the credentials to pass on.
+              Otherwise, you can invite the owner later via the Administration page.
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <div>
                 <label style={{ fontSize: 12, color: "var(--muted)", display: "block", marginBottom: 4 }}>
-                  {t("Email du propriétaire")}
+                  Owner email
                 </label>
                 <input
                   type="email"
-                  placeholder="patron@client.com"
+                  placeholder="owner@client.com"
                   value={ownerEmail}
                   onChange={(e) => setOwnerEmail(e.target.value)}
                   style={{ width: "100%", padding: "6px 8px" }}
@@ -292,10 +290,10 @@ export function OrgsAdminClient({ initial }: { initial: OrgRow[] }) {
               </div>
               <div>
                 <label style={{ fontSize: 12, color: "var(--muted)", display: "block", marginBottom: 4 }}>
-                  {t("Nom (optionnel)")}
+                  Name (optional)
                 </label>
                 <input
-                  placeholder="Dr Coste"
+                  placeholder="Dr Smith"
                   value={ownerName}
                   onChange={(e) => setOwnerName(e.target.value)}
                   style={{ width: "100%", padding: "6px 8px" }}
@@ -303,11 +301,11 @@ export function OrgsAdminClient({ initial }: { initial: OrgRow[] }) {
               </div>
               <div style={{ gridColumn: "span 2" }}>
                 <label style={{ fontSize: 12, color: "var(--muted)", display: "block", marginBottom: 4 }}>
-                  {t("Mot de passe (vide = généré automatiquement)")}
+                  Password (empty = auto-generated)
                 </label>
                 <input
                   type="text"
-                  placeholder={t("16 caractères aléatoires si vide")}
+                  placeholder="16 random characters if empty"
                   value={ownerPassword}
                   onChange={(e) => setOwnerPassword(e.target.value)}
                   style={{ width: "100%", padding: "6px 8px" }}
@@ -318,7 +316,7 @@ export function OrgsAdminClient({ initial }: { initial: OrgRow[] }) {
 
           <div style={{ display: "flex", gap: 8 }}>
             <button type="submit" disabled={submitting || pending} className="primary">
-              {submitting ? t("Création…") : t("Créer le client")}
+              {submitting ? "Creating…" : "Create client"}
             </button>
           </div>
           {err && <div style={{ color: "var(--bad)", fontSize: 13 }}>{err}</div>}
@@ -330,19 +328,19 @@ export function OrgsAdminClient({ initial }: { initial: OrgRow[] }) {
       {/* ── Clients table ─────────────────────────────────────────────── */}
       <div className="card" style={{ padding: 0, overflow: "hidden" }}>
         {rows.length === 0 ? (
-          <div style={{ padding: 16, color: "var(--muted)" }}>{t("Aucun client. Créez-en un ci-dessus.")}</div>
+          <div style={{ padding: 16, color: "var(--muted)" }}>No clients yet. Create one above.</div>
         ) : (
           <table className="list">
             <thead>
               <tr>
-                <th>{t("Nom")}</th>
-                <th>{t("Slug")}</th>
-                <th>{t("Catégorie")}</th>
-                <th style={{ textAlign: "right" }}>{t("Membres")}</th>
-                <th style={{ textAlign: "right" }}>{t("Appels (7j)")}</th>
-                <th>{t("Créé le")}</th>
-                <th>{t("Statut")}</th>
-                <th style={{ textAlign: "right" }}>{t("Actions")}</th>
+                <th>Name</th>
+                <th>Slug</th>
+                <th>Category</th>
+                <th style={{ textAlign: "right" }}>Members</th>
+                <th style={{ textAlign: "right" }}>Calls (7d)</th>
+                <th>Created</th>
+                <th>Status</th>
+                <th style={{ textAlign: "right" }}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -356,7 +354,7 @@ export function OrgsAdminClient({ initial }: { initial: OrgRow[] }) {
                   <td style={{ textAlign: "right" }}>{r.members}</td>
                   <td style={{ textAlign: "right" }}>{r.calls_7d}</td>
                   <td style={{ color: "var(--muted)", fontSize: 13 }}>{fmt(r.created_at)}</td>
-                  <td>{statusBadge(r.status, r.deletion_scheduled_at, t)}</td>
+                  <td>{statusBadge(r.status, r.deletion_scheduled_at)}</td>
                   <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                     <button
                       className="ghost"
@@ -364,7 +362,7 @@ export function OrgsAdminClient({ initial }: { initial: OrgRow[] }) {
                       disabled={pending || r.status === "pending_deletion"}
                       style={{ fontSize: 12, marginRight: 6 }}
                     >
-                      {t("Se connecter")}
+                      Log in as
                     </button>
                     {r.status === "active" && (
                       <>
@@ -373,27 +371,27 @@ export function OrgsAdminClient({ initial }: { initial: OrgRow[] }) {
                           onClick={() => changeStatus(r.id, "suspended")}
                           disabled={pending}
                           style={{ fontSize: 12, marginRight: 6 }}
-                          title="Login bloqué, données préservées, facturation maintenue"
+                          title="Login blocked, data preserved, billing maintained"
                         >
-                          {t("Suspendre")}
+                          Suspend
                         </button>
                         <button
                           className="ghost"
                           onClick={() => changeStatus(r.id, "archived")}
                           disabled={pending}
                           style={{ fontSize: 12, marginRight: 6 }}
-                          title="Lecture seule, plus de facturation"
+                          title="Read-only, no billing"
                         >
-                          {t("Archiver")}
+                          Archive
                         </button>
                         <button
                           className="ghost"
                           onClick={() => setPendingAction({ id: r.id, status: "pending_deletion", name: r.name })}
                           disabled={pending}
                           style={{ fontSize: 12, color: "var(--bad)" }}
-                          title="Suppression programmée à J+30"
+                          title="Deletion scheduled in 30 days"
                         >
-                          Supprimer
+                          Delete
                         </button>
                       </>
                     )}
@@ -405,7 +403,7 @@ export function OrgsAdminClient({ initial }: { initial: OrgRow[] }) {
                           disabled={pending}
                           style={{ fontSize: 12, marginRight: 6 }}
                         >
-                          {t("Réactiver")}
+                          Reactivate
                         </button>
                         <button
                           className="ghost"
@@ -413,7 +411,7 @@ export function OrgsAdminClient({ initial }: { initial: OrgRow[] }) {
                           disabled={pending}
                           style={{ fontSize: 12, color: "var(--bad)" }}
                         >
-                          Supprimer
+                          Delete
                         </button>
                       </>
                     )}
@@ -424,7 +422,7 @@ export function OrgsAdminClient({ initial }: { initial: OrgRow[] }) {
                         disabled={pending}
                         style={{ fontSize: 12 }}
                       >
-                        {t("Annuler la suppression")}
+                        Cancel deletion
                       </button>
                     )}
                   </td>
@@ -437,33 +435,33 @@ export function OrgsAdminClient({ initial }: { initial: OrgRow[] }) {
 
       {/* ── Credentials modal (after creating an owner) ─────────────── */}
       {credentialsModal && (
-        <Modal onClose={() => setCredentialsModal(null)} title={`Client "${credentialsModal.org}" créé`}>
+        <Modal onClose={() => setCredentialsModal(null)} title={`Client "${credentialsModal.org}" created`}>
           {credentialsModal.owner.created ? (
             <>
               <p>
-                Le compte propriétaire a été créé. <strong>Transmets ces identifiants au patron du client</strong> —
-                ils ne seront plus jamais affichés.
+                The owner account has been created. <strong>Share these credentials with the client owner</strong> —
+                they will not be shown again.
               </p>
               <div className="card" style={{ padding: 12, marginTop: 12 }}>
                 <div style={{ fontSize: 12, color: "var(--muted)" }}>Email</div>
                 <div style={{ fontFamily: "monospace", marginBottom: 8 }}>{credentialsModal.owner.email}</div>
-                <div style={{ fontSize: 12, color: "var(--muted)" }}>{t("Mot de passe initial")}</div>
+                <div style={{ fontSize: 12, color: "var(--muted)" }}>Initial password</div>
                 <div style={{ fontFamily: "monospace" }}>{credentialsModal.owner.password}</div>
               </div>
               <button
                 style={{ marginTop: 12 }}
                 onClick={() => {
-                  const txt = `Email: ${credentialsModal.owner.email}\nMot de passe: ${credentialsModal.owner.password}`;
+                  const txt = `Email: ${credentialsModal.owner.email}\nPassword: ${credentialsModal.owner.password}`;
                   navigator.clipboard?.writeText(txt);
                 }}
               >
-                {t("Copier les credentials")}
+                Copy credentials
               </button>
             </>
           ) : (
             <p>
-              L&apos;utilisateur <strong>{credentialsModal.owner.email}</strong> existait déjà — il a simplement été
-              ajouté comme <span className="kbd">owner</span> de ce nouveau client. Son mot de passe reste inchangé.
+              The user <strong>{credentialsModal.owner.email}</strong> already existed — they have simply been
+              added as <span className="kbd">owner</span> of this new client. Their password remains unchanged.
             </p>
           )}
         </Modal>
@@ -473,22 +471,21 @@ export function OrgsAdminClient({ initial }: { initial: OrgRow[] }) {
       {pendingAction && (
         <Modal
           onClose={() => setPendingAction(null)}
-          title={t("Confirmer la suppression")}
+          title="Confirm deletion"
         >
           <p>
-            Le client <strong>{pendingAction.name}</strong> sera marqué pour suppression. Pendant{" "}
-            <strong>30 jours</strong>, ses données restent récupérables (RGPD). Passé ce délai, suppression
-            définitive automatique.
+            Client <strong>{pendingAction.name}</strong> will be marked for deletion. For{" "}
+            <strong>30 days</strong>, their data remains recoverable (GDPR). After that, automatic permanent deletion.
           </p>
           <p>
-            Tu peux annuler à tout moment pendant ces 30 jours en cliquant <em>Annuler la suppression</em>.
+            You can cancel at any time within those 30 days by clicking <em>Cancel deletion</em>.
           </p>
           <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
             <button onClick={() => changeStatus(pendingAction.id, pendingAction.status)} className="primary">
-              {t("Confirmer la suppression")}
+              Confirm deletion
             </button>
             <button onClick={() => setPendingAction(null)} className="ghost">
-              Annuler
+              Cancel
             </button>
           </div>
         </Modal>

@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase-browser";
-import { useT } from "@/lib/i18n";
 
 type Handle = {
   id: string;
@@ -30,7 +29,6 @@ export function TransferModal({
   onClose: () => void;
   onTransferred: () => void;
 }) {
-  const t = useT();
   const [handles, setHandles] = useState<Handle[]>([]);
   const [presence, setPresence] = useState<Map<string, string>>(new Map());
   const [busy, setBusy] = useState<string | null>(null);
@@ -114,13 +112,13 @@ export function TransferModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <h3 style={{ margin: 0 }}>{t("Transférer l'appel")}</h3>
+          <h3 style={{ margin: 0 }}>Transfer call</h3>
           <button className="ghost" onClick={onClose}>
-            {t("Fermer")}
+            Close
           </button>
         </div>
         <p className="muted" style={{ marginTop: 6 }}>
-          {t("Sélectionnez un agent IA ou un humain disponible.")}
+          Select an AI agent or an available human agent.
         </p>
 
         {error && (
@@ -130,7 +128,7 @@ export function TransferModal({
         )}
 
         {targets.length === 0 ? (
-          <p className="muted">{t("Aucune cible disponible.")}</p>
+          <p className="muted">No available targets.</p>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {targets.map((h) => (
@@ -150,11 +148,11 @@ export function TransferModal({
                 <span>
                   <strong style={{ fontSize: 13 }}>{h.display_name}</strong>
                   <span className="muted" style={{ marginLeft: 8, fontSize: 12 }}>
-                    {h.kind === "ai" ? "IA" : "humain · disponible"}
+                    {h.kind === "ai" ? "AI" : "human · available"}
                   </span>
                 </span>
                 <span className="tag">
-                  {busy === h.id ? "…" : t("Transférer")}
+                  {busy === h.id ? "…" : "Transfer"}
                 </span>
               </button>
             ))}

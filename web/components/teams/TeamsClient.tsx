@@ -1,7 +1,6 @@
 "use client";
 
 import { Fragment, useEffect, useState } from "react";
-import { useT } from "@/lib/i18n";
 
 export interface TeamRow {
   id: string;
@@ -27,7 +26,6 @@ interface TeamMember {
 }
 
 export function TeamsClient({ initial, agents }: { initial: TeamRow[]; agents: AgentOption[] }) {
-  const tr = useT();
   const [teams, setTeams] = useState<TeamRow[]>(initial);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [members, setMembers] = useState<Record<string, TeamMember[]>>({});
@@ -74,7 +72,7 @@ export function TeamsClient({ initial, agents }: { initial: TeamRow[]; agents: A
     setBusy(false);
     if (!r.ok) {
       const j = await r.json().catch(() => ({}));
-      setError(j.error ?? "Erreur");
+      setError(j.error ?? "Error");
       return;
     }
     setName("");
@@ -84,7 +82,7 @@ export function TeamsClient({ initial, agents }: { initial: TeamRow[]; agents: A
   }
 
   async function deleteTeam(id: string) {
-    if (!confirm(tr("Supprimer cette team et tous ses membres ?"))) return;
+    if (!confirm("Delete this team and all its members?")) return;
     await fetch(`/api/teams/${id}`, { method: "DELETE" });
     refresh();
     if (expanded === id) setExpanded(null);
@@ -137,17 +135,17 @@ export function TeamsClient({ initial, agents }: { initial: TeamRow[]; agents: A
   return (
     <div style={{ display: "grid", gap: 16 }}>
       <div className="card">
-        <h3 style={{ marginTop: 0 }}>{tr("Créer une team")}</h3>
+        <h3 style={{ marginTop: 0 }}>{"Create a team"}</h3>
         <form onSubmit={createTeam} style={{ display: "grid", gap: 10 }}>
           <div className="form-row">
             <div>
-              <label>{tr("Nom")}</label>
-              <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Concierge digital · multi-spécialistes" required />
+              <label>{"Name"}</label>
+              <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Digital concierge · multi-specialist" required />
             </div>
             <div>
-              <label>{tr("Agent lead (router)")}</label>
+              <label>{"Lead agent (router)"}</label>
               <select value={leadAgentId} onChange={(e) => setLeadAgentId(e.target.value)}>
-                <option value="">{tr("— aucun (premier membre ajouté servira) —")}</option>
+                <option value="">{"— none (first added member will serve) —"}</option>
                 {agents.map((a) => (
                   <option key={a.id} value={a.id}>{a.name}</option>
                 ))}
@@ -155,12 +153,12 @@ export function TeamsClient({ initial, agents }: { initial: TeamRow[]; agents: A
             </div>
           </div>
           <div>
-            <label>{tr("Description")}</label>
+            <label>{"Description"}</label>
             <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Ex: facturation, support technique, ventes" />
           </div>
           {error && <div style={{ color: "var(--bad)", fontSize: 13 }}>{error}</div>}
           <div>
-            <button type="submit" disabled={busy || !name}>{busy ? "…" : tr("Créer la team")}</button>
+            <button type="submit" disabled={busy || !name}>{busy ? "…" : "Create team"}</button>
           </div>
         </form>
       </div>
@@ -177,11 +175,11 @@ export function TeamsClient({ initial, agents }: { initial: TeamRow[]; agents: A
             <div>
               <button
                 onClick={() => {
-                  const el = document.querySelector<HTMLInputElement>("input[placeholder^=\"Concierge digital\"]");
+                  const el = document.querySelector<HTMLInputElement>("input[placeholder^=\"Digital concierge\"]");
                   el?.focus();
                 }}
               >
-                {tr("+ Créer une team")}
+                {"+ Create a team"}
               </button>
             </div>
           </div>
@@ -189,9 +187,9 @@ export function TeamsClient({ initial, agents }: { initial: TeamRow[]; agents: A
           <table className="list">
             <thead>
               <tr>
-                <th>{tr("Nom")}</th>
-                <th>{tr("Lead")}</th>
-                <th>{tr("Description")}</th>
+                <th>{"Name"}</th>
+                <th>{"Lead"}</th>
+                <th>{"Description"}</th>
                 <th></th>
               </tr>
             </thead>
@@ -223,9 +221,9 @@ export function TeamsClient({ initial, agents }: { initial: TeamRow[]; agents: A
                           href={`/teams/${team.id}`}
                           style={{ marginRight: 8, color: "var(--accent-2)", fontWeight: 600, textDecoration: "none" }}
                         >
-                          {tr("Voir le parcours →")}
+                          {"View flow →"}
                         </a>
-                        <button className="danger" style={{ padding: "5px 9px" }} onClick={() => deleteTeam(team.id)}>{tr("Supprimer")}</button>
+                        <button className="danger" style={{ padding: "5px 9px" }} onClick={() => deleteTeam(team.id)}>{"Delete"}</button>
                       </td>
                     </tr>
                     {expanded === team.id && (
@@ -239,7 +237,7 @@ export function TeamsClient({ initial, agents }: { initial: TeamRow[]; agents: A
                                 onChange={(e) => setLead(team.id, e.target.value)}
                                 style={{ minWidth: 220 }}
                               >
-                                <option value="">{tr("— aucun —")}</option>
+                                <option value="">{"— none —"}</option>
                                 {agents.map((a) => (
                                   <option key={a.id} value={a.id}>{a.name}</option>
                                 ))}
@@ -251,7 +249,7 @@ export function TeamsClient({ initial, agents }: { initial: TeamRow[]; agents: A
                             </div>
 
                             {ms.length === 0 ? (
-                              <div style={{ color: "var(--muted)", fontSize: 13 }}>{tr("Aucun spécialiste ajouté.")}</div>
+                              <div style={{ color: "var(--muted)", fontSize: 13 }}>{"No specialists added."}</div>
                             ) : (
                               <div style={{ display: "grid", gap: 6 }}>
                                 {ms.map((m) => (
@@ -276,11 +274,11 @@ export function TeamsClient({ initial, agents }: { initial: TeamRow[]; agents: A
                                     </div>
                                     <span className="tag">{m.specialty ?? "—"}</span>
                                     <span style={{ color: "var(--muted)", fontSize: 12 }}>
-                                      {m.transfer_description ?? <em>{tr("(aucune description)")}</em>}
+                                      {m.transfer_description ?? <em>{"(no description)"}</em>}
                                     </span>
                                     <span style={{ color: "var(--muted)", fontSize: 12 }}>p{m.priority}</span>
                                     <button className="danger" style={{ padding: "4px 8px" }} onClick={() => removeMember(team.id, m.id)}>
-                                      {tr("Retirer")}
+                                      {"Remove"}
                                     </button>
                                   </div>
                                 ))}
@@ -289,7 +287,7 @@ export function TeamsClient({ initial, agents }: { initial: TeamRow[]; agents: A
 
                             <div style={{ display: "grid", gridTemplateColumns: "1fr 160px 2fr 80px auto", gap: 8, alignItems: "end" }}>
                               <div>
-<label style={{ fontSize: 11 }}>{tr("Agent")}</label>
+<label style={{ fontSize: 11 }}>{"Agent"}</label>
                                 <select
                                   value={d.agent_id}
                                   onChange={(e) => setDraftField(team.id, "agent_id", e.target.value)}
@@ -311,7 +309,7 @@ export function TeamsClient({ initial, agents }: { initial: TeamRow[]; agents: A
                                 />
                               </div>
                               <div>
-<label style={{ fontSize: 11 }}>{tr("Description visible au LLM")}</label>
+<label style={{ fontSize: 11 }}>{"Description visible to LLM"}</label>
                                 <input
                                   value={d.transfer_description}
                                   placeholder="Transfer here for billing questions…"
@@ -319,7 +317,7 @@ export function TeamsClient({ initial, agents }: { initial: TeamRow[]; agents: A
                                 />
                               </div>
                               <div>
-<label style={{ fontSize: 11 }}>{tr("Priorité")}</label>
+<label style={{ fontSize: 11 }}>{"Priority"}</label>
                                 <input
                                   type="number"
                                   min={1}
@@ -332,9 +330,9 @@ export function TeamsClient({ initial, agents }: { initial: TeamRow[]; agents: A
                                 type="button"
                                 onClick={() => addMember(team.id)}
                                 disabled={!d.agent_id}
-                                title={!d.agent_id ? tr("Sélectionnez d'abord un agent") : tr("Ajouter ce spécialiste à la team")}
+                                title={!d.agent_id ? "Select an agent first" : "Add this specialist to the team"}
                               >
-                                {tr("+ Ajouter")}
+                                {"+ Add"}
                               </button>
                             </div>
                           </div>
