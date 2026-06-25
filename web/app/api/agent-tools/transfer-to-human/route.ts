@@ -89,9 +89,15 @@ export async function POST(req: Request) {
       status: "pending",
     })
     .select("id")
-    .single();
+    .maybeSingle();
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+  // The dedupe trigger folds a transfer for a patient who already has an open
+  // task into that existing task (no inserted row returned). The transfer
+  // still succeeded — the patient is already in the human queue.
+  if (!data) {
+    return NextResponse.json({ task_id: null, deduped: true });
   }
 
   return NextResponse.json({ task_id: (data as { id: string }).id });
