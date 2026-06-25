@@ -84,7 +84,7 @@ export function AdminClient({
     });
     if (!r.ok) {
       const j = await r.json().catch(() => ({}));
-      setError(j.error ?? "Erreur lors du changement de rôle");
+      setError(j.error ?? "Error changing role");
       return;
     }
     setError(null);
@@ -92,14 +92,14 @@ export function AdminClient({
   }
 
   async function removeMember(userId: string) {
-    if (!confirm("Retirer cet utilisateur de l'organisation ?")) return;
+    if (!confirm("Remove this user from the organisation?")) return;
     const r = await fetch(
       `/api/admin/users?user_id=${encodeURIComponent(userId)}&org_id=${encodeURIComponent(orgId)}`,
       { method: "DELETE" },
     );
     if (!r.ok) {
       const j = await r.json().catch(() => ({}));
-      setError(j.error ?? "Erreur lors de la suppression");
+      setError(j.error ?? "Error removing user");
       return;
     }
     setError(null);
@@ -125,10 +125,10 @@ export function AdminClient({
     setCreateBusy(false);
     if (!r.ok) {
       const j = await r.json().catch(() => ({}));
-      setError(j.error ?? "Erreur lors de la création");
+      setError(j.error ?? "Error creating user");
       return;
     }
-    setCreateOk(`${newEmail} créé. Mot de passe à transmettre à l'utilisateur.`);
+    setCreateOk(`${newEmail} created. Share the password with the user.`);
     setNewEmail(""); setNewPassword(""); setNewDisplayName(""); setNewRole("agent");
     refreshUsers();
   }
@@ -145,7 +145,7 @@ export function AdminClient({
     setInviteBusy(false);
     if (!r.ok) {
       const j = await r.json().catch(() => ({}));
-      setError(j.error ?? "Erreur lors de la création de l'invitation");
+      setError(j.error ?? "Error creating invitation");
       return;
     }
     setInviteEmail("");
@@ -154,13 +154,13 @@ export function AdminClient({
   }
 
   async function revokeInvite(id: string) {
-    if (!confirm("Révoquer cette invitation ?")) return;
+    if (!confirm("Revoke this invitation?")) return;
     const r = await fetch(`/api/admin/invitations?id=${encodeURIComponent(id)}`, {
       method: "DELETE",
     });
     if (!r.ok) {
       const j = await r.json().catch(() => ({}));
-      setError(j.error ?? "Erreur lors de la révocation");
+      setError(j.error ?? "Error revoking invitation");
       return;
     }
     refreshInvites();
@@ -172,14 +172,14 @@ export function AdminClient({
       setCopied(id);
       setTimeout(() => setCopied(null), 1500);
     } catch {
-      setError("Copie impossible");
+      setError("Copy failed");
     }
   }
 
   function fmt(dt: string | null): string {
     if (!dt) return "—";
     try {
-      return new Date(dt).toLocaleString("fr-FR");
+      return new Date(dt).toLocaleString();
     } catch {
       return dt;
     }
@@ -196,7 +196,7 @@ export function AdminClient({
               className={tab === t ? "" : "ghost"}
               style={{ textTransform: "capitalize" }}
             >
-              {t === "users" ? "Utilisateurs" : t === "invitations" ? "Invitations" : "Paramètres"}
+              {t === "users" ? "Users" : t === "invitations" ? "Invitations" : "Settings"}
             </button>
           ))}
         </nav>
@@ -211,7 +211,7 @@ export function AdminClient({
       {tab === "users" && (
         <>
           <div className="card">
-            <h3 style={{ marginTop: 0 }}>Créer un utilisateur (email + mot de passe)</h3>
+            <h3 style={{ marginTop: 0 }}>Create a user (email + password)</h3>
             <form onSubmit={createUser} style={{ display: "grid", gap: 10 }}>
               <div className="form-row">
                 <div>
@@ -221,32 +221,32 @@ export function AdminClient({
                     required
                     value={newEmail}
                     onChange={(e) => setNewEmail(e.target.value)}
-                    placeholder="utilisateur@example.com"
+                    placeholder="user@example.com"
                   />
                 </div>
                 <div>
-                  <label>Nom complet (optionnel)</label>
+                  <label>Full name (optional)</label>
                   <input
                     value={newDisplayName}
                     onChange={(e) => setNewDisplayName(e.target.value)}
-                    placeholder="Jean Dupont"
+                    placeholder="John Smith"
                   />
                 </div>
               </div>
               <div className="form-row">
                 <div>
-                  <label>Mot de passe (8 caractères min.)</label>
+                  <label>Password (min. 8 characters)</label>
                   <input
                     type="password"
                     required
                     minLength={8}
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
-                    placeholder="Mot de passe initial"
+                    placeholder="Initial password"
                   />
                 </div>
                 <div>
-                  <label>Rôle</label>
+                  <label>Role</label>
                   <select value={newRole} onChange={(e) => setNewRole(e.target.value)}>
                     {ROLES.map((r) => (
                       <option key={r} value={r}>{r}</option>
@@ -259,31 +259,31 @@ export function AdminClient({
               )}
               <div>
                 <button type="submit" disabled={createBusy || !newEmail || newPassword.length < 8}>
-                  {createBusy ? "…" : "Créer l'utilisateur"}
+                  {createBusy ? "…" : "Create user"}
                 </button>
               </div>
               <div style={{ fontSize: 12, color: "var(--muted)" }}>
-                L&apos;utilisateur est créé avec son email validé. Il peut se connecter
-                immédiatement avec le mot de passe que vous lui transmettez. Pour un flux
-                par lien magique, utilisez l&apos;onglet Invitations à la place.
+                The user is created with a verified email and can log in immediately
+                with the password you share with them. For a magic-link flow, use the
+                Invitations tab instead.
               </div>
             </form>
           </div>
           <div className="card" style={{ padding: 0, overflow: "hidden" }}>
           {loading ? (
-            <div style={{ padding: 16, color: "var(--muted)" }}>Chargement…</div>
+            <div style={{ padding: 16, color: "var(--muted)" }}>Loading…</div>
           ) : members.length === 0 ? (
             <div style={{ padding: 16, color: "var(--muted)" }}>
-              Aucun membre dans cette organisation.
+              No members in this organisation.
             </div>
           ) : (
             <table className="list">
               <thead>
                 <tr>
-                  <th>Nom</th>
+                  <th>Name</th>
                   <th>Email</th>
-                  <th>Rôle</th>
-                  <th>Dernière connexion</th>
+                  <th>Role</th>
+                  <th>Last login</th>
                   <th></th>
                 </tr>
               </thead>
@@ -323,7 +323,7 @@ export function AdminClient({
                         style={{ padding: "5px 9px" }}
                         onClick={() => removeMember(m.user_id)}
                       >
-                        Retirer
+                        Remove
                       </button>
                     </td>
                   </tr>
@@ -338,7 +338,7 @@ export function AdminClient({
       {tab === "invitations" && (
         <>
           <div className="card">
-            <h3 style={{ marginTop: 0 }}>Inviter un utilisateur</h3>
+            <h3 style={{ marginTop: 0 }}>Invite a user</h3>
             <form onSubmit={createInvite} style={{ display: "grid", gap: 10 }}>
               <div className="form-row">
                 <div>
@@ -348,11 +348,11 @@ export function AdminClient({
                     required
                     value={inviteEmail}
                     onChange={(e) => setInviteEmail(e.target.value)}
-                    placeholder="utilisateur@example.com"
+                    placeholder="user@example.com"
                   />
                 </div>
                 <div>
-                  <label>Rôle</label>
+                  <label>Role</label>
                   <select value={inviteRole} onChange={(e) => setInviteRole(e.target.value)}>
                     {ROLES.map((r) => (
                       <option key={r} value={r}>
@@ -364,12 +364,11 @@ export function AdminClient({
               </div>
               <div>
                 <button type="submit" disabled={inviteBusy || !inviteEmail}>
-                  {inviteBusy ? "…" : "Créer l'invitation"}
+                  {inviteBusy ? "…" : "Create invitation"}
                 </button>
               </div>
               <div style={{ fontSize: 12, color: "var(--muted)" }}>
-                L&apos;envoi par email n&apos;est pas encore configuré : copiez le lien généré et
-                transmettez-le manuellement.
+                Email sending is not yet configured: copy the generated link and share it manually.
               </div>
             </form>
           </div>
@@ -377,16 +376,16 @@ export function AdminClient({
           <div className="card" style={{ padding: 0, overflow: "hidden" }}>
             {invites.length === 0 ? (
               <div style={{ padding: 16, color: "var(--muted)" }}>
-                Aucune invitation en attente.
+                No pending invitations.
               </div>
             ) : (
               <table className="list">
                 <thead>
                   <tr>
                     <th>Email</th>
-                    <th>Rôle</th>
-                    <th>Créée</th>
-                    <th>Expire</th>
+                    <th>Role</th>
+                    <th>Created</th>
+                    <th>Expires</th>
                     <th></th>
                   </tr>
                 </thead>
@@ -409,14 +408,14 @@ export function AdminClient({
                           style={{ padding: "5px 9px", marginRight: 6 }}
                           onClick={() => copyLink(i.accept_url, i.id)}
                         >
-                          {copied === i.id ? "Copié !" : "Copier le lien"}
+                          {copied === i.id ? "Copied!" : "Copy link"}
                         </button>
                         <button
                           className="danger"
                           style={{ padding: "5px 9px" }}
                           onClick={() => revokeInvite(i.id)}
                         >
-                          Révoquer
+                          Revoke
                         </button>
                       </td>
                     </tr>
@@ -430,10 +429,10 @@ export function AdminClient({
 
       {tab === "settings" && (
         <div className="card">
-          <h3 style={{ marginTop: 0 }}>Paramètres de l&apos;organisation</h3>
+          <h3 style={{ marginTop: 0 }}>Organisation settings</h3>
           <div style={{ display: "grid", gap: 10 }}>
             <div>
-              <label>Nom</label>
+              <label>Name</label>
               <input value={orgName} readOnly />
             </div>
             <div>
@@ -441,7 +440,7 @@ export function AdminClient({
               <input value={orgSlug} readOnly />
             </div>
             <div style={{ fontSize: 12, color: "var(--muted)" }}>
-              L&apos;édition de ces champs sera disponible prochainement.
+              Editing these fields will be available soon.
             </div>
           </div>
         </div>
