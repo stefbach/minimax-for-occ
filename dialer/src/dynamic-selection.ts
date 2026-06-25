@@ -259,7 +259,7 @@ export async function runDynamicSelection(sb: SupabaseClient, campaign: Campaign
           .order("id", { ascending: true })
           .range(from, from + PAGE_BL - 1);
         if (blErr) throw new Error(blErr.message);
-        const batch = (blRows ?? []) as Record<string, unknown>[];
+        const batch = (blRows ?? []) as unknown as Record<string, unknown>[];
         for (const r of batch) {
           const p = normalisePhoneToE164(String(r[phoneCol] ?? ""));
           if (p) blacklistedPhones.add(p);
