@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { SipClient } from "livekit-server-sdk";
 import { supabaseSession } from "@/lib/supabase-auth";
 import { supabaseServer } from "@/lib/supabase";
-import { NoPhoneNumberError, pickFromNumber } from "@/lib/geo-routing";
+import { NoPhoneNumberError, resolveOutboundFrom } from "@/lib/outbound-numbers";
 import { rateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
@@ -51,7 +51,7 @@ const DIAL_RATE_LIMIT = Number(process.env.DIAL_RATE_LIMIT_PER_MINUTE ?? 30);
  *   APP_URL                        (https origin of this Next.js deployment)
  */
 export async function POST(req: Request) {
-  const body = (await req.json().catch(() => ({}))) as { to_e164?: string };
+  const body = (await req.json().catch(() => ({}))) as { to_e164?: string; from_e164?: string };
   const to = (body.to_e164 ?? "").trim();
   if (!to || !/^\+\d{6,15}$/.test(to)) {
     return NextResponse.json({ error: "to_e164 must be E.164 (e.g. +33756123456)" }, { status: 400 });
@@ -113,10 +113,15 @@ export async function POST(req: Request) {
     }
   }
 
+  // Per-agent caller-ID restriction: if numbers are assigned to this agent,
+  // the From must be one of them (body.from_e164 is their pick from the
+  // softphone; an unassigned number is ignored and their default is used).
+  // No assignment → org default geo-routing. Enforced server-side here, the
+  // client can't widen its own access.
   let from: string;
   try {
-    const picked = await pickFromNumber(admin, handle.org_id, to);
-    from = picked.e164;
+    const resolved = await resolveOutboundFrom(admin, handle.org_id, user.id, to, body.from_e164);
+    from = resolved.e164;
   } catch (err) {
     if (err instanceof NoPhoneNumberError) {
       return NextResponse.json(

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseSession } from "@/lib/supabase-auth";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { requestOrgId } from "@/lib/request-org";
+import { getAssignedOutboundNumbers } from "@/lib/outbound-numbers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,21 +10,23 @@ export const dynamic = "force-dynamic";
 /**
  * GET /api/desk/caller-id
  *
- * Returns `{ e164, source }` — the phone_numbers row to use as the From
- * caller-ID when the human agent dials from /desk.
+ * Returns `{ e164, numbers, source }` — the caller-ID(s) the human agent may
+ * use as the From when dialling from /desk.
  *
- *   - First, the row tagged metadata->>role = 'human'.
- *   - Otherwise, the first active twilio row that isn't already in use as
- *     a campaign caller-ID (campaigns.phone_number_id).
- *   - Otherwise, the org's is_default number.
- *   - Otherwise, any active number (alphabetical first).
+ *   - FIRST: the numbers ASSIGNED to this agent (outbound_number_agents). When
+ *     present, the agent is restricted to these — `e164` is their primary and
+ *     `numbers` lists every number they may pick in the softphone.
+ *   - Otherwise (no assignment) the org-wide fallback, returned as a single
+ *     option so the agent still has a working caller-ID:
+ *       · the row tagged metadata->>role = 'human', else
+ *       · the first active twilio row not used as a campaign caller-ID, else
+ *       · the org is_default number, else any active number.
  *
- * Falls back to { e164: null } if the org owns no usable number — the
- * Softphone then lets Twilio's TwiML default (the account verified
- * outbound number) take over, same as today.
+ * Falls back to { e164: null, numbers: [] } if the org owns no usable number —
+ * the Softphone then lets Twilio's TwiML default take over, same as today.
  */
 export async function GET(req: Request) {
-  if (!hasSupabase()) return NextResponse.json({ e164: null, source: "no-db" });
+  if (!hasSupabase()) return NextResponse.json({ e164: null, numbers: [], source: "no-db" });
 
   const sb = await supabaseSession();
   const { data: auth } = await sb.auth.getUser();
@@ -31,6 +34,20 @@ export async function GET(req: Request) {
 
   const orgId = await requestOrgId(req);
   const admin = supabaseServer();
+
+  // 0. Numbers explicitly assigned to THIS agent — the restriction layer.
+  //    When set, the agent may only dial out from one of these.
+  {
+    const assigned = await getAssignedOutboundNumbers(admin, orgId, auth.user.id);
+    if (assigned.length > 0) {
+      const primary = assigned.find((n) => n.is_primary) ?? assigned[0];
+      return NextResponse.json({
+        e164: primary.e164,
+        numbers: assigned.map((n) => ({ e164: n.e164, label: n.label, is_primary: n.is_primary })),
+        source: "agent-assigned",
+      });
+    }
+  }
 
   // 1. Tagged human number.
   {
@@ -44,7 +61,7 @@ export async function GET(req: Request) {
       .order("created_at", { ascending: true })
       .limit(1);
     if (data && data.length > 0) {
-      return NextResponse.json({ e164: data[0].e164, source: "metadata.role=human" });
+      return NextResponse.json({ e164: data[0].e164, numbers: [], source: "metadata.role=human" });
     }
   }
 
@@ -75,13 +92,14 @@ export async function GET(req: Request) {
     if (free) {
       return NextResponse.json({
         e164: free.e164,
+        numbers: [],
         source: free.is_default ? "is_default" : "fallback-free",
       });
     }
     // Every number is a campaign CID — fall back to the org default anyway,
     // because not having a caller-ID at all is worse than re-using one.
-    return NextResponse.json({ e164: actives[0].e164, source: "fallback-default" });
+    return NextResponse.json({ e164: actives[0].e164, numbers: [], source: "fallback-default" });
   }
 
-  return NextResponse.json({ e164: null, source: "none" });
+  return NextResponse.json({ e164: null, numbers: [], source: "none" });
 }
