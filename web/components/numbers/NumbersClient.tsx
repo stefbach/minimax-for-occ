@@ -836,34 +836,59 @@ export function NumbersClient({
                       </label>
                     </td>
                     <td>
-                      <div style={{ display: "grid", gap: 4 }}>
-                        <label
-                          style={{ display: "inline-flex", gap: 6, alignItems: "center" }}
+                      <div style={{ display: "grid", gap: 6, minWidth: 172 }}>
+                        {/* Interrupteur principal : ce numéro décroche-t-il les appels entrants ? */}
+                        <button
+                          type="button"
+                          onClick={() => patch(n.id, { inbound_enabled: !n.inbound_enabled })}
                           title="Quand ON, ce numéro décroche les appels ENTRANTS. OFF = aucun décrochage (sécurité)."
+                          style={{
+                            display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
+                            padding: "5px 10px", fontSize: 12, fontWeight: 600, borderRadius: 6, cursor: "pointer",
+                            border: `1px solid ${n.inbound_enabled ? "var(--good)" : "var(--border)"}`,
+                            background: n.inbound_enabled ? "color-mix(in srgb, var(--good) 14%, transparent)" : "transparent",
+                            color: n.inbound_enabled ? "var(--good)" : "var(--muted)",
+                          }}
                         >
-                          <input
-                            type="checkbox"
-                            checked={!!n.inbound_enabled}
-                            onChange={(e) => patch(n.id, { inbound_enabled: e.target.checked })}
-                          />
-                          {n.inbound_enabled
-                            ? <span className="tag good">entrant ON</span>
-                            : <span className="tag">entrant OFF</span>}
-                        </label>
-                        <label
-                          style={{ display: "inline-flex", gap: 6, alignItems: "center", fontSize: 11, opacity: n.inbound_enabled ? 1 : 0.5 }}
-                          title="Humain d'abord : faire sonner les agents humains assignés (en ligne) AVANT Charlotte. Décoché = Charlotte (IA) répond directement."
+                          {n.inbound_enabled ? "🟢 Entrant ON" : "⚪ Entrant OFF"}
+                        </button>
+                        {/* Mode — toujours sélectionnable (s'applique dès qu'Entrant est ON). */}
+                        <div
+                          title="Humain d'abord : faire sonner les agents humains assignés (en ligne) AVANT Charlotte. IA seulement : Charlotte (IA) répond directement."
+                          style={{
+                            display: "grid", gridTemplateColumns: "1fr 1fr",
+                            border: "1px solid var(--border)", borderRadius: 6, overflow: "hidden",
+                            opacity: n.inbound_enabled ? 1 : 0.6,
+                          }}
                         >
-                          <input
-                            type="checkbox"
-                            checked={!!n.human_first_enabled}
-                            disabled={!n.inbound_enabled}
-                            onChange={(e) => patch(n.id, { human_first_enabled: e.target.checked })}
-                          />
-                          {n.human_first_enabled
-                            ? <span className="tag">👤 humain d'abord</span>
-                            : <span className="muted">IA seulement</span>}
-                        </label>
+                          <button
+                            type="button"
+                            onClick={() => patch(n.id, { human_first_enabled: true })}
+                            style={{
+                              padding: "5px 4px", fontSize: 11, border: "none", cursor: "pointer",
+                              background: n.human_first_enabled ? "color-mix(in srgb, var(--accent) 22%, transparent)" : "transparent",
+                              color: n.human_first_enabled ? "var(--text)" : "var(--muted)",
+                              fontWeight: n.human_first_enabled ? 600 : 400,
+                            }}
+                          >
+                            👤 Humain
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => patch(n.id, { human_first_enabled: false })}
+                            style={{
+                              padding: "5px 4px", fontSize: 11, border: "none", borderLeft: "1px solid var(--border)", cursor: "pointer",
+                              background: !n.human_first_enabled ? "color-mix(in srgb, var(--info) 22%, transparent)" : "transparent",
+                              color: !n.human_first_enabled ? "var(--text)" : "var(--muted)",
+                              fontWeight: !n.human_first_enabled ? 600 : 400,
+                            }}
+                          >
+                            🤖 IA seule
+                          </button>
+                        </div>
+                        {!n.inbound_enabled && (
+                          <span className="muted" style={{ fontSize: 10 }}>mode appliqué quand Entrant est ON</span>
+                        )}
                       </div>
                     </td>
                     <td style={{ textAlign: "right" }}>

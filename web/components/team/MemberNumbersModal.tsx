@@ -114,21 +114,41 @@ export function MemberNumbersModal({
         ) : (
           <div style={{ display: "grid", gap: 6 }}>
             {numbers.length === 0 && <div className="muted">{t("Aucun numéro dans l'organisation.")}</div>}
-            {numbers.map((n) => (
-              <label
-                key={n.id}
-                style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13, padding: "6px 8px", border: "1px solid var(--border)", borderRadius: 6 }}
-              >
-                <input type="checkbox" checked={sel.has(n.id)} onChange={(e) => toggle(n.id, e.target.checked)} />
-                <span className="kbd">{n.e164}</span>
-                {n.label && <span className="muted">{n.label}</span>}
-                {n.inbound_enabled ? (
-                  <span className="tag good" style={{ fontSize: 10 }}>entrant ON</span>
-                ) : (
-                  <span className="tag" style={{ fontSize: 10 }}>entrant OFF</span>
-                )}
-              </label>
-            ))}
+            {numbers.map((n) => {
+              const checked = sel.has(n.id);
+              return (
+                <label
+                  key={n.id}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "auto auto 1fr auto",
+                    alignItems: "center",
+                    gap: 10,
+                    width: "100%",
+                    margin: 0,
+                    fontSize: 13,
+                    fontWeight: 400,
+                    color: "var(--text)",
+                    padding: "9px 12px",
+                    border: "1px solid var(--border)",
+                    borderRadius: 8,
+                    cursor: "pointer",
+                    background: checked ? "var(--bg-2)" : "transparent",
+                  }}
+                >
+                  <input type="checkbox" checked={checked} onChange={(e) => toggle(n.id, e.target.checked)} />
+                  <span className="kbd" style={{ whiteSpace: "nowrap" }}>{n.e164}</span>
+                  <span style={{ color: "var(--muted)", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {n.label || "—"}
+                  </span>
+                  {n.inbound_enabled ? (
+                    <span className="tag good" style={{ fontSize: 10, whiteSpace: "nowrap" }}>entrant ON</span>
+                  ) : (
+                    <span className="tag" style={{ fontSize: 10, whiteSpace: "nowrap" }}>entrant OFF</span>
+                  )}
+                </label>
+              );
+            })}
           </div>
         )}
         {err && <div style={{ color: "var(--bad)", fontSize: 13 }}>{err}</div>}
