@@ -482,10 +482,17 @@ export async function qualifyCall(
 
   const meta = (call.metadata ?? {}) as Record<string, unknown>;
   const current = bucketForCall(call);
+  // Wati 25/06 — an explicit / human-set qualification is AUTHORITATIVE: ai_auto
+  // must never overwrite it, regardless of how its value normalizes. Without
+  // this guard a manual reclassification (e.g. SUIVI REQUIS) got re-stamped by
+  // the AI on every re-run (D Davies reverted 3×).
+  const qSrc = typeof meta.qualification_source === "string" ? meta.qualification_source : "";
+  const isExplicitQual =
+    !!meta.qualification && !!qSrc && qSrc !== "ai_auto" && !qSrc.startsWith("auto_inferred");
   // We do two jobs in one LLM pass: (a) qualify the call IF it has no real
   // qualification yet, and (b) detect the agent-chain stage (1/2/3) IF it's a
   // long-enough call missing one. Either job alone is enough to run the pass.
-  const needQual = current === "autre";
+  const needQual = current === "autre" && !isExplicitQual;
   const needStage = meta.agent_stage == null && (call.duration_secs ?? 0) >= AGENT_STAGE_MIN_SECS;
   if (!needQual && !needStage) {
     return { call_id: callId, status: "skipped_existing", bucket: current };
@@ -574,6 +581,23 @@ export async function qualifyCall(
   const stageNum = Number(parsed.agent_stage);
   const agentStage = Number.isFinite(stageNum) ? Math.min(3, Math.max(1, Math.round(stageNum))) : 1;
 
+  // Ground truth: did the call actually hand off to an internal specialist
+  // (agent 2/3)? The LLM's agent_stage under-rates a handoff the patient
+  // dropped on (D Davies hung up on Isabelle's greeting → LLM scored stage 1),
+  // so we ALSO check the real handoff_initiated event the worker writes.
+  let handedOffToSpecialist = false;
+  try {
+    const { data: hoEvents } = await sb
+      .from("call_events")
+      .select("kind")
+      .eq("call_id", callId)
+      .eq("kind", "handoff_initiated")
+      .limit(1);
+    handedOffToSpecialist = !!hoEvents && hoEvents.length > 0;
+  } catch {
+    /* best-effort — fall back to the LLM's agent_stage */
+  }
+
   // Wati 25/06 — deterministic alignment with the worker's handoff→SUIVI REQUIS
   // rule (agent/db_writes.auto_qualify_call): a call that REACHED agent 2/3 (a
   // specialist) but didn't book is SUIVI REQUIS, not "à passer à l'humain".
@@ -581,7 +605,7 @@ export async function qualifyCall(
   // fallback at coerceBucket) keeps flooding the human desk with warm leads
   // that merely reached Isabelle/Victoria without confirming an appointment.
   let finalBucket: Exclude<QualBucket, "autre"> = bucket;
-  if (agentStage >= 2 && finalBucket !== "rdv_confirme") {
+  if ((agentStage >= 2 || handedOffToSpecialist) && finalBucket !== "rdv_confirme") {
     finalBucket = "suivi_requis";
   }
 
@@ -593,7 +617,7 @@ export async function qualifyCall(
     mergedMeta.qualification_ai = {
       confidence: coerced ? 0 : confidence,
       reason: finalBucket !== bucket
-        ? `Atteint l'agent ${agentStage} sans confirmation de RDV — suivi requis.`
+        ? "A atteint un agent spécialiste sans confirmation de RDV — suivi requis."
         : coerced ? "Indécidable par l'IA — escaladé à un humain." : reason,
       model: "deepseek-v4-flash",
       at: new Date().toISOString(),
