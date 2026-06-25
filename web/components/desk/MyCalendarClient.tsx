@@ -153,7 +153,7 @@ export function MyCalendarClient() {
                 gap: 8,
               }}
             >
-              <strong style={{ fontSize: 14 }}>{formatDayHeader(g.date)}</strong>
+              <strong style={{ fontSize: 14 }}>{formatDayHeader(g.date, t)}</strong>
               <span className="muted" style={{ fontSize: 12 }}>
                 {g.items.length} {g.items.length > 1 ? t("rappels") : t("rappel")}
               </span>
@@ -249,15 +249,15 @@ function Kpi({ label, value, accent }: { label: string; value: number; accent?: 
   );
 }
 
-function formatDayHeader(d: Date): string {
+function formatDayHeader(d: Date, t: (s: string) => string): string {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const taskDay = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
   const delta = Math.round((taskDay - today) / 86400000);
   const label = d.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" });
-  if (delta === 0) return `Aujourd'hui — ${label}`;
-  if (delta === 1) return `Demain — ${label}`;
-  if (delta === -1) return `Hier — ${label}`;
+  if (delta === 0) return `${t("Aujourd'hui")} — ${label}`;
+  if (delta === 1) return `${t("Demain")} — ${label}`;
+  if (delta === -1) return `${t("Hier")} — ${label}`;
   return label;
 }
 
