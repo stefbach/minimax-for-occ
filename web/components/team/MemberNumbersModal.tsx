@@ -192,9 +192,9 @@ export function MemberNumbersModal({
 
             {/* ── SORTANT ─────────────────────────────────────────────── */}
             <div style={{ display: "grid", gap: 6 }}>
-              <div style={{ fontWeight: 600, fontSize: 13 }}>📤 {t("Peut appeler depuis (caller-ID)")}</div>
+              <div style={{ fontWeight: 600, fontSize: 13 }}>📤 {t("Peut appeler depuis (numéro affiché au patient)")}</div>
               <p className="muted" style={{ margin: "0 0 2px", fontSize: 11.5 }}>
-                {t("Numéros que cet agent peut utiliser pour passer des appels. Sans sélection, il utilise le numéro par défaut de l'organisation. ★ = numéro par défaut.")}
+                {t("Numéros que cet agent peut utiliser pour passer des appels — c'est le numéro qui s'affiche chez la personne appelée. Sans sélection, il utilise le numéro par défaut de l'organisation. ★ = numéro par défaut.")}
               </p>
               {numbers.map((n) => {
                 const checked = selOut.has(n.id);
