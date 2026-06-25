@@ -31,7 +31,7 @@ export type TeamMembersResponse = { members: TeamMember[]; current_user_id: stri
 
 export async function GET() {
   if (!hasSupabase()) {
-    return NextResponse.json({ error: "Supabase non configuré" }, { status: 500 });
+    return NextResponse.json({ error: "Supabase not configured" }, { status: 500 });
   }
   const orgId = await currentOrgIdForServer();
   const role = await currentRoleInOrg(orgId);

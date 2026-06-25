@@ -96,13 +96,13 @@ export async function POST(
   // ── Internal chain continuation ─────────────────────────────────────
   if (fromStepId === "__chain__" && chainNextId) {
     const nextStep = rctx.stepsById.get(chainNextId);
-    if (!nextStep) return rejectTwiml("Étape introuvable.", 404);
+    if (!nextStep) return rejectTwiml("Step not found.", 404);
     return twiml(renderStep(nextStep, rctx));
   }
 
   // ── Branching step resolution ───────────────────────────────────────
   const fromStep = rctx.stepsById.get(fromStepId);
-  if (!fromStep) return rejectTwiml("Étape source introuvable.", 404);
+  if (!fromStep) return rejectTwiml("Source step not found.", 404);
 
   const digits = (form.get("Digits") ?? "").trim();
   const speech = (form.get("SpeechResult") ?? "").trim();

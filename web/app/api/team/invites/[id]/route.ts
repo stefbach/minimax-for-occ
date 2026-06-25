@@ -25,7 +25,7 @@ async function gate(): Promise<
   | { ok: false; res: NextResponse }
 > {
   if (!hasSupabase()) {
-    return { ok: false, res: NextResponse.json({ error: "Supabase non configuré" }, { status: 500 }) };
+    return { ok: false, res: NextResponse.json({ error: "Supabase not configured" }, { status: 500 }) };
   }
   const user = await currentUser();
   if (!user) return { ok: false, res: NextResponse.json({ error: "unauthorized" }, { status: 401 }) };
@@ -82,7 +82,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const invite = await loadInvite(id, g.orgId);
   if (!invite) return NextResponse.json({ error: "invitation introuvable" }, { status: 404 });
   if (invite.accepted_at) {
-    return NextResponse.json({ error: "invitation déjà acceptée" }, { status: 410 });
+    return NextResponse.json({ error: "invitation already accepted" }, { status: 410 });
   }
 
   const newToken = randomUUID();
