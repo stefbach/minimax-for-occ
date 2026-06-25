@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import type { DirectorResponse } from "@/app/api/dashboard/director/route";
 import type { QualBucket } from "@/lib/qualification";
 import { AlertTriangle, ArrowDownLeft, ArrowUpRight, CalendarCheck, CheckCircle2, Link2, Moon, Phone, Sparkles, Sunrise, Sun, Sunset, Tag, Timer, TrendingUp } from "lucide-react";
-import { useT } from "@/lib/i18n";
 import { DrillSheet, type DrillFilters, type DrillSpec } from "./DrillSheet";
 import { SLOT_WINDOWS } from "@/lib/call-slots";
 import { appendGlobalFilters, globalFiltersKey, globalFilterParams, DEFAULT_GLOBAL_FILTERS, type GlobalFilters } from "@/lib/global-filters";
@@ -18,10 +17,7 @@ function fmtDur(secs: number): string {
 function fmtDate(iso: string): string {
   if (!iso) return "";
   const d = new Date(iso);
-  // Unambiguous 24h DD/MM HH:MM in the user's local timezone. Replaces
-  // the previous "Jun 04, 5:16 PM" format which a Mauritius user (UTC+4)
-  // confused for UTC because it didn't show seconds or TZ.
-  return d.toLocaleString("fr-FR", {
+  return d.toLocaleString(undefined, {
     day: "2-digit", month: "2-digit",
     hour: "2-digit", minute: "2-digit",
     hour12: false,
@@ -35,7 +31,7 @@ function fmtDay(iso: string): string {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleDateString("fr-FR", {
+  return d.toLocaleDateString(undefined, {
     day: "2-digit", month: "2-digit", year: "numeric",
   });
 }
@@ -85,7 +81,6 @@ function ClickCard({
 }
 
 export function DirectorTab({ from, to, direction, leadsSource = "prod", system = "all", slot = "all", global = DEFAULT_GLOBAL_FILTERS, refreshKey = 0, campaignId }: { from: string; to: string; direction: string; leadsSource?: "prod" | "test"; system?: "all" | "retell" | "axon"; slot?: "all" | "morning" | "afternoon" | "evening"; global?: GlobalFilters; refreshKey?: number; campaignId?: string }) {
-  const t = useT();
   const [data, setData] = useState<DirectorResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -190,7 +185,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
           const pending = Number(j.pending_before ?? 0);
           const processed = Number(j.processed ?? 0);
           if (processed > 0) madeProgress = true;
-          setQualifyMsg(`✨ ${t("Analyse IA automatique")} · ${Math.max(0, pending - processed)} ${t("restant(s)")}`);
+          setQualifyMsg(`✨ Automatic AI analysis · ${Math.max(0, pending - processed)} remaining`);
           if (pending <= 0 || processed === 0) break;     // nothing left to do
           if (pending >= lastPending) break;              // last batch resolved nothing → stuck
           lastPending = pending;
@@ -207,7 +202,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
     })();
 
     return () => { cancelled = true; };
-  }, [data, from, to, leadsSource, system, t]);
+  }, [data, from, to, leadsSource, system]);
 
   const summariesByQual = useMemo(() => {
     const m = new Map<string, DirectorResponse["summaries"]>();
@@ -219,7 +214,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
     return m;
   }, [data]);
 
-  if (loading && !data) return <div className="card"><p className="muted" style={{ margin: 0 }}>{t("Chargement…")}</p></div>;
+  if (loading && !data) return <div className="card"><p className="muted" style={{ margin: 0 }}>Loading…</p></div>;
   if (error) return <div className="card" style={{ borderColor: "var(--bad)", color: "var(--bad)" }}>{error}</div>;
   if (!data) return null;
   const k = data.kpis;
@@ -243,25 +238,25 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
     drill: Omit<DrillFilters, "from" | "to" | "direction" | "leads_source"> | null;
   };
   const tiles: Tile[] = [
-    { label: t("Total appels"), value: k.totalCalls.toLocaleString(), icon: "📞", displayIcon: <Phone size={15} />, tone: "var(--info)", pctLabel: "100%", drill: {} },
-    { label: t("Décrochés"), value: `${k.answered.toLocaleString()} · ${k.answeredPct.toFixed(0)}%`, icon: "✅", displayIcon: <CheckCircle2 size={15} />, tone: "var(--good)", drill: { answered: "yes" } },
+    { label: "Total calls", value: k.totalCalls.toLocaleString(), icon: "📞", displayIcon: <Phone size={15} />, tone: "var(--info)", pctLabel: "100%", drill: {} },
+    { label: "Answered", value: `${k.answered.toLocaleString()} · ${k.answeredPct.toFixed(0)}%`, icon: "✅", displayIcon: <CheckCircle2 size={15} />, tone: "var(--good)", drill: { answered: "yes" } },
     // Cost is an aggregate over usage_events, not a call subset → no drill.
     // Drill = every call in the period (each one contributed to the spend),
     // mirroring the legacy "Cost consumed" panel.
-    { label: t("Coût consommé"), value: `$${k.cost.toFixed(2)}`, icon: "$", displayIcon: <span>$</span>, tone: "var(--warn)", drill: {} },
-    { label: t("RDV confirmés"), value: k.rdvConfirmed.toLocaleString(), icon: "📅", displayIcon: <CalendarCheck size={15} />, tone: "var(--good)", highlight: true, pctLabel: pct(k.rdvConfirmed), drill: { qualification: "rdv_confirme" } },
+    { label: "Cost spent", value: `$${k.cost.toFixed(2)}`, icon: "$", displayIcon: <span>$</span>, tone: "var(--warn)", drill: {} },
+    { label: "Booked appts", value: k.rdvConfirmed.toLocaleString(), icon: "📅", displayIcon: <CalendarCheck size={15} />, tone: "var(--good)", highlight: true, pctLabel: pct(k.rdvConfirmed), drill: { qualification: "rdv_confirme" } },
     // Conversion = RDV / Total → drill to the RDV calls (the numerator).
-    { label: t("Taux de conversion"), value: `${k.conversionRate.toFixed(1)}%`, icon: "📈", displayIcon: <TrendingUp size={15} />, tone: "var(--accent-2)", drill: { qualification: "rdv_confirme" } },
-    { label: t("Durée moyenne"), value: fmtDur(k.avgDuration), icon: "⏱", displayIcon: <Timer size={15} />, tone: "var(--info)", drill: { answered: "yes" } },
-    { label: t("Callbacks demandés"), value: k.callbacks.toLocaleString(), icon: "↺", displayIcon: <span>↺</span>, tone: "var(--accent)", pctLabel: pct(k.callbacks), drill: { qualification: "rappel" } },
-    { label: `${t("Durée")} > ${k.threshold}s`, value: k.callsOverThreshold.toLocaleString(), icon: "⧖", displayIcon: <span>⧖</span>, tone: "var(--muted)", pctLabel: pct(k.callsOverThreshold), drill: { min_duration: k.threshold } },
+    { label: "Conversion rate", value: `${k.conversionRate.toFixed(1)}%`, icon: "📈", displayIcon: <TrendingUp size={15} />, tone: "var(--accent-2)", drill: { qualification: "rdv_confirme" } },
+    { label: "Avg duration", value: fmtDur(k.avgDuration), icon: "⏱", displayIcon: <Timer size={15} />, tone: "var(--info)", drill: { answered: "yes" } },
+    { label: "Callbacks requested", value: k.callbacks.toLocaleString(), icon: "↺", displayIcon: <span>↺</span>, tone: "var(--accent)", pctLabel: pct(k.callbacks), drill: { qualification: "rappel" } },
+    { label: `Duration > ${k.threshold}s`, value: k.callsOverThreshold.toLocaleString(), icon: "⧖", displayIcon: <span>⧖</span>, tone: "var(--muted)", pctLabel: pct(k.callsOverThreshold), drill: { min_duration: k.threshold } },
   ];
 
   type TotalCard = { label: string; value: number; pctLabel: string; tone: string; drill: Omit<DrillFilters, "from" | "to" | "direction" | "leads_source"> };
   const totalsCards: TotalCard[] = [
-    { label: t("Total appels"), value: k.totalCalls, pctLabel: "100%", tone: "var(--info)", drill: {} },
-    { label: t("Décrochés"), value: k.answered, pctLabel: pct(k.answered, 0), tone: "var(--good)", drill: { answered: "yes" } },
-    { label: t("Non décrochés"), value: k.notAnswered, pctLabel: pct(k.notAnswered, 0), tone: "var(--bad)", drill: { answered: "no" } },
+    { label: "Total calls", value: k.totalCalls, pctLabel: "100%", tone: "var(--info)", drill: {} },
+    { label: "Answered", value: k.answered, pctLabel: pct(k.answered, 0), tone: "var(--good)", drill: { answered: "yes" } },
+    { label: "Unanswered", value: k.notAnswered, pctLabel: pct(k.notAnswered, 0), tone: "var(--bad)", drill: { answered: "no" } },
   ];
 
   const visibleSummaries = activeQualTab === "all"
@@ -282,7 +277,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
               <div style={{ fontSize: 26, fontWeight: 700, marginTop: 8, color: tile.tone }}>{tile.value}</div>
               {tile.pctLabel && (
                 <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
-                  {tile.pctLabel} {t("des appels")}
+                  {tile.pctLabel} of calls
                 </div>
               )}
             </>
@@ -297,7 +292,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
           return (
             <ClickCard
               key={tile.label}
-              ariaLabel={`${tile.label} — ${t("voir les appels")}`}
+              ariaLabel={`${tile.label} — view calls`}
               onClick={() => openDrill(tile.label, tile.icon, tile.tone ?? "var(--accent)", tile.drill!)}
               style={{ padding: 16, borderColor: tile.highlight ? "var(--good)" : undefined }}
             >
@@ -307,14 +302,14 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
         })}
       </div>
 
-      {/* THRESHOLD CHIP ROW — controls the "Durée > X" KPI tile above. */}
+      {/* THRESHOLD CHIP ROW — controls the "Duration > X" KPI tile above. */}
       <div
         className="card"
         style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, padding: 12 }}
       >
         <span style={{ fontSize: 12, fontWeight: 600 }}>
-          {t("Seuil « appel qualitatif »")}
-          <span className="muted" style={{ fontWeight: 400 }}> · {t("durée minimum")} :</span>
+          Qualifying call threshold
+          <span className="muted" style={{ fontWeight: 400 }}> · minimum duration :</span>
         </span>
         {THRESHOLD_OPTIONS.map((s) => (
           <button
@@ -334,10 +329,10 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
             color: "var(--accent)", borderRadius: 6, fontWeight: 600,
           }}
         >
-          ⧖ {k.callsOverThreshold} {t("appel(s)")} {">"} {threshold < 60 ? `${threshold}s` : `${threshold / 60} min`}
+          ⧖ {k.callsOverThreshold} call(s) {">"} {threshold < 60 ? `${threshold}s` : `${threshold / 60} min`}
         </span>
         <div className="muted" style={{ fontSize: 11, flex: 1, minWidth: 200 }}>
-          {t("Filtre la tuile « DURÉE > X » ci-dessus. Les autres KPI ne changent pas.")}
+          Filters the &apos;DURATION &gt; X&apos; tile above. Other KPIs are unaffected.
         </div>
       </div>
 
@@ -346,28 +341,28 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
         {totalsCards.map((c) => (
           <ClickCard
             key={c.label}
-            ariaLabel={`${c.label} — ${t("voir les appels")}`}
+            ariaLabel={`${c.label} — view calls`}
             onClick={() => openDrill(c.label, "phone", c.tone, c.drill)}
             style={{ padding: 16 }}
           >
             <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4 }}>{c.label}</div>
             <div style={{ fontSize: 28, fontWeight: 700, marginTop: 6, color: c.tone }}>{c.value.toLocaleString()}</div>
-            <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>{c.pctLabel} {t("des appels")}</div>
+            <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>{c.pctLabel} of calls</div>
           </ClickCard>
         ))}
       </div>
 
       {/* QUALIFICATIONS GRID — 9 fixed cards */}
       <div className="card">
-        <h3 style={{ marginTop: 0, marginBottom: 4 }}>{t("Qualifications")}</h3>
+        <h3 style={{ marginTop: 0, marginBottom: 4 }}>Qualifications</h3>
         <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>
-          {t("Source")} : <code>calls.metadata.qualification</code> + <code>calls.disposition</code>
+          Source : <code>calls.metadata.qualification</code> + <code>calls.disposition</code>
         </p>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10 }}>
           {data.qualifications.map((q) => (
             <ClickCard
               key={q.key}
-              ariaLabel={`${q.label} — ${t("voir les appels")}`}
+              ariaLabel={`${q.label} — view calls`}
               onClick={() => openDrill(q.label, "tag", "var(--accent)", { qualification: q.key as QualBucket })}
               style={{ padding: 12, textAlign: "center", borderColor: q.count > 0 ? "var(--accent)" : undefined }}
             >
@@ -398,8 +393,8 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
           >
             <button
               type="button"
-              onClick={() => openDrill(t("Appels décrochés non qualifiés"), "alert", "var(--warn)", { qualification: "unqualified" })}
-              aria-label={t("Voir les appels non qualifiés")}
+              onClick={() => openDrill("Answered calls not yet qualified", "alert", "var(--warn)", { qualification: "unqualified" })}
+              aria-label="View unqualified calls"
               style={{
                 fontSize: 22, fontWeight: 700, color: "var(--warn)",
                 background: "transparent", border: "none", padding: 0, cursor: "pointer",
@@ -409,71 +404,71 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
             </button>
             <div style={{ flex: 1, minWidth: 200 }}>
               <div style={{ fontWeight: 600, fontSize: 13 }}>
-                {t("Appels décrochés non qualifiés")}
+                Answered calls not yet qualified
               </div>
               <div className="muted" style={{ fontSize: 11 }}>
-                {t("Qualification IA automatique : chaque appel décroché est classé par l'IA d'après son transcript. Le reliquat se résorbe tout seul.")}
+                Automatic AI qualification: every answered call is classified by the AI from its transcript. The backlog clears itself.
               </div>
             </div>
             <span className="muted" style={{ fontSize: 11, display: "inline-flex", alignItems: "center", gap: 6 }}>
               {qualifying && <Sparkles size={14} className="ai-spin" aria-hidden />}
               {qualifying
-                ? (qualifyMsg ?? t("Qualification IA en cours…"))
-                : (qualifyMsg ?? <><Sparkles size={14} style={{ verticalAlign: "middle" }} /> {t("Qualification IA automatique")}</>)}
+                ? (qualifyMsg ?? "AI qualification in progress…")
+                : (qualifyMsg ?? <><Sparkles size={14} style={{ verticalAlign: "middle" }} /> Automatic AI qualification</>)}
             </span>
           </div>
         )}
         <style jsx>{`@keyframes ai-spin-kf{0%,100%{opacity:.45}50%{opacity:1}} .ai-spin{animation:ai-spin-kf 1s ease-in-out infinite}`}</style>
       </div>
 
-      {/* APPELS ENTRANTS — each figure drills into the matching call list. */}
+      {/* INBOUND CALLS — each figure drills into the matching call list. */}
       <div className="card">
-        <h3 style={{ marginTop: 0 }}>{t("Appels entrants")}</h3>
+        <h3 style={{ marginTop: 0 }}>Inbound calls</h3>
         <div style={{ display: "flex", gap: 24, alignItems: "baseline", flexWrap: "wrap" }}>
           <button
             type="button"
-            onClick={() => openDrill(t("Appels entrants"), "inbound", "var(--info)", { inbound_only: true })}
-            aria-label={t("Voir tous les entrants")}
+            onClick={() => openDrill("Inbound calls", "inbound", "var(--info)", { inbound_only: true })}
+            aria-label="View all inbound calls"
             style={{ background: "transparent", border: "none", padding: 0, cursor: "pointer", textAlign: "left" }}
           >
             <div style={{ fontSize: 28, fontWeight: 700, color: "var(--info)" }}>{data.inbound.total}</div>
-            <div className="muted" style={{ fontSize: 11 }}>{t("Total")}</div>
+            <div className="muted" style={{ fontSize: 11 }}>Total</div>
           </button>
           <div className="muted" style={{ fontSize: 13, display: "inline-flex", gap: 10, alignItems: "center" }}>
             <button
               type="button"
-              onClick={() => openDrill(t("Entrants décrochés"), "check", "var(--good)", { inbound_only: true, answered: "yes" })}
+              onClick={() => openDrill("Inbound answered", "check", "var(--good)", { inbound_only: true, answered: "yes" })}
               style={{ background: "transparent", border: "none", padding: 0, cursor: "pointer", color: "var(--good)" }}
             >
-              {data.inbound.answered} {t("décrochés")}
+              {data.inbound.answered} answered
             </button>
             <span>·</span>
             <button
               type="button"
-              onClick={() => openDrill(t("Entrants sans réponse"), "✕", "var(--bad)", { inbound_only: true, answered: "no" })}
+              onClick={() => openDrill("Inbound no answer", "✕", "var(--bad)", { inbound_only: true, answered: "no" })}
               style={{ background: "transparent", border: "none", padding: 0, cursor: "pointer", color: "var(--bad)" }}
             >
-              {data.inbound.notAnswered} {t("sans réponse")}
+              {data.inbound.notAnswered} no answer
             </button>
           </div>
         </div>
       </div>
 
-      {/* SUIVI J1 / J3 / J5 + CRÉNEAUX */}
+      {/* J1 / J3 / J5 FOLLOW-UP + SLOTS */}
       <div className="card">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
           <div>
-            <h3 style={{ marginTop: 0, marginBottom: 2 }}>{t("Suivi J1 / J3 / J5")}</h3>
+            <h3 style={{ marginTop: 0, marginBottom: 2 }}>J1 / J3 / J5 Follow-up</h3>
             <p className="muted" style={{ fontSize: 12, marginTop: 0, marginBottom: 0 }}>
-              {t("Relances programmées par phase et répartition des appels par créneau")}
+              Scheduled follow-ups by phase and call distribution by slot
             </p>
           </div>
           {data.hints.phasesAvailable && (
             <div style={{ textAlign: "right", fontSize: 11 }} className="muted">
               <div>
-                {t("Pipeline au")} <strong style={{ color: "var(--text)" }}>{fmtDay(data.phaseContext.asOf)}</strong>
+                Pipeline as of <strong style={{ color: "var(--text)" }}>{fmtDay(data.phaseContext.asOf)}</strong>
               </div>
-              <div>{data.phaseContext.totalLeads.toLocaleString("fr-FR")} {t("leads au total")}</div>
+              <div>{data.phaseContext.totalLeads.toLocaleString()} leads total</div>
             </div>
           )}
         </div>
@@ -482,95 +477,95 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
           <>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10, marginTop: 12 }}>
               {([
-                ["RAPPEL", data.phases.rappel, t("Leads marqués « à rappeler »")],
-                ["J1", data.phases.j1, t("Relance prévue à J+1")],
-                ["J3", data.phases.j3, t("Relance prévue à J+3")],
-                ["J5", data.phases.j5, t("Relance prévue à J+5")],
+                ["CALLBACK", data.phases.rappel, "Leads marked 'to call back'"],
+                ["J1", data.phases.j1, "Follow-up scheduled at J+1"],
+                ["J3", data.phases.j3, "Follow-up scheduled at J+3"],
+                ["J5", data.phases.j5, "Follow-up scheduled at J+5"],
               ] as const).map(([label, p, desc]) => (
                 <div key={label} className="card" style={{ padding: 12 }}>
                   <div className="muted" style={{ fontSize: 11, letterSpacing: 0.4, fontWeight: 600 }}>{label}</div>
                   <div className="muted" style={{ fontSize: 10, marginTop: 1, lineHeight: 1.3 }}>{desc}</div>
-                  <div style={{ fontSize: 20, fontWeight: 700, marginTop: 6 }}>{p.leads.toLocaleString("fr-FR")} <span className="muted" style={{ fontSize: 12, fontWeight: 400 }}>leads</span></div>
-                  <div className="muted" style={{ fontSize: 12 }}>{p.calls.toLocaleString("fr-FR")} {t("appels")}</div>
+                  <div style={{ fontSize: 20, fontWeight: 700, marginTop: 6 }}>{p.leads.toLocaleString()} <span className="muted" style={{ fontSize: 12, fontWeight: 400 }}>leads</span></div>
+                  <div className="muted" style={{ fontSize: 12 }}>{p.calls.toLocaleString()} calls</div>
                   {/* Date breakdown: where each lead's scheduled call sits vs today. */}
                   <div style={{ display: "flex", gap: 4, marginTop: 8, fontSize: 10, flexWrap: "wrap" }}>
-                    <span title={t("À appeler aujourd'hui")} style={{ padding: "2px 6px", borderRadius: 4, background: "color-mix(in srgb, var(--accent) 14%, transparent)", color: "var(--accent)", fontWeight: 600 }}>
-                      {p.dueToday} {t("auj.")}
+                    <span title="To call today" style={{ padding: "2px 6px", borderRadius: 4, background: "color-mix(in srgb, var(--accent) 14%, transparent)", color: "var(--accent)", fontWeight: 600 }}>
+                      {p.dueToday} today
                     </span>
-                    <span title={t("Date de relance dépassée")} style={{ padding: "2px 6px", borderRadius: 4, background: "color-mix(in srgb, var(--bad) 12%, transparent)", color: "var(--bad)", fontWeight: 600 }}>
-                      {p.overdue} {t("en retard")}
+                    <span title="Follow-up date overdue" style={{ padding: "2px 6px", borderRadius: 4, background: "color-mix(in srgb, var(--bad) 12%, transparent)", color: "var(--bad)", fontWeight: 600 }}>
+                      {p.overdue} overdue
                     </span>
-                    <span title={t("Relance à venir")} className="muted" style={{ padding: "2px 6px", borderRadius: 4, background: "var(--bg-2)" }}>
-                      {p.upcoming} {t("à venir")}
+                    <span title="Upcoming follow-up" className="muted" style={{ padding: "2px 6px", borderRadius: 4, background: "var(--bg-2)" }}>
+                      {p.upcoming} upcoming
                     </span>
                   </div>
                 </div>
               ))}
             </div>
             <p className="muted" style={{ fontSize: 11, marginTop: 8, marginBottom: 0, fontStyle: "italic" }}>
-              {t("Les volumes par phase couvrent l'ensemble du pipeline (indépendant de la période sélectionnée).")}
+              Phase volumes cover the entire pipeline (independent of the selected period).
             </p>
           </>
         ) : (
           <p className="muted" style={{ fontSize: 13 }}>
-            {t("Aucune table de phases configurée pour cette organisation.")}
+            No phase table configured for this organisation.
           </p>
         )}
 
         <div style={{ marginTop: 16 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
-            <div className="muted" style={{ fontSize: 12, marginBottom: 6, fontWeight: 600 }}>{t("Par créneau d'appel")}</div>
+            <div className="muted" style={{ fontSize: 12, marginBottom: 6, fontWeight: 600 }}>By call slot</div>
             <div className="muted" style={{ fontSize: 11, marginBottom: 6 }}>
-              {t("Période")} : {fmtDay(data.phaseContext.period.from)} – {fmtDay(data.phaseContext.period.to)}
+              Period : {fmtDay(data.phaseContext.period.from)} – {fmtDay(data.phaseContext.period.to)}
             </div>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>
             {([
-              ["Créneau 1 — matin", SLOT_WINDOWS.matin, data.slots.matin, "matin", "matin", <Sunrise size={13} />],
-              ["Créneau 2 — midi", SLOT_WINDOWS.midi, data.slots.midi, "midi", "midi", <Sun size={13} />],
-              ["Créneau 3 — soir", SLOT_WINDOWS.soir, data.slots.soir, "soir", "soir", <Sunset size={13} />],
-              ["Hors créneau", null, data.slots.hors, "hors", "hors", <Moon size={13} />],
+              ["Slot 1 — morning", SLOT_WINDOWS.matin, data.slots.matin, "matin", "matin", <Sunrise size={13} />],
+              ["Slot 2 — midday", SLOT_WINDOWS.midi, data.slots.midi, "midi", "midi", <Sun size={13} />],
+              ["Slot 3 — evening", SLOT_WINDOWS.soir, data.slots.soir, "soir", "soir", <Sunset size={13} />],
+              ["Off-slot", null, data.slots.hors, "hors", "hors", <Moon size={13} />],
             ] as const).map(([label, win, v, slot, iconStr, displayIcon]) => {
               const slotTotal = data.slots.matin + data.slots.midi + data.slots.soir + data.slots.hors;
-              const pct = slotTotal ? Math.round((v / slotTotal) * 100) : 0;
+              const slotPct = slotTotal ? Math.round((v / slotTotal) * 100) : 0;
               return (
                 <ClickCard
                   key={label}
-                  ariaLabel={`${label} — ${t("voir les appels")}`}
+                  ariaLabel={`${label} — view calls`}
                   onClick={() => openDrill(label, iconStr, "var(--accent)", { slot })}
                   style={{ padding: 10 }}
                 >
                   <div className="muted" style={{ fontSize: 11, display: "flex", alignItems: "center", gap: 4 }}>{displayIcon} {label}</div>
                   <div className="muted" style={{ fontSize: 10 }}>
-                    {win ? `${win.uk} UK · ${win.mu} MU` : t("autres heures")}
+                    {win ? `${win.uk} UK · ${win.mu} MU` : "other hours"}
                   </div>
                   <div style={{ fontSize: 18, fontWeight: 700, marginTop: 4 }}>
-                    {v.toLocaleString("fr-FR")} <span className="muted" style={{ fontSize: 11, fontWeight: 400 }}>· {pct}%</span>
+                    {v.toLocaleString()} <span className="muted" style={{ fontSize: 11, fontWeight: 400 }}>· {slotPct}%</span>
                   </div>
                 </ClickCard>
               );
             })}
           </div>
           <p className="muted" style={{ fontSize: 11, marginTop: 8, marginBottom: 0, fontStyle: "italic" }}>
-            {t("Fenêtres d'appel Lun–Jeu. Vendredi : créneau matin élargi à 08h–11h UK, pas de midi/soir. Week-end : hors créneau.")}
+            Call windows Mon–Thu. Friday: morning slot extended to 08h–11h UK, no midday/evening. Weekend: off-slot.
           </p>
         </div>
       </div>
 
-      {/* CHAÎNE D'AGENTS */}
+      {/* AGENT CHAIN */}
       <div className="card">
-        <h3 style={{ marginTop: 0 }}>{t("Chaîne d'agents")}</h3>
+        <h3 style={{ marginTop: 0 }}>Agent chain</h3>
         <p className="muted" style={{ fontSize: 12, marginTop: 0, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-          {t("Combien de leads sont passés sur 1, 2 ou 3 agents")}
+          How many leads went through 1, 2, or 3 agents
           {qualifying && (
             <span style={{ color: "var(--accent)", display: "inline-flex", alignItems: "center", gap: 4 }}>
-              <Sparkles size={14} className="ai-spin" aria-hidden /> {qualifyMsg ?? t("Analyse IA automatique…")}
+              <Sparkles size={14} className="ai-spin" aria-hidden /> {qualifyMsg ?? "Automatic AI analysis…"}
             </span>
           )}
         </p>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
           {([
-            ["Agent 1 uniquement", data.agentChain.only1, 1],
+            ["Agent 1 only", data.agentChain.only1, 1],
             ["Agent 1 → Agent 2", data.agentChain.plus2, 2],
             ["Agent 1 → 2 → 3", data.agentChain.plus3, 3],
           ] as const).map(([label, v, stage]) => (
@@ -578,21 +573,21 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
               key={label}
               type="button"
               className="card"
-              onClick={() => openDrill(t(label), "link", "var(--accent)", { agent_stage: stage as 1 | 2 | 3 })}
-              aria-label={`${t("Voir les appels")} — ${t(label)}`}
+              onClick={() => openDrill(label, "link", "var(--accent)", { agent_stage: stage as 1 | 2 | 3 })}
+              aria-label={`View calls — ${label}`}
               style={{ padding: 12, textAlign: "left", cursor: "pointer", color: "inherit" }}
             >
-              <div className="muted" style={{ fontSize: 11 }}>{t(label)}</div>
+              <div className="muted" style={{ fontSize: 11 }}>{label}</div>
               <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4 }}>{v}</div>
             </button>
           ))}
         </div>
       </div>
 
-      {/* ANALYSE: DURATIONS + WHAT THEY SAID */}
+      {/* DURATION DISTRIBUTION + WHAT THEY SAID */}
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1.4fr)", gap: 16 }}>
         <div className="card">
-          <h3 style={{ marginTop: 0 }}>{t("Distribution des durées")}</h3>
+          <h3 style={{ marginTop: 0 }}>Duration distribution</h3>
           {([
             ["< 15s", data.durationBuckets.lt15s, "lt15s"],
             ["15s - 1min", data.durationBuckets.s15_60, "s15_60"],
@@ -606,8 +601,8 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
               <button
                 key={label}
                 type="button"
-                onClick={() => openDrill(`${t("Durée")} ${label}`, "timer", "var(--accent)", { duration_bucket: bucket })}
-                aria-label={`${t("Durée")} ${label} — ${t("voir les appels")}`}
+                onClick={() => openDrill(`Duration ${label}`, "timer", "var(--accent)", { duration_bucket: bucket })}
+                aria-label={`Duration ${label} — view calls`}
                 style={{
                   display: "flex", alignItems: "center", gap: 8, marginBottom: 6,
                   width: "100%", padding: "4px 6px", borderRadius: 6,
@@ -635,9 +630,9 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
         </div>
 
         <div className="card">
-          <h3 style={{ marginTop: 0 }}>{t("Ce qu'ils ont dit")}</h3>
+          <h3 style={{ marginTop: 0 }}>What they said</h3>
           <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>
-            {t("Résumés d'appels regroupés par qualification")}
+            Call summaries grouped by qualification
           </p>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
             <button
@@ -646,7 +641,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
               style={{ padding: "3px 10px", fontSize: 12 }}
               onClick={() => setActiveQualTab("all")}
             >
-              {t("Tous")} ({data.summaries.length})
+              All ({data.summaries.length})
             </button>
             {data.qualifications.filter((q) => (summariesByQual.get(q.key) ?? []).length > 0).map((q) => (
               <button
@@ -663,8 +658,8 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
           {visibleSummaries.length === 0 ? (
             <p className="muted" style={{ fontSize: 13 }}>
               {data.hints.summariesAvailable
-                ? t("Aucun résumé pour cette qualification.")
-                : t("Aucun résumé d'appel sur la période. Les résumés sont générés post-appel.")}
+                ? "No summaries for this qualification."
+                : "No call summaries for this period. Summaries are generated post-call."}
             </p>
           ) : (
             <div style={{ display: "grid", gap: 8, maxHeight: 460, overflowY: "auto" }}>
@@ -685,14 +680,14 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
         </div>
       </div>
 
-      {/* DOSSIERS À CONFIER À UN HUMAIN */}
+      {/* CASES TO HAND OFF TO A HUMAN */}
       <div className="card">
-        <h3 style={{ marginTop: 0 }}>{t("Dossiers à confier à un humain")}</h3>
+        <h3 style={{ marginTop: 0 }}>Cases to hand off to a human</h3>
         <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>
-          {t("Leads en attente de rappel humain")} · <code>human_callback_tasks</code>
+          Leads awaiting human callback · <code>human_callback_tasks</code>
         </p>
         {data.humanCallbacks.length === 0 ? (
-          <p className="muted" style={{ fontSize: 13 }}>{t("Aucun dossier en attente.")}</p>
+          <p className="muted" style={{ fontSize: 13 }}>No pending cases.</p>
         ) : (
           <div style={{ display: "grid", gap: 8 }}>
             {data.humanCallbacks.map((h) => (
@@ -709,7 +704,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
                     {h.contact_name ?? "—"} <span className="muted" style={{ fontWeight: 400 }}>{h.phone ?? ""}</span>
                   </div>
                   <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
-                    {h.qualification ?? "À passer à l'humain"}
+                    {h.qualification ?? "Pass to human agent"}
                     {h.scheduled_for && ` · ${fmtDate(h.scheduled_for)}`}
                     {h.status && ` · ${h.status}`}
                   </div>
@@ -719,7 +714,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
                   className="ghost"
                   style={{ padding: "4px 10px", fontSize: 12, textDecoration: "none" }}
                 >
-                  {t("Voir dans Mon poste")} →
+                  View in My desk →
                 </a>
               </div>
             ))}
