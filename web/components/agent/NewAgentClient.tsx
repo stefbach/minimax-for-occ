@@ -36,14 +36,14 @@ export function NewAgentClient({ orgCategory = null }: { orgCategory?: string | 
     <div style={{ display: "grid", gap: 14, gridTemplateColumns: "1fr 1fr", maxWidth: 760 }}>
       <Card
         emoji="🎙"
-        title="Agent téléphonie"
-        desc="Parle au téléphone. Voix, modèle, prompt et accueil. S'utilise dans les Campagnes pour passer des appels."
+        title="Telephony agent"
+        desc="Speaks on calls. Voice, model, prompt and greeting. Used in Campaigns to make calls."
         onClick={() => setType("telephony")}
       />
       <Card
         emoji="⚙️"
-        title="Agent de gestion"
-        desc="Exécute des automations : relances email/WhatsApp, mises à jour de fiches. Se configure par chat, s'utilise dans les Workflows."
+        title="Management agent"
+        desc="Runs automations: email/WhatsApp follow-ups, record updates. Configured by chat, used in Workflows."
         onClick={() => setType("management")}
       />
     </div>
@@ -81,7 +81,7 @@ function BackLink({ onClick }: { onClick: () => void }) {
       onClick={onClick}
       style={{ padding: "4px 10px", fontSize: 13, alignSelf: "flex-start", marginBottom: 4 }}
     >
-      ← Changer de type d&apos;agent
+      ← Change agent type
     </button>
   );
 }

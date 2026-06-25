@@ -38,7 +38,7 @@ export function PromptEditor({
   greeting,
   onRestoreGreeting,
   rows = 12,
-  placeholder = "Tu es un assistant vocal pour…",
+  placeholder = "You are a voice assistant for…",
 }: Props) {
   const [versions, setVersions] = useState<PromptVersion[]>([]);
   const [showVersions, setShowVersions] = useState(false);
@@ -73,18 +73,18 @@ export function PromptEditor({
     });
     setBusy(false);
     if (r.ok) {
-      setMsg("Version enregistrée.");
+      setMsg("Version saved.");
       setNote("");
       refresh();
     } else {
       const j = await r.json().catch(() => ({}));
-      setMsg(j.error ?? "Erreur");
+      setMsg(j.error ?? "Error");
     }
   }
 
   async function restore(v: PromptVersion) {
     if (!agentId) return;
-    if (!confirm(`Restaurer la version v${v.version} ? La version actuelle sera sauvegardée avant.`)) return;
+    if (!confirm(`Restore version v${v.version}? The current version will be saved first.`)) return;
     setBusy(true);
     setMsg(null);
     const r = await fetch(`/api/agents/${agentId}/prompt-versions/${v.version}/restore`, {
@@ -94,33 +94,33 @@ export function PromptEditor({
     if (r.ok) {
       onChange(v.system_prompt);
       if (onRestoreGreeting && v.greeting != null) onRestoreGreeting(v.greeting);
-      setMsg(`Version v${v.version} restaurée.`);
+      setMsg(`Version v${v.version} restored.`);
       refresh();
     } else {
       const j = await r.json().catch(() => ({}));
-      setMsg(j.error ?? "Erreur");
+      setMsg(j.error ?? "Error");
     }
   }
 
   function preview(v: PromptVersion) {
     onChange(v.system_prompt);
     if (onRestoreGreeting && v.greeting != null) onRestoreGreeting(v.greeting);
-    setMsg(`Brouillon chargé depuis v${v.version} (non sauvegardé tant que tu ne cliques pas Enregistrer).`);
+    setMsg(`Draft loaded from v${v.version} (not saved until you click Save as version).`);
   }
 
   return (
     <div style={{ display: "grid", gap: 8 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <label style={{ margin: 0 }}>Prompt système (Markdown)</label>
+        <label style={{ margin: 0 }}>System prompt (Markdown)</label>
         <div style={{ display: "flex", gap: 6 }}>
           <button
             type="button"
             className="ghost"
             style={{ padding: "4px 8px", fontSize: 12 }}
             onClick={() => setFullscreen((s) => !s)}
-            title="Mode plein écran"
+            title="Full screen"
           >
-            {fullscreen ? "↙ Réduire" : "↗ Plein écran"}
+            {fullscreen ? "↙ Minimize" : "↗ Full screen"}
           </button>
           {agentId && (
             <button
@@ -128,7 +128,7 @@ export function PromptEditor({
               className="ghost"
               style={{ padding: "4px 8px", fontSize: 12 }}
               onClick={() => setShowVersions((s) => !s)}
-              title="Historique des versions"
+              title="Version history"
             >
               {showVersions ? "▾ Versions" : "▸ Versions"}
             </button>
@@ -167,11 +167,11 @@ export function PromptEditor({
             type="text"
             value={note}
             onChange={(e) => setNote(e.target.value)}
-            placeholder="Note (optionnel) — ex: 'ajouté instructions facturation'"
+            placeholder="Note (optional) — e.g. 'added billing instructions'"
             style={{ flex: 1, minWidth: 200 }}
           />
           <button type="button" onClick={saveVersion} disabled={busy} className="ghost">
-            {busy ? "…" : "Enregistrer comme version"}
+            {busy ? "…" : "Save as version"}
           </button>
         </div>
       )}
@@ -181,7 +181,7 @@ export function PromptEditor({
       {showVersions && agentId && (
         <div className="card" style={{ padding: 8 }}>
           {versions.length === 0 ? (
-            <div style={{ color: "var(--muted)", fontSize: 13, padding: 6 }}>Aucune version enregistrée.</div>
+            <div style={{ color: "var(--muted)", fontSize: 13, padding: 6 }}>No saved versions.</div>
           ) : (
             <div style={{ display: "grid", gap: 6 }}>
               {versions.map((v) => (
@@ -217,10 +217,10 @@ export function PromptEditor({
                     </div>
                   </div>
                   <button type="button" className="ghost" style={{ padding: "4px 8px", fontSize: 12 }} onClick={() => preview(v)}>
-                    Aperçu
+                    Preview
                   </button>
                   <button type="button" style={{ padding: "4px 8px", fontSize: 12 }} onClick={() => restore(v)} disabled={busy}>
-                    Restaurer
+                    Restore
                   </button>
                 </div>
               ))}

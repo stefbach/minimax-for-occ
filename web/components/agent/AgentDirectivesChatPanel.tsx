@@ -60,14 +60,14 @@ export function AgentDirectivesChatPanel({
           tool: "finalize_agent",
           toolCallId: toolCall.toolCallId,
           output: res.ok
-            ? { ok: true, message: "Agent de gestion créé." }
-            : { ok: false, error: res.error ?? "création impossible" },
+            ? { ok: true, message: "Management agent created." }
+            : { ok: false, error: res.error ?? "could not create" },
         });
       } catch (e) {
         addToolResult({
           tool: "finalize_agent",
           toolCallId: toolCall.toolCallId,
-          output: { ok: false, error: e instanceof Error ? e.message : "erreur inconnue" },
+          output: { ok: false, error: e instanceof Error ? e.message : "unknown error" },
         });
       }
     },
@@ -113,12 +113,12 @@ export function AgentDirectivesChatPanel({
       <div className="chat-log" style={{ flex: 1, minHeight: 0 }}>
         {messages.length === 0 && (
           <div style={{ color: "var(--muted)", padding: 8, fontSize: 13, lineHeight: 1.6 }}>
-            Décris-moi ce que cet agent de gestion doit faire. Par exemple :
+            Describe what this management agent should do. For example:
             <br />
-            <em>« Relancer par email et WhatsApp les patients en statut no-show, ton chaleureux,
-            leur proposer de reprendre RDV, et mettre la fiche à jour quand c&apos;est fait. »</em>
+            <em>&quot;Follow up by email and WhatsApp with patients in no-show status, warm tone,
+            offer to rebook their appointment, and update the record when done.&quot;</em>
             <br />
-            Quand les directives te conviennent, dis <strong>« go »</strong> et je crée l&apos;agent.
+            When you&apos;re happy with the directives, say <strong>&quot;go&quot;</strong> and I&apos;ll create the agent.
           </div>
         )}
         {messages.map((m) => {
@@ -146,7 +146,7 @@ export function AgentDirectivesChatPanel({
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Ex. : relancer les no-shows par email + WhatsApp…"
+          placeholder="Ex.: follow up no-shows by email + WhatsApp…"
           disabled={isLoading}
         />
         <button type="submit" disabled={isLoading || !input.trim()}>
