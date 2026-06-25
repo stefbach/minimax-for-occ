@@ -7,7 +7,7 @@ import { useT } from "@/lib/i18n";
 import { bucketForCall, normalizeQualification } from "@/lib/qualification";
 import { matchesGlobalFilters, hasActiveGlobalFilters, DEFAULT_GLOBAL_FILTERS, type GlobalFilters } from "@/lib/global-filters";
 import {
-  buildReportData, generateCsv, generateXlsx, reportFilename, downloadBlob,
+  buildReportData, reportFilename, downloadBlob,
   type ReportCall, type ReportFrequency, type PatientRow, type PatientSections,
 } from "@/lib/report";
 import { ReportViewer } from "@/components/reports/ReportViewer";
@@ -233,7 +233,16 @@ export function ReportButton({
         }
       } catch { /* non-fatal — CSV still downloads without patient sections */ }
 
-      const blob = generateXlsx(data, reportFreq, patientSections);
+      const xlsxResp = await fetch("/api/dashboard/report/xlsx", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ data, frequency: reportFreq, patients: patientSections }),
+      });
+      if (!xlsxResp.ok) {
+        const j = await xlsxResp.json().catch(() => ({}));
+        throw new Error((j as { error?: string }).error ?? `HTTP ${xlsxResp.status}`);
+      }
+      const blob = await xlsxResp.blob();
       downloadBlob(blob, reportFilename({ periodLabel: p.label, frequency: reportFreq, format: "xlsx" }));
     } catch (e) {
       setErr(e instanceof Error ? e.message : "report error");
