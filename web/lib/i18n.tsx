@@ -586,6 +586,18 @@ const EN: Record<string, string> = {
   "Sauvegarder": "Save",
   "Enregistré.": "Saved.",
   "Pris en charge.": "Claimed.",
+  // ── Supervision live page ──
+  "Supervision live": "Live supervision",
+  "Qui est en ligne, qui parle avec qui, depuis combien de temps. Mise à jour automatique toutes les 5 secondes.": "Who is online, who is talking to whom, for how long. Auto-updated every 5 seconds.",
+  "Disponibles": "Available",
+  "Absents": "Absent",
+  "En ligne": "Online",
+  "Disponible": "Available",
+  "Absent": "Absent",
+  "Hors ligne": "Offline",
+  "En appel avec": "In call with",
+  "Dernier heartbeat": "Last heartbeat",
+  "Pas encore vu": "Never seen",
   // ── Supervision page ──
   "Tous les leads en attente — assignation, suivi et création manuelle.": "All pending leads — assignment, tracking and manual creation.",
   "Total ouverts": "Total open",
