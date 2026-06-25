@@ -41,6 +41,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   const allowed = [
     "label",
     "active",
+    "inbound_enabled",
     "flow_id",
     "queue_id",
     "agent_handle_id",
