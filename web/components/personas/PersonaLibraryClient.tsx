@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useT } from "@/lib/i18n";
 import { PersonaPreview, type PersonaPreviewData } from "./PersonaPreview";
 
 type PersonaSummary = {
@@ -29,7 +28,6 @@ const LANGUAGE_FLAGS: Record<string, string> = {
 };
 
 export function PersonaLibraryClient({ initial }: { initial: PersonaSummary[] }) {
-  const t = useT();
   const router = useRouter();
   const [personas] = useState<PersonaSummary[]>(initial);
   const [industry, setIndustry] = useState("");
@@ -111,9 +109,9 @@ export function PersonaLibraryClient({ initial }: { initial: PersonaSummary[] })
         }}
       >
         <div>
-          <label>Industrie</label>
+          <label>Industry</label>
           <select value={industry} onChange={(e) => setIndustry(e.target.value)}>
-            <option value="">— toutes —</option>
+            <option value="">— all —</option>
             {industries.map((i) => (
               <option key={i} value={i}>
                 {i}
@@ -122,9 +120,9 @@ export function PersonaLibraryClient({ initial }: { initial: PersonaSummary[] })
           </select>
         </div>
         <div>
-          <label>Langue</label>
+          <label>Language</label>
           <select value={language} onChange={(e) => setLanguage(e.target.value)}>
-            <option value="">— toutes —</option>
+            <option value="">— all —</option>
             {languages.map((l) => (
               <option key={l} value={l}>
                 {LANGUAGE_FLAGS[l] ?? l.toUpperCase()}
@@ -133,7 +131,7 @@ export function PersonaLibraryClient({ initial }: { initial: PersonaSummary[] })
           </select>
         </div>
         <div>
-          <label>Recherche</label>
+          <label>Search</label>
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
@@ -156,9 +154,8 @@ export function PersonaLibraryClient({ initial }: { initial: PersonaSummary[] })
       )}
 
       <div style={{ color: "var(--muted)", fontSize: 13, marginBottom: 10 }}>
-        {filtered.length} persona{filtered.length === 1 ? "" : "s"} disponible
-        {filtered.length === 1 ? "" : "s"}
-        {personas.length === 0 ? " — vérifie que le dossier /personas est présent dans le déploiement." : ""}
+        {filtered.length} persona{filtered.length === 1 ? "" : "s"} available
+        {personas.length === 0 ? " — make sure the /personas folder is present in the deployment." : ""}
       </div>
 
       <div
@@ -202,7 +199,7 @@ export function PersonaLibraryClient({ initial }: { initial: PersonaSummary[] })
                 disabled={previewBusy}
                 style={{ flex: 1 }}
               >
-                Aperçu
+                Preview
               </button>
               <button
                 type="button"
@@ -210,7 +207,7 @@ export function PersonaLibraryClient({ initial }: { initial: PersonaSummary[] })
                 disabled={cloneBusy === p.slug}
                 style={{ flex: 1 }}
               >
-                {cloneBusy === p.slug ? "Clonage…" : "Cloner dans mon org"}
+                {cloneBusy === p.slug ? "Cloning…" : "Clone into my org"}
               </button>
             </div>
           </div>
@@ -257,14 +254,14 @@ export function PersonaLibraryClient({ initial }: { initial: PersonaSummary[] })
                   onClick={() => clonePersona(preview.slug)}
                   disabled={cloneBusy === preview.slug}
                 >
-                  {cloneBusy === preview.slug ? "Clonage…" : "Cloner"}
+                  {cloneBusy === preview.slug ? "Cloning…" : "Clone"}
                 </button>
                 <button
                   type="button"
                   className="ghost"
                   onClick={() => setPreview(null)}
                 >
-                  {t("Fermer")}
+                  Close
                 </button>
               </div>
             </div>
