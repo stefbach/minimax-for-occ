@@ -492,11 +492,15 @@ facture au nom de la société) → Meta confirme via un canal officiel (email/t
 jours. **Important** : nom + adresse doivent correspondre **exactement** aux documents, sinon refus.
 
 ### 10.3 Traçabilité des formulaires (jusqu'à la vente)
-Objectif : pouvoir dire « cette vente vient de **tel formulaire / telle pub** ». Chaque lead dans
-`leads_facebook` garde son origine (`leadgen_id`, `form_id`, `ad_id`, `adset_id`, `fb_campaign_id`,
-`page_id`). Ces étiquettes **restent attachées** quand le lead devient RDV puis VENTE → rapport
-« ventes par formulaire / par visuel » et **coût réel par vente** de chaque pub. C'est ce que
-`leads_rdv` ne permettait pas (aucune attribution) ; la table dédiée le corrige.
+« Traçabilité » = **savoir d'où vient chaque client**. Quand quelqu'un remplit le formulaire, on colle
+discrètement une **étiquette d'origine** sur son dossier : de **quelle pub** et de **quel formulaire**
+il vient. Cette étiquette **reste collée** tout au long du parcours — appel, puis rendez-vous, puis
+vente. Résultat : le jour où ce prospect achète, on peut **remonter la chaîne** et dire « cette vente
+vient de telle pub » → on voit enfin **quelles pubs rapportent de vraies ventes** (pas seulement des
+clics ou des formulaires remplis), on met le budget sur ce qui vend, on coupe ce qui coûte sans
+rapporter, et on connaît le **vrai coût par vente** de chaque visuel.
+*Image : un numéro de suivi qui reste collé sur le colis, de l'entrepôt jusqu'à la livraison.*
+*(Détail technique des « étiquettes » : §B1, colonnes d'attribution.)*
 
 ### 10.4 Renvoyer les conversions (RDV/vente) à Meta pour ajuster le ciblage
 Voir **§9**. En une phrase : quand un lead convertit, on le **dit à Meta** (Conversions API) pour qu'il
