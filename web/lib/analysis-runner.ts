@@ -574,14 +574,27 @@ export async function qualifyCall(
   const stageNum = Number(parsed.agent_stage);
   const agentStage = Number.isFinite(stageNum) ? Math.min(3, Math.max(1, Math.round(stageNum))) : 1;
 
+  // Wati 25/06 — deterministic alignment with the worker's handoff→SUIVI REQUIS
+  // rule (agent/db_writes.auto_qualify_call): a call that REACHED agent 2/3 (a
+  // specialist) but didn't book is SUIVI REQUIS, not "à passer à l'humain".
+  // Without this, the DeepSeek classifier (and its undecidable→passer_humain
+  // fallback at coerceBucket) keeps flooding the human desk with warm leads
+  // that merely reached Isabelle/Victoria without confirming an appointment.
+  let finalBucket: Exclude<QualBucket, "autre"> = bucket;
+  if (agentStage >= 2 && finalBucket !== "rdv_confirme") {
+    finalBucket = "suivi_requis";
+  }
+
   const mergedMeta: Record<string, unknown> = { ...meta };
   // (a) Qualification — only when the call had none; never override agent/human/Retell.
   if (needQual) {
-    mergedMeta.qualification = bucket;
+    mergedMeta.qualification = finalBucket;
     mergedMeta.qualification_source = "ai_auto";
     mergedMeta.qualification_ai = {
       confidence: coerced ? 0 : confidence,
-      reason: coerced ? "Indécidable par l'IA — escaladé à un humain." : reason,
+      reason: finalBucket !== bucket
+        ? `Atteint l'agent ${agentStage} sans confirmation de RDV — suivi requis.`
+        : coerced ? "Indécidable par l'IA — escaladé à un humain." : reason,
       model: "deepseek-v4-flash",
       at: new Date().toISOString(),
     };
@@ -601,7 +614,7 @@ export async function qualifyCall(
   return {
     call_id: callId,
     status: needQual ? "qualified" : "skipped_existing",
-    bucket: needQual ? bucket : current,
+    bucket: needQual ? finalBucket : current,
     confidence: needQual ? (coerced ? 0 : confidence ?? undefined) : undefined,
     reason: needQual && typeof reason === "string" ? reason : undefined,
   };
