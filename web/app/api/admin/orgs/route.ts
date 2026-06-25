@@ -228,7 +228,7 @@ export async function POST(req: Request) {
 
       ownerCredentials = {
         email: ownerEmail,
-        password: createdUser ? password : "(compte existant — mot de passe inchangé)",
+        password: createdUser ? password : "(existing account — password unchanged)",
         created: createdUser,
       };
     }

@@ -70,7 +70,7 @@ export async function POST(req: Request) {
     .single();
   if (error) {
     if (error.code === "23505") {
-      return NextResponse.json({ error: "Déjà assignée à cette org." }, { status: 409 });
+      return NextResponse.json({ error: "Already assigned to this org." }, { status: 409 });
     }
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

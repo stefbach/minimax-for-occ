@@ -150,7 +150,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   }
   if (!clean[reg.phone_column]) {
     return NextResponse.json(
-      { error: `Le numéro (${reg.phone_column}) est requis.` },
+      { error: `Phone number (${reg.phone_column}) is required.` },
       { status: 400 },
     );
   }

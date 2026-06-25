@@ -34,7 +34,7 @@ export async function GET(req: Request) {
  */
 export async function POST(req: Request) {
   if (!hasSupabase()) {
-    return NextResponse.json({ error: "Supabase non configuré." }, { status: 500 });
+    return NextResponse.json({ error: "Supabase not configured." }, { status: 500 });
   }
   const body = (await req.json().catch(() => null)) as {
     org_id?: string;
@@ -69,7 +69,7 @@ export async function POST(req: Request) {
  */
 export async function DELETE(req: Request) {
   if (!hasSupabase()) {
-    return NextResponse.json({ error: "Supabase non configuré." }, { status: 500 });
+    return NextResponse.json({ error: "Supabase not configured." }, { status: 500 });
   }
   const { searchParams } = new URL(req.url);
   const id = searchParams.get("id");

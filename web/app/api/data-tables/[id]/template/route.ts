@@ -28,7 +28,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   // Phone column comes first (it's mandatory), then the declared columns
   // minus the phone one to avoid duplication.
   const ordered: Array<{ key: string; label: string; type: string }> = [
-    { key: reg.phone_column, label: "Téléphone", type: "phone" },
+    { key: reg.phone_column, label: "Phone", type: "phone" },
     ...cols.filter((c) => c.key !== reg.phone_column),
   ];
 

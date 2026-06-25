@@ -69,7 +69,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const body = (await req.json().catch(() => ({}))) as { rows?: unknown[] };
   const incoming = Array.isArray(body.rows) ? body.rows : [];
   if (incoming.length === 0) {
-    return NextResponse.json({ error: "Aucune ligne à importer." }, { status: 400 });
+    return NextResponse.json({ error: "No rows to import." }, { status: 400 });
   }
   if (incoming.length > MAX_ROWS) {
     return NextResponse.json(
@@ -100,7 +100,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       r[reg.phone_column] ?? r.telephone ?? r.phone ?? r.numero ?? r.numero_telephone ?? null;
     const phone = normalisePhone(phoneRaw);
     if (!phone) {
-      errors.push({ row: index + 1, reason: "téléphone manquant ou invalide" });
+      errors.push({ row: index + 1, reason: "missing or invalid phone number" });
       return;
     }
     out[reg.phone_column] = phone;
