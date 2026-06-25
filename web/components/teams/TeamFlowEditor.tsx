@@ -12,7 +12,7 @@ import Link from "next/link";
  *   • One card per team member, in priority order (1st = lead).
  *   • Between each card, an editable "transfer when…" arrow whose text
  *     describes the condition that hands off to the next member.
- *   • A header on the lead card explicitly labels them as "1er appel".
+ *   • A header on the lead card explicitly labels them as "1st call".
  *   • Inline edit of `specialty` (machine key the LLM uses) and
  *     `transfer_description` (the human sentence injected into the
  *     prompt as "Transfer to <Next>: <condition>").
@@ -96,7 +96,7 @@ export function TeamFlowEditor({
       });
       const body = await r.json();
       if (!r.ok) {
-        setError(body.error ?? `Échec sauvegarde (${r.status})`);
+        setError(body.error ?? `Save failed (${r.status})`);
         return;
       }
       setMembers((prev) => prev.map((m) => (m.id === memberId ? (body as TeamMemberRow) : m)));
@@ -106,7 +106,7 @@ export function TeamFlowEditor({
   }
 
   async function removeMember(memberId: string) {
-    if (!confirm("Retirer cet agent du parcours ?")) return;
+    if (!confirm("Remove this agent from the journey?")) return;
     setBusyMember(memberId);
     setError(null);
     try {
@@ -115,7 +115,7 @@ export function TeamFlowEditor({
       });
       if (!r.ok) {
         const body = await r.json().catch(() => ({}));
-        setError(body.error ?? `Échec suppression (${r.status})`);
+        setError(body.error ?? `Delete failed (${r.status})`);
         return;
       }
       setMembers((prev) => prev.filter((m) => m.id !== memberId));
@@ -126,7 +126,7 @@ export function TeamFlowEditor({
 
   async function addMember() {
     if (!newAgentId) {
-      setError("Choisissez un agent à ajouter.");
+      setError("Choose an agent to add.");
       return;
     }
     setError(null);
@@ -143,7 +143,7 @@ export function TeamFlowEditor({
     });
     const body = await r.json();
     if (!r.ok) {
-      setError(body.error ?? `Échec ajout (${r.status})`);
+      setError(body.error ?? `Add failed (${r.status})`);
       return;
     }
     setMembers((prev) => [...prev, body as TeamMemberRow]);
@@ -172,11 +172,10 @@ export function TeamFlowEditor({
   return (
     <div style={{ display: "grid", gap: 14 }}>
       <div className="card" style={{ background: "var(--bg-2)", padding: "10px 14px", fontSize: 13, color: "var(--muted)" }}>
-        💡 Le parcours s&apos;exécute dans l&apos;ordre indiqué. <strong>Le 1er agent répond à
-        l&apos;appel</strong>. Chaque flèche décrit la condition qui déclenche le passage
-        à l&apos;agent suivant. La condition est <strong>injectée mot-pour-mot</strong> dans
-        le prompt de l&apos;agent, donc utilisez des phrases claires en anglais (ou la
-        langue de l&apos;agent).
+        💡 The journey runs in the order shown. <strong>The 1st agent answers
+        the call</strong>. Each arrow describes the condition that triggers the
+        handoff to the next agent. The condition is <strong>injected word-for-word</strong> into
+        the agent&apos;s prompt, so use clear phrases in English (or the agent&apos;s language).
       </div>
 
       {error && (
@@ -187,8 +186,8 @@ export function TeamFlowEditor({
 
       {members.length === 0 ? (
         <div className="card">
-          <h3>Aucun agent dans cette équipe</h3>
-          <p className="muted">Ajoutez Charlotte (ou un autre agent) comme premier intervenant.</p>
+          <h3>No agents in this team</h3>
+          <p className="muted">Add an agent as the first in the journey.</p>
         </div>
       ) : (
         <div style={{ display: "grid", gap: 0 }}>
@@ -211,8 +210,8 @@ export function TeamFlowEditor({
                   <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
                     <div>
                       <h3 style={{ margin: 0 }}>
-                        {m.agent?.name ?? "Agent inconnu"}
-                        {isLead && <span className="tag good" style={{ marginLeft: 8 }}>1er appel</span>}
+                        {m.agent?.name ?? "Unknown agent"}
+                        {isLead && <span className="tag good" style={{ marginLeft: 8 }}>1st call</span>}
                       </h3>
                       {m.agent?.description && (
                         <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>
@@ -224,7 +223,7 @@ export function TeamFlowEditor({
                       {m.agent?.id && (
                         <Link href={`/agents/${m.agent.id}/edit`}>
                           <button className="ghost" style={{ padding: "4px 10px", fontSize: 12 }}>
-                            Éditer l&apos;agent
+                            Edit agent
                           </button>
                         </Link>
                       )}
@@ -233,9 +232,9 @@ export function TeamFlowEditor({
                         onClick={() => removeMember(m.id)}
                         disabled={busyMember === m.id}
                         style={{ padding: "4px 10px", fontSize: 12, color: "#ff8080" }}
-                        title="Retirer du parcours (l'agent lui-même n'est pas supprimé)"
+                        title="Remove from journey (the agent itself is not deleted)"
                       >
-                        Retirer
+                        Remove
                       </button>
                     </div>
                   </div>
@@ -243,7 +242,7 @@ export function TeamFlowEditor({
                   {!isLast && (
                     <div style={{ display: "grid", gridTemplateColumns: "minmax(140px, 200px) 1fr", gap: 8, alignItems: "start" }}>
                       <div>
-                        <label style={{ fontSize: 12, color: "var(--muted)" }}>Clé technique (LLM)</label>
+                        <label style={{ fontSize: 12, color: "var(--muted)" }}>Technical key (LLM)</label>
                         <input
                           value={draft.specialty}
                           onChange={(e) =>
@@ -258,7 +257,7 @@ export function TeamFlowEditor({
                       </div>
                       <div>
                         <label style={{ fontSize: 12, color: "var(--muted)" }}>
-                          Description du transfert (utilisée par le prochain agent pour comprendre ce qu&apos;il fait)
+                          Transfer description (used by the next agent to understand its role)
                         </label>
                         <input
                           value={draft.transfer_description}
@@ -277,7 +276,7 @@ export function TeamFlowEditor({
                   {!isLast && dirty && (
                     <div style={{ display: "flex", gap: 6 }}>
                       <button onClick={() => saveMember(m.id)} disabled={busyMember === m.id}>
-                        {busyMember === m.id ? "Sauvegarde…" : "Sauvegarder"}
+                        {busyMember === m.id ? "Saving…" : "Save"}
                       </button>
                       <button
                         className="ghost"
@@ -291,7 +290,7 @@ export function TeamFlowEditor({
                           }))
                         }
                       >
-                        Annuler
+                        Cancel
                       </button>
                     </div>
                   )}
@@ -318,8 +317,8 @@ export function TeamFlowEditor({
                         maxWidth: 480,
                       }}
                     >
-                      transfère vers <strong>{members[i + 1]?.agent?.name ?? "?"}</strong> quand{" "}
-                      <em>« {m.transfer_description || "…à définir…"} »</em>
+                      transfers to <strong>{members[i + 1]?.agent?.name ?? "?"}</strong> when{" "}
+                      <em>&ldquo;{m.transfer_description || "…to be set…"}&rdquo;</em>
                     </div>
                   </div>
                 )}
@@ -332,11 +331,11 @@ export function TeamFlowEditor({
       {/* Add agent block */}
       {showAdd ? (
         <div className="card" style={{ display: "grid", gap: 10 }}>
-          <h3 style={{ margin: 0 }}>Ajouter un agent au parcours</h3>
+          <h3 style={{ margin: 0 }}>Add an agent to the journey</h3>
           <div>
             <label>Agent</label>
             <select value={newAgentId} onChange={(e) => setNewAgentId(e.target.value)}>
-              <option value="">— choisir —</option>
+              <option value="">— choose —</option>
               {addCandidates.map((a) => (
                 <option key={a.id} value={a.id}>
                   {a.name}
@@ -346,14 +345,14 @@ export function TeamFlowEditor({
             </select>
             {addCandidates.length === 0 && (
               <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
-                Tous vos agents sont déjà dans le parcours.{" "}
-                <Link href="/agents/new">Créer un nouvel agent</Link>.
+                All your agents are already in the journey.{" "}
+                <Link href="/agents/new">Create a new agent</Link>.
               </div>
             )}
           </div>
           <div className="form-row">
             <div>
-              <label>Clé technique</label>
+              <label>Technical key</label>
               <input
                 value={newSpecialty}
                 onChange={(e) => setNewSpecialty(e.target.value.toLowerCase().replace(/\s+/g, "_"))}
@@ -362,7 +361,7 @@ export function TeamFlowEditor({
               />
             </div>
             <div>
-              <label>Description du transfert</label>
+              <label>Transfer description</label>
               <input
                 value={newDescription}
                 onChange={(e) => setNewDescription(e.target.value)}
@@ -371,8 +370,8 @@ export function TeamFlowEditor({
             </div>
           </div>
           <div style={{ display: "flex", gap: 6 }}>
-            <button onClick={addMember}>Ajouter</button>
-            <button className="ghost" onClick={() => setShowAdd(false)}>Annuler</button>
+            <button onClick={addMember}>Add</button>
+            <button className="ghost" onClick={() => setShowAdd(false)}>Cancel</button>
           </div>
         </div>
       ) : (
@@ -382,7 +381,7 @@ export function TeamFlowEditor({
           disabled={addCandidates.length === 0}
           style={{ justifySelf: "start" }}
         >
-          + Ajouter un agent au parcours
+          + Add an agent to the journey
         </button>
       )}
     </div>

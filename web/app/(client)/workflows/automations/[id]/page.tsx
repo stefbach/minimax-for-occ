@@ -13,10 +13,10 @@ export default async function AutomationEditPage({
     <div>
       <div className="page-header">
         <div>
-          <h1>Éditer l&apos;automation</h1>
+          <h1>Edit automation</h1>
           <div className="subtitle">
-            Déclencheur, filtres et actions. Les credentials sont référencés
-            par identifiant — les secrets ne transitent jamais ici.
+            Trigger, filters and actions. Credentials are referenced by
+            identifier — secrets never pass through here.
           </div>
         </div>
         <HelpButton contextKey="workflows.automation" />

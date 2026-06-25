@@ -11,8 +11,8 @@ import { OutboundCallModal } from "./OutboundCallModal";
 import { HelpButton } from "@/components/help/HelpButton";
 
 const TABS = [
-  { id: "session", label: "Session vocale + chat" },
-  { id: "n8n", label: "Workflows n8n" },
+  { id: "session", label: "Voice session + chat" },
+  { id: "n8n", label: "n8n Workflows" },
   { id: "rag", label: "RAG / Documents" },
 ];
 
@@ -42,19 +42,19 @@ export function AgentSession({ agent, initialTab }: { agent: Agent; initialTab: 
           <div className="subtitle">
             <span className="tag">{agent.language}</span>{" "}
             <span className="tag">{agent.llm_provider}/{agent.llm_model}</span>{" "}
-            {agent.tts_voice_id && <span className="tag">voix: {agent.tts_voice_id}</span>}{" "}
+            {agent.tts_voice_id && <span className="tag">voice: {agent.tts_voice_id}</span>}{" "}
             {agent.rag_enabled && <span className="tag good">RAG on (top-{agent.rag_top_k})</span>}
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <button
             onClick={() => setDialOpen(true)}
-            title="Lancer un appel sortant immédiat avec cet agent (sans campagne)"
+            title="Launch an immediate outbound call with this agent (no campaign)"
           >
             ☎ Make outbound call
           </button>
           <Link href={`/agents/${agent.id}/edit`}>
-            <button className="ghost">Éditer la config</button>
+            <button className="ghost">Edit config</button>
           </Link>
           <HelpButton contextKey="agents.detail" />
         </div>
@@ -92,7 +92,7 @@ export function AgentSession({ agent, initialTab }: { agent: Agent; initialTab: 
         <div className="duo">
           <section className="panel">
             <header>
-              <h2>Voix</h2>
+              <h2>Voice</h2>
               <div className="meta">LiveKit · {ttsLabelFor(agent.tts_voice_id)} · AssemblyAI STT</div>
             </header>
             <VoicePanel
@@ -104,7 +104,7 @@ export function AgentSession({ agent, initialTab }: { agent: Agent; initialTab: 
           <section className="panel">
             <header>
               <h2>Chat texte</h2>
-              <div className="meta">{agent.llm_provider}/{agent.llm_model}{agent.rag_enabled ? " · RAG actif" : ""}</div>
+              <div className="meta">{agent.llm_provider}/{agent.llm_model}{agent.rag_enabled ? " · RAG active" : ""}</div>
             </header>
             <ChatPanel agentId={agent.id} />
           </section>

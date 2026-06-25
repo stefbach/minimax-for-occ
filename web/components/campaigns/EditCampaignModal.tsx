@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 // both the "safe" tweaks (name / days / ranges / concurrency / AMD) and
 // the structural config that lives in metadata.engine (agent, phone,
 // data table, selection statuses, phase cadence, volume, callback).
-// Structural sections are read-only by default with a "Modifier" toggle
+// Structural sections are read-only by default with a "Modify" toggle
 // that exposes the inputs and shows a warning before the user can save.
 
 interface HourRange { start: string; end: string }
@@ -57,13 +57,13 @@ interface Props {
 }
 
 const DAYS = [
-  { id: 1, label: "Lun" },
-  { id: 2, label: "Mar" },
-  { id: 3, label: "Mer" },
-  { id: 4, label: "Jeu" },
-  { id: 5, label: "Ven" },
-  { id: 6, label: "Sam" },
-  { id: 0, label: "Dim" },
+  { id: 1, label: "Mon" },
+  { id: 2, label: "Tue" },
+  { id: 3, label: "Wed" },
+  { id: 4, label: "Thu" },
+  { id: 5, label: "Fri" },
+  { id: 6, label: "Sat" },
+  { id: 0, label: "Sun" },
 ];
 
 const KNOWN_STATUSES = [
@@ -139,8 +139,8 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
   function tryUnlock(k: string, label: string) {
     if (isUnlocked(k)) return;
     const ok = confirm(
-      `Modifier "${label}" sur une campagne déjà active peut perturber le batch en cours ` +
-      `(leads en attente, état des phases, etc.). Continuer ?`,
+      `Modifying "${label}" on an already active campaign may disrupt the current batch ` +
+      `(pending leads, phase state, etc.). Continue?`,
     );
     if (ok) setUnlocked((u) => ({ ...u, [k]: true }));
   }
@@ -166,7 +166,7 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
           Array.isArray(x) ? x : ((x as { items?: unknown[]; data?: unknown[] })?.items ?? (x as { data?: unknown[] })?.data ?? []);
         const normHandle = (h: Record<string, unknown>): AgentOpt => ({
           id: String(h.id ?? ""),
-          display_name: String(h.display_name ?? h.name ?? h.id ?? "(sans nom)"),
+          display_name: String(h.display_name ?? h.name ?? h.id ?? "(unnamed)"),
           kind: String(h.kind ?? "ai"),
         });
         setAgents(unwrap(aRes).map((x) => normHandle(x as Record<string, unknown>)));
@@ -299,7 +299,7 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
   // ─── Render helpers ────────────────────────────────────────────────────
   const lockedNote = (
     <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
-      🔒 Verrouillé. Clique « Modifier » pour autoriser le changement.
+      🔒 Locked. Click &ldquo;Modify&rdquo; to allow changes.
     </div>
   );
   const unlockBtn = (key: string, label: string) => (
@@ -309,7 +309,7 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
       onClick={() => tryUnlock(key, label)}
       style={{ padding: "2px 8px", fontSize: 11 }}
     >
-      Modifier
+      Modify
     </button>
   );
 
@@ -328,16 +328,16 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
         style={{ width: "min(760px, 100%)", marginTop: 30, display: "grid", gap: 14 }}
       >
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
-          <h3 style={{ margin: 0 }}>Éditer la campagne</h3>
+          <h3 style={{ margin: 0 }}>Edit campaign</h3>
           <button className="ghost" onClick={onClose} style={{ padding: "2px 8px" }}>×</button>
         </div>
 
-        {/* ─── Identité ──────────────────────────────────────────────── */}
+        {/* ─── Identity ──────────────────────────────────────────────── */}
         <section>
-          <h4 style={{ margin: "0 0 8px 0", fontSize: 14 }}>Identité</h4>
+          <h4 style={{ margin: "0 0 8px 0", fontSize: 14 }}>Identity</h4>
           <div style={{ display: "grid", gap: 8 }}>
             <div>
-              <label style={{ fontSize: 12 }}>Nom</label>
+              <label style={{ fontSize: 12 }}>Name</label>
               <input value={name} onChange={(e) => setName(e.target.value)} />
             </div>
             <div>
@@ -352,11 +352,11 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
           </div>
         </section>
 
-        {/* ─── Source de contacts ────────────────────────────────────── */}
+        {/* ─── Contact source ────────────────────────────────────────── */}
         <section>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-            <h4 style={{ margin: "0 0 8px 0", fontSize: 14 }}>Source de contacts</h4>
-            {!isUnlocked("data_table") && unlockBtn("data_table", "Source de contacts")}
+            <h4 style={{ margin: "0 0 8px 0", fontSize: 14 }}>Contact source</h4>
+            {!isUnlocked("data_table") && unlockBtn("data_table", "Contact source")}
           </div>
           <select
             value={dataTableId}
@@ -364,7 +364,7 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
             disabled={!isUnlocked("data_table")}
             style={{ width: "100%" }}
           >
-            <option value="">— Aucune —</option>
+            <option value="">— None —</option>
             {tables.map((t) => (
               <option key={t.id} value={t.id}>
                 {t.label} ({t.physical_table})
@@ -374,36 +374,36 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
           {!isUnlocked("data_table") && lockedNote}
         </section>
 
-        {/* ─── Qui appelle ───────────────────────────────────────────── */}
+        {/* ─── Who calls ─────────────────────────────────────────────── */}
         <section>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-            <h4 style={{ margin: "0 0 8px 0", fontSize: 14 }}>Qui appelle</h4>
-            {!isUnlocked("agent") && unlockBtn("agent", "Agent / Équipe")}
+            <h4 style={{ margin: "0 0 8px 0", fontSize: 14 }}>Who calls</h4>
+            {!isUnlocked("agent") && unlockBtn("agent", "Agent / Team")}
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
             <div>
-              <label style={{ fontSize: 12 }}>Agent principal</label>
+              <label style={{ fontSize: 12 }}>Main agent</label>
               <select
                 value={agentHandleId}
                 onChange={(e) => setAgentHandleId(e.target.value)}
                 disabled={!isUnlocked("agent")}
                 style={{ width: "100%" }}
               >
-                <option value="">— Aucun —</option>
+                <option value="">— None —</option>
                 {agents.map((a) => (
                   <option key={a.id} value={a.id}>{a.display_name}</option>
                 ))}
               </select>
             </div>
             <div>
-              <label style={{ fontSize: 12 }}>Équipe (swarm)</label>
+              <label style={{ fontSize: 12 }}>Team (swarm)</label>
               <select
                 value={agentTeamId}
                 onChange={(e) => setAgentTeamId(e.target.value)}
                 disabled={!isUnlocked("agent")}
                 style={{ width: "100%" }}
               >
-                <option value="">— Aucune —</option>
+                <option value="">— None —</option>
                 {teams.map((t) => (
                   <option key={t.id} value={t.id}>{t.name}</option>
                 ))}
@@ -413,11 +413,11 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
           {!isUnlocked("agent") && lockedNote}
         </section>
 
-        {/* ─── Numéro émetteur ───────────────────────────────────────── */}
+        {/* ─── Caller ID ─────────────────────────────────────────────── */}
         <section>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-            <h4 style={{ margin: "0 0 8px 0", fontSize: 14 }}>Numéro émetteur</h4>
-            {!isUnlocked("phone") && unlockBtn("phone", "Numéro émetteur")}
+            <h4 style={{ margin: "0 0 8px 0", fontSize: 14 }}>Caller ID</h4>
+            {!isUnlocked("phone") && unlockBtn("phone", "Caller ID")}
           </div>
           <select
             value={phoneNumberId}
@@ -425,7 +425,7 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
             disabled={!isUnlocked("phone")}
             style={{ width: "100%" }}
           >
-            <option value="">— Aucun —</option>
+            <option value="">— None —</option>
             {numbers.map((n) => (
               <option key={n.id} value={n.id}>
                 {n.e164} {n.label ? `(${n.label})` : ""}
@@ -435,12 +435,12 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
           {!isUnlocked("phone") && lockedNote}
         </section>
 
-        {/* ─── Quand appeler ─────────────────────────────────────────── */}
+        {/* ─── When to call ──────────────────────────────────────────── */}
         <section>
-          <h4 style={{ margin: "0 0 8px 0", fontSize: 14 }}>Quand appeler</h4>
+          <h4 style={{ margin: "0 0 8px 0", fontSize: 14 }}>When to call</h4>
           <div style={{ display: "grid", gap: 10 }}>
             <div>
-              <label style={{ fontSize: 12 }}>Jours autorisés</label>
+              <label style={{ fontSize: 12 }}>Allowed days</label>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                 {DAYS.map((d) => {
                   const active = days.includes(d.id);
@@ -460,7 +460,7 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
             </div>
 
             <div>
-              <label style={{ fontSize: 12 }}>Plages horaires (UI — UTC)</label>
+              <label style={{ fontSize: 12 }}>Time ranges (UI — UTC)</label>
               <div style={{ display: "grid", gap: 6 }}>
                 {ranges.map((r, i) => (
                   <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -473,7 +473,7 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
                   </div>
                 ))}
                 <button type="button" className="ghost" onClick={addRange} style={{ padding: "4px 10px", alignSelf: "flex-start", fontSize: 12 }}>
-                  + Ajouter une plage
+                  + Add a time range
                 </button>
               </div>
             </div>
@@ -481,9 +481,9 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
             <div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
                 <label style={{ fontSize: 12 }}>
-                  Slots ponctuels du moteur (vraies heures d&apos;appel, en {slotsTz})
+                  Engine call slots (actual call times, in {slotsTz})
                 </label>
-                {!isUnlocked("slots") && unlockBtn("slots", "Slots ponctuels")}
+                {!isUnlocked("slots") && unlockBtn("slots", "Call slots")}
               </div>
               <div style={{ display: "grid", gap: 6 }}>
                 {slotHours.map((h, i) => (
@@ -502,7 +502,7 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
                 ))}
                 {isUnlocked("slots") && (
                   <button type="button" className="ghost" onClick={addSlotHour} style={{ padding: "4px 10px", alignSelf: "flex-start", fontSize: 12 }}>
-                    + Ajouter un slot
+                    + Add a slot
                   </button>
                 )}
               </div>
@@ -510,22 +510,22 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
             </div>
 
             <div>
-              <label style={{ fontSize: 12 }}>Fuseau horaire (moteur)</label>
+              <label style={{ fontSize: 12 }}>Timezone (engine)</label>
               <input
                 value={slotsTz}
                 onChange={(e) => setSlotsTz(e.target.value)}
                 disabled={!isUnlocked("slots")}
-                placeholder="ex. Indian/Mauritius, Europe/London"
+                placeholder="e.g. Indian/Mauritius, Europe/London"
               />
             </div>
           </div>
         </section>
 
-        {/* ─── Statuts ciblés ────────────────────────────────────────── */}
+        {/* ─── Target statuses ───────────────────────────────────────── */}
         <section>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-            <h4 style={{ margin: "0 0 8px 0", fontSize: 14 }}>Statuts ciblés</h4>
-            {!isUnlocked("statuses") && unlockBtn("statuses", "Statuts ciblés")}
+            <h4 style={{ margin: "0 0 8px 0", fontSize: 14 }}>Target statuses</h4>
+            {!isUnlocked("statuses") && unlockBtn("statuses", "Target statuses")}
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
             {KNOWN_STATUSES.map((s) => {
@@ -547,20 +547,20 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
           {!isUnlocked("statuses") && lockedNote}
         </section>
 
-        {/* ─── Phases de relance ─────────────────────────────────────── */}
+        {/* ─── Follow-up phases ──────────────────────────────────────── */}
         <section>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-            <h4 style={{ margin: "0 0 8px 0", fontSize: 14 }}>Phases de relance</h4>
-            {!isUnlocked("phases") && unlockBtn("phases", "Phases de relance")}
+            <h4 style={{ margin: "0 0 8px 0", fontSize: 14 }}>Follow-up phases</h4>
+            {!isUnlocked("phases") && unlockBtn("phases", "Follow-up phases")}
           </div>
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse" }}>
               <thead>
                 <tr>
-                  <th style={{ textAlign: "left", padding: 4 }}>Nom</th>
-                  <th style={{ textAlign: "left", padding: 4 }}>Col. date</th>
-                  <th style={{ textAlign: "left", padding: 4 }}>Col. tentatives</th>
-                  <th style={{ textAlign: "left", padding: 4 }}>Attente (j. ouvrés)</th>
+                  <th style={{ textAlign: "left", padding: 4 }}>Name</th>
+                  <th style={{ textAlign: "left", padding: 4 }}>Date col.</th>
+                  <th style={{ textAlign: "left", padding: 4 }}>Attempts col.</th>
+                  <th style={{ textAlign: "left", padding: 4 }}>Wait (business days)</th>
                 </tr>
               </thead>
               <tbody>
@@ -592,7 +592,7 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8 }}>
             <div>
-              <label style={{ fontSize: 12 }}>Tentatives max par phase</label>
+              <label style={{ fontSize: 12 }}>Max attempts per phase</label>
               <input
                 type="number"
                 min={1}
@@ -610,7 +610,7 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
                 disabled={!isUnlocked("phases")}
                 style={{ width: "auto" }}
               />
-              Compter en jours ouvrés
+              Count in business days
             </label>
           </div>
           {!isUnlocked("phases") && lockedNote}
@@ -619,12 +619,12 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
         {/* ─── Volume ────────────────────────────────────────────────── */}
         <section>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-            <h4 style={{ margin: "0 0 8px 0", fontSize: 14 }}>Volume / Cadence</h4>
+            <h4 style={{ margin: "0 0 8px 0", fontSize: 14 }}>Volume / Pacing</h4>
             {!isUnlocked("volume") && unlockBtn("volume", "Volume")}
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
             <div>
-              <label style={{ fontSize: 12 }}>Cap leads / jour</label>
+              <label style={{ fontSize: 12 }}>Lead cap / day</label>
               <input type="number" min={1} value={maxNewPerDay} onChange={(e) => setMaxNewPerDay(Number(e.target.value) || 1)} disabled={!isUnlocked("volume")} />
             </div>
             <div>
@@ -632,47 +632,47 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
               <input type="number" min={1} value={waveSize} onChange={(e) => setWaveSize(Number(e.target.value) || 1)} disabled={!isUnlocked("volume")} />
             </div>
             <div>
-              <label style={{ fontSize: 12 }}>Pause / appel (s)</label>
+              <label style={{ fontSize: 12 }}>Pause / call (s)</label>
               <input type="number" min={0} value={wavePauseSecs} onChange={(e) => setWavePauseSecs(Number(e.target.value) || 0)} disabled={!isUnlocked("volume")} />
             </div>
           </div>
           {!isUnlocked("volume") && lockedNote}
         </section>
 
-        {/* ─── Callback ──────────────────────────────────────────────── */}
+        {/* ─── Callbacks ─────────────────────────────────────────────── */}
         <section>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-            <h4 style={{ margin: "0 0 8px 0", fontSize: 14 }}>Rappels (callbacks)</h4>
+            <h4 style={{ margin: "0 0 8px 0", fontSize: 14 }}>Callbacks</h4>
             {!isUnlocked("callback") && unlockBtn("callback", "Callbacks")}
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "auto 1fr 1fr", gap: 8, alignItems: "end" }}>
             <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, paddingBottom: 6 }}>
               <input type="checkbox" checked={callbackEnabled} onChange={(e) => setCallbackEnabled(e.target.checked)} disabled={!isUnlocked("callback")} style={{ width: "auto" }} />
-              Activé
+              Enabled
             </label>
             <div>
-              <label style={{ fontSize: 12 }}>Statut déclencheur</label>
+              <label style={{ fontSize: 12 }}>Trigger status</label>
               <input value={callbackStatus} onChange={(e) => setCallbackStatus(e.target.value)} disabled={!isUnlocked("callback")} />
             </div>
             <div>
-              <label style={{ fontSize: 12 }}>Colonne datetime</label>
+              <label style={{ fontSize: 12 }}>Datetime column</label>
               <input value={callbackCol} onChange={(e) => setCallbackCol(e.target.value)} disabled={!isUnlocked("callback")} />
             </div>
           </div>
           {!isUnlocked("callback") && lockedNote}
         </section>
 
-        {/* ─── Avancé ───────────────────────────────────────────────── */}
+        {/* ─── Advanced ─────────────────────────────────────────────── */}
         <details>
-          <summary style={{ cursor: "pointer", fontSize: 13, fontWeight: 600 }}>▸ Réglages avancés</summary>
+          <summary style={{ cursor: "pointer", fontSize: 13, fontWeight: 600 }}>▸ Advanced settings</summary>
           <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
               <div>
-                <label style={{ fontSize: 12 }}>Simultanés (concurrence dialer)</label>
+                <label style={{ fontSize: 12 }}>Concurrent dials</label>
                 <input type="number" min={1} max={50} value={maxConcurrency} onChange={(e) => setMaxConcurrency(Number(e.target.value) || 1)} />
               </div>
               <div>
-                <label style={{ fontSize: 12 }}>Tentatives totales</label>
+                <label style={{ fontSize: 12 }}>Total attempts</label>
                 <input type="number" min={1} max={10} value={maxAttempts} onChange={(e) => setMaxAttempts(Number(e.target.value) || 1)} />
               </div>
               <div>
@@ -682,7 +682,7 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
             </div>
             <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
               <input type="checkbox" checked={amdEnabled} onChange={(e) => setAmdEnabled(e.target.checked)} style={{ width: "auto" }} />
-              Détection de répondeur (AMD)
+              Answering machine detection (AMD)
             </label>
           </div>
         </details>
@@ -690,9 +690,9 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
         {error && <div style={{ color: "var(--bad)", fontSize: 13 }}>{error}</div>}
 
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-          <button type="button" className="ghost" onClick={onClose} disabled={busy}>Annuler</button>
+          <button type="button" className="ghost" onClick={onClose} disabled={busy}>Cancel</button>
           <button type="button" onClick={save} disabled={busy || !name.trim() || days.length === 0}>
-            {busy ? "Enregistrement…" : "Enregistrer"}
+            {busy ? "Saving…" : "Save"}
           </button>
         </div>
       </div>
