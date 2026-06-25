@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+import { useT } from "@/lib/i18n";
 import { HelpButton } from "@/components/help/HelpButton";
 import { useToast } from "@/lib/use-toast";
 import { SkeletonRows } from "@/components/ui/Skeleton";
@@ -34,6 +35,7 @@ function sevColor(s: string): string {
 }
 
 export function AlertsClient() {
+  const t = useT();
   const toast = useToast();
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [showAcked, setShowAcked] = useState(false);
@@ -101,14 +103,14 @@ export function AlertsClient() {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         await refresh();
       } catch (e) {
-        toast.error(`Ack échoué : ${e instanceof Error ? e.message : String(e)}`);
+        toast.error(`${t("Ack échoué :")} ${e instanceof Error ? e.message : String(e)}`);
       }
     },
-    [refresh, toast],
+    [refresh, toast, t],
   );
 
   const ackAll = useCallback(async () => {
-    if (!confirm("Ack toutes les alertes non lues ?")) return;
+    if (!confirm(t("Ack toutes les alertes non lues ?"))) return;
     try {
       const r = await fetch("/api/alerts", {
         method: "PATCH",
@@ -116,12 +118,12 @@ export function AlertsClient() {
         body: JSON.stringify({ all_unacked: true }),
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      toast.success("Alertes marquées comme lues.");
+      toast.success(t("Alertes marquées comme lues."));
       await refresh();
     } catch (e) {
-      toast.error(`Ack échoué : ${e instanceof Error ? e.message : String(e)}`);
+      toast.error(`${t("Ack échoué :")} ${e instanceof Error ? e.message : String(e)}`);
     }
-  }, [refresh, toast]);
+  }, [refresh, toast, t]);
 
   const counts = useMemo(() => {
     const c = { critical: 0, warn: 0, info: 0 };
@@ -136,44 +138,44 @@ export function AlertsClient() {
       <div className="page-header">
         <div>
           <h1 style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            Alertes
+            {t("Alertes")}
             <span
               className="tag"
-              title={liveConnected ? "Connecté au flux temps réel" : "Reconnexion…"}
+              title={liveConnected ? t("Connecté au flux temps réel") : t("Reconnexion…")}
               style={{
                 fontSize: 11,
                 color: liveConnected ? "var(--good, #16a34a)" : "var(--muted)",
               }}
             >
-              {liveConnected ? "🟢 Live" : "⚪ Hors-ligne"}
+              {liveConnected ? t("🟢 Live") : t("⚪ Hors-ligne")}
             </span>
           </h1>
           <div className="subtitle">
-            Alertes générées en temps réel depuis les analyses LLM post-appel.
+            {t("Alertes générées en temps réel depuis les analyses LLM post-appel.")}
           </div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           {!showAcked && alerts.length > 0 && (
             <button className="ghost" onClick={ackAll}>
-              Ack toutes
+              {t("Ack toutes")}
             </button>
           )}
           <button className="ghost" onClick={() => void refresh()}>
-            Rafraîchir
+            {t("Rafraîchir")}
           </button>
           <HelpButton contextKey="alerts" />
         </div>
       </div>
 
       <div className="grid cols-3" style={{ gap: 12 }}>
-        <KpiCard label="Critique" value={counts.critical} color="var(--bad)" />
-        <KpiCard label="Avertissement" value={counts.warn} color="var(--warn)" />
-        <KpiCard label="Info" value={counts.info} color="var(--muted)" />
+        <KpiCard label={t("Critique")} value={counts.critical} color="var(--bad)" />
+        <KpiCard label={t("Avertissement")} value={counts.warn} color="var(--warn)" />
+        <KpiCard label={t("Info")} value={counts.info} color="var(--muted)" />
       </div>
 
       <div className="card" style={{ marginTop: 18 }}>
         <h2 style={{ margin: "0 0 12px", fontSize: 16 }}>
-          {showAcked ? "Alertes acknowledged" : "Alertes actives"}
+          {showAcked ? t("Alertes acknowledged") : t("Alertes actives")}
         </h2>
         <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 12 }}>
           <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
@@ -182,10 +184,10 @@ export function AlertsClient() {
               checked={showAcked}
               onChange={(e) => setShowAcked(e.target.checked)}
             />
-            <span>Afficher les alertes ack&apos;ées</span>
+            <span>{t("Afficher les alertes ack'ées")}</span>
           </label>
           <select value={severity} onChange={(e) => setSeverity(e.target.value)}>
-            <option value="">Toutes sévérités</option>
+            <option value="">{t("Toutes sévérités")}</option>
             <option value="critical">critical</option>
             <option value="warn">warn</option>
             <option value="info">info</option>
@@ -197,14 +199,12 @@ export function AlertsClient() {
         {!loading && alerts.length === 0 && (
           <div style={{ display: "grid", gap: 10, padding: "8px 2px" }}>
             <p className="muted" style={{ margin: 0 }}>
-              Aucune alerte {showAcked ? "ack'ée" : "active"}.
+              {showAcked ? t("Aucune alerte ack'ée.") : t("Aucune alerte active.")}
             </p>
             {!showAcked && (
               <>
                 <div className="muted" style={{ fontSize: 13, lineHeight: 1.5 }}>
-                  Les alertes apparaissent automatiquement quand une analyse LLM
-                  post-appel détecte un signal (insulte, plainte, opportunité…).
-                  Vous n&apos;avez encore aucune politique configurée ?
+                  {t("Les alertes apparaissent automatiquement quand une analyse LLM post-appel détecte un signal (insulte, plainte, opportunité…). Vous n'avez encore aucune politique configurée ?")}
                 </div>
                 <div>
                   <Link
@@ -212,7 +212,7 @@ export function AlertsClient() {
                     className="button"
                     style={{ textDecoration: "none", display: "inline-block" }}
                   >
-                    Configurer une politique d&apos;analyse
+                    {t("Configurer une politique d'analyse")}
                   </Link>
                 </div>
               </>
@@ -223,10 +223,10 @@ export function AlertsClient() {
           <table className="list">
             <thead>
               <tr>
-                <th>Sév.</th>
-                <th>Message</th>
-                <th>Appel</th>
-                <th>Créée</th>
+                <th>{t("Sév.")}</th>
+                <th>{t("Message")}</th>
+                <th>{t("Appel")}</th>
+                <th>{t("Créée")}</th>
                 <th></th>
               </tr>
             </thead>
@@ -249,7 +249,7 @@ export function AlertsClient() {
                   <td>
                     {a.call_id ? (
                       <Link href={`/calls/${a.call_id}`} className="tag">
-                        Détails
+                        {t("Détails")}
                       </Link>
                     ) : (
                       <span className="muted">—</span>
@@ -261,11 +261,11 @@ export function AlertsClient() {
                   <td>
                     {!a.acked ? (
                       <button className="ghost" onClick={() => void ackOne(a.id)}>
-                        Ack
+                        {t("Ack")}
                       </button>
                     ) : (
                       <span className="muted" style={{ fontSize: 11 }}>
-                        ack&apos;ée
+                        {t("ack'ée")}
                       </span>
                     )}
                   </td>
