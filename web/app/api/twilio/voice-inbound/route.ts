@@ -56,7 +56,7 @@ export async function POST(req: Request) {
   // alpha entries some carriers send back).
   const { data: numberRow, error: numErr } = await sb
     .from("phone_numbers")
-    .select("id, org_id, e164, active, flow_id, queue_id, agent_handle_id")
+    .select("id, org_id, e164, active, inbound_enabled, flow_id, queue_id, agent_handle_id")
     .ilike("e164", to)
     .maybeSingle();
 
@@ -68,6 +68,18 @@ export async function POST(req: Request) {
     return twiml(
       `<Say>Numéro non disponible.</Say><Reject/>`,
       404,
+    );
+  }
+
+  // ── Inbound activation gate (Wati 25/06) ────────────────────────────────
+  // A number must have inbound EXPLICITLY enabled before any AI/queue answers
+  // it. Default is OFF (false) so Charlotte never picks up until the manager
+  // flips the toggle on after testing. No real PSTN inbound is live yet, so
+  // turning every number OFF here is safe.
+  if (!(numberRow as { inbound_enabled?: boolean }).inbound_enabled) {
+    return twiml(
+      `<Say language="en-GB">Thank you for calling. We are unable to take your call right now. Please try again later.</Say><Hangup/>`,
+      200,
     );
   }
 

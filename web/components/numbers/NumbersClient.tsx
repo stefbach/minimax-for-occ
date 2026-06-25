@@ -23,6 +23,7 @@ export interface PhoneNumberRow {
   last_call_at?: string | null;
   notes?: string | null;
   is_default?: boolean | null;
+  inbound_enabled?: boolean | null;
   created_at: string;
 }
 
@@ -704,6 +705,7 @@ export function NumbersClient({
                 <th>Webhook</th>
                 <th>Compliance</th>
                 <th>Actif</th>
+                <th>Entrant</th>
                 <th></th>
               </tr>
             </thead>
@@ -832,6 +834,21 @@ export function NumbersClient({
                         {n.active ? <span className="tag good">actif</span> : <span className="tag">inactif</span>}
                       </label>
                     </td>
+                    <td>
+                      <label
+                        style={{ display: "inline-flex", gap: 6, alignItems: "center" }}
+                        title="Quand ON, l'agent / la file décroche les appels ENTRANTS sur ce numéro. OFF = aucun décrochage (sécurité)."
+                      >
+                        <input
+                          type="checkbox"
+                          checked={!!n.inbound_enabled}
+                          onChange={(e) => patch(n.id, { inbound_enabled: e.target.checked })}
+                        />
+                        {n.inbound_enabled
+                          ? <span className="tag good">entrant ON</span>
+                          : <span className="tag">entrant OFF</span>}
+                      </label>
+                    </td>
                     <td style={{ textAlign: "right" }}>
                       <div style={{ display: "inline-flex", gap: 6 }}>
                         <a
@@ -859,7 +876,7 @@ export function NumbersClient({
               })}
               {filtered.length === 0 && rows.length > 0 && (
                 <tr>
-                  <td colSpan={9} style={{ padding: 14, color: "var(--muted)" }}>
+                  <td colSpan={10} style={{ padding: 14, color: "var(--muted)" }}>
                     Aucun numéro ne correspond aux filtres.
                   </td>
                 </tr>
