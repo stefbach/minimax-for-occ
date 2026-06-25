@@ -301,7 +301,7 @@ function TaskSection({
                   <Td style={{ maxWidth: 280 }}>
                     <span className="muted" style={{ fontSize: 12 }}>{truncate(task.transfer_reason, 80) ?? "—"}</span>
                   </Td>
-                  <Td><span className="muted" style={{ fontSize: 12 }}>{formatRelative(task.scheduled_for)}</span></Td>
+                  <Td><span className="muted" style={{ fontSize: 12 }}>{formatRelative(task.scheduled_for, t)}</span></Td>
                   <Td>
                     <span className="tag" style={{ fontSize: 11 }}>{task.status}</span>
                   </Td>
@@ -486,17 +486,17 @@ function formatTime(iso: string): string {
   if (!Number.isFinite(t)) return iso;
   return new Date(t).toLocaleString();
 }
-function formatRelative(iso: string): string {
-  const t = Date.parse(iso);
-  if (!Number.isFinite(t)) return iso;
-  const d = new Date(t);
+function formatRelative(iso: string, t: (s: string) => string): string {
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return iso;
+  const d = new Date(ms);
   const todayMs = startOfTodayLocalMs();
   const taskDayMs = startOfDayLocalMs(d);
   const dayDelta = Math.round((taskDayMs - todayMs) / 86400000);
   const hhmm = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  if (dayDelta < 0) return `${d.toLocaleDateString()} ${hhmm} (en retard)`;
-  if (dayDelta === 0) return `Aujourd'hui ${hhmm}`;
-  if (dayDelta === 1) return `Demain ${hhmm}`;
+  if (dayDelta < 0) return `${d.toLocaleDateString()} ${hhmm} (${t("en retard")})`;
+  if (dayDelta === 0) return `${t("Aujourd'hui")} ${hhmm}`;
+  if (dayDelta === 1) return `${t("Demain")} ${hhmm}`;
   return `${d.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" })} ${hhmm}`;
 }
 function startOfTodayLocalMs(): number {

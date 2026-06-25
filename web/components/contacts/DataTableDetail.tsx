@@ -428,7 +428,7 @@ export function DataTableDetail({
             fontSize: 12,
           }}
         >
-          <label style={{ color: "var(--muted)" }}>Par page</label>
+          <label style={{ color: "var(--muted)" }}>{t("Par page")}</label>
           <select
             value={String(perPage)}
             onChange={(e) => {

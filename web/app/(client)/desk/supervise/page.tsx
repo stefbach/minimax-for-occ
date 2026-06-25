@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { hasSupabase } from "@/lib/supabase";
 import { currentOrgIdForServer, currentRoleInOrg } from "@/lib/supabase-auth";
 import { SupervisePageClient } from "@/components/desk/SupervisePageClient";
+import { SupervisePageHeader } from "@/components/desk/SupervisePageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -31,14 +32,7 @@ export default async function DeskSupervisePage() {
 
   return (
     <div>
-      <div className="page-header">
-        <div>
-          <h1>Supervision</h1>
-          <div className="subtitle">
-            Tous les leads en attente — assignation, suivi et création manuelle.
-          </div>
-        </div>
-      </div>
+      <SupervisePageHeader />
       <SupervisePageClient />
     </div>
   );

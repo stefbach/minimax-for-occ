@@ -586,6 +586,11 @@ const EN: Record<string, string> = {
   "Sauvegarder": "Save",
   "Enregistré.": "Saved.",
   "Pris en charge.": "Claimed.",
+  // ── Supervision page ──
+  "Tous les leads en attente — assignation, suivi et création manuelle.": "All pending leads — assignment, tracking and manual creation.",
+  "Total ouverts": "Total open",
+  "Par page": "Per page",
+  "Raison": "Reason",
   // ── Director: J1/J3/J5 follow-up tracking ──
   "Suivi J1 / J3 / J5": "D1 / D3 / D5 follow-up",
   "Relances programmées par phase et répartition des appels par créneau":
