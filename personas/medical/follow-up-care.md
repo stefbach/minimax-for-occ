@@ -1,6 +1,6 @@
 ---
 slug: medical-follow-up-care
-title: Suivi de soins post-consultation
+title: Post-consultation care follow-up
 industry: medical
 language: fr
 voice_suggestion: female_warm_40s
@@ -13,6 +13,7 @@ n8n_bindings_suggested:
   - transfer_to_nurse
   - send_care_instructions
 handoff_team_suggested: medical-nurse-team
+description: "Caring post-discharge follow-up agent. Checks on patients after their appointment, updates records and books follow-up consultations when needed."
 ---
 
 ## Identity

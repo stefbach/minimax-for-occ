@@ -1,6 +1,6 @@
 ---
 slug: collections-payment-reminder-soft
-title: Relance impayé — ton doux (J+5)
+title: Payment reminder — soft tone (D+5)
 industry: collections
 language: fr
 voice_suggestion: female_warm_35s
@@ -14,6 +14,7 @@ n8n_bindings_suggested:
   - escalate_to_recovery
   - log_payment_promise
 handoff_team_suggested: finance-recovery-team
+description: "Friendly early-stage payment reminder. Assumes the oversight was accidental, sends a payment link and books a callback — warm, no guilt."
 ---
 
 ## Identity

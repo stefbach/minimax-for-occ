@@ -1,6 +1,6 @@
 ---
 slug: medical-triage-pre-call
-title: Pré-triage médical (orientation)
+title: Medical triage & orientation
 industry: medical
 language: fr
 voice_suggestion: female_calm_40s
@@ -14,6 +14,7 @@ n8n_bindings_suggested:
   - transfer_to_emergency
   - send_pharmacy_directory
 handoff_team_suggested: medical-nurse-team
+description: "Calm medical orientation agent. Routes patients to the right care resource — consultation, teleconsult, nurse or emergency — without providing medical advice."
 ---
 
 ## Identity

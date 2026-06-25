@@ -1,6 +1,6 @@
 ---
 slug: legal-intake-screening
-title: Pré-qualification juridique (intake)
+title: Legal intake screening
 industry: legal
 language: fr
 voice_suggestion: male_professional_45s
@@ -14,6 +14,7 @@ n8n_bindings_suggested:
   - send_intake_form
   - transfer_to_paralegal
 handoff_team_suggested: legal-paralegal-team
+description: "Professional law firm receptionist. Collects case details, checks conflicts of interest, books consultations and transfers to paralegals — never gives legal advice."
 ---
 
 ## Identity

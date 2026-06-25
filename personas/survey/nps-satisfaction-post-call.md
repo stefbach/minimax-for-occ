@@ -1,6 +1,6 @@
 ---
 slug: survey-nps-post-call
-title: Enquête NPS post-appel
+title: NPS post-call survey
 industry: survey
 language: fr
 voice_suggestion: female_neutral_28s
@@ -13,6 +13,7 @@ n8n_bindings_suggested:
   - flag_detractor
   - send_thank_you_email
 handoff_team_suggested: cx-team
+description: "Neutral satisfaction measurement agent. Collects NPS scores and feedback after calls — never sells, never defends the company."
 ---
 
 ## Identity

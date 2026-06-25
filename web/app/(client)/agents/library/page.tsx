@@ -5,9 +5,9 @@ import { PersonaLibraryClient } from "@/components/personas/PersonaLibraryClient
 export const dynamic = "force-dynamic";
 
 export const metadata = {
-  title: "Bibliothèque persona — Axon",
+  title: "Persona library — Axon",
   description:
-    "Marketplace de personas vocaux prêts à cloner dans votre organisation.",
+    "Marketplace of voice personas ready to clone into your organisation.",
 };
 
 export default async function PersonaLibraryPage() {
