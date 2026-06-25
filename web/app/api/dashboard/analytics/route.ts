@@ -3,7 +3,7 @@ import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { requestOrgId } from "@/lib/request-org";
 import { isInbound, isOutbound, normalizeDirectionForDb } from "@/lib/call-direction";
 import { bucketForCall, QUAL_BUCKETS, type QualBucket } from "@/lib/qualification";
-import { callInLeadsScope, leadsTableFor, leadsScopeFor, type LeadsSource } from "@/lib/leads-source";
+import { callInLeadsScope, campaignScopeFor, leadsTableFor, leadsScopeFor, type LeadsSource } from "@/lib/leads-source";
 import { fetchAllPaged, type Rangeable } from "@/lib/supabase-page";
 import { callMatchesSystem, parseCallSystem } from "@/lib/call-system";
 import { slotForDate, SLOT_WINDOWS } from "@/lib/call-slots";
@@ -180,7 +180,6 @@ export async function GET(request: Request) {
         .lte("started_at", to.toISOString())
         .order("started_at", { ascending: true });
       if (dbDirection) q = q.eq("direction", dbDirection);
-      if (campaignId && campaignId !== "all") q = q.eq("campaign_id", campaignId);
       return q as unknown as Rangeable<any>;
     },
     { maxRows: ROW_CAP + 1000 },
@@ -197,9 +196,13 @@ export async function GET(request: Request) {
   // Same leads-source scoping as Vue d'ensemble: when the operator picked
   // Prod we want to count only calls placed to leads_rdv numbers, ditto
   // Test → leads_rdv_test_axon.
-  const scope = await leadsScopeFor(leadsSource);
+  const [scope, campaignScope] = await Promise.all([
+    leadsScopeFor(leadsSource),
+    campaignId && campaignId !== "all" ? campaignScopeFor(campaignId) : Promise.resolve(null),
+  ]);
   const inScope = (r: CallRow) =>
     callInLeadsScope(r.to_e164 ?? null, scope)
+    && callInLeadsScope(r.to_e164 ?? null, campaignScope)
     && callMatchesSystem((r.metadata as { source?: string } | null)?.source, system);
   // Live calls right now (in-scope) — captured before we drop ACTIVE rows.
   const activeCalls = (rows as CallRow[]).filter((r) => ACTIVE_STATES.has(r.state ?? "") && inScope(r)).length;

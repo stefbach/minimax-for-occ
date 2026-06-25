@@ -4,7 +4,7 @@ import { requestOrgId } from "@/lib/request-org";
 import { requireModule } from "@/lib/permissions-server";
 import { bucketForCall, QUAL_BUCKETS, type QualBucket } from "@/lib/qualification";
 import { isInbound, normalizeDirectionForDb } from "@/lib/call-direction";
-import { callInLeadsScope, leadsTableFor, leadsScopeFor, type LeadsSource } from "@/lib/leads-source";
+import { callInLeadsScope, campaignScopeFor, leadsTableFor, leadsScopeFor, type LeadsSource } from "@/lib/leads-source";
 import { fetchAllPaged, type Rangeable } from "@/lib/supabase-page";
 import { callMatchesSystem, parseCallSystem } from "@/lib/call-system";
 import { isPhantomCall, isSoftphoneTestLeg } from "@/lib/call-quality";
@@ -171,7 +171,6 @@ export async function GET(request: Request) {
       .lte("started_at", to.toISOString())
       .order("started_at", { ascending: false });
     if (dbDirection) q = q.eq("direction", dbDirection);
-    if (campaignId && campaignId !== "all") q = q.eq("campaign_id", campaignId);
     return q as unknown as Rangeable<CallRow>;
   });
   if (error) return NextResponse.json({ error }, { status: 500 });
@@ -180,13 +179,17 @@ export async function GET(request: Request) {
   // selected table (Prod or Test). Without this filter the Total / Coût /
   // RDV tiles would mix sandbox + production numbers, which is what the
   // operator was actually seeing in the original toggle UX.
-  const scope = await leadsScopeFor(leadsSource);
+  const [scope, campaignScope] = await Promise.all([
+    leadsScopeFor(leadsSource),
+    campaignId && campaignId !== "all" ? campaignScopeFor(campaignId) : Promise.resolve(null),
+  ]);
 
   let rows = ((data ?? []) as unknown as CallRow[]).filter(
     (r) =>
       !ACTIVE.has(r.state ?? "")
       && !isPhantomCall(r)
       && callInLeadsScope(r.to_e164 ?? null, scope)
+      && callInLeadsScope(r.to_e164 ?? null, campaignScope)
       && callMatchesSystem((r.metadata as { source?: string } | null)?.source, system)
       // Skip the Twilio-side inbound legs of /desk softphone outbound calls
       // — Wati's June 10 manual tests created phantom 'AUTRE' rows like

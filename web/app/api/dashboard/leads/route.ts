@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { requestOrgId } from "@/lib/request-org";
 import { isPhantomCall, isSoftphoneTestLeg } from "@/lib/call-quality";
-import { callInLeadsScope, leadsTableFor, leadsScopeFor, type LeadsSource } from "@/lib/leads-source";
+import { callInLeadsScope, campaignScopeFor, leadsTableFor, leadsScopeFor, type LeadsSource } from "@/lib/leads-source";
 import { fetchAllPaged, type Rangeable } from "@/lib/supabase-page";
 import { callMatchesSystem, parseCallSystem } from "@/lib/call-system";
 import {
@@ -72,7 +72,6 @@ export async function GET(request: Request) {
         .gte("started_at", from.toISOString())
         .lte("started_at", to.toISOString())
         .order("started_at", { ascending: true });
-      if (campaignId && campaignId !== "all") q = q.eq("campaign_id", campaignId);
       return q as unknown as Rangeable<any>;
     },
     { maxRows: ROW_CAP + 1000 },
@@ -84,10 +83,14 @@ export async function GET(request: Request) {
   const truncated = rows.length > ROW_CAP;
   if (truncated) rows = rows.slice(0, ROW_CAP);
 
-  // Scope to leads source (prod vs test)
-  const scope = await leadsScopeFor(leadsSource);
+  // Scope to leads source (prod vs test) + campaign (phone-number based)
+  const [scope, campaignScope] = await Promise.all([
+    leadsScopeFor(leadsSource),
+    campaignId && campaignId !== "all" ? campaignScopeFor(campaignId) : Promise.resolve(null),
+  ]);
   const inScope = (r: CallRow) =>
     callInLeadsScope(r.to_e164 ?? null, scope)
+    && callInLeadsScope(r.to_e164 ?? null, campaignScope)
     && callMatchesSystem((r.metadata as { source?: string } | null)?.source, system);
 
   // Filter out phantom calls and active calls
