@@ -25,7 +25,7 @@ function fmtFull(iso: string | null): string {
   return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString("fr-FR");
 }
 
-export function ErrorsAlertsTab() {
+export function ErrorsAlertsTab({ campaignId }: { campaignId?: string }) {
   const t = useT();
   const [data, setData] = useState<ErrorsAlertsResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -40,6 +40,7 @@ export function ErrorsAlertsTab() {
       const qs = new URLSearchParams();
       if (errorType !== "all") qs.set("error_type", errorType);
       if (errorFrom) qs.set("from", errorFrom);
+      if (campaignId && campaignId !== "all") qs.set("campaign_id", campaignId);
       const r = await fetch(`/api/dashboard/errors-alerts?${qs}`, { cache: "no-store" });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
@@ -50,7 +51,7 @@ export function ErrorsAlertsTab() {
     } finally {
       setLoading(false);
     }
-  }, [errorType, errorFrom]);
+  }, [errorType, errorFrom, campaignId]);
 
   useEffect(() => {
     fetchData();
