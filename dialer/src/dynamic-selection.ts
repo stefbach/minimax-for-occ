@@ -261,10 +261,44 @@ export async function runDynamicSelection(sb: SupabaseClient, campaign: Campaign
         if (blErr) throw new Error(blErr.message);
         const batch = (blRows ?? []) as Record<string, unknown>[];
         for (const r of batch) {
-          const p = String(r[phoneCol] ?? "").trim();
+          const p = normalisePhoneToE164(String(r[phoneCol] ?? ""));
           if (p) blacklistedPhones.add(p);
         }
         if (batch.length < PAGE_BL) break;
+      }
+    }
+
+    // Wati 25/06 — leads a HUMAN is actively handling must NOT be auto-dialled.
+    // A lead is "human-owned" when it has an OPEN human_callback_task assigned
+    // to a person (status pending/in_progress, assigned_to set). A supervisor
+    // hands a lead back to the AI via the "Agent IA" option, which closes the
+    // task — so it reappears here automatically. (Leads qualified
+    // A PASSER A L'HUMAIN / SUIVI REQUIS are already excluded via cycle_status
+    // ≠ ACTIF; this additionally covers a human CLAIMING an otherwise-active
+    // RAPPEL / PAS DE REPONSE lead from the supervise board.)
+    const humanOwnedPhones = new Set<string>();
+    {
+      const { data: tasks, error: tErr } = await sb
+        .from("human_callback_tasks")
+        .select("e164, contact_id")
+        .eq("org_id", campaign.org_id)
+        .not("assigned_to", "is", null)
+        .in("status", ["pending", "in_progress"]);
+      if (tErr) throw new Error(tErr.message);
+      const missingContactIds: string[] = [];
+      for (const t of (tasks ?? []) as { e164: string | null; contact_id: string | null }[]) {
+        const p = normalisePhoneToE164(String(t.e164 ?? ""));
+        if (p) humanOwnedPhones.add(p);
+        else if (t.contact_id) missingContactIds.push(t.contact_id);
+      }
+      // Older tasks predate the denormalised e164 column — resolve via contacts.
+      for (let i = 0; i < missingContactIds.length; i += 1000) {
+        const chunk = missingContactIds.slice(i, i + 1000);
+        const { data: cs } = await sb.from("contacts").select("e164").in("id", chunk);
+        for (const crow of (cs ?? []) as { e164: string | null }[]) {
+          const p = normalisePhoneToE164(String(crow.e164 ?? ""));
+          if (p) humanOwnedPhones.add(p);
+        }
       }
     }
     // Paginate with .range() — PostgREST caps every response at its
@@ -303,9 +337,14 @@ export async function runDynamicSelection(sb: SupabaseClient, campaign: Campaign
       .map((r) => ({ row: r, phase: computePhase(r, engine, now) }))
       .filter((x) => {
         if (x.phase === null) return false;
-        const phone = String(x.row[phoneCol] ?? "").trim();
+        // Normalise to E.164 BEFORE the phone filter so a lead stored as
+        // "07…", "+44 7…" (with spaces) or "447…" isn't silently dropped
+        // (Wati 25/06 — only 3 of 247 fresh leads passed the raw +44/length
+        // filter because their numbers weren't normalised at import).
+        const phone = normalisePhoneToE164(String(x.row[phoneCol] ?? ""));
         if (!phoneOk(phone, engine.selection)) return false;
         if (blacklistedPhones.has(phone)) return false;
+        if (humanOwnedPhones.has(phone)) return false;
         return true;
       });
 

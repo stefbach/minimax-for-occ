@@ -566,6 +566,7 @@ const EN: Record<string, string> = {
   "FAUX NUMERO": "WRONG NUMBER",
   "NON ELIGIBLE": "NOT ELIGIBLE",
   "NE PAS RAPPELER": "DO NOT CALL",
+  "SUIVI REQUIS": "FOLLOW-UP REQUIRED",
   // ── Stats tab ──
   "RDV obtenus": "Appointments booked",
   "des appels": "of calls",

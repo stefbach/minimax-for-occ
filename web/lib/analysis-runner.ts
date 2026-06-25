@@ -388,6 +388,8 @@ const QUALIFY_BUCKET_GUIDE: Record<Exclude<QualBucket, "autre">, string> = {
     "Un rendez-vous / une consultation a été pris ou confirmé pendant l'appel.",
   passer_humain:
     "Le contact a une question complexe ou demande explicitement un humain ; à escalader.",
+  suivi_requis:
+    "Le patient a été transféré à un agent spécialiste (Isabelle/Victoria) mais l'appel s'est terminé SANS confirmation de RDV — lead chaud à suivre par un humain.",
   rappel:
     "Le contact a demandé à être rappelé plus tard, OU l'échange est trop court / confus pour conclure (seulement bonjour, pas de vraie discussion). En cas de doute entre rappel et pas_interesse, choisis rappel : on rappellera pour clarifier.",
   pas_interesse:
