@@ -224,6 +224,12 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
   if (!data) return null;
   const k = data.kpis;
 
+  // Returns "X%" of totalCalls, or "—" when there are no calls to divide by.
+  function pct(n: number, decimals = 1): string {
+    if (!k.totalCalls) return "—";
+    return `${((n / k.totalCalls) * 100).toFixed(decimals)}%`;
+  }
+
   type Tile = {
     label: string;
     value: string;
@@ -231,29 +237,31 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
     displayIcon: ReactNode;
     tone?: string;
     highlight?: boolean;
+    // Percentage of totalCalls to show below the main value. null = omit.
+    pctLabel?: string;
     // null means the card isn't drillable (e.g. derived ratios) — disable the click.
     drill: Omit<DrillFilters, "from" | "to" | "direction" | "leads_source"> | null;
   };
   const tiles: Tile[] = [
-    { label: t("Total appels"), value: k.totalCalls.toLocaleString(), icon: "📞", displayIcon: <Phone size={15} />, tone: "var(--info)", drill: {} },
+    { label: t("Total appels"), value: k.totalCalls.toLocaleString(), icon: "📞", displayIcon: <Phone size={15} />, tone: "var(--info)", pctLabel: "100%", drill: {} },
     { label: t("Décrochés"), value: `${k.answered.toLocaleString()} · ${k.answeredPct.toFixed(0)}%`, icon: "✅", displayIcon: <CheckCircle2 size={15} />, tone: "var(--good)", drill: { answered: "yes" } },
     // Cost is an aggregate over usage_events, not a call subset → no drill.
     // Drill = every call in the period (each one contributed to the spend),
     // mirroring the legacy "Cost consumed" panel.
     { label: t("Coût consommé"), value: `$${k.cost.toFixed(2)}`, icon: "$", displayIcon: <span>$</span>, tone: "var(--warn)", drill: {} },
-    { label: t("RDV confirmés"), value: k.rdvConfirmed.toLocaleString(), icon: "📅", displayIcon: <CalendarCheck size={15} />, tone: "var(--good)", highlight: true, drill: { qualification: "rdv_confirme" } },
+    { label: t("RDV confirmés"), value: k.rdvConfirmed.toLocaleString(), icon: "📅", displayIcon: <CalendarCheck size={15} />, tone: "var(--good)", highlight: true, pctLabel: pct(k.rdvConfirmed), drill: { qualification: "rdv_confirme" } },
     // Conversion = RDV / Total → drill to the RDV calls (the numerator).
     { label: t("Taux de conversion"), value: `${k.conversionRate.toFixed(1)}%`, icon: "📈", displayIcon: <TrendingUp size={15} />, tone: "var(--accent-2)", drill: { qualification: "rdv_confirme" } },
     { label: t("Durée moyenne"), value: fmtDur(k.avgDuration), icon: "⏱", displayIcon: <Timer size={15} />, tone: "var(--info)", drill: { answered: "yes" } },
-    { label: t("Callbacks demandés"), value: k.callbacks.toLocaleString(), icon: "↺", displayIcon: <span>↺</span>, tone: "var(--accent)", drill: { qualification: "rappel" } },
-    { label: `${t("Durée")} > ${k.threshold}s`, value: k.callsOverThreshold.toLocaleString(), icon: "⧖", displayIcon: <span>⧖</span>, tone: "var(--muted)", drill: { min_duration: k.threshold } },
+    { label: t("Callbacks demandés"), value: k.callbacks.toLocaleString(), icon: "↺", displayIcon: <span>↺</span>, tone: "var(--accent)", pctLabel: pct(k.callbacks), drill: { qualification: "rappel" } },
+    { label: `${t("Durée")} > ${k.threshold}s`, value: k.callsOverThreshold.toLocaleString(), icon: "⧖", displayIcon: <span>⧖</span>, tone: "var(--muted)", pctLabel: pct(k.callsOverThreshold), drill: { min_duration: k.threshold } },
   ];
 
-  type TotalCard = { label: string; value: number; tone: string; drill: Omit<DrillFilters, "from" | "to" | "direction" | "leads_source"> };
+  type TotalCard = { label: string; value: number; pctLabel: string; tone: string; drill: Omit<DrillFilters, "from" | "to" | "direction" | "leads_source"> };
   const totalsCards: TotalCard[] = [
-    { label: t("Total appels"), value: k.totalCalls, tone: "var(--info)", drill: {} },
-    { label: t("Décrochés"), value: k.answered, tone: "var(--good)", drill: { answered: "yes" } },
-    { label: t("Non décrochés"), value: k.notAnswered, tone: "var(--bad)", drill: { answered: "no" } },
+    { label: t("Total appels"), value: k.totalCalls, pctLabel: "100%", tone: "var(--info)", drill: {} },
+    { label: t("Décrochés"), value: k.answered, pctLabel: pct(k.answered, 0), tone: "var(--good)", drill: { answered: "yes" } },
+    { label: t("Non décrochés"), value: k.notAnswered, pctLabel: pct(k.notAnswered, 0), tone: "var(--bad)", drill: { answered: "no" } },
   ];
 
   const visibleSummaries = activeQualTab === "all"
@@ -272,6 +280,11 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
                 <span className="muted" style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4 }}>{tile.label}</span>
               </div>
               <div style={{ fontSize: 26, fontWeight: 700, marginTop: 8, color: tile.tone }}>{tile.value}</div>
+              {tile.pctLabel && (
+                <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
+                  {tile.pctLabel} {t("des appels")}
+                </div>
+              )}
             </>
           );
           if (!tile.drill) {
@@ -339,6 +352,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
           >
             <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4 }}>{c.label}</div>
             <div style={{ fontSize: 28, fontWeight: 700, marginTop: 6, color: c.tone }}>{c.value.toLocaleString()}</div>
+            <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>{c.pctLabel} {t("des appels")}</div>
           </ClickCard>
         ))}
       </div>
@@ -359,6 +373,9 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
             >
               <div style={{ fontSize: 24, fontWeight: 700, color: q.count > 0 ? "var(--accent)" : "var(--muted)" }}>
                 {q.count}
+              </div>
+              <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
+                {pct(q.count)}
               </div>
               <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginTop: 4 }}>
                 {q.label}
