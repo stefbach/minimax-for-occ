@@ -33,7 +33,7 @@ export function SupervisePageClient() {
   // Patient drawer opens when the manager clicks a contact name in either
   // section (À assigner / Déjà assignés). Wati June 10 — same CRM-style
   // detail used on /mes-patients.
-  const [openContact, setOpenContact] = useState<{ id: string; name: string | null; e164: string | null; headline?: string } | null>(null);
+  const [openContact, setOpenContact] = useState<{ id: string | null; name: string | null; e164: string | null; headline?: string } | null>(null);
   // Wati June 10 v2: filter by qualification (RAPPEL, A PASSER A L'HUMAIN, …).
   const [qualFilter, setQualFilter] = useState<string>("all");
   const [assigneeFilter, setAssigneeFilter] = useState<string>("all");
@@ -181,7 +181,7 @@ export function SupervisePageClient() {
         allAgents={agents}
         onReassign={reassign}
         onOpenContact={(t) => {
-          if (t.contact.id) {
+          if (t.contact.id || t.contact.e164) {
             setOpenContact({
               id: t.contact.id,
               name: t.contact.display_name,
@@ -204,7 +204,7 @@ export function SupervisePageClient() {
         allAgents={agents}
         onReassign={reassign}
         onOpenContact={(t) => {
-          if (t.contact.id) {
+          if (t.contact.id || t.contact.e164) {
             setOpenContact({
               id: t.contact.id,
               name: t.contact.display_name,
@@ -318,13 +318,13 @@ function TaskSection({
               sliced.map((task) => (
                 <tr key={task.id} style={{ borderTop: "1px solid var(--border)" }}>
                   <Td>
-                    {task.contact.id ? (
+                    {(task.contact.id || task.contact.e164) ? (
                       <button
                         onClick={() => onOpenContact(task)}
                         className="ghost"
                         style={{ padding: 0, border: "none", background: "transparent", color: "var(--accent)", textDecoration: "underline", cursor: "pointer", textAlign: "left", fontSize: 13 }}
                       >
-                        {task.contact.display_name ?? "—"}
+                        {task.contact.display_name ?? task.contact.e164 ?? "—"}
                       </button>
                     ) : (
                       task.contact.display_name ?? "—"
