@@ -550,6 +550,8 @@ const EN: Record<string, string> = {
   "Enregistrement…": "Saving…",
   "Réglages enregistrés.": "Settings saved.",
   // ── Desk: human-agent workstation ──
+  "Ma file de rappels, contexte patient, softphone et pool partagé d'équipe.": "My callback queue, patient context, softphone and shared team pool.",
+  "Appels du jour": "Today's calls",
   "Ma file": "My queue",
   "Pool partagé": "Shared pool",
   "Mes appels du jour": "Today's calls",
