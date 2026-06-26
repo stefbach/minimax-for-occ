@@ -20,6 +20,9 @@ export const dynamic = "force-dynamic";
  * caller can't read an arbitrary column.
  */
 const MAX_DISTINCT = 80;
+// Upper bound on rows paged through per column (50 pages × 1000), so a huge
+// table can't make this endpoint run unbounded.
+const MAX_SCAN = 50000;
 
 export async function GET(req: Request) {
   if (!hasSupabase()) return NextResponse.json({ facets: {} });
@@ -54,24 +57,33 @@ export async function GET(req: Request) {
 
   const facets: Record<string, Array<{ value: string; count: number }>> = {};
   for (const col of requested) {
-    // PostgREST has no GROUP BY; bounded scan + JS tally is fine for a
-    // low-cardinality status/assignment column.
-    const { data: rows, error } = await sb
-      .from(physicalTable)
-      .select(col)
-      .not(col, "is", null)
-      .limit(20000);
-    if (error) {
+    // PostgREST has no GROUP BY and caps a single response (~1000 rows), so a
+    // one-shot scan tallies only the first page — missing most values on a big
+    // table. Page through the whole column so the counts are complete.
+    const tally = new Map<string, number>();
+    const PAGE = 1000;
+    let failed = false;
+    for (let from = 0; from < MAX_SCAN; from += PAGE) {
+      const { data: rows, error } = await sb
+        .from(physicalTable)
+        .select(col)
+        .not(col, "is", null)
+        .order(col, { ascending: true })
+        .range(from, from + PAGE - 1);
+      if (error) { failed = true; break; }
+      const batch = (rows ?? []) as unknown as Array<Record<string, unknown>>;
+      for (const row of batch) {
+        const raw = row[col];
+        if (raw == null) continue;
+        const v = String(raw).trim();
+        if (!v) continue;
+        tally.set(v, (tally.get(v) ?? 0) + 1);
+      }
+      if (batch.length < PAGE) break; // last page
+    }
+    if (failed && tally.size === 0) {
       facets[col] = [];
       continue;
-    }
-    const tally = new Map<string, number>();
-    for (const row of rows ?? []) {
-      const raw = (row as unknown as Record<string, unknown>)[col];
-      if (raw == null) continue;
-      const v = String(raw).trim();
-      if (!v) continue;
-      tally.set(v, (tally.get(v) ?? 0) + 1);
     }
     facets[col] = Array.from(tally.entries())
       .map(([value, count]) => ({ value, count }))
