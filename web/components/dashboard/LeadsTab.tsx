@@ -351,8 +351,11 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
 
           {analysis.qualBreakdown.length > 0 && (
             <div className="card" style={{ padding: 16 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12 }}>
-                Qualifications — décrochés uniquement
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12, display: "flex", alignItems: "baseline", gap: 8 }}>
+                <span>Qualifications — décrochés uniquement</span>
+                <span style={{ fontSize: 11, fontWeight: 400, color: "var(--muted)" }}>
+                  % sur {analysis.totalAnswered} décrochés
+                </span>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {analysis.qualBreakdown.map((q) => {
