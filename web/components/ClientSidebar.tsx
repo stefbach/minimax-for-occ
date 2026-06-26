@@ -42,6 +42,9 @@ interface NavItem {
   /** True = lives under the collapsible "Avancé" section (not yet folded into
    *  its parent page). Removed from there as later phases relocate it. */
   advanced?: boolean;
+  /** True = render as a visually-nested sub-item under the entry above it
+   *  (indented, lighter). Used for "Calendrier IA" under "Mon calendrier". */
+  indent?: boolean;
 }
 
 // Roles allowed to see the supervisor-only entries. Mirrors the
@@ -71,6 +74,7 @@ const NAV: NavItem[] = [
   { href: "/rapports",  label: "Rapports pilotage", icon: "▤", group: "Overview", requiredRoles: MANAGER_REPORT_ROLES },
   { href: "/desk",            label: "Mon poste",       icon: "⌂", group: "Overview", module: "desk" },
   { href: "/mon-calendrier",  label: "Mon calendrier",  icon: "▦", group: "Overview", module: "desk" },
+  { href: "/mon-calendrier/ia", label: "Calendrier IA", icon: "🤖", group: "Overview", module: "desk", indent: true },
   { href: "/desk/supervise",  label: "Supervision",     icon: "◷", group: "Overview", module: "desk", requiredRoles: SUPERVISOR_ROLES },
   { href: "/supervise/live",  label: "Supervision live", icon: "◉", group: "Overview", module: "desk", requiredRoles: SUPERVISOR_ROLES },
   { href: "/mes-patients",    label: "Mes patients",    icon: "☰", group: "Overview", module: "desk" },
@@ -230,7 +234,16 @@ export function ClientSidebar() {
     const active =
       n.href === "/"
         ? pathname === "/"
-        : pathname === n.href || pathname.startsWith(n.href + "/");
+        : pathname === n.href ||
+          // "most specific wins": a parent (e.g. /mon-calendrier) is NOT
+          // highlighted when a longer child route (/mon-calendrier/ia) matches.
+          (pathname.startsWith(n.href + "/") &&
+            !visible.some(
+              (o) =>
+                o.href !== n.href &&
+                o.href.length > n.href.length &&
+                (pathname === o.href || pathname.startsWith(o.href + "/")),
+            ));
     return (
       <Link
         key={n.href}
@@ -239,9 +252,10 @@ export function ClientSidebar() {
         aria-label={n.label}
         aria-current={active ? "page" : undefined}
         onClick={() => setDrawerOpen(false)}
+        style={n.indent ? { paddingLeft: 30 } : undefined}
       >
-        <span aria-hidden="true" style={{ width: 16, opacity: 0.7 }}>{n.icon}</span>
-        <span style={{ flex: 1 }}>{t(n.label)}</span>
+        <span aria-hidden="true" style={{ width: 16, opacity: 0.7, fontSize: n.indent ? 12 : undefined }}>{n.icon}</span>
+        <span style={{ flex: 1, fontSize: n.indent ? 13 : undefined, opacity: n.indent && !active ? 0.85 : undefined }}>{t(n.label)}</span>
         {n.href === "/desk" && deskBadge > 0 ? (
           <span
             aria-label={`${deskBadge} tâche${deskBadge > 1 ? "s" : ""} en attente`}
