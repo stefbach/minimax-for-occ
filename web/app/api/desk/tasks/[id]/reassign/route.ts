@@ -123,6 +123,15 @@ export async function PATCH(
     .eq("org_id", orgId);
   if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 });
 
+  // Sync assigned_to → leads_rdv.agent so all pages stay coherent.
+  const phone = (row as { e164?: string | null }).e164 ?? null;
+  if (phone) {
+    try {
+      await admin.from("leads_rdv" as never).update({ agent: target ?? null })
+        .eq("numero_telephone", phone);
+    } catch { /* non-fatal — tenant may not have leads_rdv */ }
+  }
+
   return NextResponse.json({ ok: true, task_id: id });
 }
 

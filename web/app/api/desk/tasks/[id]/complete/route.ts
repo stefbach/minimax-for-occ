@@ -42,7 +42,7 @@ export async function POST(
 
   const { data: row, error } = await admin
     .from("human_callback_tasks")
-    .select("id, status")
+    .select("id, status, e164")
     .eq("id", id)
     .eq("org_id", orgId)
     .maybeSingle();
@@ -85,6 +85,18 @@ export async function POST(
     .eq("id", id)
     .eq("org_id", orgId);
   if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 });
+
+  // Sync outcome_disposition → leads_rdv.qualification so all pages stay coherent.
+  const phone = (row as { e164?: string | null }).e164 ?? null;
+  const disposition = body?.outcome_disposition?.trim() ?? null;
+  if (phone && disposition) {
+    try {
+      await admin.from("leads_rdv" as never).update({
+        qualification: disposition,
+        last_qualification_update: new Date().toISOString(),
+      }).eq("numero_telephone", phone);
+    } catch { /* non-fatal — tenant may not have leads_rdv */ }
+  }
 
   return NextResponse.json({ ok: true, task_id: id, rescheduled });
 }
