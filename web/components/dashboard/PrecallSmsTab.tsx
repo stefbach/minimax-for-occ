@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useT } from "@/lib/i18n";
+import { normalizeQualification } from "@/lib/qualification";
+import { GLOBAL_DURATION_BUCKETS, type GlobalFilters } from "@/lib/global-filters";
 
 // SMS tab — suivi des messages pré-appel (Wati 26/06). Une ligne par SMS /
 // WhatsApp envoyé avant un appel : nom du lead, heure d'envoi, canal, statut
@@ -38,6 +40,39 @@ function qualTone(q: string | null): string {
   return "var(--muted)";
 }
 
+// Apply the dashboard's GLOBAL filter bar to an SMS row. The SMS log already
+// carries everything we need for the call-level filters — attempt (Tentative),
+// the resolved answered/voicemail state (Décroché), the post-call qualification
+// (Qualification), the call duration (Durée) and the free text. Lead-scoped
+// filters (Source / Agent / Éligibilité) need the leads table and don't apply
+// to this single-AI-agent campaign view, so they're ignored here.
+function passesGlobal(r: SmsRow, gf?: GlobalFilters): boolean {
+  if (!gf) return true;
+  if (gf.attempt !== "all") {
+    const a = r.attempt ?? null;
+    if (a == null) return false;
+    if (gf.attempt === "1" && a !== 1) return false;
+    if (gf.attempt === "2" && a !== 2) return false;
+    if (gf.attempt === "3plus" && a < 3) return false;
+  }
+  if (gf.answered === "yes" && r.answered !== "answered") return false;
+  if (gf.answered === "no" && r.answered === "answered") return false;
+  if (gf.quals.length && !gf.quals.includes(normalizeQualification(r.qualification))) return false;
+  if (gf.durations.length) {
+    const d = r.duration_secs ?? 0;
+    const ok = gf.durations.some((id) => {
+      const b = GLOBAL_DURATION_BUCKETS.find((x) => x.id === id);
+      return b ? d >= b.min && d < b.max : false;
+    });
+    if (!ok) return false;
+  }
+  if (gf.q) {
+    const hay = `${r.lead_name ?? ""} ${r.to_e164 ?? ""}`.toLowerCase();
+    if (!gf.q.toLowerCase().split(/\s+/).filter(Boolean).every((tk) => hay.includes(tk))) return false;
+  }
+  return true;
+}
+
 type StatusFilter = "all" | "answered" | "no_answer" | "voicemail" | "pending" | "failed";
 
 const STATUS_FILTERS: { id: StatusFilter; label: string }[] = [
@@ -70,7 +105,7 @@ function fmtDelay(secs: number | null): string {
   return m > 0 ? `${m} min ${s.toString().padStart(2, "0")}s` : `${s}s`;
 }
 
-export function PrecallSmsTab({ from, to }: { from: string; to: string; global?: unknown }) {
+export function PrecallSmsTab({ from, to, global }: { from: string; to: string; global?: GlobalFilters }) {
   const t = useT();
   const [rows, setRows] = useState<SmsRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -96,20 +131,25 @@ export function PrecallSmsTab({ from, to }: { from: string; to: string; global?:
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  // Apply the dashboard's global filter bar (Tentative, Décroché, Qualification,
+  // Durée, recherche) before everything else, so the KPIs AND the table reflect
+  // e.g. "Tentative · 2ème" → décrochés du 2ème appel.
+  const scoped = useMemo(() => rows.filter((r) => passesGlobal(r, global)), [rows, global]);
+
   const kpis = useMemo(() => {
     let sent = 0, failed = 0, called = 0, answered = 0, voicemail = 0;
-    for (const r of rows) {
+    for (const r of scoped) {
       if (r.status === "failed") failed += 1; else sent += 1;
       if (r.call_id) called += 1;
       if (r.answered === "answered") answered += 1;          // real human only
       if (r.answered === "voicemail") voicemail += 1;
     }
-    return { sent, failed, called, answered, voicemail, total: rows.length };
-  }, [rows]);
+    return { sent, failed, called, answered, voicemail, total: scoped.length };
+  }, [scoped]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return rows.filter((r) => {
+    return scoped.filter((r) => {
       if (statusFilter === "failed" && r.status !== "failed") return false;
       if (statusFilter === "answered" && r.answered !== "answered") return false;
       if (statusFilter === "no_answer" && r.answered !== "no_answer") return false;
@@ -119,7 +159,7 @@ export function PrecallSmsTab({ from, to }: { from: string; to: string; global?:
       const hay = `${r.lead_name ?? ""} ${r.to_e164 ?? ""}`.toLowerCase();
       return hay.includes(q);
     });
-  }, [rows, search, statusFilter]);
+  }, [scoped, search, statusFilter]);
 
   function answeredBadge(r: SmsRow) {
     if (r.status === "failed") return <span className="muted" style={{ whiteSpace: "nowrap" }}>—</span>;
@@ -263,7 +303,8 @@ export function PrecallSmsTab({ from, to }: { from: string; to: string; global?:
         </table>
       </div>
       <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
-        {filtered.length} / {rows.length} {t("messages")}
+        {filtered.length} / {scoped.length} {t("messages")}
+        {scoped.length !== rows.length ? ` (${rows.length} ${t("au total, avant filtres")})` : ""}
       </div>
     </>
   );
