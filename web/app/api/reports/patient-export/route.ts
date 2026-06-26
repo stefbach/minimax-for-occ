@@ -23,16 +23,31 @@ export async function GET(req: Request) {
 
   const isFr = lang === "fr";
   const headers = isFr
-    ? ["Nom complet", "Email", "Téléphone", "Poids (kg)", "Taille (cm)", "IMC", "Qualification", "Dernier appel"]
-    : ["Full name", "Email", "Phone", "Weight (kg)", "Height (cm)", "BMI", "Qualification", "Last call"];
+    ? ["Nom complet", "Email", "Téléphone", "Âge", "Poids (kg)", "Taille (cm)", "IMC", "Comorbidités", "Palier programme", "Total appels", "Qualification", "Dernier appel"]
+    : ["Full name", "Email", "Phone", "Age", "Weight (kg)", "Height (cm)", "BMI", "Comorbidities", "Program tier", "Total calls", "Qualification", "Last call"];
+
+  function calcAge(dob: string | null): number | "" {
+    if (!dob) return "";
+    const birth = new Date(dob);
+    if (isNaN(birth.getTime())) return "";
+    const today = new Date();
+    let age = today.getFullYear() - birth.getFullYear();
+    const m = today.getMonth() - birth.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+    return age;
+  }
 
   const sheetRows = rows.map((r) => [
     r.nom ?? "",
     r.email ?? "",
     r.numero_telephone ?? "",
+    calcAge(r.patient_dob),
     r.poids ?? "",
     r.taille ?? "",
     r.bmi ?? "",
+    r.other_chronic_conditions ?? "",
+    "",
+    r.call_count ?? 0,
     r.qualification ?? "",
     r.last_call_datetime
       ? new Date(r.last_call_datetime).toLocaleDateString(isFr ? "fr-FR" : "en-GB")
@@ -44,13 +59,15 @@ export async function GET(req: Request) {
 
   // Column widths
   ws["!cols"] = [
-    { wch: 28 }, { wch: 30 }, { wch: 18 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 22 }, { wch: 18 },
+    { wch: 28 }, { wch: 30 }, { wch: 18 }, { wch: 8 }, { wch: 12 }, { wch: 12 }, { wch: 10 },
+    { wch: 30 }, { wch: 16 }, { wch: 12 }, { wch: 22 }, { wch: 18 },
   ];
 
   const sheetName = isFr ? "Patients" : "Patients";
   XLSX.utils.book_append_sheet(wb, ws, sheetName);
 
-  const buf = XLSX.write(wb, { type: "array", bookType: "xlsx" }) as Uint8Array;
+  const raw = XLSX.write(wb, { type: "array", bookType: "xlsx" }) as Uint8Array;
+  const buf = Buffer.from(raw);
   const dateStr = new Date().toISOString().slice(0, 10);
   const filename = `patients-export-${dateStr}.xlsx`;
 

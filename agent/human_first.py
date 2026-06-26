@@ -90,6 +90,91 @@ def _patch_call_if_null(call_id: str, col: str, val: str) -> None:
         pass
 
 
+def _create_inbound_call_row(from_e164: Optional[str], to_e164: Optional[str], room_name: str) -> Optional[str]:
+    """Create a calls row for a direct-SIP inbound call (trunk → LiveKit, no webhook).
+
+    When the Twilio SIP trunk Origination URI points straight at LiveKit the
+    voice-inbound webhook is never called, so no calls row is pre-created.
+    This helper fills that gap: it looks up the phone_number by to_e164, checks
+    that inbound is enabled, and inserts the row. Returns the new call UUID, or
+    None on any failure.  Best-effort — the caller should log and continue."""
+    if not to_e164:
+        return None
+    try:
+        with httpx.Client(timeout=_TIMEOUT, headers=_supabase_headers()) as c:
+            r = c.get(_supabase_url(
+                f"/rest/v1/phone_numbers?e164=eq.{quote(to_e164, safe='')}"
+                "&select=id,org_id,inbound_enabled&limit=1"
+            ))
+            if not r.is_success:
+                return None
+            pns = r.json()
+            if not pns:
+                return None
+            pn = pns[0]
+        if not pn.get("inbound_enabled"):
+            return None
+        with httpx.Client(timeout=_TIMEOUT, headers=_supabase_headers()) as c:
+            r = c.post(
+                _supabase_url("/rest/v1/calls"),
+                headers={
+                    **_supabase_headers(),
+                    "Content-Type": "application/json",
+                    "Prefer": "return=representation",
+                },
+                json={
+                    "org_id": pn["org_id"],
+                    "direction": "in",
+                    "state": "ringing",
+                    "from_e164": from_e164,
+                    "to_e164": to_e164,
+                    "phone_number_id": pn["id"],
+                    "room_id": room_name,
+                    "metadata": {"source": "sip_direct"},
+                },
+            )
+            if not r.is_success:
+                return None
+            created = r.json()
+            return created[0]["id"] if created else None
+    except Exception:
+        return None
+
+
+def _lookup_inbound_agent_id(to_e164: Optional[str]) -> Optional[str]:
+    """Return the ai_agent_id configured for this inbound number, or None.
+
+    Used when the call arrived via the direct SIP trunk path (no webhook),
+    so no X-LK-Agent-Id header was forwarded. We resolve Charlotte (or
+    whichever persona) by following phone_numbers.agent_handle_id →
+    agent_handles.ai_agent_id."""
+    if not to_e164:
+        return None
+    try:
+        with httpx.Client(timeout=_TIMEOUT, headers=_supabase_headers()) as c:
+            r = c.get(_supabase_url(
+                f"/rest/v1/phone_numbers?e164=eq.{quote(to_e164, safe='')}"
+                "&select=agent_handle_id&limit=1"
+            ))
+            if not r.is_success:
+                return None
+            pns = r.json()
+            if not pns or not pns[0].get("agent_handle_id"):
+                return None
+            handle_id = pns[0]["agent_handle_id"]
+            r2 = c.get(_supabase_url(
+                f"/rest/v1/agent_handles?id=eq.{handle_id}&select=ai_agent_id&limit=1"
+            ))
+            if not r2.is_success:
+                return None
+            handles = r2.json()
+            if not handles:
+                return None
+            return handles[0].get("ai_agent_id") or None
+    except Exception:
+        return None
+
+
 async def capture_inbound_numbers(call_id: str, from_raw: Any, to_raw: Any, clog: logging.Logger) -> Optional[str]:
     """Persist the caller (from) + dialed (to) E.164 on an inbound call row.
 

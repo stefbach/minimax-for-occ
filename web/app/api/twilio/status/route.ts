@@ -12,6 +12,8 @@ import { validateTwilioSignature } from "@/lib/twilio-signature";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Allow up to 5 min so the after() retry loop can wait for AssemblyAI
+export const maxDuration = 300;
 
 /**
  * Twilio StatusCallback webhook.
@@ -297,7 +299,16 @@ export async function POST(req: Request) {
     const cid = callId;
     after(async () => {
       try {
-        await qualifyCall(cid);
+        let result = await qualifyCall(cid);
+        // AssemblyAI STT may still be processing the recording when this fires.
+        // Retry with increasing delays until the transcript lands (max ~3 min).
+        if (result.status === "no_evidence") {
+          for (const delaySecs of [30, 60, 90]) {
+            await new Promise<void>((r) => setTimeout(r, delaySecs * 1000));
+            result = await qualifyCall(cid);
+            if (result.status !== "no_evidence") break;
+          }
+        }
       } catch (e) {
         log.error(`twilio/status auto-qualify failed: ${e instanceof Error ? e.message : String(e)}`, { call: cid });
       }

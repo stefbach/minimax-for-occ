@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { requestOrgId } from "@/lib/request-org";
-import { callInLeadsScope, leadsScopeFor, leadsTableFor, type LeadsSource } from "@/lib/leads-source";
+import { callInLeadsScope, campaignScopeFor, leadsScopeFor, leadsTableFor, type LeadsSource } from "@/lib/leads-source";
 import { callMatchesSystem, parseCallSystem } from "@/lib/call-system";
 import { isPhantomCall, isSoftphoneTestLeg } from "@/lib/call-quality";
 
@@ -81,6 +81,8 @@ export async function GET(request: Request) {
   if (dir === "inbound" || dir === "in") q = q.eq("direction", "in");
   else if (dir === "outbound" || dir === "out") q = q.eq("direction", "out");
 
+  const campaignId = searchParams.get("campaign_id");
+
   const { data, error } = await q;
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -92,12 +94,15 @@ export async function GET(request: Request) {
   const leadsParam = searchParams.get("leads_source");
   const leadsSource: LeadsSource | null =
     leadsParam === "test" ? "test" : leadsParam === "prod" ? "prod" : null;
-  const scope = leadsSource ? await leadsScopeFor(leadsSource) : null;
   const system = parseCallSystem(searchParams.get("system"));
   // Always resolve the (tiny, 5-row) test set so every call can be tagged
   // Prod/Test — the Live monitor shows all active calls regardless of the
   // selected source, but still labels each one.
-  const testScope = await leadsScopeFor("test");
+  const [scope, testScope, campaignScope] = await Promise.all([
+    leadsSource ? leadsScopeFor(leadsSource) : Promise.resolve(null),
+    leadsScopeFor("test"),
+    campaignId && campaignId !== "all" ? campaignScopeFor(campaignId) : Promise.resolve(null),
+  ]);
   // Live monitor: trust ONLY the Twilio-tracked rows. The LiveKit agent path
   // creates parallel, unlinked `calls` rows (no twilio_call_sid) for the same
   // physical call, which never carry the ringing→in-progress→completed
@@ -108,6 +113,7 @@ export async function GET(request: Request) {
     .filter((c) => !isPhantomCall(c))
     .filter((c) => !isSoftphoneTestLeg(c))
     .filter((c) => callInLeadsScope(c.to_e164 ?? null, scope))
+    .filter((c) => callInLeadsScope(c.to_e164 ?? null, campaignScope))
     .filter((c) => callMatchesSystem(c.metadata?.source, system))
     .filter((c) => !twilioOnly || Boolean(c.metadata?.twilio_call_sid));
 

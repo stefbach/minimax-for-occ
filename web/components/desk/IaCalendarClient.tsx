@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useT } from "@/lib/i18n";
 
 // Calendrier de l'agent IA (Charlotte) — les rappels qu'elle doit passer à
@@ -30,6 +30,11 @@ export function IaCalendarClient() {
   const [rows, setRows] = useState<AiCallback[]>([]);
   const [agents, setAgents] = useState<AgentRow[]>([]);
   const [assigning, setAssigning] = useState<string | null>(null);
+  const [acting, setActing] = useState<string | null>(null); // id of row being rescheduled/cancelled
+  const [rescheduleId, setRescheduleId] = useState<string | null>(null);
+  const [rescheduleDate, setRescheduleDate] = useState("");
+  const [rescheduleTime, setRescheduleTime] = useState("");
+  const rescheduleRef = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   type FilterMode = "today" | "tomorrow" | "h7" | "h30" | "all";
@@ -72,6 +77,47 @@ export function IaCalendarClient() {
     })();
     return () => { alive = false; };
   }, []);
+
+  const cancelCallback = useCallback(async (row: AiCallback) => {
+    if (!confirm(t("Annuler ce rappel IA ? Le lead reviendra dans la cadence normale."))) return;
+    setActing(row.id);
+    setErr(null);
+    try {
+      const r = await fetch("/api/desk/ai-callbacks/update", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ e164: row.e164, action: "cancel" }),
+      });
+      const j = (await r.json().catch(() => ({}))) as { error?: string };
+      if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
+      await refresh();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setActing(null);
+    }
+  }, [refresh, t]);
+
+  const submitReschedule = useCallback(async (row: AiCallback) => {
+    if (!rescheduleDate || !rescheduleTime) return;
+    setActing(row.id);
+    setErr(null);
+    try {
+      const r = await fetch("/api/desk/ai-callbacks/update", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ e164: row.e164, action: "reschedule", date: rescheduleDate, time: rescheduleTime }),
+      });
+      const j = (await r.json().catch(() => ({}))) as { error?: string };
+      if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
+      setRescheduleId(null);
+      await refresh();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setActing(null);
+    }
+  }, [rescheduleDate, rescheduleTime, refresh]);
 
   // Confier un rappel à un humain : crée une tâche assignée + retire le lead de
   // la file de Charlotte (il disparaît du calendrier IA au refresh).
@@ -222,24 +268,90 @@ export function IaCalendarClient() {
                         <span className="tag" style={{ fontSize: 10 }}>🤖 {t("Rappel Charlotte")}</span>
                       </div>
                     </div>
-                    {/* Confier ce rappel à un humain plutôt que Charlotte. */}
-                    <select
-                      value=""
-                      disabled={assigning === r.id}
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        if (!v) return;
-                        void assign(r, v === "__pool__" ? null : v);
-                      }}
-                      title={t("Confier ce rappel à un agent humain")}
-                      style={{ fontSize: 12, padding: "5px 8px", maxWidth: 180, border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg)", color: "var(--text)" }}
-                    >
-                      <option value="">{assigning === r.id ? t("Envoi…") : `👤 ${t("Confier à un agent")}`}</option>
-                      <option value="__pool__">{t("Pool (non assigné)")}</option>
-                      {agents.filter((a) => a.is_active).map((a) => (
-                        <option key={a.user_id} value={a.user_id}>{a.display_name}</option>
-                      ))}
-                    </select>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                      {/* Reprogrammer */}
+                      {rescheduleId === r.id ? (
+                        <div ref={rescheduleRef} style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                          <input
+                            type="date"
+                            value={rescheduleDate}
+                            onChange={(e) => setRescheduleDate(e.target.value)}
+                            style={{ fontSize: 12, padding: "4px 6px", border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg)", color: "var(--text)" }}
+                          />
+                          <input
+                            type="time"
+                            value={rescheduleTime}
+                            min="08:00"
+                            max="21:00"
+                            onChange={(e) => setRescheduleTime(e.target.value)}
+                            style={{ fontSize: 12, padding: "4px 6px", border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg)", color: "var(--text)" }}
+                          />
+                          <button
+                            onClick={() => void submitReschedule(r)}
+                            disabled={acting === r.id || !rescheduleDate || !rescheduleTime}
+                            style={{ fontSize: 12, padding: "4px 10px", borderRadius: 6, background: "var(--accent)", color: "#fff", border: "none", cursor: "pointer" }}
+                          >
+                            {acting === r.id ? t("Envoi…") : t("Confirmer")}
+                          </button>
+                          <button
+                            className="ghost"
+                            onClick={() => setRescheduleId(null)}
+                            style={{ fontSize: 12, padding: "4px 8px" }}
+                          >
+                            {t("Annuler")}
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          className="ghost"
+                          onClick={() => {
+                            const d = new Date(r.scheduled_for);
+                            setRescheduleDate(d.toLocaleDateString("en-CA", { timeZone: UK_TZ }));
+                            setRescheduleTime(d.toLocaleTimeString("fr-FR", { timeZone: UK_TZ, hour: "2-digit", minute: "2-digit", hour12: false }));
+                            setRescheduleId(r.id);
+                          }}
+                          disabled={acting === r.id}
+                          title={t("Modifier la date/heure du rappel")}
+                          style={{ fontSize: 12, padding: "4px 8px" }}
+                        >
+                          ✏️ {t("Reprogrammer")}
+                        </button>
+                      )}
+
+                      {/* Annuler le rappel IA */}
+                      {rescheduleId !== r.id && (
+                        <button
+                          className="ghost"
+                          onClick={() => void cancelCallback(r)}
+                          disabled={acting === r.id}
+                          title={t("Annuler ce rappel — le lead revient en cadence normale")}
+                          style={{ fontSize: 12, padding: "4px 8px", color: "var(--bad)" }}
+                        >
+                          {acting === r.id ? t("…") : `✕ ${t("Annuler rappel")}`}
+                        </button>
+                      )}
+
+                      {/* Confier ce rappel à un humain plutôt que Charlotte. */}
+                      {rescheduleId !== r.id && (
+                        <select
+                          value=""
+                          disabled={assigning === r.id}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            if (!v) return;
+                            void assign(r, v === "__pool__" ? null : v);
+                          }}
+                          title={t("Confier ce rappel à un agent humain")}
+                          style={{ fontSize: 12, padding: "5px 8px", maxWidth: 180, border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg)", color: "var(--text)" }}
+                        >
+                          <option value="">{assigning === r.id ? t("Envoi…") : `👤 ${t("Confier à un agent")}`}</option>
+                          <option value="__pool__">{t("Pool (non assigné)")}</option>
+                          {agents.filter((a) => a.is_active).map((a) => (
+                            <option key={a.user_id} value={a.user_id}>{a.display_name}</option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
                   </div>
                 );
               })}
@@ -251,7 +363,7 @@ export function IaCalendarClient() {
   );
 }
 
-function FilterTab({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+function FilterTab({ active, onClick, children }: { active: boolean; onClick: () => void; children: import("react").ReactNode }) {
   return (
     <button
       onClick={onClick}
