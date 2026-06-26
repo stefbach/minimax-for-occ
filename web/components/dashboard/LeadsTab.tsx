@@ -192,6 +192,18 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
           <div style={{ fontSize: 12, color: "var(--muted)" }}>{t("moyenne par personne")}</div>
         </div>
 
+        {analysis && (
+          <div className="card" style={{ padding: 14 }}>
+            <div style={{ color: "var(--muted)", fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4 }}>
+              {t("Appels décrochés")}
+            </div>
+            <div style={{ fontSize: 26, fontWeight: 700, margin: "6px 0 4px", color: "#22c55e", letterSpacing: -0.4 }}>
+              {analysis.totalAnswered}
+            </div>
+            <div style={{ fontSize: 12, color: "var(--muted)" }}>{t("sur la période")}</div>
+          </div>
+        )}
+
         <Clickable onClick={() => openDrill(
           { qualification: "rdv_confirme" },
           { title: "RDV confirmés", icon: "✅", tone: "var(--good)" },
@@ -253,16 +265,6 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 12 }}>
-
-            <div className="card" style={{ padding: "16px 18px" }}>
-              <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 4 }}>
-                Appels décrochés
-              </div>
-              <div style={{ fontSize: 30, fontWeight: 700, color: "#22c55e", lineHeight: 1 }}>
-                {analysis.totalAnswered}
-              </div>
-              <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>sur la période</div>
-            </div>
 
             <div className="card" style={{ padding: "16px 18px" }}>
               <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 4 }}>
