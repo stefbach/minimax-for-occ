@@ -63,7 +63,17 @@ interface EngineConfig {
     phases: Phase[];
   };
   slots: { days: number[]; hours: string[]; timezone: string };
-  volume: { max_new_per_day: number; wave_size: number; wave_pause_secs: number };
+  volume: {
+    max_new_per_day: number;
+    wave_size: number;
+    wave_pause_secs: number;
+    // When set, brand-new (first-phase) leads are admitted HIGHEST-value-first
+    // on this column (numeric, descending) instead of the default random
+    // shuffle. OCC's pre-call-SMS campaign sets "bmi" so the heaviest patients
+    // are called before lighter ones. Absent ⇒ shuffle (unchanged for every
+    // existing campaign).
+    order_by_desc?: string;
+  };
 }
 
 interface CampaignRow {
@@ -371,7 +381,21 @@ export async function runDynamicSelection(sb: SupabaseClient, campaign: Campaign
     //     both carryovers and brand-new of the first-phase.
     const attemptsCol = firstPhaseCfg?.attempts_column ?? "j1_attempts";
     const freshRetries = freshAll.filter((x) => Number(x.row[attemptsCol]) > 0);
-    const freshNew = shuffle(freshAll.filter((x) => !(Number(x.row[attemptsCol]) > 0)));
+    // Brand-new leads: HIGHEST-value-first when volume.order_by_desc is set
+    // (OCC pre-call-SMS uses "bmi" so the heaviest patients lead), else random.
+    // Both are then capped to the day's remaining intake budget below, so the
+    // ordering decides WHICH leads make today's batch — not just their order.
+    const orderCol = engine.volume.order_by_desc;
+    const freshNewRaw = freshAll.filter((x) => !(Number(x.row[attemptsCol]) > 0));
+    const freshNew = orderCol
+      ? [...freshNewRaw].sort((a, b) => {
+          const av = Number(a.row[orderCol]);
+          const bv = Number(b.row[orderCol]);
+          const an = Number.isFinite(av) ? av : -Infinity;
+          const bn = Number.isFinite(bv) ? bv : -Infinity;
+          return bn - an;
+        })
+      : shuffle(freshNewRaw);
 
     const sortedHours = [...(engine.slots.hours ?? [])].sort();
     // "First slot of the day" used to be purely positional (the earliest hour
