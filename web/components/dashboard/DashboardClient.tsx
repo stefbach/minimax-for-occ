@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { DashboardOverviewResponse } from "@/app/api/dashboard/overview/route";
+import type { NhsPatientsResponse } from "@/app/api/dashboard/nhs-suivi/patients/route";
 import { KpiGrid } from "./KpiGrid";
 import { VolumeChart } from "./VolumeChart";
 import { DispositionsList } from "./DispositionsList";
@@ -81,6 +82,68 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
   // refreshed the overview header, leaving the Vue d'ensemble tiles
   // stale).
   const [refreshKey, setRefreshKey] = useState(0);
+
+  // ── Patient search bar (Overview header) ─────────────────────────────────
+  // Searches NHS patients + CRM contacts + every tenant lead table, so any
+  // patient in the system is reachable from the dashboard. Results deep-link
+  // into the NHS dossier (patients/contacts) or the contact list (leads).
+  const [patientSearchQuery, setPatientSearchQuery] = useState("");
+  const [patientSearchOpen, setPatientSearchOpen] = useState(false);
+  const [nhsPatients, setNhsPatients] = useState<NhsPatientsResponse["patients"] | null>(null);
+  const [searchContacts, setSearchContacts] = useState<Array<{ id: string; display_name: string | null; e164: string | null; table_id?: string }>>([]);
+  const [nhsOpenPatientId, setNhsOpenPatientId] = useState<string | null>(null);
+  const [nhsOpenContactId, setNhsOpenContactId] = useState<string | null>(null);
+
+  const loadNhsPatients = async () => {
+    if (nhsPatients !== null) return;
+    try {
+      const r = await fetch("/api/dashboard/nhs-suivi/patients", { cache: "no-store" });
+      const j = (await r.json()) as NhsPatientsResponse;
+      if (r.ok) setNhsPatients(j.patients);
+    } catch { setNhsPatients([]); }
+  };
+
+  useEffect(() => {
+    const q = patientSearchQuery.trim();
+    if (q.length < 2) { setSearchContacts([]); return; }
+    const timer = setTimeout(() => {
+      fetch(`/api/desk/search-contacts?q=${encodeURIComponent(q)}&limit=6`, { cache: "no-store" })
+        .then((r) => r.json())
+        .then((j: { contacts?: Array<{ id: string; display_name: string | null; e164: string | null; table_id?: string }> }) => setSearchContacts(j.contacts ?? []))
+        .catch(() => {});
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [patientSearchQuery]);
+
+  type PatientSearchResult =
+    | { kind: "patient"; patient: NhsPatientsResponse["patients"][number] }
+    | { kind: "contact"; id: string; name: string; phone: string | null }
+    | { kind: "lead"; id: string; name: string; phone: string | null; table_id: string };
+
+  const patientSearchQ = patientSearchQuery.trim().toLowerCase();
+  const patientSearchResults: PatientSearchResult[] = (() => {
+    if (patientSearchQ.length < 2) return [];
+    const results: PatientSearchResult[] = [];
+    const seen = new Set<string>();
+    for (const p of nhsPatients ?? []) {
+      if (`${p.name ?? ""} ${p.phone ?? ""} ${p.email ?? ""}`.toLowerCase().includes(patientSearchQ)) {
+        results.push({ kind: "patient", patient: p });
+        seen.add((p.name ?? "").toLowerCase());
+      }
+    }
+    for (const c of searchContacts) {
+      const name = c.display_name ?? "";
+      if (seen.has(name.toLowerCase())) continue;
+      seen.add(name.toLowerCase());
+      if (c.table_id) {
+        results.push({ kind: "lead", id: c.id, name, phone: c.e164, table_id: c.table_id });
+      } else {
+        results.push({ kind: "contact", id: c.id, name, phone: c.e164 });
+      }
+    }
+    return results.slice(0, 8);
+  })();
+  // ─────────────────────────────────────────────────────────────────────────
 
   const fetchData = useCallback(async () => {
     try {
@@ -194,15 +257,107 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
           if (!active) return null;
           const periodScoped = tab === "overview" || tab === "stats" || tab === "logs" || tab === "entrants" || tab === "sms" || tab === "ai" || tab === "leads";
           return (
-            <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
-              <h2 style={{ margin: 0, fontSize: 19 }}>
-                <span style={{ marginRight: 8 }}>{active.icon}</span>
-                {t(active.label)}
-              </h2>
-              {periodScoped && (
-                <span className="muted" style={{ fontSize: 13 }}>
-                  {t("Période")} : {periodLabelFor(period)}
-                </span>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+                <h2 style={{ margin: 0, fontSize: 19 }}>
+                  <span style={{ marginRight: 8 }}>{active.icon}</span>
+                  {t(active.label)}
+                </h2>
+                {periodScoped && (
+                  <span className="muted" style={{ fontSize: 13 }}>
+                    {t("Période")} : {periodLabelFor(period)}
+                  </span>
+                )}
+              </div>
+              {tab === "overview" && (
+                <div style={{ position: "relative", minWidth: 260 }}>
+                  <input
+                    type="search"
+                    placeholder={t("Rechercher un patient…")}
+                    value={patientSearchQuery}
+                    onFocus={() => { loadNhsPatients(); setPatientSearchOpen(true); }}
+                    onBlur={() => setTimeout(() => setPatientSearchOpen(false), 180)}
+                    onChange={(e) => { setPatientSearchQuery(e.target.value); setPatientSearchOpen(true); }}
+                    style={{
+                      width: "100%", boxSizing: "border-box",
+                      padding: "8px 12px 8px 34px",
+                      borderRadius: 8,
+                      border: "1px solid var(--border)",
+                      background: "var(--bg)",
+                      color: "var(--text)",
+                      fontSize: 14,
+                      outline: "none",
+                    }}
+                  />
+                  <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 15, pointerEvents: "none", opacity: 0.5 }}>🔍</span>
+                  {patientSearchOpen && patientSearchResults.length > 0 && (
+                    <div style={{
+                      position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 200,
+                      background: "var(--panel)",
+                      border: "1px solid var(--border)",
+                      borderRadius: 8,
+                      boxShadow: "0 8px 24px rgba(0,0,0,0.2)",
+                      overflow: "hidden",
+                    }}>
+                      {patientSearchResults.map((r, i) => {
+                        if (r.kind === "patient") {
+                          const p = r.patient;
+                          return (
+                            <button
+                              key={`p-${p.id ?? i}`}
+                              className="ghost"
+                              onMouseDown={() => {
+                                setPatientSearchQuery("");
+                                setPatientSearchOpen(false);
+                                setNhsOpenContactId(null);
+                                setNhsOpenPatientId(p.id ?? null);
+                                setTab("nhs");
+                              }}
+                              style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", width: "100%", padding: "10px 14px", gap: 2, borderRadius: 0, borderBottom: "1px solid var(--border)" }}
+                            >
+                              <span style={{ fontWeight: 600, fontSize: 14 }}>{p.name ?? "—"}</span>
+                              <span className="muted" style={{ fontSize: 12 }}>{p.phone ?? p.email ?? ""} · <span style={{ color: "var(--accent)" }}>{t("Dossier patient")}</span></span>
+                            </button>
+                          );
+                        } else if (r.kind === "lead") {
+                          return (
+                            <button
+                              key={`l-${r.table_id}-${r.id}`}
+                              className="ghost"
+                              onMouseDown={() => {
+                                setPatientSearchQuery("");
+                                setPatientSearchOpen(false);
+                                router.push(`/contacts/${r.table_id}?q=${encodeURIComponent(r.name)}`);
+                              }}
+                              style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", width: "100%", padding: "10px 14px", gap: 2, borderRadius: 0, borderBottom: "1px solid var(--border)" }}
+                            >
+                              <span style={{ fontWeight: 600, fontSize: 14 }}>{r.name || "—"}</span>
+                              <span className="muted" style={{ fontSize: 12 }}>{r.phone ?? ""} · <span style={{ color: "var(--info, #6aa0ff)" }}>{t("Fiche contact")}</span></span>
+                            </button>
+                          );
+                        } else {
+                          return (
+                            <button
+                              key={`c-${r.id}`}
+                              className="ghost"
+                              onMouseDown={() => {
+                                setPatientSearchQuery("");
+                                setPatientSearchOpen(false);
+                                setNhsOpenPatientId(null);
+                                setNhsOpenContactId(r.id);
+                                setTab("nhs");
+                              }}
+                              style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", width: "100%", padding: "10px 14px", gap: 2, borderRadius: 0, borderBottom: "1px solid var(--border)" }}
+                            >
+                              <span style={{ fontWeight: 600, fontSize: 14 }}>{r.name || "—"}</span>
+                              <span className="muted" style={{ fontSize: 12 }}>{r.phone ?? ""} · <span style={{ color: "var(--accent)" }}>{t("Dossier patient")}</span></span>
+                            </button>
+                          );
+                        }
+                      })}
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           );
@@ -286,7 +441,13 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
 
         {tab === "errors" && <ErrorsAlertsTab campaignId={filters.campaignId} />}
 
-        {tab === "nhs" && showNhs && <NhsSuiviTab />}
+        {tab === "nhs" && showNhs && (
+          <NhsSuiviTab
+            openPatientId={nhsOpenPatientId}
+            openContactId={nhsOpenContactId}
+            onOpened={() => { setNhsOpenPatientId(null); setNhsOpenContactId(null); }}
+          />
+        )}
       </div>
     </div>
   );
