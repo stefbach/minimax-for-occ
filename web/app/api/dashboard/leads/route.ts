@@ -18,6 +18,9 @@ export type LeadsStats = {
   total_unique_contacts: number;
   total_calls: number;
   avg_calls_per_contact: number;
+  total_answered: number;
+  unique_answered_contacts: number;
+  avg_calls_to_answer: number;
   rdv_confirmed: number;
   rdv_transfer: number;
   calls_distribution: { attempt: number; contacts: number; calls: number }[];
@@ -157,6 +160,29 @@ export async function GET(request: Request) {
   const totalCalls = Array.from(byContact.values()).reduce((sum, calls) => sum + calls.length, 0);
   const avgCallsPerContact = totalUniqueContacts > 0 ? Math.round((totalCalls / totalUniqueContacts) * 10) / 10 : 0;
 
+  // Answered-call stats:
+  // - total_answered: calls in scope where answered_at is set
+  // - unique_answered_contacts: unique phones that answered at least once
+  // - avg_calls_to_answer: for leads that eventually answered, the average
+  //   number of call attempts made before (and including) the first answered call.
+  //   E.g. if a lead got 3 unanswered calls then answered on the 4th → counts as 4.
+  let totalAnswered = 0;
+  let sumAttemptsToAnswer = 0;
+  let leadsWithAnswer = 0;
+  for (const calls of byContact.values()) {
+    calls.sort((a, b) => (a.started_at ?? "").localeCompare(b.started_at ?? ""));
+    const firstAnswerIdx = calls.findIndex((c) => !!c.answered_at);
+    if (firstAnswerIdx !== -1) {
+      leadsWithAnswer += 1;
+      sumAttemptsToAnswer += firstAnswerIdx + 1; // 1-based position
+    }
+    totalAnswered += calls.filter((c) => !!c.answered_at).length;
+  }
+  const uniqueAnsweredContacts = leadsWithAnswer;
+  const avgCallsToAnswer = leadsWithAnswer > 0
+    ? Math.round((sumAttemptsToAnswer / leadsWithAnswer) * 10) / 10
+    : 0;
+
   // Count RDV and transfers
   let rdvConfirmed = 0;
   let rdvTransfer = 0;
@@ -185,6 +211,9 @@ export async function GET(request: Request) {
     total_unique_contacts: totalUniqueContacts,
     total_calls: totalCalls,
     avg_calls_per_contact: avgCallsPerContact,
+    total_answered: totalAnswered,
+    unique_answered_contacts: uniqueAnsweredContacts,
+    avg_calls_to_answer: avgCallsToAnswer,
     rdv_confirmed: rdvConfirmed,
     rdv_transfer: rdvTransfer,
     calls_distribution,

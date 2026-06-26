@@ -157,82 +157,51 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
 
-      {/* ── Pipeline leads ─────────────────────────────────────────────────── */}
-      <div
-        className="grid"
-        style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}
-      >
-        <div className="card" style={{ padding: 14 }}>
-          <div style={{ color: "var(--muted)", fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4 }}>
-            {t("Leads uniques")}
-          </div>
-          <div style={{ fontSize: 26, fontWeight: 700, margin: "6px 0 4px", color: "var(--accent-2)", letterSpacing: -0.4 }}>
-            {stats.total_unique_contacts}
-          </div>
-          <div style={{ fontSize: 12, color: "var(--muted)" }}>{t("personnes différentes appelées")}</div>
-        </div>
+      {/* ── Top 3 KPI cards ────────────────────────────────────────────────── */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
 
-        <div className="card" style={{ padding: 14 }}>
-          <div style={{ color: "var(--muted)", fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4 }}>
-            {t("Total appels")}
+        {/* Card 1 — Total calls + unique leads */}
+        <div className="card" style={{ padding: "16px 18px" }}>
+          <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 4 }}>
+            Total appels
           </div>
-          <div style={{ fontSize: 26, fontWeight: 700, margin: "6px 0 4px", color: "var(--accent-2)", letterSpacing: -0.4 }}>
+          <div style={{ fontSize: 32, fontWeight: 700, color: "var(--accent-2)", lineHeight: 1, letterSpacing: -0.5 }}>
             {stats.total_calls}
           </div>
-          <div style={{ fontSize: 12, color: "var(--muted)" }}>{t("appels passés")}</div>
+          <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>
+            dont{" "}
+            <span style={{ fontWeight: 600, color: "var(--fg)" }}>{stats.total_unique_contacts}</span>
+            {" "}leads uniques
+          </div>
         </div>
 
-        <div className="card" style={{ padding: 14 }}>
-          <div style={{ color: "var(--muted)", fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4 }}>
-            {t("Appels / lead")}
+        {/* Card 2 — Total answered + unique answered */}
+        <div className="card" style={{ padding: "16px 18px" }}>
+          <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 4 }}>
+            Appels décrochés
           </div>
-          <div style={{ fontSize: 26, fontWeight: 700, margin: "6px 0 4px", color: "var(--accent-2)", letterSpacing: -0.4 }}>
-            {stats.avg_calls_per_contact}
+          <div style={{ fontSize: 32, fontWeight: 700, color: "#22c55e", lineHeight: 1, letterSpacing: -0.5 }}>
+            {stats.total_answered}
           </div>
-          <div style={{ fontSize: 12, color: "var(--muted)" }}>{t("moyenne par personne")}</div>
+          <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>
+            dont{" "}
+            <span style={{ fontWeight: 600, color: "var(--fg)" }}>{stats.unique_answered_contacts}</span>
+            {" "}leads uniques atteints
+          </div>
         </div>
 
-        {analysis && (
-          <div className="card" style={{ padding: 14 }}>
-            <div style={{ color: "var(--muted)", fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4 }}>
-              {t("Appels décrochés")}
-            </div>
-            <div style={{ fontSize: 26, fontWeight: 700, margin: "6px 0 4px", color: "#22c55e", letterSpacing: -0.4 }}>
-              {analysis.totalAnswered}
-            </div>
-            <div style={{ fontSize: 12, color: "var(--muted)" }}>{t("sur la période")}</div>
+        {/* Card 3 — Avg calls until first answer */}
+        <div className="card" style={{ padding: "16px 18px" }}>
+          <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 4 }}>
+            Appels / lead jusqu'au décroché
           </div>
-        )}
-
-        <Clickable onClick={() => openDrill(
-          { qualification: "rdv_confirme" },
-          { title: "RDV confirmés", icon: "✅", tone: "var(--good)" },
-        )}>
-          <div className="card" style={{ padding: 14, cursor: "pointer" }}>
-            <div style={{ color: "var(--muted)", fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4 }}>
-              {t("RDV confirmés")}
-            </div>
-            <div style={{ fontSize: 26, fontWeight: 700, margin: "6px 0 4px", color: "var(--good)", letterSpacing: -0.4 }}>
-              {stats.rdv_confirmed}
-            </div>
-            <div style={{ fontSize: 12, color: "var(--muted)" }}>{t("conversion confirmée")}</div>
+          <div style={{ fontSize: 32, fontWeight: 700, color: "var(--accent-2)", lineHeight: 1, letterSpacing: -0.5 }}>
+            {stats.avg_calls_to_answer}
           </div>
-        </Clickable>
-
-        <Clickable onClick={() => openDrill(
-          { qualification: "passer_humain" },
-          { title: "Transferts humain", icon: "👤", tone: CAT_COLORS.passer_humain },
-        )}>
-          <div className="card" style={{ padding: 14, cursor: "pointer" }}>
-            <div style={{ color: "var(--muted)", fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4 }}>
-              {t("Transferts humain")}
-            </div>
-            <div style={{ fontSize: 26, fontWeight: 700, margin: "6px 0 4px", color: "var(--accent)", letterSpacing: -0.4 }}>
-              {stats.rdv_transfer}
-            </div>
-            <div style={{ fontSize: 12, color: "var(--muted)" }}>{t("à confirmer")}</div>
+          <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>
+            tentatives moyennes avant réponse
           </div>
-        </Clickable>
+        </div>
       </div>
 
       <div className="card" style={{ padding: 14 }}>
