@@ -202,6 +202,21 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
             tentatives moyennes avant réponse
           </div>
         </div>
+
+        {/* Card 4 — Unique real conversations (from analysis API) */}
+        {analysis && (
+          <div className="card" style={{ padding: "16px 18px" }}>
+            <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 4 }}>
+              Personnes uniques
+            </div>
+            <div style={{ fontSize: 32, fontWeight: 700, color: "var(--accent)", lineHeight: 1, letterSpacing: -0.5 }}>
+              {analysis.uniqueIndividuals}
+            </div>
+            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>
+              contacts distincts — vraies conversations
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="card" style={{ padding: 14 }}>
@@ -234,16 +249,6 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 12 }}>
-
-            <div className="card" style={{ padding: "16px 18px" }}>
-              <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 4 }}>
-                Personnes uniques
-              </div>
-              <div style={{ fontSize: 30, fontWeight: 700, color: "var(--accent)", lineHeight: 1 }}>
-                {analysis.uniqueIndividuals}
-              </div>
-              <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>contacts distincts atteints</div>
-            </div>
 
             <Clickable onClick={() => openDrill(
               { qualification: "passer_humain", answered: "yes" },
