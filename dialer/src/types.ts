@@ -44,10 +44,14 @@ export interface DialTargetRow {
  */
 export interface PrecallSmsConfig {
   enabled?: boolean;
+  lead_minutes?: number;
+  // New multi-channel shape (precall_message): SMS and/or WhatsApp.
+  sms?: { content_sid?: string; from?: string };
+  whatsapp?: { content_sid?: string; from?: string };
+  // Legacy single-channel shape (precall_sms / top-level fields).
   channel?: "sms" | "whatsapp";
   content_sid?: string;
   from?: string;
-  lead_minutes?: number;
 }
 
 export interface DialCampaignRow {

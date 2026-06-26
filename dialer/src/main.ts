@@ -117,14 +117,32 @@ async function scheduleTick() {
     const slots = Math.max(0, maxConcurrency - (dialingCount ?? 0) - activeDials);
     if (slots === 0) continue;
 
-    const { data: due } = await sb
+    // Prioritise targets whose pre-call message is ALREADY sent for the
+    // upcoming attempt (ready to DIAL) over those still awaiting a message.
+    // Otherwise a large pre-call batch gets fully messaged before any call
+    // goes out — the SMS-deferred targets carry a LATER next_attempt_at
+    // (send + lead_minutes) than freshly-seeded "needs SMS" rows, so a plain
+    // oldest-first pick keeps choosing "needs SMS" and the calls never start
+    // (Wati 26/06: 32 messaged leads, 0 dialing). Over-fetch newest-first so
+    // the ready ones are in the window, then rank them first. Campaigns
+    // without pre-call carry no marker → every row ranks equal, order kept.
+    const { data: dueRaw } = await sb
       .from("campaign_targets")
-      .select("id,campaign_id")
+      .select("id,campaign_id,attempts,sms_marker:payload->>precall_sms_attempt")
       .eq("campaign_id", c.id)
       .eq("status", "pending")
       .not("next_attempt_at", "is", null)
       .lte("next_attempt_at", now.toISOString())
-      .limit(slots);
+      .order("next_attempt_at", { ascending: false })
+      .limit(Math.max(slots * 5, 25));
+    const due = (dueRaw ?? [])
+      .map((t) => {
+        const attempts = typeof t.attempts === "number" ? t.attempts : 0;
+        const marker = Number((t as { sms_marker?: string | null }).sms_marker ?? -1);
+        return { id: t.id as string, campaign_id: t.campaign_id as string, rank: marker === attempts + 1 ? 0 : 1 };
+      })
+      .sort((a, b) => a.rank - b.rank)
+      .slice(0, slots);
 
     let first = true;
     for (const t of due ?? []) {

@@ -366,12 +366,17 @@ export function CampaignWizard({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Pre-call message (SMS / WhatsApp) sent ~lead_minutes before each call.
-  // "none" ⇒ no message (default). Stored in campaigns.metadata.precall_message.
-  const [precallChannel, setPrecallChannel] = useState<"none" | "sms" | "whatsapp">("none");
-  const [precallContentSid, setPrecallContentSid] = useState("");
+  // Pre-call message(s) sent ~lead_minutes before each call. SMS and WhatsApp
+  // are independent — either, both, or none. Stored in
+  // campaigns.metadata.precall_message = { enabled, lead_minutes, sms?, whatsapp? }.
+  const [precallSmsOn, setPrecallSmsOn] = useState(false);
+  const [precallSmsSid, setPrecallSmsSid] = useState("");
+  const [precallSmsFrom, setPrecallSmsFrom] = useState("");
+  const [precallWaOn, setPrecallWaOn] = useState(false);
+  const [precallWaSid, setPrecallWaSid] = useState("");
+  const [precallWaFrom, setPrecallWaFrom] = useState("");
   const [precallLeadMin, setPrecallLeadMin] = useState(2);
-  const [precallFrom, setPrecallFrom] = useState("");
+  const precallOn = precallSmsOn || precallWaOn;
 
   // Step navigation: 1 = Qui appelle, 2 = Qui appeler, 3 = Quand.
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
@@ -549,16 +554,21 @@ export function CampaignWizard({
           engine: finalEngine,
           phone_number_id: phoneNumberId || null,
           caller_id_e164: callerIdOverride.trim() || null,
-          precall_message:
-            precallChannel === "none" || !precallContentSid.trim()
-              ? null
-              : {
-                  enabled: true,
-                  channel: precallChannel,
-                  content_sid: precallContentSid.trim(),
-                  from: precallFrom.trim() || null,
-                  lead_minutes: Math.max(1, Math.min(15, precallLeadMin || 2)),
-                },
+          precall_message: (() => {
+            const sms = precallSmsOn && precallSmsSid.trim()
+              ? { content_sid: precallSmsSid.trim(), from: precallSmsFrom.trim() || null }
+              : null;
+            const whatsapp = precallWaOn && precallWaSid.trim()
+              ? { content_sid: precallWaSid.trim(), from: precallWaFrom.trim() || null }
+              : null;
+            if (!sms && !whatsapp) return null;
+            return {
+              enabled: true,
+              lead_minutes: Math.max(1, Math.min(15, precallLeadMin || 2)),
+              ...(sms ? { sms } : {}),
+              ...(whatsapp ? { whatsapp } : {}),
+            };
+          })(),
           schedule,
           max_concurrency: maxConcurrency,
           max_attempts: maxAttempts,
@@ -1205,74 +1215,82 @@ export function CampaignWizard({
         </div>
       </section>
 
-      {/* 5. Message avant l'appel (SMS / WhatsApp) */}
+      {/* 5. Message avant l'appel (SMS et/ou WhatsApp) */}
       <section className="card">
         <h3>5. Message avant l&apos;appel{" "}
           <span className="muted" style={{ fontWeight: 400, fontSize: 13 }}>(optionnel)</span>
         </h3>
         <div className="muted" style={{ fontSize: 12, marginTop: -6, marginBottom: 10 }}>
-          Envoie un SMS ou un WhatsApp au patient quelques minutes <strong>avant chaque appel</strong>,
-          pour qu&apos;il reconnaisse le numéro et décroche plus facilement.
+          Coche <strong>SMS</strong> et/ou <strong>WhatsApp</strong> pour prévenir le patient
+          <strong> avant chaque appel</strong> (il reconnaît le numéro et décroche plus facilement).
+          Le <em>moment</em> de l&apos;envoi (combien de minutes avant) se règle à l&apos;étape « Quand&nbsp;? ».
         </div>
         <div style={{ display: "grid", gap: 12 }}>
-          <div>
-            <label>Canal</label>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {(["none", "sms", "whatsapp"] as const).map((val) => (
-                <label key={val} style={{
-                  display: "flex", gap: 8, alignItems: "center", cursor: "pointer",
-                  padding: "8px 12px", borderRadius: 8, margin: 0,
-                  border: `1px solid ${precallChannel === val ? "var(--accent)" : "var(--border)"}`,
-                  background: precallChannel === val ? "var(--accent-soft)" : "var(--bg-2)",
-                }}>
-                  <input type="radio" name="precall_channel" checked={precallChannel === val}
-                    onChange={() => setPrecallChannel(val)} style={{ width: "auto" }} />
-                  {val === "none" ? "Aucun" : val === "sms" ? "SMS" : "WhatsApp"}
-                </label>
-              ))}
-            </div>
+          {/* SMS */}
+          <div style={{ border: `1px solid ${precallSmsOn ? "var(--accent)" : "var(--border)"}`, borderRadius: 8, padding: 12, background: precallSmsOn ? "var(--accent-soft)" : "var(--bg-2)" }}>
+            <label style={{ display: "flex", gap: 8, alignItems: "center", cursor: "pointer", margin: 0, fontWeight: 600 }}>
+              <input type="checkbox" checked={precallSmsOn} onChange={(e) => setPrecallSmsOn(e.target.checked)} style={{ width: "auto" }} />
+              💬 SMS
+            </label>
+            {precallSmsOn && (
+              <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
+                <div>
+                  <label>Modèle SMS — identifiant Twilio (Content SID)</label>
+                  <input value={precallSmsSid} onChange={(e) => setPrecallSmsSid(e.target.value)} placeholder="HX…" style={{ fontFamily: "ui-monospace, monospace" }} />
+                  <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>Modèle approuvé dans Twilio (Messaging → Content Template Builder). La variable {"{{1}}"} reçoit le prénom du patient.</div>
+                </div>
+                <div>
+                  <label>Numéro d&apos;envoi SMS</label>
+                  <input value={precallSmsFrom} onChange={(e) => setPrecallSmsFrom(e.target.value)} placeholder="défaut : numéro de la campagne" />
+                </div>
+                {!precallSmsSid.trim() && <div style={{ fontSize: 12, color: "#b45309" }}>⚠️ Renseigne le Content SID, sinon le SMS ne partira pas.</div>}
+              </div>
+            )}
           </div>
-          {precallChannel !== "none" && (
-            <div style={{ display: "grid", gap: 12, background: "var(--bg-2)", padding: 12, borderRadius: 8 }}>
-              <div>
-                <label>Modèle Twilio (Content SID)</label>
-                <input value={precallContentSid} onChange={(e) => setPrecallContentSid(e.target.value)}
-                  placeholder="HX…" style={{ fontFamily: "ui-monospace, monospace" }} />
-                <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-                  L&apos;identifiant du modèle approuvé dans Twilio (Messaging → Content Template Builder).
-                  La variable {"{{1}}"} reçoit le prénom du patient.
-                </div>
-              </div>
-              <div className="form-row">
+          {/* WhatsApp */}
+          <div style={{ border: `1px solid ${precallWaOn ? "var(--accent)" : "var(--border)"}`, borderRadius: 8, padding: 12, background: precallWaOn ? "var(--accent-soft)" : "var(--bg-2)" }}>
+            <label style={{ display: "flex", gap: 8, alignItems: "center", cursor: "pointer", margin: 0, fontWeight: 600 }}>
+              <input type="checkbox" checked={precallWaOn} onChange={(e) => setPrecallWaOn(e.target.checked)} style={{ width: "auto" }} />
+              🟢 WhatsApp
+            </label>
+            {precallWaOn && (
+              <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
                 <div>
-                  <label>Délai avant l&apos;appel (minutes)</label>
-                  <input type="number" min={1} max={15} value={precallLeadMin}
-                    onChange={(e) => setPrecallLeadMin(Number(e.target.value))} />
+                  <label>Modèle WhatsApp — identifiant Twilio (Content SID)</label>
+                  <input value={precallWaSid} onChange={(e) => setPrecallWaSid(e.target.value)} placeholder="HX…" style={{ fontFamily: "ui-monospace, monospace" }} />
+                  <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>Modèle WhatsApp approuvé dans Twilio. La variable {"{{1}}"} reçoit le prénom du patient.</div>
                 </div>
                 <div>
-                  <label>Numéro d&apos;envoi {precallChannel === "whatsapp" ? "(WhatsApp)" : "(SMS)"}</label>
-                  <input value={precallFrom} onChange={(e) => setPrecallFrom(e.target.value)}
-                    placeholder="défaut : numéro de la campagne" />
-                  <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-                    {precallChannel === "whatsapp"
-                      ? "Doit être un numéro activé WhatsApp Business chez Twilio."
-                      : "Laisse vide pour utiliser le numéro émetteur de la campagne."}
-                  </div>
+                  <label>Numéro d&apos;envoi WhatsApp</label>
+                  <input value={precallWaFrom} onChange={(e) => setPrecallWaFrom(e.target.value)} placeholder="numéro WhatsApp Business Twilio" />
+                  <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>Doit être un numéro activé WhatsApp Business chez Twilio.</div>
                 </div>
+                {!precallWaSid.trim() && <div style={{ fontSize: 12, color: "#b45309" }}>⚠️ Renseigne le Content SID, sinon le WhatsApp ne partira pas.</div>}
               </div>
-              {!precallContentSid.trim() && (
-                <div style={{ fontSize: 12, color: "#b45309" }}>
-                  ⚠️ Renseigne le Content SID, sinon le message ne sera pas activé.
-                </div>
-              )}
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </section>
       </>)}
 
       {/* ─── STEP 3: Quand ? ──────────────────────────────────────────── */}
       {currentStep === 3 && (<>
+      {/* Pre-call message timing — only shown when SMS/WhatsApp was enabled in
+          step 2, so the "Quand ?" step asks for the moment of sending. */}
+      {precallOn && (
+        <section className="card" style={{ borderLeft: "4px solid var(--accent)", marginBottom: 8 }}>
+          <h3>💬 Message avant l&apos;appel — quand l&apos;envoyer&nbsp;?</h3>
+          <div className="muted" style={{ fontSize: 13, marginTop: -4, marginBottom: 8 }}>
+            Tu as activé {precallSmsOn && precallWaOn ? "SMS + WhatsApp" : precallSmsOn ? "le SMS" : "le WhatsApp"}.
+            À combien de minutes <strong>avant chaque appel</strong> faut-il l&apos;envoyer&nbsp;?
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <input type="number" min={1} max={15} value={precallLeadMin}
+              onChange={(e) => setPrecallLeadMin(Number(e.target.value))} style={{ width: 100 }} />
+            <span>minute(s) avant l&apos;appel</span>
+          </div>
+        </section>
+      )}
       {/* Always-visible mode banner so the operator knows exactly what their
           créneau settings will produce. Without this the wizard silently
           picked static or dynamic based on whether a data table was selected
