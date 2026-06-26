@@ -230,7 +230,7 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
       {analysis && (
         <>
           <div style={{ fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.6, color: "var(--muted)", paddingTop: 4 }}>
-            Analyse décroché
+            Analyse décroché — {analysis.totalAnswered} conversations humaines (IA)
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 12 }}>
@@ -318,6 +318,18 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
                 <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>des décrochés</div>
               </div>
             </Clickable>
+
+            {analysis.needsReview > 0 && (
+              <div className="card" style={{ padding: "16px 18px", border: "1px solid #a16207" }}>
+                <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "#a16207", marginBottom: 4 }}>
+                  À vérifier
+                </div>
+                <div style={{ fontSize: 30, fontWeight: 700, color: "#ca8a04", lineHeight: 1 }}>
+                  {analysis.needsReview}
+                </div>
+                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>faible confiance IA</div>
+              </div>
+            )}
           </div>
 
           {analysis.qualBreakdown.length > 0 && (

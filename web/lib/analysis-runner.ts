@@ -482,17 +482,21 @@ export async function qualifyCall(
 
   const meta = (call.metadata ?? {}) as Record<string, unknown>;
   const current = bucketForCall(call);
-  // Wati 25/06 — an explicit / human-set qualification is AUTHORITATIVE: ai_auto
-  // must never overwrite it, regardless of how its value normalizes. Without
-  // this guard a manual reclassification (e.g. SUIVI REQUIS) got re-stamped by
-  // the AI on every re-run (D Davies reverted 3×).
   const qSrc = typeof meta.qualification_source === "string" ? meta.qualification_source : "";
-  const isExplicitQual =
-    !!meta.qualification && !!qSrc && qSrc !== "ai_auto" && !qSrc.startsWith("auto_inferred");
-  // We do two jobs in one LLM pass: (a) qualify the call IF it has no real
-  // qualification yet, and (b) detect the agent-chain stage (1/2/3) IF it's a
-  // long-enough call missing one. Either job alone is enough to run the pass.
-  const needQual = current === "autre" && !isExplicitQual;
+  // Sources that are authoritative and must never be overridden by AI:
+  // - twilio_amd: hardware voicemail detection (highly reliable)
+  // - manual_softphone / human: operator explicitly reclassified
+  const TRUSTED_SOURCES = new Set(["twilio_amd", "manual_softphone", "human"]);
+  const isExplicitQual = !!meta.qualification && TRUSTED_SOURCES.has(qSrc);
+  // AI already did a quality re-analysis pass — don't re-run unless forced.
+  // Note: the in-call AI agent writes metadata.qualification WITHOUT a
+  // qualification_source, so those are NOT treated as ai_auto and WILL be
+  // re-qualified here (that's intentional — the in-call label is a first
+  // draft; post-call transcript analysis is the authoritative pass).
+  const isAiAutoQual = qSrc === "ai_auto" && current !== "autre";
+  // We do two jobs in one LLM pass: (a) qualify the call if no trusted source
+  // has already done so, and (b) detect the agent-chain stage (1/2/3).
+  const needQual = !isExplicitQual && !isAiAutoQual;
   const needStage = meta.agent_stage == null && (call.duration_secs ?? 0) >= AGENT_STAGE_MIN_SECS;
   if (!needQual && !needStage) {
     return { call_id: callId, status: "skipped_existing", bucket: current };
@@ -609,20 +613,28 @@ export async function qualifyCall(
     finalBucket = "suivi_requis";
   }
 
+  const aiReason = finalBucket !== bucket
+    ? "A atteint un agent spécialiste sans confirmation de RDV — suivi requis."
+    : coerced ? "Indécidable par l'IA — à vérifier par un humain." : reason;
+  const needsReview = coerced || (typeof confidence === "number" && confidence < 0.5);
+
   const mergedMeta: Record<string, unknown> = { ...meta };
-  // (a) Qualification — only when the call had none; never override agent/human/Retell.
+  // (a) Qualification — written for every call without a trusted source;
+  // this corrects in-call AI agent labels that are often inaccurate.
   if (needQual) {
     mergedMeta.qualification = finalBucket;
     mergedMeta.qualification_source = "ai_auto";
-    mergedMeta.qualification_ai = {
-      confidence: coerced ? 0 : confidence,
-      reason: finalBucket !== bucket
-        ? "A atteint un agent spécialiste sans confirmation de RDV — suivi requis."
-        : coerced ? "Indécidable par l'IA — escaladé à un humain." : reason,
-      model: "deepseek-v4-flash",
-      at: new Date().toISOString(),
-    };
   }
+  // Always write the full AI result so the dashboard can surface it and
+  // flag low-confidence calls for human review, even for already-classified calls.
+  mergedMeta.qualification_ai = {
+    bucket: finalBucket,
+    confidence: coerced ? 0 : confidence,
+    needs_review: needsReview,
+    reason: aiReason,
+    model: "deepseek-v4-flash",
+    at: new Date().toISOString(),
+  };
   // (b) Agent-chain stage — always stamped (we have it from this pass).
   mergedMeta.agent_stage = agentStage;
   mergedMeta.agent_stage_source = "ai_auto";
@@ -633,13 +645,11 @@ export async function qualifyCall(
     .eq("id", callId);
   if (upErr) throw new Error(upErr.message);
 
-  // "qualified" status only when we actually wrote a qualification, so the
-  // backlog-drain's progress check stays meaningful.
   return {
     call_id: callId,
     status: needQual ? "qualified" : "skipped_existing",
-    bucket: needQual ? finalBucket : current,
-    confidence: needQual ? (coerced ? 0 : confidence ?? undefined) : undefined,
-    reason: needQual && typeof reason === "string" ? reason : undefined,
+    bucket: finalBucket,
+    confidence: coerced ? 0 : (confidence ?? undefined),
+    reason: typeof reason === "string" ? reason : undefined,
   };
 }

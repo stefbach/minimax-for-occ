@@ -30,6 +30,8 @@ export type LeadsAnalysisResponse = {
   // Headline counts — answered calls only
   totalAnswered: number;
   uniqueIndividuals: number;
+  // Calls where AI couldn't decide with confidence — flag for human review
+  needsReview: number;
   // The 3 most actionable buckets as named cards
   passerHumain: { count: number; pct: number };
   pasInteresse: { count: number; pct: number };
@@ -156,7 +158,13 @@ export async function GET(request: Request) {
     pas_de_reponse: 0, repondeur: 0, faux_numero: 0, non_eligible: 0,
     ne_pas_rappeler: 0, suivi_requis: 0, autre: 0,
   };
-  for (const b of answeredBucketed) qcount[b.bucket] += 1;
+  let needsReview = 0;
+  for (const b of answeredBucketed) {
+    qcount[b.bucket] += 1;
+    if ((b.row.metadata as { qualification_ai?: { needs_review?: boolean } } | null)?.qualification_ai?.needs_review) {
+      needsReview += 1;
+    }
+  }
 
   const pct = (n: number) => (totalAnswered > 0 ? Math.round((n / totalAnswered) * 100) : 0);
 
@@ -174,6 +182,7 @@ export async function GET(request: Request) {
     period: { from: from.toISOString(), to: to.toISOString() },
     totalAnswered,
     uniqueIndividuals,
+    needsReview,
     passerHumain: { count: qcount.passer_humain, pct: pct(qcount.passer_humain) },
     pasInteresse: { count: qcount.pas_interesse, pct: pct(qcount.pas_interesse) },
     rappel: { count: qcount.rappel, pct: pct(qcount.rappel) },
