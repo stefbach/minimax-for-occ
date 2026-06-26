@@ -5,7 +5,9 @@ import type { LeadsResponse } from "@/app/api/dashboard/leads/route";
 import type { LeadsAnalysisResponse } from "@/app/api/dashboard/leads-analysis/route";
 import { useT } from "@/lib/i18n";
 import type { Filters } from "./PeriodBar";
-import { appendGlobalFilters } from "@/lib/global-filters";
+import { appendGlobalFilters, globalFilterParams } from "@/lib/global-filters";
+import { DrillSheet, type DrillSpec, type DrillFilters } from "@/components/dashboard/DrillSheet";
+import type { QualBucket } from "@/lib/qualification";
 
 const CAT_COLORS = {
   passer_humain: "#f59e0b",
@@ -19,6 +21,22 @@ function PctBar({ pct, color }: { pct: number; color: string }) {
     <div style={{ marginTop: 4, height: 4, borderRadius: 2, background: "var(--border)", overflow: "hidden" }}>
       <div style={{ width: `${Math.min(pct, 100)}%`, height: "100%", background: color, borderRadius: 2 }} />
     </div>
+  );
+}
+
+// Thin clickable wrapper that turns a card into a drill-down trigger.
+function Clickable({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        all: "unset", display: "block", width: "100%",
+        cursor: "pointer", borderRadius: "inherit",
+      }}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -40,6 +58,7 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
   const [analysis, setAnalysis] = useState<LeadsAnalysisResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [drillSpec, setDrillSpec] = useState<DrillSpec | null>(null);
 
   const fetchData = useCallback(async () => {
     try {
@@ -96,7 +115,9 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
     fetchData();
   }, [fetchData, refreshKey]);
 
-  if (loading) {
+  // Only show full-page spinner on first load — during refreshes keep
+  // the existing content visible to avoid a flash.
+  if (loading && !data) {
     return <div className="card" style={{ padding: 20 }}>{t("Chargement…")}</div>;
   }
 
@@ -110,10 +131,23 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
 
   const { stats } = data;
 
+  // Base DrillFilters shared by every card — period + scope + global filters.
+  const baseDrill: DrillFilters = {
+    from,
+    to,
+    ...(direction && direction !== "all" ? { direction } : {}),
+    leads_source: (leadsSource === "test" ? "test" : "prod") as "prod" | "test",
+    ...(system === "retell" || system === "axon" ? { system: system as "retell" | "axon" } : {}),
+    gf: global ? globalFilterParams(global) : undefined,
+  };
+
+  const openDrill = (extra: Partial<DrillFilters>, spec: Omit<DrillSpec, "filters">) =>
+    setDrillSpec({ ...spec, filters: { ...baseDrill, ...extra } });
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
 
-      {/* ── Pipeline leads (existing section) ─────────────────────────────── */}
+      {/* ── Pipeline leads ─────────────────────────────────────────────────── */}
       <div
         className="grid"
         style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}
@@ -148,25 +182,35 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
           <div style={{ fontSize: 12, color: "var(--muted)" }}>{t("moyenne par personne")}</div>
         </div>
 
-        <div className="card" style={{ padding: 14 }}>
-          <div style={{ color: "var(--muted)", fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4 }}>
-            {t("RDV confirmés")}
+        <Clickable onClick={() => openDrill(
+          { qualification: "rdv_confirme" },
+          { title: "RDV confirmés", icon: "✅", tone: "var(--good)" },
+        )}>
+          <div className="card" style={{ padding: 14, cursor: "pointer" }}>
+            <div style={{ color: "var(--muted)", fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4 }}>
+              {t("RDV confirmés")}
+            </div>
+            <div style={{ fontSize: 26, fontWeight: 700, margin: "6px 0 4px", color: "var(--good)", letterSpacing: -0.4 }}>
+              {stats.rdv_confirmed}
+            </div>
+            <div style={{ fontSize: 12, color: "var(--muted)" }}>{t("conversion confirmée")}</div>
           </div>
-          <div style={{ fontSize: 26, fontWeight: 700, margin: "6px 0 4px", color: "var(--good)", letterSpacing: -0.4 }}>
-            {stats.rdv_confirmed}
-          </div>
-          <div style={{ fontSize: 12, color: "var(--muted)" }}>{t("conversion confirmée")}</div>
-        </div>
+        </Clickable>
 
-        <div className="card" style={{ padding: 14 }}>
-          <div style={{ color: "var(--muted)", fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4 }}>
-            {t("Transferts humain")}
+        <Clickable onClick={() => openDrill(
+          { qualification: "passer_humain" },
+          { title: "Transferts humain", icon: "👤", tone: CAT_COLORS.passer_humain },
+        )}>
+          <div className="card" style={{ padding: 14, cursor: "pointer" }}>
+            <div style={{ color: "var(--muted)", fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4 }}>
+              {t("Transferts humain")}
+            </div>
+            <div style={{ fontSize: 26, fontWeight: 700, margin: "6px 0 4px", color: "var(--accent)", letterSpacing: -0.4 }}>
+              {stats.rdv_transfer}
+            </div>
+            <div style={{ fontSize: 12, color: "var(--muted)" }}>{t("à confirmer")}</div>
           </div>
-          <div style={{ fontSize: 26, fontWeight: 700, margin: "6px 0 4px", color: "var(--accent)", letterSpacing: -0.4 }}>
-            {stats.rdv_transfer}
-          </div>
-          <div style={{ fontSize: 12, color: "var(--muted)" }}>{t("à confirmer")}</div>
-        </div>
+        </Clickable>
       </div>
 
       <div className="card" style={{ padding: 14 }}>
@@ -220,69 +264,89 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
               <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>contacts distincts atteints</div>
             </div>
 
-            <div className="card" style={{ padding: "16px 18px" }}>
-              <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 4 }}>
-                À passer à l&apos;humain
+            <Clickable onClick={() => openDrill(
+              { qualification: "passer_humain", answered: "yes" },
+              { title: "À passer à l'humain", icon: "👤", tone: CAT_COLORS.passer_humain },
+            )}>
+              <div className="card" style={{ padding: "16px 18px", cursor: "pointer" }}>
+                <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 4 }}>
+                  À passer à l&apos;humain
+                </div>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                  <span style={{ fontSize: 30, fontWeight: 700, color: CAT_COLORS.passer_humain, lineHeight: 1 }}>
+                    {analysis.passerHumain.count}
+                  </span>
+                  <span style={{ fontSize: 14, color: CAT_COLORS.passer_humain, fontWeight: 600 }}>
+                    {analysis.passerHumain.pct}%
+                  </span>
+                </div>
+                <PctBar pct={analysis.passerHumain.pct} color={CAT_COLORS.passer_humain} />
+                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>Rain / Summer</div>
               </div>
-              <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-                <span style={{ fontSize: 30, fontWeight: 700, color: CAT_COLORS.passer_humain, lineHeight: 1 }}>
-                  {analysis.passerHumain.count}
-                </span>
-                <span style={{ fontSize: 14, color: CAT_COLORS.passer_humain, fontWeight: 600 }}>
-                  {analysis.passerHumain.pct}%
-                </span>
-              </div>
-              <PctBar pct={analysis.passerHumain.pct} color={CAT_COLORS.passer_humain} />
-              <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>Rain / Summer</div>
-            </div>
+            </Clickable>
 
-            <div className="card" style={{ padding: "16px 18px" }}>
-              <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 4 }}>
-                Pas intéressé
+            <Clickable onClick={() => openDrill(
+              { qualification: "pas_interesse", answered: "yes" },
+              { title: "Pas intéressé", icon: "✕", tone: CAT_COLORS.pas_interesse },
+            )}>
+              <div className="card" style={{ padding: "16px 18px", cursor: "pointer" }}>
+                <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 4 }}>
+                  Pas intéressé
+                </div>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                  <span style={{ fontSize: 30, fontWeight: 700, color: CAT_COLORS.pas_interesse, lineHeight: 1 }}>
+                    {analysis.pasInteresse.count}
+                  </span>
+                  <span style={{ fontSize: 14, color: CAT_COLORS.pas_interesse, fontWeight: 600 }}>
+                    {analysis.pasInteresse.pct}%
+                  </span>
+                </div>
+                <PctBar pct={analysis.pasInteresse.pct} color={CAT_COLORS.pas_interesse} />
+                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>des décrochés</div>
               </div>
-              <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-                <span style={{ fontSize: 30, fontWeight: 700, color: CAT_COLORS.pas_interesse, lineHeight: 1 }}>
-                  {analysis.pasInteresse.count}
-                </span>
-                <span style={{ fontSize: 14, color: CAT_COLORS.pas_interesse, fontWeight: 600 }}>
-                  {analysis.pasInteresse.pct}%
-                </span>
-              </div>
-              <PctBar pct={analysis.pasInteresse.pct} color={CAT_COLORS.pas_interesse} />
-              <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>des décrochés</div>
-            </div>
+            </Clickable>
 
-            <div className="card" style={{ padding: "16px 18px" }}>
-              <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 4 }}>
-                Rappel demandé
+            <Clickable onClick={() => openDrill(
+              { qualification: "rappel", answered: "yes" },
+              { title: "Rappel demandé", icon: "↩", tone: CAT_COLORS.rappel },
+            )}>
+              <div className="card" style={{ padding: "16px 18px", cursor: "pointer" }}>
+                <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 4 }}>
+                  Rappel demandé
+                </div>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                  <span style={{ fontSize: 30, fontWeight: 700, color: CAT_COLORS.rappel, lineHeight: 1 }}>
+                    {analysis.rappel.count}
+                  </span>
+                  <span style={{ fontSize: 14, color: CAT_COLORS.rappel, fontWeight: 600 }}>
+                    {analysis.rappel.pct}%
+                  </span>
+                </div>
+                <PctBar pct={analysis.rappel.pct} color={CAT_COLORS.rappel} />
+                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>des décrochés</div>
               </div>
-              <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-                <span style={{ fontSize: 30, fontWeight: 700, color: CAT_COLORS.rappel, lineHeight: 1 }}>
-                  {analysis.rappel.count}
-                </span>
-                <span style={{ fontSize: 14, color: CAT_COLORS.rappel, fontWeight: 600 }}>
-                  {analysis.rappel.pct}%
-                </span>
-              </div>
-              <PctBar pct={analysis.rappel.pct} color={CAT_COLORS.rappel} />
-              <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>des décrochés</div>
-            </div>
+            </Clickable>
 
-            <div className="card" style={{ padding: "16px 18px" }}>
-              <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 4 }}>
-                RDV confirmés
+            <Clickable onClick={() => openDrill(
+              { qualification: "rdv_confirme", answered: "yes" },
+              { title: "RDV confirmés (décrochés)", icon: "✅", tone: CAT_COLORS.rdv_confirme },
+            )}>
+              <div className="card" style={{ padding: "16px 18px", cursor: "pointer" }}>
+                <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 4 }}>
+                  RDV confirmés
+                </div>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                  <span style={{ fontSize: 30, fontWeight: 700, color: CAT_COLORS.rdv_confirme, lineHeight: 1 }}>
+                    {analysis.rdvConfirme.count}
+                  </span>
+                  <span style={{ fontSize: 14, color: CAT_COLORS.rdv_confirme, fontWeight: 600 }}>
+                    {analysis.rdvConfirme.pct}%
+                  </span>
+                </div>
+                <PctBar pct={analysis.rdvConfirme.pct} color={CAT_COLORS.rdv_confirme} />
+                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>des décrochés</div>
               </div>
-              <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-                <span style={{ fontSize: 30, fontWeight: 700, color: CAT_COLORS.rdv_confirme, lineHeight: 1 }}>
-                  {analysis.rdvConfirme.count}
-                </span>
-                <span style={{ fontSize: 14, color: CAT_COLORS.rdv_confirme, fontWeight: 600 }}>
-                  {analysis.rdvConfirme.pct}%
-                </span>
-              </div>
-              <PctBar pct={analysis.rdvConfirme.pct} color={CAT_COLORS.rdv_confirme} />
-              <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>des décrochés</div>
-            </div>
+            </Clickable>
           </div>
 
           {analysis.qualBreakdown.length > 0 && (
@@ -302,7 +366,15 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
                     : q.key === "faux_numero" ? "#f97316"
                     : "var(--accent)";
                   return (
-                    <div key={q.key}>
+                    <button
+                      key={q.key}
+                      type="button"
+                      onClick={() => openDrill(
+                        { qualification: q.key as QualBucket, answered: "yes" },
+                        { title: q.label, tone: color },
+                      )}
+                      style={{ all: "unset", display: "block", cursor: "pointer", borderRadius: 4 }}
+                    >
                       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
                         <span style={{ fontSize: 12, fontWeight: 500 }}>{q.label}</span>
                         <span style={{ fontSize: 12, color: "var(--muted)" }}>{q.count} · {q.pct}%</span>
@@ -310,7 +382,7 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
                       <div style={{ height: 5, borderRadius: 3, background: "var(--border)", overflow: "hidden" }}>
                         <div style={{ width: `${Math.min(q.pct, 100)}%`, height: "100%", background: color, borderRadius: 3 }} />
                       </div>
-                    </div>
+                    </button>
                   );
                 })}
               </div>
@@ -318,6 +390,8 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
           )}
         </>
       )}
+
+      <DrillSheet spec={drillSpec} onClose={() => setDrillSpec(null)} />
     </div>
   );
 }
