@@ -701,12 +701,14 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
   // handoff), the realtime sub flips `activeCall.room_id` to the IA's room.
   // Auto-join that room over WebRTC so the human hears the PSTN caller — the
   // whole point of "transfer interne" without going through PSTN REFER.
+  // INBOUND ringing calls are excluded — the human must explicitly click Accept.
   useEffect(() => {
     if (!activeCall?.room_id) return;
+    if (activeCall.direction === "in" && activeCall.state === "ringing") return;
     if (status === "offline") return;
     if (conn && conn.room === activeCall.room_id) return;
     void connect(activeCall.id);
-  }, [activeCall?.id, activeCall?.room_id, status, conn, connect]);
+  }, [activeCall?.id, activeCall?.room_id, activeCall?.direction, activeCall?.state, status, conn, connect]);
 
   // Incoming-call ringtone. Ring while a call assigned to this agent is in
   // "ringing" state and we're online but not yet joined to its room. The
@@ -736,6 +738,28 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
     ring.stop();
     return undefined;
   }, [shouldRing]);
+
+  // Inbound ringing call waiting for human to Accept or Decline.
+  const pendingInbound = useMemo(
+    () => calls.find((c) => c.direction === "in" && c.state === "ringing") ?? null,
+    [calls],
+  );
+
+  const acceptCall = useCallback(
+    async (call: CallRow) => {
+      await connect(call.id);
+      setActiveCall(call);
+    },
+    [connect],
+  );
+
+  const dismissCall = useCallback(
+    async (callId: string) => {
+      await fetch(`/api/desk/calls/${callId}/dismiss`, { method: "POST" });
+      void refreshCalls();
+    },
+    [refreshCalls],
+  );
 
   const disconnect = useCallback(() => {
     setConn(null);
@@ -823,109 +847,172 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
   if (compact) {
     const inTwilioCall = twilioCallState !== "idle";
     return (
-      <div
-        className="softphone-compact"
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          padding: "8px 14px",
-          background: "var(--panel)",
-          borderBottom: "1px solid var(--border)",
-          flexWrap: "wrap",
-          minHeight: 48,
-        }}
-        role="region"
-        aria-label="Softphone — barre persistante"
-      >
-        <span
-          aria-hidden
-          style={{
-            width: 10,
-            height: 10,
-            borderRadius: 999,
-            background: statusColor(status),
-            boxShadow: `0 0 0 3px color-mix(in srgb, ${statusColor(status)} 25%, transparent)`,
-            flex: "0 0 auto",
-          }}
-        />
-        <strong style={{ fontSize: 13 }}>{handle.display_name}</strong>
-        <select
-          value={status}
-          onChange={(e) => setStatus(e.target.value as PresenceStatus)}
-          style={{ fontSize: 12, padding: "3px 6px" }}
-          aria-label="Statut de présence"
-        >
-          {STATUSES.map((s) => (
-            <option key={s} value={s}>{s}</option>
-          ))}
-        </select>
-
-        {/* Active call inline indicator */}
-        {(inTwilioCall || activeCall) && (
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: 8 }}>
-            <span
-              aria-hidden
+      <>
+        {/* ── Incoming call banner — shown on ALL pages ─────────────────── */}
+        {pendingInbound && (
+          <div
+            role="alert"
+            aria-live="assertive"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              padding: "10px 16px",
+              background: "#1a472a",
+              borderBottom: "2px solid #22c55e",
+              flexWrap: "wrap",
+              animation: "inbound-pulse 1s ease-in-out infinite",
+            }}
+          >
+            <span style={{ fontSize: 20 }}>📞</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 700, color: "#fff", fontSize: 14 }}>
+                Appel entrant
+              </div>
+              <div style={{ color: "#86efac", fontSize: 12 }}>
+                {pendingInbound.from_e164 ?? "Numéro inconnu"}
+              </div>
+            </div>
+            <button
+              onClick={() => void acceptCall(pendingInbound)}
               style={{
-                width: 8, height: 8, borderRadius: 999,
-                background: "var(--good)",
-                animation: "pulse 1.5s ease-in-out infinite",
+                padding: "8px 18px",
+                fontSize: 13,
+                fontWeight: 700,
+                background: "#22c55e",
+                color: "#fff",
+                border: "none",
+                borderRadius: 6,
+                cursor: "pointer",
               }}
-            />
-            <span style={{ fontSize: 13, fontWeight: 600 }}>
-              {inTwilioCall
-                ? twilioCallState === "ringing" ? "Sonne…" : "En appel"
-                : "Appel actif"}
-            </span>
-            <span className="muted" style={{ fontSize: 12 }}>
-              {inTwilioCall
-                ? dialContactName || dialNumber
-                : activeCall?.from_e164 || activeCall?.to_e164 || ""}
-            </span>
-            {inTwilioCall && (
-              <>
-                <button
-                  className="ghost"
-                  onClick={toggleTwilioMute}
-                  style={{ padding: "4px 9px", fontSize: 12 }}
-                  aria-label={twilioMuted ? "Démute" : "Mute"}
-                >
-                  {twilioMuted ? "🔈" : "🔇"}
-                </button>
-                <button
-                  onClick={hangupTwilio}
-                  style={{
-                    padding: "4px 10px",
-                    fontSize: 12,
-                    background: "var(--bad)",
-                    color: "white",
-                    border: "none",
-                    borderRadius: 5,
-                  }}
-                >
-                  ☎ Raccrocher
-                </button>
-              </>
-            )}
+            >
+              ✓ Accepter
+            </button>
+            <button
+              onClick={() => void dismissCall(pendingInbound.id)}
+              style={{
+                padding: "8px 14px",
+                fontSize: 13,
+                background: "#dc2626",
+                color: "#fff",
+                border: "none",
+                borderRadius: 6,
+                cursor: "pointer",
+              }}
+            >
+              ✕ Refuser
+            </button>
           </div>
         )}
 
-        {/* Expand toggle — opens the full softphone overlay. */}
-        <button
-          className="ghost"
-          onClick={onExpand}
-          style={{ marginLeft: "auto", padding: "5px 11px", fontSize: 12 }}
-          aria-label="Ouvrir le softphone complet"
+        <div
+          className="softphone-compact"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            padding: "8px 14px",
+            background: "var(--panel)",
+            borderBottom: "1px solid var(--border)",
+            flexWrap: "wrap",
+            minHeight: 48,
+          }}
+          role="region"
+          aria-label="Softphone — barre persistante"
         >
-          ⤢ Étendre
-        </button>
-        <style>{`
-          @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.4; }
-          }
-        `}</style>
-      </div>
+          <span
+            aria-hidden
+            style={{
+              width: 10,
+              height: 10,
+              borderRadius: 999,
+              background: statusColor(status),
+              boxShadow: `0 0 0 3px color-mix(in srgb, ${statusColor(status)} 25%, transparent)`,
+              flex: "0 0 auto",
+            }}
+          />
+          <strong style={{ fontSize: 13 }}>{handle.display_name}</strong>
+          <select
+            value={status}
+            onChange={(e) => setStatus(e.target.value as PresenceStatus)}
+            style={{ fontSize: 12, padding: "3px 6px" }}
+            aria-label="Statut de présence"
+          >
+            {STATUSES.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+
+          {/* Active call inline indicator */}
+          {(inTwilioCall || (activeCall && !pendingInbound)) && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: 8 }}>
+              <span
+                aria-hidden
+                style={{
+                  width: 8, height: 8, borderRadius: 999,
+                  background: "var(--good)",
+                  animation: "pulse 1.5s ease-in-out infinite",
+                }}
+              />
+              <span style={{ fontSize: 13, fontWeight: 600 }}>
+                {inTwilioCall
+                  ? twilioCallState === "ringing" ? "Sonne…" : "En appel"
+                  : "Appel actif"}
+              </span>
+              <span className="muted" style={{ fontSize: 12 }}>
+                {inTwilioCall
+                  ? dialContactName || dialNumber
+                  : activeCall?.from_e164 || activeCall?.to_e164 || ""}
+              </span>
+              {inTwilioCall && (
+                <>
+                  <button
+                    className="ghost"
+                    onClick={toggleTwilioMute}
+                    style={{ padding: "4px 9px", fontSize: 12 }}
+                    aria-label={twilioMuted ? "Démute" : "Mute"}
+                  >
+                    {twilioMuted ? "🔈" : "🔇"}
+                  </button>
+                  <button
+                    onClick={hangupTwilio}
+                    style={{
+                      padding: "4px 10px",
+                      fontSize: 12,
+                      background: "var(--bad)",
+                      color: "white",
+                      border: "none",
+                      borderRadius: 5,
+                    }}
+                  >
+                    ☎ Raccrocher
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Expand toggle — opens the full softphone overlay. */}
+          <button
+            className="ghost"
+            onClick={onExpand}
+            style={{ marginLeft: "auto", padding: "5px 11px", fontSize: 12 }}
+            aria-label="Ouvrir le softphone complet"
+          >
+            ⤢ Étendre
+          </button>
+          <style>{`
+            @keyframes pulse {
+              0%, 100% { opacity: 1; }
+              50% { opacity: 0.4; }
+            }
+            @keyframes inbound-pulse {
+              0%, 100% { opacity: 1; }
+              50% { opacity: 0.85; }
+            }
+          `}</style>
+        </div>
+      </>
     );
   }
 
@@ -967,6 +1054,8 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
           calls={calls}
           activeId={activeCall?.id ?? null}
           onSelect={(c) => setActiveCall(c)}
+          onAccept={(c) => void acceptCall(c)}
+          onDismiss={(id) => void dismissCall(id)}
         />
 
         <div className="softphone-center softphone-center-cols">
@@ -1180,6 +1269,12 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
           onTransferred={() => void refreshCalls()}
         />
       )}
+      <style>{`
+        @keyframes inbound-pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.85; }
+        }
+      `}</style>
     </div>
   );
 }
@@ -1216,10 +1311,14 @@ function CallsList({
   calls,
   activeId,
   onSelect,
+  onAccept,
+  onDismiss,
 }: {
   calls: CallRow[];
   activeId: string | null;
   onSelect: (c: CallRow) => void;
+  onAccept: (c: CallRow) => void;
+  onDismiss: (id: string) => void;
 }) {
   const live = useMemo(
     () => calls.filter((c) => c.state === "ringing" || c.state === "in_progress"),
@@ -1250,6 +1349,8 @@ function CallsList({
               call={c}
               active={c.id === activeId}
               onClick={() => onSelect(c)}
+              onAccept={c.direction === "in" && c.state === "ringing" ? () => onAccept(c) : undefined}
+              onDismiss={c.direction === "in" && c.state === "ringing" ? () => onDismiss(c.id) : undefined}
             />
           ))}
         </div>
@@ -1268,6 +1369,7 @@ function CallsList({
               onClick={() => onSelect(c)}
             />
           ))}
+
         </div>
       )}
     </div>
@@ -1278,36 +1380,88 @@ function CallRowView({
   call,
   active,
   onClick,
+  onAccept,
+  onDismiss,
 }: {
   call: CallRow;
   active: boolean;
   onClick: () => void;
+  onAccept?: () => void;
+  onDismiss?: () => void;
 }) {
+  const isInboundRinging = call.direction === "in" && call.state === "ringing";
   return (
-    <button
-      className="ghost"
-      onClick={onClick}
+    <div
       style={{
-        textAlign: "left",
-        padding: "10px 12px",
-        borderColor: active ? "var(--accent)" : "var(--border-2)",
-        background: active ? "var(--accent-soft)" : "transparent",
-        display: "flex",
-        flexDirection: "column",
-        gap: 4,
-        alignItems: "stretch",
+        border: `1px solid ${isInboundRinging ? "#22c55e" : active ? "var(--accent)" : "var(--border-2)"}`,
+        background: isInboundRinging ? "#0f2d1a" : active ? "var(--accent-soft)" : "transparent",
+        borderRadius: 6,
+        overflow: "hidden",
+        animation: isInboundRinging ? "inbound-pulse 1s ease-in-out infinite" : undefined,
       }}
     >
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-        <strong style={{ fontSize: 13 }}>{formatPhone(call)}</strong>
-        <span className="tag" style={{ fontSize: 10 }}>
-          {call.state}
-        </span>
-      </div>
-      <div className="muted" style={{ fontSize: 11 }}>
-        {call.direction === "in" ? "← entrant" : "→ sortant"} · il y a {formatRelative(call.started_at)}
-      </div>
-    </button>
+      <button
+        className="ghost"
+        onClick={onClick}
+        style={{
+          textAlign: "left",
+          padding: "10px 12px",
+          border: "none",
+          borderRadius: 0,
+          width: "100%",
+          display: "flex",
+          flexDirection: "column",
+          gap: 4,
+          alignItems: "stretch",
+          background: "transparent",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+          <strong style={{ fontSize: 13 }}>{formatPhone(call)}</strong>
+          <span className="tag" style={{ fontSize: 10 }}>
+            {call.state}
+          </span>
+        </div>
+        <div className="muted" style={{ fontSize: 11 }}>
+          {call.direction === "in" ? "← entrant" : "→ sortant"} · il y a {formatRelative(call.started_at)}
+        </div>
+      </button>
+      {isInboundRinging && onAccept && onDismiss && (
+        <div style={{ display: "flex", gap: 6, padding: "0 10px 10px" }}>
+          <button
+            onClick={(e) => { e.stopPropagation(); onAccept(); }}
+            style={{
+              flex: 1,
+              padding: "7px",
+              fontSize: 12,
+              fontWeight: 700,
+              background: "#22c55e",
+              color: "#fff",
+              border: "none",
+              borderRadius: 5,
+              cursor: "pointer",
+            }}
+          >
+            ✓ Accepter
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); onDismiss(); }}
+            style={{
+              flex: 1,
+              padding: "7px",
+              fontSize: 12,
+              background: "#dc2626",
+              color: "#fff",
+              border: "none",
+              borderRadius: 5,
+              cursor: "pointer",
+            }}
+          >
+            ✕ Refuser
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
