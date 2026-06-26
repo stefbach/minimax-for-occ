@@ -506,7 +506,13 @@ export function CampaignWizard({
   // the lead's handle) OR a single Agent handle. Team takes precedence.
   const [teamId, setTeamId] = useState("");
   const selectedTeam = useMemo(() => teams.find((t) => t.id === teamId) ?? null, [teams, teamId]);
-  const [agentHandleId, setAgentHandleId] = useState(agents[0]?.id ?? "");
+  // Human-campaign template pre-selects a human handle so the desk flow shows
+  // immediately; otherwise default to the first agent (usually an AI).
+  const [agentHandleId, setAgentHandleId] = useState(
+    template?.prefer_human
+      ? (agents.find((a) => a.kind === "human")?.id ?? agents[0]?.id ?? "")
+      : (agents[0]?.id ?? ""),
+  );
   const effectiveHandleId = selectedTeam?.lead_agent_handle_id ?? agentHandleId;
   const [scriptId, setScriptId] = useState("");
   // Source for the campaign's targets: a data table (preferred — real table

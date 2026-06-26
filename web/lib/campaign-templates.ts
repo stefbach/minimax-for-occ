@@ -20,6 +20,10 @@ export type CampaignTemplate = {
   emoji: string;
   title: string;
   subtitle: string;
+  /** When true the wizard pre-selects a HUMAN agent handle (desk campaign), so
+   *  the human-campaign flow — target picker by qualification/assignment, desk
+   *  activation, concurrency 1 — appears straight away. */
+  prefer_human?: boolean;
   defaults: CampaignTemplateDefaults;
 };
 
@@ -97,6 +101,20 @@ export const CAMPAIGN_TEMPLATES: CampaignTemplate[] = [
     defaults: {
       maxConcurrency: 5, maxAttempts: 1, retryDelayMin: 60, amdEnabled: false,
       days: [0, 1, 2, 3, 4, 5, 6], timezone: TZ_DEFAULT, hourStart: "00:00", hourEnd: "23:59",
+    },
+  },
+  {
+    id: "human",
+    emoji: "👤",
+    title: "Campagne agent humain",
+    subtitle: "Un agent humain appelle les leads depuis « Mon poste » (SMS/WhatsApp avant l'appel possible).",
+    prefer_human: true,
+    defaults: {
+      // One call at a time (the agent can only take one), no AMD (a human
+      // hears the répondeur). Business hours by default — adjust to the agent's
+      // availability in « Quand ? ».
+      maxConcurrency: 1, maxAttempts: 3, retryDelayMin: 60, amdEnabled: false,
+      days: [1, 2, 3, 4, 5], timezone: TZ_DEFAULT, hourStart: "09:00", hourEnd: "18:00",
     },
   },
 ];
