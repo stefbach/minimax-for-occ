@@ -413,18 +413,20 @@ export async function dialTarget(job: DialJob): Promise<void> {
     return;
   }
 
-  // ─── Pre-call SMS gate (campaign.metadata.precall_sms) ───────────────────
-  // When the campaign opts in, the patient gets a templated SMS ~lead_minutes
-  // before EACH dial attempt (so they recognise the incoming call). We key the
-  // "already texted?" check on the UPCOMING attempt number: payload
-  // .precall_sms_attempt === attempts+1 means the SMS for this very attempt is
-  // already out, so fall through and dial. Otherwise we (atomically) claim the
-  // row, defer it by lead_minutes, send the SMS, and return WITHOUT dialing —
-  // the same target is re-picked ~lead_minutes later and dials then. Because
-  // every real dial bumps `attempts`, the next attempt's check fails again and
-  // re-sends — one SMS per call, exactly as specified. No-op for every campaign
-  // that doesn't set metadata.precall_sms (i.e. all existing campaigns).
-  const precall = campaign.metadata?.precall_sms;
+  // ─── Pre-call message gate (campaign.metadata.precall_message) ───────────
+  // When the campaign opts in, the patient gets a templated SMS *or* WhatsApp
+  // ~lead_minutes before EACH dial attempt (so they recognise the incoming
+  // call). We key the "already sent?" check on the UPCOMING attempt number:
+  // payload.precall_sms_attempt === attempts+1 means the message for this very
+  // attempt is already out, so fall through and dial. Otherwise we (atomically)
+  // claim the row, defer it by lead_minutes, send the message, and return
+  // WITHOUT dialing — the same target is re-picked ~lead_minutes later and
+  // dials then. Because every real dial bumps `attempts`, the next attempt's
+  // check fails again and re-sends — one message per call. No-op for every
+  // campaign that doesn't configure it. `precall_message` is the new (channel-
+  // aware) shape; `precall_sms` is kept as a legacy SMS-only fallback.
+  const precall = campaign.metadata?.precall_message ?? campaign.metadata?.precall_sms;
+  const precallChannel = precall?.channel === "whatsapp" ? "whatsapp" : "sms";
   if (precall?.enabled && precall.content_sid) {
     const upcoming = (target.attempts ?? 0) + 1;
     const payload = target.payload ?? {};
@@ -453,23 +455,28 @@ export async function dialTarget(job: DialJob): Promise<void> {
       const firstName = rawFirst
         ? rawFirst.charAt(0).toUpperCase() + rawFirst.slice(1)
         : "there";
+      // WhatsApp goes through the same Twilio Content API — only the To/From
+      // carry the `whatsapp:` channel prefix.
+      const isWa = precallChannel === "whatsapp";
+      const sendTo = isWa ? `whatsapp:${toE164}` : toE164;
+      const sendFrom = isWa ? `whatsapp:${smsFrom}` : smsFrom;
       try {
         const sms = await sendContentSms({
-          to: toE164,
-          from: smsFrom,
+          to: sendTo,
+          from: sendFrom,
           contentSid: precall.content_sid,
           variables: { "1": firstName },
         });
         dlog(
           "info",
           { ...ctx, call_id: sms.sid },
-          `precall-sms sent to=${toE164} from=${smsFrom} attempt=${upcoming} — dial in ~${leadMin}min`,
+          `precall-${precallChannel} sent to=${toE164} from=${smsFrom} attempt=${upcoming} — dial in ~${leadMin}min`,
         );
       } catch (e) {
         // Send failed: roll the marker back so the next pick RE-SENDS (we must
-        // not dial un-texted), and retry sooner than a full lead window.
+        // not dial un-messaged), and retry sooner than a full lead window.
         const msg = e instanceof Error ? e.message : String(e);
-        dlog("warn", ctx, `precall-sms send failed (will retry): ${msg}`);
+        dlog("warn", ctx, `precall-${precallChannel} send failed (will retry): ${msg}`);
         await sb
           .from("campaign_targets")
           .update({
