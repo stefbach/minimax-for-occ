@@ -103,3 +103,48 @@ export async function createCall(opts: {
   }
   return { sid: json.sid, status: json.status };
 }
+
+/**
+ * Send a Twilio Content-template SMS (Messaging API). Used by the pre-call SMS
+ * gate (campaign.metadata.precall_sms): a templated text fired ~2 min before
+ * each dial so the patient recognises the incoming call. Same creds() as the
+ * dial path. Content templates carry their approved body + variables on
+ * Twilio's side — we pass the ContentSid + the variable map ({"1": firstName}).
+ * Mirrors web/lib/twilio-sms.ts.
+ */
+export async function sendContentSms(opts: {
+  to: string;
+  from: string;
+  contentSid: string;
+  variables?: Record<string, string>;
+}): Promise<{ sid: string; status: string }> {
+  const { sid, token } = creds();
+  const body = new URLSearchParams();
+  body.set("To", opts.to);
+  body.set("From", opts.from);
+  body.set("ContentSid", opts.contentSid);
+  if (opts.variables && Object.keys(opts.variables).length > 0) {
+    body.set("ContentVariables", JSON.stringify(opts.variables));
+  }
+  const auth = "Basic " + Buffer.from(`${sid}:${token}`).toString("base64");
+  const res = await fetch(`${TWILIO_API_BASE}/Accounts/${sid}/Messages.json`, {
+    method: "POST",
+    headers: {
+      Authorization: auth,
+      "content-type": "application/x-www-form-urlencoded",
+      Accept: "application/json",
+    },
+    body,
+  });
+  const text = await res.text();
+  let json: any = null;
+  try {
+    json = text ? JSON.parse(text) : null;
+  } catch {
+    /* leave null */
+  }
+  if (!res.ok) {
+    throw new TwilioError(json?.message ?? text ?? `Twilio HTTP ${res.status}`, res.status, json?.code);
+  }
+  return { sid: json.sid, status: json.status };
+}
