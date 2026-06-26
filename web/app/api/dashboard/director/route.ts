@@ -244,7 +244,7 @@ export async function GET(request: Request) {
   const qcount: Record<QualBucket, number> = {
     rdv_confirme: 0, passer_humain: 0, rappel: 0, pas_interesse: 0,
     pas_de_reponse: 0, repondeur: 0, faux_numero: 0, non_eligible: 0,
-    ne_pas_rappeler: 0, autre: 0,
+    ne_pas_rappeler: 0, suivi_requis: 0, autre: 0,
   };
   const buckets: { row: CallRow; bucket: QualBucket }[] = [];
   for (const r of rows) {

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseSession } from "@/lib/supabase-auth";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
+import { resolveOutboundFrom } from "@/lib/outbound-numbers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,6 +29,7 @@ export async function POST(req: Request) {
   }
   const body = (await req.json().catch(() => null)) as {
     to_e164?: string;
+    from_e164?: string;
     contact_id?: string;
   } | null;
   const to = (body?.to_e164 ?? "").trim();
@@ -70,17 +72,24 @@ export async function POST(req: Request) {
     contactId = contact?.id ?? null;
   }
 
-  // The SDK leg's "from" is the caller-ID Twilio uses, which is selected
-  // by /api/twilio/voice-outbound's geo-routing at the moment the TwiML
-  // is fetched. We don't know it here yet — leave it null, the Twilio
-  // StatusCallback can fill it in later if wired.
+  // Resolve the caller-ID the SAME way /api/twilio/voice-outbound will, so the
+  // call row records the number actually used (restricted to the agent's
+  // assigned set; org default if none). Best-effort — null if it can't resolve.
+  let fromE164: string | null = null;
+  try {
+    const resolved = await resolveOutboundFrom(admin, handle.org_id, user.id, to, body?.from_e164);
+    fromE164 = resolved.e164;
+  } catch {
+    /* no usable number — leave null, the call still proceeds via TwiML default */
+  }
+
   const { data: call, error } = await admin
     .from("calls")
     .insert({
       org_id: handle.org_id,
       direction: "out",
       state: "ringing",
-      from_e164: null,
+      from_e164: fromE164,
       to_e164: to,
       agent_handle_id: handle.id,
       contact_id: contactId,

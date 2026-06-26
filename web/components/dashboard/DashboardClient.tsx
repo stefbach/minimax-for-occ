@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { AlertTriangle, BarChart2, Building2, ClipboardList, Home, Phone, Radio, Sparkles, Users } from "lucide-react";
+import { AlertTriangle, BarChart2, Building2, ClipboardList, Home, Phone, PhoneIncoming, Radio, Sparkles, Users } from "lucide-react";
 import type { DashboardOverviewResponse } from "@/app/api/dashboard/overview/route";
 import type { NhsPatientsResponse } from "@/app/api/dashboard/nhs-suivi/patients/route";
 import { KpiGrid } from "./KpiGrid";
@@ -14,6 +14,7 @@ import { CampaignsTable } from "./CampaignsTable";
 import { HelpButton } from "@/components/help/HelpButton";
 import { LiveMonitorClient } from "@/components/live/LiveMonitorClient";
 import { CallLogsTab } from "./CallLogsTab";
+import { InboundTab } from "./InboundTab";
 import { StatsTab } from "./StatsTab";
 import { DirectorTab } from "./DirectorTab";
 import { AiInsightsTab } from "./AiInsightsTab";
@@ -27,11 +28,12 @@ import { ReportButton } from "./ReportButton";
 import { ApiStatusPill } from "./ApiStatusPill";
 import { useT } from "@/lib/i18n";
 
-type TabId = "overview" | "stats" | "logs" | "live" | "errors" | "ai" | "leads" | "nhs";
+type TabId = "overview" | "stats" | "logs" | "entrants" | "live" | "errors" | "ai" | "leads" | "nhs";
 const ALL_TABS: { id: TabId; label: string; icon: ReactNode }[] = [
   { id: "overview", label: "Vue d'ensemble", icon: <Home size={15} /> },
   { id: "stats", label: "Statistiques", icon: <BarChart2 size={15} /> },
   { id: "logs", label: "Call Logs", icon: <ClipboardList size={15} /> },
+  { id: "entrants", label: "Entrants", icon: <PhoneIncoming size={15} /> },
   { id: "live", label: "Live", icon: <Radio size={15} /> },
   { id: "errors", label: "Erreurs & Alertes", icon: <AlertTriangle size={15} /> },
   { id: "ai", label: "AI Insights", icon: <Sparkles size={15} /> },
@@ -360,7 +362,7 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
         {tab !== "nhs" && tab !== "overview" && (() => {
           const active = TABS.find((x) => x.id === tab);
           if (!active) return null;
-          const periodScoped = tab === "stats" || tab === "logs" || tab === "ai" || tab === "leads";
+          const periodScoped = tab === "stats" || tab === "logs" || tab === "entrants" || tab === "ai" || tab === "leads";
           return (
             <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
               <h2 style={{ margin: 0, fontSize: 19 }}>
@@ -418,6 +420,13 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
           <>
             <PeriodBar period={period} filters={filters} onPeriod={setPeriod} onFilters={setFilters} />
             <CallLogsTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} system={filters.system} global={filters} campaignId={filters.campaignId} />
+          </>
+        )}
+
+        {tab === "entrants" && (
+          <>
+            <PeriodBar period={period} filters={filters} onPeriod={setPeriod} onFilters={setFilters} />
+            <InboundTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} system={filters.system} global={filters} />
           </>
         )}
 

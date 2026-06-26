@@ -23,6 +23,8 @@ export interface PhoneNumberRow {
   last_call_at?: string | null;
   notes?: string | null;
   is_default?: boolean | null;
+  inbound_enabled?: boolean | null;
+  human_first_enabled?: boolean | null;
   created_at: string;
 }
 
@@ -703,6 +705,7 @@ export function NumbersClient({
                 <th>Webhook</th>
                 <th>Compliance</th>
                 <th>Active</th>
+                <th>Inbound</th>
                 <th></th>
               </tr>
             </thead>
@@ -831,6 +834,62 @@ export function NumbersClient({
                         {n.active ? <span className="tag good">active</span> : <span className="tag">inactive</span>}
                       </label>
                     </td>
+                    <td>
+                      <div style={{ display: "grid", gap: 6, minWidth: 172 }}>
+                        {/* Interrupteur principal : ce numéro décroche-t-il les appels entrants ? */}
+                        <button
+                          type="button"
+                          onClick={() => patch(n.id, { inbound_enabled: !n.inbound_enabled })}
+                          title="Quand ON, ce numéro décroche les appels ENTRANTS. OFF = aucun décrochage (sécurité)."
+                          style={{
+                            display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
+                            padding: "5px 10px", fontSize: 12, fontWeight: 600, borderRadius: 6, cursor: "pointer",
+                            border: `1px solid ${n.inbound_enabled ? "var(--good)" : "var(--border)"}`,
+                            background: n.inbound_enabled ? "color-mix(in srgb, var(--good) 14%, transparent)" : "transparent",
+                            color: n.inbound_enabled ? "var(--good)" : "var(--muted)",
+                          }}
+                        >
+                          {n.inbound_enabled ? "🟢 Entrant ON" : "⚪ Entrant OFF"}
+                        </button>
+                        {/* Mode — toujours sélectionnable (s'applique dès qu'Entrant est ON). */}
+                        <div
+                          title="Humain d'abord : faire sonner les agents humains assignés (en ligne) AVANT Charlotte. IA seulement : Charlotte (IA) répond directement."
+                          style={{
+                            display: "grid", gridTemplateColumns: "1fr 1fr",
+                            border: "1px solid var(--border)", borderRadius: 6, overflow: "hidden",
+                            opacity: n.inbound_enabled ? 1 : 0.6,
+                          }}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => patch(n.id, { human_first_enabled: true })}
+                            style={{
+                              padding: "5px 4px", fontSize: 11, border: "none", cursor: "pointer",
+                              background: n.human_first_enabled ? "color-mix(in srgb, var(--accent) 22%, transparent)" : "transparent",
+                              color: n.human_first_enabled ? "var(--text)" : "var(--muted)",
+                              fontWeight: n.human_first_enabled ? 600 : 400,
+                            }}
+                          >
+                            👤 Humain
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => patch(n.id, { human_first_enabled: false })}
+                            style={{
+                              padding: "5px 4px", fontSize: 11, border: "none", borderLeft: "1px solid var(--border)", cursor: "pointer",
+                              background: !n.human_first_enabled ? "color-mix(in srgb, var(--info) 22%, transparent)" : "transparent",
+                              color: !n.human_first_enabled ? "var(--text)" : "var(--muted)",
+                              fontWeight: !n.human_first_enabled ? 600 : 400,
+                            }}
+                          >
+                            🤖 IA seule
+                          </button>
+                        </div>
+                        {!n.inbound_enabled && (
+                          <span className="muted" style={{ fontSize: 10 }}>mode appliqué quand Entrant est ON</span>
+                        )}
+                      </div>
+                    </td>
                     <td style={{ textAlign: "right" }}>
                       <div style={{ display: "inline-flex", gap: 6 }}>
                         <a
@@ -858,7 +917,7 @@ export function NumbersClient({
               })}
               {filtered.length === 0 && rows.length > 0 && (
                 <tr>
-                  <td colSpan={9} style={{ padding: 14, color: "var(--muted)" }}>
+                  <td colSpan={10} style={{ padding: 14, color: "var(--muted)" }}>
                     No numbers match the filters.
                   </td>
                 </tr>

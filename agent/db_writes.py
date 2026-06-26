@@ -645,6 +645,9 @@ _CALLBACK_QUAL_PATTERNS = (
     # Explicit callback / human transfer signals
     "rappel", "callback", "call_back", "call back", "follow_up", "follow up",
     "humain", "human", "to_human", "passer", "transferred_to_human",
+    # Warm lead that reached a specialist (agent 2/3) but didn't book →
+    # needs human follow-up (SUIVI REQUIS).
+    "suivi",
 )
 
 
@@ -1037,16 +1040,34 @@ def auto_qualify_call(call_id: Optional[str]) -> None:
             # duration heuristic bucketed every >30s answered call as RAPPEL.
             # That silently loses leads who explicitly asked for a human and
             # leaves "no thanks" patients getting recalled for weeks.
-            # Two intents in priority order:
-            #   1. HUMAN_SIGNAL — explicit ask for a real person, bot
+            # Three intents in priority order:
+            #   1. WRONG_NUMBER — patient explicitly states this is a wrong number.
+            #      ONLY if the patient explicitly says so (e.g., "you've got the wrong person")
+            #   2. HUMAN_SIGNAL — explicit ask for a real person, bot
             #      rejection, or sensitive life event (bereavement, terminal
             #      diagnosis, hospitalisation).
-            #   2. EXPLICIT_REFUSAL — patient said "no" with clear intent.
+            #   3. EXPLICIT_REFUSAL — patient said "no" with clear intent.
             #      Polite "I'm fine for now" stays RAPPEL via duration.
             intent_qual: Optional[str] = None
             intent_source: Optional[str] = None
             if any_user_speech and not voicemail_transcript and not audio_dropped:
+                # Check for patient-initiated wrong number signals FIRST
+                # Only mark as FAUX NUMERO if the patient explicitly says so
                 if re.search(
+                    r"(you'?ve|you\s+have)\s+got\s+the\s+wrong\s+(number|person)"
+                    r"|\bwrong\s+number\b"
+                    r"|this\s+is\s+not\s+the\s+right\s+(number|person)"
+                    r"|i\s+think\s+you\s+have\s+the\s+wrong\s+(number|person)"
+                    r"|you've\s+dialed\s+the\s+wrong\s+number"
+                    r"|this\s+is\s+(a\s+)?wrong\s+number"
+                    r"|c'est\s+pas\s+le\s+bon\s+num[ée]ro"
+                    r"|vous\s+avez\s+le\s+mauvais\s+num[ée]ro"
+                    r"|mauvais\s+num[ée]ro",
+                    joined_full,
+                ):
+                    intent_qual = "FAUX NUMERO"
+                    intent_source = "transcript_wrong_number"
+                elif re.search(
                     r"(real|actual|live)\s+(person|human|being)"
                     r"|(speak|talk|chat)\s+(to|with)\s+(a|an|the)?\s*(real\s+)?(human|person)"
                     r"|human\s+being\s+(to\s+)?(talk|speak|call)"
@@ -1081,7 +1102,15 @@ def auto_qualify_call(call_id: Optional[str]) -> None:
                     r"|\bstop\s+calling\b"
                     r"|\bremove\s+me\s+(from|off)\b"
                     r"|\bplease\s+(do\s+not|don'?t)\s+(contact|call)\s+me\b"
-                    r"|\btake\s+me\s+off\s+(your\s+)?(list|database)\b",
+                    r"|\btake\s+me\s+off\s+(your\s+)?(list|database)\b"
+                    # French variants for explicit refusal
+                    r"|(?:non|pas)\s+(?:d'?)?intéress"
+                    r"|pas\s+(?:du\s+)?tout\s+intéress"
+                    r"|ne\s+m'?(?:intéress|appell)"
+                    r"|pas\s+(?:de\s+)?temps\s+pour\s+(?:ca|cela|ça)"
+                    r"|arrêt(?:ez|e)\s+(?:de\s+)?m'?(?:appel|contact)"
+                    r"|suppress(?:ez)?[-\s]*moi\s+de\s+la\s+(?:liste|base)"
+                    r"|(?:ne|pas|no)\s+merci",
                     joined_full,
                 ):
                     intent_qual = "PAS INTERESSE"
@@ -1094,8 +1123,18 @@ def auto_qualify_call(call_id: Optional[str]) -> None:
                 qual = "RAPPEL"
                 qualification_source = "audio_drop_heuristic"
             elif handoff_count > 0:
-                qual = "A PASSER A L'HUMAIN"
-                qualification_source = "auto_inferred"
+                # Wati 25/06 — an INTERNAL swarm handoff fired (Charlotte→
+                # Isabelle→Victoria) but no explicit close was written. That
+                # means the patient REACHED a specialist (agent 2/3) yet the
+                # call ended WITHOUT RDV CONFIRME — a warm lead that needs human
+                # follow-up, NOT someone who asked for a human. The genuine
+                # "asked for a human" path is the transfer_to_human tool, which
+                # writes its own explicit "A PASSER A L'HUMAIN" and never reaches
+                # this heuristic. Before this fix, ANY persona swap was
+                # mislabelled A PASSER A L'HUMAIN (e.g. an ineligible-BMI patient
+                # who merely talked to Isabelle), flooding the human desk.
+                qual = "SUIVI REQUIS"
+                qualification_source = "reached_specialist"
             elif intent_qual is not None:
                 qual = intent_qual
                 qualification_source = intent_source or "auto_inferred"

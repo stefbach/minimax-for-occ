@@ -21,6 +21,7 @@ const QUAL_LABEL_FR: Record<QualBucket, string> = {
   faux_numero: "FAUX NUMERO",
   non_eligible: "NON ELIGIBLE",
   ne_pas_rappeler: "NE PAS RAPPELER",
+  suivi_requis: "SUIVI REQUIS",
   autre: "AUTRE",
 };
 

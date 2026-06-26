@@ -98,7 +98,7 @@ export async function GET(req: Request) {
       .order("scheduled_for", { ascending: true })
       .limit(500);
     if (mErr) return NextResponse.json({ error: mErr.message }, { status: 500 });
-    return NextResponse.json({ mine: (mineRaw ?? []).map(rowToTask) });
+    return NextResponse.json({ mine: (mineRaw ?? []).map((r) => rowToTask(r)) });
   }
 
   // ── supervisor "all" view ─────────────────────────────────────────────
@@ -121,7 +121,13 @@ export async function GET(req: Request) {
       .order("scheduled_for", { ascending: true })
       .limit(1000);
     if (aErr) return NextResponse.json({ error: aErr.message }, { status: 500 });
-    const rows = (allOpenRaw ?? []).map(rowToTask);
+    const allOpen = (allOpenRaw ?? []) as Row[];
+    // Resolve name+phone from the original call when contact_id is null AND
+    // the denormalized columns are empty — guarantees the supervise board
+    // always shows a phone (and a name when the lead resolves). Wati 25/06 :
+    // "il faut toujours que le nom et numero d'un lead soit disponible".
+    const phoneByCallId = await buildPhoneByCallId(admin, orgId, allOpen);
+    const rows = allOpen.map((r) => rowToTask(r, phoneByCallId));
     return NextResponse.json({
       all: rows,
       unassigned: rows.filter((r) => !r.assigned_to),
@@ -307,22 +313,72 @@ type Row = {
     | null;
 };
 
+// Resolve {name, e164} per original_call_id for tasks whose contact_id is
+// null and whose denormalized columns are empty. Mirrors the inline fallback
+// of the personal/shared path so the supervisor "scope=all" view also always
+// shows a phone (and a name when the lead resolves by phone).
+async function buildPhoneByCallId(
+  admin: ReturnType<typeof supabaseServer>,
+  orgId: string,
+  rows: Row[],
+): Promise<Record<string, { name: string | null; e164: string | null }>> {
+  const phoneByCallId: Record<string, { name: string | null; e164: string | null }> = {};
+  const callIds = Array.from(
+    new Set(rows.map((r) => r.original_call_id).filter((v): v is string => Boolean(v))),
+  );
+  if (callIds.length === 0) return phoneByCallId;
+  const { data: cs } = await admin
+    .from("calls")
+    .select("id, to_e164, from_e164, direction")
+    .eq("org_id", orgId)
+    .in("id", callIds);
+  const phonesToResolve = new Set<string>();
+  for (const row of cs ?? []) {
+    const r = row as { id: string; to_e164: string | null; from_e164: string | null; direction: string | null };
+    const phone = r.direction === "in" || r.direction === "inbound" ? r.from_e164 : r.to_e164;
+    if (phone) {
+      phoneByCallId[r.id] = { name: null, e164: phone };
+      phonesToResolve.add(phone);
+    }
+  }
+  if (phonesToResolve.size > 0) {
+    const { data: leads } = await admin
+      .from("leads_rdv")
+      .select("nom, numero_telephone")
+      .in("numero_telephone", Array.from(phonesToResolve))
+      .limit(2000);
+    const nameByPhone = new Map<string, string>();
+    for (const l of (leads ?? []) as Array<{ nom: string | null; numero_telephone: string | null }>) {
+      if (l.numero_telephone && l.nom) nameByPhone.set(l.numero_telephone, l.nom);
+    }
+    for (const id of Object.keys(phoneByCallId)) {
+      const entry = phoneByCallId[id];
+      if (entry?.e164) entry.name = nameByPhone.get(entry.e164) ?? null;
+    }
+  }
+  return phoneByCallId;
+}
+
 // Lightweight Row → DeskTask conversion for the supervisor "scope=all"
 // view, where we don't need per-contact call counts or original-call
 // summaries to keep the table snappy.
-function rowToTask(raw: unknown): DeskTask {
+function rowToTask(
+  raw: unknown,
+  phoneByCallId?: Record<string, { name: string | null; e164: string | null }>,
+): DeskTask {
   const r = raw as Row;
   const contact = Array.isArray(r.contacts) ? r.contacts[0] ?? null : r.contacts;
+  const callPhone = r.original_call_id ? phoneByCallId?.[r.original_call_id] : null;
   return {
     id: r.id,
     org_id: r.org_id,
     contact: {
       id: contact?.id ?? r.contact_id,
-      // Fallback sur les colonnes dénormalisées (15/06/2026) : assure que
-      // le superviseur voit toujours un nom/téléphone, même pour les leads
-      // leads_rdv sans contact lié.
-      display_name: contact?.display_name ?? r.display_name ?? null,
-      e164: contact?.e164 ?? r.e164 ?? null,
+      // Chaîne de résolution : contacts JOIN → colonnes dénormalisées →
+      // fallback appel→leads_rdv. Assure que le superviseur voit TOUJOURS un
+      // nom/téléphone, même pour les tâches sans contact lié (auto_qualify).
+      display_name: contact?.display_name ?? r.display_name ?? callPhone?.name ?? null,
+      e164: contact?.e164 ?? r.e164 ?? callPhone?.e164 ?? null,
     },
     qualification: r.qualification,
     transfer_reason: r.transfer_reason,

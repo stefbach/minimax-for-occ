@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import type { Agent, AgentInput, LlmProvider, Voice } from "@/lib/types";
 import { PromptEditor } from "@/components/agents/PromptEditor";
 import { parsePersona, serializePersona } from "@/lib/personas/parser";
+import { AgentNumbersSection } from "@/components/agent/AgentNumbersSection";
 
 type ModelOption = { id: string; label: string };
 
@@ -505,6 +506,12 @@ export function AgentForm({ initial }: { initial?: Agent }) {
           model: ttsModel || "sonic-3.5",
           speed: speed !== 1.0 ? speed : undefined,
           language: CARTESIA_LANGUAGE[language] ?? undefined,
+          // Send the agent's REAL ElevenLabs voice settings so the preview
+          // matches the live call (ignored by non-ElevenLabs voices).
+          stability: stability ?? undefined,
+          similarity_boost: similarityBoost ?? undefined,
+          style: styleVal ?? undefined,
+          use_speaker_boost: speakerBoost,
         }),
       });
       if (!r.ok) {
@@ -1271,6 +1278,8 @@ export function AgentForm({ initial }: { initial?: Agent }) {
       )}
 
       {error && <div className="card" style={{ borderColor: "var(--bad)", color: "var(--bad)" }}>{error}</div>}
+
+      {initial?.id && <AgentNumbersSection agentId={initial.id} />}
 
       <div style={{ display: "flex", gap: 10, justifyContent: "space-between" }}>
         <button type="submit" disabled={busy || !name}>

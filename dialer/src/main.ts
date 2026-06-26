@@ -3,6 +3,7 @@ import { dialTarget, type DialJob } from "./dial.js";
 import { ensureOutboundTrunkAuth } from "./livekit-trunk.js";
 import { ensureInboundDispatchRuleAgent, ensureInboundTrunkKrisp } from "./livekit-dispatch.js";
 import { runDynamicSelection } from "./dynamic-selection.js";
+import { collectExactTimeCallbacks } from "./callbacks.js";
 
 const POLL_INTERVAL_MS = Number(process.env.POLL_INTERVAL_MS ?? 30_000);
 const WORKER_CONCURRENCY = Number(process.env.WORKER_CONCURRENCY ?? 10);
@@ -55,6 +56,35 @@ async function scheduleTick() {
   if (!campaigns || campaigns.length === 0) return;
 
   const now = new Date();
+
+  // ── Exact-time AI callbacks (opt-in: CALLBACK_EXACT_TIME=1) ──────────────
+  // A patient-requested callback at 15:00 must fire at 15:00, not the next
+  // campaign slot. collectExactTimeCallbacks runs INDEPENDENT of the schedule
+  // window (it self-clamps to 08–21 UK) and returns ready-to-dial jobs. We dial
+  // them here with the same concurrency + stagger pacing as the normal loop.
+  // No-op unless the env flag is set, so a deploy doesn't change behaviour.
+  try {
+    const cbBudget = Math.max(0, WORKER_CONCURRENCY - activeDials);
+    const cbJobs = cbBudget > 0 ? await collectExactTimeCallbacks(sb, now, cbBudget) : [];
+    let firstCb = true;
+    for (const job of cbJobs) {
+      if (!firstCb) {
+        const staggerMs = Math.max(0, Number(process.env.DIAL_STAGGER_MS ?? 1300));
+        if (staggerMs > 0) await new Promise((r) => setTimeout(r, staggerMs));
+      }
+      firstCb = false;
+      activeDials++;
+      dialTarget(job)
+        .catch((err) => console.error(`[callbacks] dial ${job.target_id} failed:`, err?.message))
+        .finally(() => { activeDials--; });
+    }
+    if (cbJobs.length > 0) {
+      console.log(`[scheduler] exact-time callbacks dialed=${cbJobs.length} active=${activeDials}`);
+    }
+  } catch (e) {
+    console.error("[scheduler] exact-time callbacks failed:", (e as Error)?.message);
+  }
+
   for (const c of campaigns) {
     // ALL campaigns honour the schedule gate, dynamic and static both —
     // Wati saw a call leak out at 10:04 UK while the slot ended at 10:00

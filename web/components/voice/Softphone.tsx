@@ -136,6 +136,11 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
   const [dialNumber, setDialNumber] = useState("+44");
   const [dialing, setDialing] = useState(false);
   const [dialError, setDialError] = useState<string | null>(null);
+  // Caller-ID(s) this agent may dial from (/api/desk/caller-id). When the agent
+  // has several assigned outbound numbers they pick one here; otherwise it's a
+  // single org default. `selectedFrom` is the chosen From for outbound calls.
+  const [callerIds, setCallerIds] = useState<{ e164: string; label: string | null; is_primary: boolean }[]>([]);
+  const [selectedFrom, setSelectedFrom] = useState<string>("");
   // "idle" | "ringing" | "in-progress" — Twilio call state shown to the user.
   const [twilioCallState, setTwilioCallState] = useState<
     "idle" | "ringing" | "in-progress"
@@ -240,6 +245,33 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
     return device;
   }
 
+  // Load the agent's allowed caller-ID(s) once the desk handle is up. When the
+  // server returns an assigned set (numbers[]), the agent picks among them;
+  // `e164` is the default. Falls back to a single org caller-ID otherwise.
+  useEffect(() => {
+    if (!handle) return;
+    let alive = true;
+    (async () => {
+      try {
+        const r = await fetch("/api/desk/caller-id", { cache: "no-store" });
+        if (!r.ok) return;
+        const j = (await r.json()) as {
+          e164: string | null;
+          numbers?: { e164: string; label: string | null; is_primary: boolean }[];
+        };
+        if (!alive) return;
+        const list = j.numbers ?? [];
+        setCallerIds(list);
+        setSelectedFrom(j.e164 ?? list.find((n) => n.is_primary)?.e164 ?? list[0]?.e164 ?? "");
+      } catch {
+        /* best-effort — server resolves a default at dial time anyway */
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [handle]);
+
   const dial = useCallback(async (overrideNumber?: string) => {
     // Never start a second call while one is already live. twilioCallRef is a
     // ref (always current, unlike the twilioCallState closure), so this also
@@ -263,7 +295,7 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
         const reg = await fetch("/api/desk/sdk-call", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ to_e164: numberToDial }),
+          body: JSON.stringify({ to_e164: numberToDial, from_e164: selectedFrom || undefined }),
         });
         if (reg.ok) {
           const j = await reg.json();
@@ -285,19 +317,23 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
       };
 
       // Twilio's TwiML app receives every param we set here as form fields.
-      // OrgId lets the backend geo-route the From caller-ID against
-      // phone_numbers for this org. HumanFrom takes precedence — it's the
-      // org's "Humain" number (see /api/desk/caller-id) so human agents
-      // don't borrow the IA's campaign caller-ID for personal callbacks.
-      let humanFrom = "";
-      try {
-        const r = await fetch("/api/desk/caller-id", { cache: "no-store" });
-        if (r.ok) {
-          const j = (await r.json()) as { e164: string | null };
-          if (j.e164) humanFrom = j.e164;
+      // OrgId lets the server resolve the From caller-ID. HumanFrom is the
+      // agent's chosen caller-ID (from the picker / their assigned set) — the
+      // server validates it against the agent's assignment and overrides it if
+      // it isn't theirs, so this is a hint, not a trusted value.
+      let humanFrom = selectedFrom;
+      if (!humanFrom) {
+        // No value loaded yet (e.g. dialled before the caller-id fetch
+        // resolved) — fetch on demand so the call still carries a caller-ID.
+        try {
+          const r = await fetch("/api/desk/caller-id", { cache: "no-store" });
+          if (r.ok) {
+            const j = (await r.json()) as { e164: string | null };
+            if (j.e164) humanFrom = j.e164;
+          }
+        } catch {
+          /* best-effort — server falls back to geo-routing */
         }
-      } catch {
-        /* best-effort — leave empty and let the server fall back to geo-routing */
       }
 
       const params: Record<string, string> = {
@@ -356,7 +392,7 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
     } finally {
       setDialing(false);
     }
-  }, [dialNumber, handle]);
+  }, [dialNumber, handle, selectedFrom]);
 
   function hangupTwilio() {
     const call = twilioCallRef.current as { disconnect: () => void } | null;
@@ -942,6 +978,28 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
         <div className="softphone-center softphone-center-cols">
           <div className="card" style={{ padding: 12 }}>
           <h3 style={{ marginTop: 0 }}>{"Dial a number"}</h3>
+          {/* Caller-ID — which of the agent's assigned numbers the call goes
+              out on. Picker when several are assigned, else a read-only line. */}
+          {callerIds.length > 1 ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 12, color: "var(--muted)" }}>Call from:</span>
+              <select
+                value={selectedFrom}
+                onChange={(e) => setSelectedFrom(e.target.value)}
+                style={{ fontSize: 13, padding: "6px 8px", border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg)", color: "var(--text)" }}
+              >
+                {callerIds.map((n) => (
+                  <option key={n.e164} value={n.e164}>
+                    {n.e164}{n.label ? ` — ${n.label}` : ""}{n.is_primary ? " ★" : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : selectedFrom ? (
+            <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 10 }}>
+              Call from: <span className="kbd">{selectedFrom}</span>
+            </div>
+          ) : null}
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
             <CountryPrefix
               value={dialNumber}
