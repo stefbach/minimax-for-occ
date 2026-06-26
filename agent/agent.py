@@ -3629,14 +3629,35 @@ async def entrypoint(ctx: JobContext) -> None:
         agent_id, bool(ctx.room.metadata), list(p_attrs.keys()), bool(p_meta),
     )
 
-    # ── Human-first inbound routing (Wati 25/06) ────────────────────────────
-    # STRICTLY gated: env flag OFF by default + inbound only. Never affects the
-    # outbound campaign. If an ONLINE human is assigned to the dialed number we
-    # ring them first; the AI yields (returns) when a human picks up. The whole
-    # routine lives in agent/human_first.py and is a no-op for outbound calls.
-    if os.getenv("HUMAN_FIRST_INBOUND") == "1" and call_id:
-        _dir = str(p_attrs.get("sip.h.x-lk-direction") or "").lower()
-        if _dir in ("in", "inbound"):
+    # ── Inbound capture + human-first routing (Wati 25/06) ──────────────────
+    # Genuine inbound PSTN calls arrive via the SIP trunk: LiveKit sets the
+    # native sip.phoneNumber (caller) / sip.trunkPhoneNumber (the number dialed)
+    # and NO X-LK-* headers (those are forwarded only on desk/outbound legs). So
+    # we detect inbound from the trunk attrs + absence of campaign markers — not
+    # X-LK-Direction, which is null for genuine inbound.
+    _sip_from = p_attrs.get("sip.phoneNumber")
+    _sip_to = p_attrs.get("sip.trunkPhoneNumber")
+    _dir_hdr = str(p_attrs.get("sip.h.x-lk-direction") or p_attrs.get("axon.direction") or "").lower()
+    _has_campaign = bool(
+        p_attrs.get("sip.h.x-lk-campaign-id") or p_attrs.get("axon.campaign_id")
+        or p_attrs.get("sip.h.x-lk-target-id") or p_attrs.get("axon.target_id")
+    )
+    _is_inbound = _dir_hdr in ("in", "inbound") or (
+        bool(_sip_from or _sip_to) and _dir_hdr != "out" and not _has_campaign
+    )
+    if call_id and _is_inbound:
+        # ALWAYS (ungated): backfill from/to on the call row so the dashboard
+        # Entrants tab + per-number routing have the dialed/caller numbers.
+        # Only fills NULLs, so outbound rows are never touched.
+        try:
+            from human_first import capture_inbound_numbers
+            await capture_inbound_numbers(call_id, _sip_from, _sip_to, clog)
+        except Exception:
+            clog.exception("[inbound] number capture failed")
+        # Human-first ring — STRICTLY opt-in via HUMAN_FIRST_INBOUND. If an
+        # ONLINE human is assigned to the dialed number we ring them first; the
+        # AI yields (returns) when a human picks up.
+        if os.getenv("HUMAN_FIRST_INBOUND") == "1":
             try:
                 from human_first import try_human_first
                 if await try_human_first(ctx, call_id, clog):
