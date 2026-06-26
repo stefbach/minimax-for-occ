@@ -175,18 +175,18 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
           </div>
         </div>
 
-        {/* Card 2 — Total answered + unique answered */}
+        {/* Card 2 — Real human conversations + unique individuals */}
         <div className="card" style={{ padding: "16px 18px" }}>
           <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 4 }}>
-            Appels décrochés
+            Conversations humaines
           </div>
           <div style={{ fontSize: 32, fontWeight: 700, color: "#22c55e", lineHeight: 1, letterSpacing: -0.5 }}>
-            {stats.total_answered}
+            {analysis?.totalAnswered ?? "—"}
           </div>
           <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>
             dont{" "}
-            <span style={{ fontWeight: 600, color: "var(--fg)" }}>{stats.unique_answered_contacts}</span>
-            {" "}leads uniques atteints
+            <span style={{ fontWeight: 600, color: "var(--fg)" }}>{analysis?.uniqueIndividuals ?? "—"}</span>
+            {" "}personnes uniques
           </div>
         </div>
 
@@ -202,21 +202,6 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
             tentatives moyennes avant réponse
           </div>
         </div>
-
-        {/* Card 4 — Unique real conversations (from analysis API) */}
-        {analysis && (
-          <div className="card" style={{ padding: "16px 18px" }}>
-            <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 4 }}>
-              Personnes uniques
-            </div>
-            <div style={{ fontSize: 32, fontWeight: 700, color: "var(--accent)", lineHeight: 1, letterSpacing: -0.5 }}>
-              {analysis.uniqueIndividuals}
-            </div>
-            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>
-              contacts distincts — vraies conversations
-            </div>
-          </div>
-        )}
       </div>
 
       <div className="card" style={{ padding: 14 }}>
