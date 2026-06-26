@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useT } from "@/lib/i18n";
 
 export interface PhoneNumberRow {
   id: string;
@@ -55,16 +56,16 @@ interface AvailableNumber {
 
 const COUNTRY_OPTIONS = [
   { code: "FR", name: "France" },
-  { code: "US", name: "United States" },
+  { code: "US", name: "États-Unis" },
   { code: "CA", name: "Canada" },
-  { code: "GB", name: "United Kingdom" },
-  { code: "BE", name: "Belgium" },
-  { code: "CH", name: "Switzerland" },
-  { code: "DE", name: "Germany" },
-  { code: "ES", name: "Spain" },
-  { code: "IT", name: "Italy" },
-  { code: "NL", name: "Netherlands" },
-  { code: "MU", name: "Mauritius" },
+  { code: "GB", name: "Royaume-Uni" },
+  { code: "BE", name: "Belgique" },
+  { code: "CH", name: "Suisse" },
+  { code: "DE", name: "Allemagne" },
+  { code: "ES", name: "Espagne" },
+  { code: "IT", name: "Italie" },
+  { code: "NL", name: "Pays-Bas" },
+  { code: "MU", name: "Maurice" },
 ];
 
 const JURISDICTION_OPTIONS = [
@@ -73,7 +74,7 @@ const JURISDICTION_OPTIONS = [
   { value: "EU_GDPR",  label: "EU GDPR" },
   { value: "GDPR_UK",  label: "UK GDPR" },
   { value: "MU_ICTA",  label: "MU ICTA" },
-  { value: "OTHER",    label: "Other" },
+  { value: "OTHER",    label: "Autre" },
 ];
 
 type StatusFilter = "" | "active" | "inactive";
@@ -88,11 +89,12 @@ function healthOf(n: PhoneNumberRow): "active" | "low_volume" | "dormant" | "nev
 }
 
 function HealthBadge({ row }: { row: PhoneNumberRow }) {
+  const t = useT();
   const h = healthOf(row);
   if (h === "active") return <span className="tag good">● Active</span>;
   if (h === "dormant") return <span className="tag" style={{ color: "var(--bad)" }}>● Dormant</span>;
-  if (h === "low_volume") return <span className="tag" style={{ color: "var(--warn,#b58900)" }}>● Low</span>;
-  return <span className="tag muted">○ Never used</span>;
+  if (h === "low_volume") return <span className="tag" style={{ color: "var(--warn,#b58900)" }}>{t("● Faible")}</span>;
+  return <span className="tag muted">{t("○ Jamais utilisé")}</span>;
 }
 
 export function NumbersClient({
@@ -108,6 +110,7 @@ export function NumbersClient({
   agents: AgentOption[];
   twilioReady: boolean;
 }) {
+  const t = useT();
   const [rows, setRows] = useState<PhoneNumberRow[]>(initial);
 
   // ─── Twilio search/purchase state ────────────────────────────────────────
@@ -204,7 +207,7 @@ export function NumbersClient({
     setSearching(false);
     if (!r.ok) {
       const j = await r.json().catch(() => ({}));
-      setSearchError(j.error ?? "Twilio search failed");
+      setSearchError(j.error ?? "Recherche Twilio en échec");
       return;
     }
     setResults((await r.json()) as AvailableNumber[]);
@@ -222,14 +225,14 @@ export function NumbersClient({
     setPurchasing(null);
     if (!r.ok) {
       const j = await r.json().catch(() => ({}));
-      setActionError(j.error ?? "Purchase failed");
+      setActionError(j.error ?? "Achat en échec");
       return;
     }
     const j = await r.json().catch(() => ({} as { webhook_warning?: string }));
     setActionNote(
       j?.webhook_warning
-        ? `Number ${phoneNumber} purchased but webhook not configured: ${j.webhook_warning}`
-        : `Number ${phoneNumber} purchased and Twilio webhook configured automatically.`,
+        ? `Numéro ${phoneNumber} acheté mais webhook non configuré: ${j.webhook_warning}`
+        : `Numéro ${phoneNumber} acheté et webhook Twilio configuré automatiquement.`,
     );
     setResults((cur) => (cur ? cur.filter((n) => n.phoneNumber !== phoneNumber) : cur));
     refresh();
@@ -239,7 +242,7 @@ export function NumbersClient({
     e.preventDefault();
     const e164 = importE164.trim();
     if (!/^\+\d{6,15}$/.test(e164)) {
-      setActionError("Invalid number: E.164 format required (e.g. +447700162160).");
+      setActionError("Numéro invalide : format E.164 attendu (ex: +447700162160).");
       return;
     }
     setImporting(true);
@@ -256,14 +259,14 @@ export function NumbersClient({
     setImporting(false);
     if (!r.ok) {
       const j = await r.json().catch(() => ({}));
-      setActionError(j.error ?? "Import failed");
+      setActionError(j.error ?? "Import en échec");
       return;
     }
     const j = await r.json().catch(() => ({} as { webhook_warning?: string }));
     setActionNote(
       j?.webhook_warning
-        ? `Number ${e164} imported but webhook not reconfigured: ${j.webhook_warning}`
-        : `Number ${e164} imported and Twilio webhook reconfigured automatically.`,
+        ? `Numéro ${e164} importé mais webhook non reconfiguré: ${j.webhook_warning}`
+        : `Numéro ${e164} importé et webhook Twilio reconfiguré automatiquement.`,
     );
     setImportE164("");
     setImportLabel("");
@@ -271,7 +274,7 @@ export function NumbersClient({
   }
 
   async function release(row: PhoneNumberRow) {
-    if (!confirm(`Release ${row.e164}? The number will be deleted from Twilio and the database.`)) return;
+    if (!confirm(`Libérer ${row.e164} ? Le numéro sera supprimé de Twilio et de la base.`)) return;
     setActionError(null);
     setActionNote(null);
     const r = await fetch(`/api/numbers?id=${row.id}`, { method: "DELETE" });
@@ -294,7 +297,7 @@ export function NumbersClient({
     });
     if (!r.ok) {
       const j = await r.json().catch(() => ({}));
-      setActionError(j.error ?? "Update failed");
+      setActionError(j.error ?? "Mise à jour en échec");
       return;
     }
     const updated = (await r.json()) as PhoneNumberRow;
@@ -307,10 +310,10 @@ export function NumbersClient({
     const r = await fetch(`/api/numbers/${row.id}/configure-webhook`, { method: "POST" });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) {
-      setActionError(j.error ?? "Webhook configuration failed");
+      setActionError(j.error ?? "Configuration webhook en échec");
       return;
     }
-    setActionNote(`Webhook reconfigured for ${row.e164}.`);
+    setActionNote(`Webhook reconfiguré pour ${row.e164}.`);
     if (j?.row) {
       setRows((cur) => cur.map((n) => (n.id === row.id ? (j.row as PhoneNumberRow) : n)));
     } else {
@@ -325,7 +328,7 @@ export function NumbersClient({
   ) {
     if (selected.size === 0) return;
     const ids = Array.from(selected);
-    if (action === "delete" && !confirm(`Delete ${ids.length} number(s)? They will also be released from Twilio.`)) {
+    if (action === "delete" && !confirm(`Supprimer ${ids.length} numéro(s) ? Ils seront aussi libérés chez Twilio.`)) {
       return;
     }
     setBulkBusy(true);
@@ -339,13 +342,13 @@ export function NumbersClient({
     setBulkBusy(false);
     if (!r.ok) {
       const j = await r.json().catch(() => ({}));
-      setActionError(j.error ?? "Bulk action failed");
+      setActionError(j.error ?? "Bulk action en échec");
       return;
     }
     const j = await r.json().catch(() => ({}));
     setActionNote(
-      `Action "${action}" applied to ${j.affected ?? ids.length} number(s).${
-        j.warnings?.length ? ` (${j.warnings.length} warning(s))` : ""
+      `Action « ${action} » appliquée à ${j.affected ?? ids.length} numéro(s).${
+        j.warnings?.length ? ` (${j.warnings.length} avertissement(s))` : ""
       }`,
     );
     clearSelection();
@@ -362,11 +365,11 @@ export function NumbersClient({
     <div style={{ display: "grid", gap: 16 }}>
       {/* ─── Search & purchase ─── */}
       <div className="card" data-numbers-search>
-        <h3 style={{ marginTop: 0 }}>Search and buy a number</h3>
+        <h3 style={{ marginTop: 0 }}>{t("Rechercher et acheter un numéro")}</h3>
         <form onSubmit={doSearch} style={{ display: "grid", gap: 10 }}>
           <div className="form-row">
             <div>
-              <label>Country</label>
+              <label>{t("Pays")}</label>
               <select
                 value={searchCountry}
                 onChange={(e) => setSearchCountry(e.target.value)}
@@ -388,23 +391,23 @@ export function NumbersClient({
               >
                 <option value="local">Local</option>
                 <option value="mobile">Mobile</option>
-                <option value="tollfree">Toll-free</option>
+                <option value="tollfree">Numéro vert (toll-free)</option>
               </select>
             </div>
           </div>
           <div className="form-row">
             <div>
-              <label>Area code (optional, US/CA)</label>
+              <label>{t("Indicatif régional (optionnel, US/CA)")}</label>
               <input
                 value={searchArea}
                 onChange={(e) => setSearchArea(e.target.value)}
-                placeholder="e.g. 415"
+                placeholder="ex: 415"
                 disabled={!twilioReady}
               />
             </div>
             <div style={{ display: "flex", alignItems: "flex-end" }}>
               <button type="submit" disabled={!twilioReady || searching}>
-                {searching ? "Searching…" : "Search"}
+                {searching ? t("Recherche…") : t("Rechercher")}
               </button>
             </div>
           </div>
@@ -417,14 +420,14 @@ export function NumbersClient({
           <div style={{ marginTop: 14 }}>
             {results.length === 0 ? (
               <div className="muted" style={{ fontSize: 13 }}>
-                No numbers available for these criteria.
+                {t("Aucun numéro disponible pour ces critères.")}
               </div>
             ) : (
               <table className="list">
                 <thead>
                   <tr>
-                    <th>Number</th>
-                    <th>Locality</th>
+                    <th>{t("Numéro (E.164)")}</th>
+                    <th>{t("Localité")}</th>
                     <th>Capabilities</th>
                     <th></th>
                   </tr>
@@ -451,7 +454,7 @@ export function NumbersClient({
                           onClick={() => purchase(n.phoneNumber)}
                           disabled={purchasing === n.phoneNumber}
                         >
-                          {purchasing === n.phoneNumber ? "Buying…" : "Buy"}
+                          {purchasing === n.phoneNumber ? t("Achat…") : t("Acheter")}
                         </button>
                       </td>
                     </tr>
@@ -465,17 +468,14 @@ export function NumbersClient({
 
       {/* ─── Import an existing Twilio number ─── */}
       <div className="card">
-        <h3 style={{ marginTop: 0 }}>Import an existing Twilio number</h3>
+        <h3 style={{ marginTop: 0 }}>{t("Importer un numéro Twilio existant")}</h3>
         <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
-          For a number already purchased on Twilio (before Axon, or elsewhere). Axon
-          verifies that the number belongs to the linked Twilio account, then
-          (re)configures its webhooks (VoiceUrl + StatusCallback) so it
-          behaves like a number purchased through Axon.
+          {t("Pour un numéro déjà acheté sur Twilio (avant Axon, ou ailleurs). Axon vérifie que le numéro appartient bien au compte Twilio relié, puis (re)configure ses webhooks (VoiceUrl + StatusCallback) pour qu'il se comporte comme un numéro acheté via Axon.")}
         </p>
         <form onSubmit={importExisting} style={{ display: "grid", gap: 10 }}>
           <div className="form-row">
             <div>
-              <label>Number (E.164)</label>
+              <label>{t("Numéro (E.164)")}</label>
               <input
                 value={importE164}
                 onChange={(e) => setImportE164(e.target.value)}
@@ -485,18 +485,18 @@ export function NumbersClient({
               />
             </div>
             <div>
-              <label>Label (optional)</label>
+              <label>{t("Label (optionnel)")}</label>
               <input
                 value={importLabel}
                 onChange={(e) => setImportLabel(e.target.value)}
-                placeholder="e.g. UK main line"
+                placeholder="ex: ligne UK principale"
                 disabled={!twilioReady || importing}
               />
             </div>
           </div>
           <div>
             <button type="submit" disabled={!twilioReady || importing || !importE164.trim()}>
-              {importing ? "Importing…" : "Import this number"}
+              {importing ? t("Import…") : t("Importer ce numéro")}
             </button>
           </div>
         </form>
@@ -517,43 +517,43 @@ export function NumbersClient({
       <div className="card" style={{ display: "grid", gap: 10 }}>
         <div className="form-row" style={{ flexWrap: "wrap" }}>
           <div style={{ flex: "1 1 180px" }}>
-            <label>Search (number / label)</label>
+            <label>{t("Recherche (numéro / label)")}</label>
             <input
               value={fSearch}
               onChange={(e) => setFSearch(e.target.value)}
-              placeholder="e.g. +33, support…"
+              placeholder="ex: +33, support…"
             />
           </div>
           <div>
-            <label>Country</label>
+            <label>{t("Pays")}</label>
             <select value={fCountry} onChange={(e) => setFCountry(e.target.value)}>
-              <option value="">All</option>
+              <option value="">{t("Tous")}</option>
               {countryFacets.map((c) => (
                 <option key={c} value={c}>{c}</option>
               ))}
             </select>
           </div>
           <div>
-            <label>Status</label>
+            <label>{t("État")}</label>
             <select value={fStatus} onChange={(e) => setFStatus(e.target.value as StatusFilter)}>
-              <option value="">All</option>
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
+              <option value="">{t("Tous")}</option>
+              <option value="active">{t("Actif")}</option>
+              <option value="inactive">{t("Inactif")}</option>
             </select>
           </div>
           <div>
-            <label>Health</label>
+            <label>{t("Santé")}</label>
             <select value={fHealth} onChange={(e) => setFHealth(e.target.value)}>
-              <option value="">All</option>
-              <option value="active">Active</option>
+              <option value="">{t("Tous")}</option>
+              <option value="active">{t("Actif")}</option>
               <option value="dormant">Dormant</option>
-              <option value="never_used">Never used</option>
+              <option value="never_used">{t("○ Jamais utilisé")}</option>
             </select>
           </div>
           <div>
             <label>Queue</label>
             <select value={fQueue} onChange={(e) => setFQueue(e.target.value)}>
-              <option value="">All</option>
+              <option value="">{t("Tous")}</option>
               {queues.map((q) => (
                 <option key={q.id} value={q.id}>{q.name}</option>
               ))}
@@ -562,7 +562,7 @@ export function NumbersClient({
           <div>
             <label>Agent</label>
             <select value={fAgent} onChange={(e) => setFAgent(e.target.value)}>
-              <option value="">All</option>
+              <option value="">{t("Tous")}</option>
               {agents.map((a) => (
                 <option key={a.id} value={a.id}>{a.display_name ?? a.id.slice(0, 6)}</option>
               ))}
@@ -580,12 +580,12 @@ export function NumbersClient({
                 setFSearch("");
               }}
             >
-              Reset
+              {t("Réinitialiser")}
             </button>
           </div>
         </div>
         <div className="muted" style={{ fontSize: 12 }}>
-          {filtered.length} / {rows.length} numbers shown
+          {filtered.length} / {rows.length} {t("numéros affichés")}
         </div>
       </div>
 
@@ -601,9 +601,9 @@ export function NumbersClient({
             borderColor: "var(--accent, #4f46e5)",
           }}
         >
-          <strong>{selected.size} number(s) selected</strong>
-          <button disabled={bulkBusy} onClick={() => bulk("activate")}>Activate</button>
-          <button disabled={bulkBusy} onClick={() => bulk("deactivate")}>Deactivate</button>
+          <strong>{selected.size} {t("numéro(s) sélectionné(s)")}</strong>
+          <button disabled={bulkBusy} onClick={() => bulk("activate")}>{t("Activer")}</button>
+          <button disabled={bulkBusy} onClick={() => bulk("deactivate")}>{t("Désactiver")}</button>
           <select
             disabled={bulkBusy}
             defaultValue=""
@@ -614,8 +614,8 @@ export function NumbersClient({
               else if (v) bulk("assign_queue", { queue_id: v });
             }}
           >
-            <option value="">Assign queue…</option>
-            <option value="__clear__">— Remove queue —</option>
+            <option value="">{t("Assigner queue…")}</option>
+            <option value="__clear__">{t("— Retirer la queue —")}</option>
             {queues.map((q) => (
               <option key={q.id} value={q.id}>{q.name}</option>
             ))}
@@ -630,8 +630,8 @@ export function NumbersClient({
               else if (v) bulk("assign_agent", { agent_handle_id: v });
             }}
           >
-            <option value="">Assign agent…</option>
-            <option value="__clear__">— Remove agent —</option>
+            <option value="">{t("Assigner agent…")}</option>
+            <option value="__clear__">{t("— Retirer l'agent —")}</option>
             {agents.map((a) => (
               <option key={a.id} value={a.id}>{a.display_name ?? a.id.slice(0, 6)}</option>
             ))}
@@ -646,17 +646,17 @@ export function NumbersClient({
               else if (v) bulk("assign_flow", { flow_id: v });
             }}
           >
-            <option value="">Assign flow…</option>
-            <option value="__clear__">— Remove flow —</option>
+            <option value="">{t("Assigner flow…")}</option>
+            <option value="__clear__">{t("— Retirer le flow —")}</option>
             {flows.map((f) => (
               <option key={f.id} value={f.id}>{f.name}</option>
             ))}
           </select>
           <button className="danger" disabled={bulkBusy} onClick={() => bulk("delete")}>
-            Delete
+            {t("Supprimer")}
           </button>
           <button type="button" onClick={clearSelection} disabled={bulkBusy}>
-            Clear selection
+            {t("Effacer sélection")}
           </button>
         </div>
       )}
@@ -666,11 +666,10 @@ export function NumbersClient({
         {rows.length === 0 ? (
           <div style={{ padding: 20, display: "grid", gap: 10 }}>
             <div style={{ color: "var(--muted)" }}>
-              No numbers provisioned yet.
+              {t("Aucun numéro provisionné pour l'instant.")}
             </div>
             <div className="muted" style={{ fontSize: 12, lineHeight: 1.5, maxWidth: 560 }}>
-              Buy a Twilio number to connect it to an IVR flow, a queue or an AI agent.
-              The Twilio webhook is configured automatically on purchase.
+              {t("Achetez un numéro Twilio pour le brancher sur un flow IVR, une file d'attente ou un agent IA. Le webhook Twilio est configuré automatiquement à l'achat.")}
             </div>
             <div>
               <button
@@ -680,9 +679,9 @@ export function NumbersClient({
                   el?.querySelector<HTMLInputElement>("input")?.focus();
                 }}
                 disabled={!twilioReady}
-                title={!twilioReady ? "Twilio not configured (missing env variables)" : ""}
+                title={!twilioReady ? "Twilio non configuré (variables d'env manquantes)" : ""}
               >
-                Buy a number
+                {t("Acheter un numéro")}
               </button>
             </div>
           </div>
@@ -693,19 +692,19 @@ export function NumbersClient({
                 <th style={{ width: 28 }}>
                   <input
                     type="checkbox"
-                    aria-label="Select all"
+                    aria-label={t("Tout sélectionner")}
                     checked={allFilteredSelected}
                     onChange={(e) => toggleAll(e.target.checked)}
                   />
                 </th>
-                <th>Number</th>
-                <th>Country</th>
-                <th>Routing</th>
-                <th>Health</th>
+                <th>{t("Numéro (E.164)")}</th>
+                <th>{t("Pays")}</th>
+                <th>{t("Routage")}</th>
+                <th>{t("Santé")}</th>
                 <th>Webhook</th>
-                <th>Compliance</th>
-                <th>Active</th>
-                <th>Inbound</th>
+                <th>{t("Conformité")}</th>
+                <th>{t("Actif")}</th>
+                <th>{t("Entrant")}</th>
                 <th></th>
               </tr>
             </thead>
@@ -743,7 +742,7 @@ export function NumbersClient({
                           onChange={(e) => patch(n.id, { flow_id: e.target.value || null })}
                           style={{ fontSize: 12 }}
                         >
-                          <option value="">— Flow: none —</option>
+                          <option value="">{t("— Flow: aucun —")}</option>
                           {flows.map((f) => (
                             <option key={f.id} value={f.id}>Flow: {f.name}</option>
                           ))}
@@ -753,7 +752,7 @@ export function NumbersClient({
                           onChange={(e) => patch(n.id, { queue_id: e.target.value || null })}
                           style={{ fontSize: 12 }}
                         >
-                          <option value="">— Queue: none —</option>
+                          <option value="">{t("— Queue: aucune —")}</option>
                           {queues.map((q) => (
                             <option key={q.id} value={q.id}>Queue: {q.name}</option>
                           ))}
@@ -763,7 +762,7 @@ export function NumbersClient({
                           onChange={(e) => patch(n.id, { agent_handle_id: e.target.value || null })}
                           style={{ fontSize: 12 }}
                         >
-                          <option value="">— Agent: none —</option>
+                          <option value="">{t("— Agent: aucun —")}</option>
                           {agents.map((a) => (
                             <option key={a.id} value={a.id}>Agent: {a.display_name ?? a.id.slice(0, 6)}</option>
                           ))}
@@ -786,15 +785,15 @@ export function NumbersClient({
                     </td>
                     <td>
                       {n.webhook_configured ? (
-                        <span className="tag good">✓ Configured</span>
+                        <span className="tag good">{t("✓ Configuré")}</span>
                       ) : (
                         <div style={{ display: "grid", gap: 4 }}>
-                          <span className="tag" style={{ color: "var(--warn,#b58900)" }}>⚠ To configure</span>
+                          <span className="tag" style={{ color: "var(--warn,#b58900)" }}>{t("⚠ À configurer")}</span>
                           <button
                             style={{ padding: "3px 7px", fontSize: 11 }}
                             onClick={() => reconfigureWebhook(n)}
                           >
-                            Configure
+                            {t("Configurer")}
                           </button>
                         </div>
                       )}
@@ -831,7 +830,7 @@ export function NumbersClient({
                           checked={n.active}
                           onChange={(e) => patch(n.id, { active: e.target.checked })}
                         />
-                        {n.active ? <span className="tag good">active</span> : <span className="tag">inactive</span>}
+                        {n.active ? <span className="tag good">{t("actif")}</span> : <span className="tag">{t("inactif")}</span>}
                       </label>
                     </td>
                     <td>
@@ -901,14 +900,14 @@ export function NumbersClient({
                             fontSize: 12,
                           }}
                         >
-                          Settings
+                          {t("Réglages")}
                         </a>
                         <button
                           className="danger"
                           style={{ padding: "5px 9px" }}
                           onClick={() => release(n)}
                         >
-                          Release
+                          {t("Libérer")}
                         </button>
                       </div>
                     </td>
@@ -918,7 +917,7 @@ export function NumbersClient({
               {filtered.length === 0 && rows.length > 0 && (
                 <tr>
                   <td colSpan={10} style={{ padding: 14, color: "var(--muted)" }}>
-                    No numbers match the filters.
+                    {t("Aucun numéro ne correspond aux filtres.")}
                   </td>
                 </tr>
               )}
