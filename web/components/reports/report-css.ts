@@ -24,7 +24,7 @@ export const REPORT_CSS = `
 .rp-toolbar-title { font-weight: 600; font-size: 14px; }
 .rp-toolbar-sub { font-size: 12px; color: var(--muted-2); margin-top: 2px; }
 .rp-toolbar-print {
-  background: var(--accent, #a855f7);
+  background: var(--accent, #ff6b35);
   color: white;
   border: none;
   border-radius: 6px;

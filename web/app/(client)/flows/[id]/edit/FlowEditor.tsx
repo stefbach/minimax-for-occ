@@ -76,7 +76,7 @@ const STEP_DEFS: StepDef[] = [
   { kind: "welcome", label: "Welcome", icon: "▶", color: "#60a5fa", description: "Annonce TTS d'accueil" },
   { kind: "menu_dtmf", label: "Menu DTMF", icon: "⌗", color: "#fbbf24", description: "Choix par touche du clavier" },
   { kind: "gather_speech", label: "Gather voice", icon: "♪", color: "#a78bfa", description: "Reconnaissance vocale" },
-  { kind: "ai_agent", label: "Agent IA", icon: "◇", color: "#a855f7", description: "Conversation avec un agent IA" },
+  { kind: "ai_agent", label: "Agent IA", icon: "◇", color: "#ff6b35", description: "Conversation avec un agent IA" },
   { kind: "transfer", label: "Transfer", icon: "↳", color: "#4ade80", description: "Transfert vers un numéro" },
   { kind: "route_queue", label: "Queue", icon: "≡", color: "#22d3ee", description: "Mise en file d'attente" },
   { kind: "voicemail", label: "Voicemail", icon: "✉", color: "#f472b6", description: "Boîte vocale" },
