@@ -189,7 +189,7 @@ export async function GET(request: Request) {
       !ACTIVE.has(r.state ?? "")
       && !isPhantomCall(r)
       && callInLeadsScope(r.to_e164 ?? null, scope)
-      && callInLeadsScope(r.to_e164 ?? null, campaignScope)
+      && (callInLeadsScope(r.to_e164 ?? null, campaignScope) || (r.metadata as any)?.campaign_id === campaignId)
       && callMatchesSystem((r.metadata as { source?: string } | null)?.source, system)
       // Skip the Twilio-side inbound legs of /desk softphone outbound calls
       // — Wati's June 10 manual tests created phantom 'AUTRE' rows like
