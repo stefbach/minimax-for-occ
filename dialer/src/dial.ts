@@ -460,6 +460,29 @@ export async function dialTarget(job: DialJob): Promise<void> {
       const isWa = precallChannel === "whatsapp";
       const sendTo = isWa ? `whatsapp:${toE164}` : toE164;
       const sendFrom = isWa ? `whatsapp:${smsFrom}` : smsFrom;
+      const leadName = (contact?.display_name ?? "").trim() || null;
+      // Best-effort row in precall_sms_log for the dashboard SMS tab. Never let
+      // a logging failure affect the dial flow.
+      const logPrecall = async (twilioSid: string | null, status: string, error: string | null) => {
+        try {
+          await sb.from("precall_sms_log").insert({
+            org_id: campaign.org_id,
+            campaign_id: campaign.id,
+            target_id: target.id,
+            contact_id: target.contact_id,
+            to_e164: toE164,
+            lead_name: leadName,
+            channel: precallChannel,
+            content_sid: precall.content_sid,
+            twilio_sid: twilioSid,
+            status,
+            error,
+            attempt: upcoming,
+          });
+        } catch (logErr) {
+          dlog("warn", ctx, `precall-${precallChannel} log insert failed: ${logErr instanceof Error ? logErr.message : String(logErr)}`);
+        }
+      };
       try {
         const sms = await sendContentSms({
           to: sendTo,
@@ -472,11 +495,13 @@ export async function dialTarget(job: DialJob): Promise<void> {
           { ...ctx, call_id: sms.sid },
           `precall-${precallChannel} sent to=${toE164} from=${smsFrom} attempt=${upcoming} — dial in ~${leadMin}min`,
         );
+        await logPrecall(sms.sid ?? null, "sent", null);
       } catch (e) {
         // Send failed: roll the marker back so the next pick RE-SENDS (we must
         // not dial un-messaged), and retry sooner than a full lead window.
         const msg = e instanceof Error ? e.message : String(e);
         dlog("warn", ctx, `precall-${precallChannel} send failed (will retry): ${msg}`);
+        await logPrecall(null, "failed", msg);
         await sb
           .from("campaign_targets")
           .update({
