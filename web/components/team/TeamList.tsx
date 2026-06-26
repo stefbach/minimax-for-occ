@@ -295,8 +295,7 @@ function MemberCard({
         <button
           className="ghost"
           onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }}
-          disabled={busy || m.is_self}
-          title={m.is_self ? t("Vous ne pouvez pas modifier votre propre rôle.") : ""}
+          disabled={busy}
           style={{ padding: "4px 12px", flexShrink: 0 }}
         >
           ⋯
@@ -342,7 +341,7 @@ function MemberCard({
         </div>
       )}
 
-      {menuOpen && !m.is_self && (
+      {menuOpen && (
         <div
           style={{
             position: "absolute",
@@ -357,42 +356,48 @@ function MemberCard({
             boxShadow: "0 4px 12px rgba(0,0,0,0.25)",
           }}
         >
-          <button
-            className="ghost"
-            onClick={() => { setEditingRole(true); setMenuOpen(false); setNewRole(m.role); }}
-            style={{ display: "block", width: "100%", textAlign: "left", padding: "6px 10px", border: "none", background: "transparent" }}
-          >
-            {t("Changer le rôle")}
-          </button>
-          <button
-            className="ghost"
-            onClick={() => { setPermissionsOpen(true); setMenuOpen(false); }}
-            style={{ display: "block", width: "100%", textAlign: "left", padding: "6px 10px", border: "none", background: "transparent" }}
-          >
-            {t("Permissions")}
-          </button>
+          {!m.is_self && (
+            <button
+              className="ghost"
+              onClick={() => { setEditingRole(true); setMenuOpen(false); setNewRole(m.role); }}
+              style={{ display: "block", width: "100%", textAlign: "left", padding: "6px 10px", border: "none", background: "transparent" }}
+            >
+              {t("Changer le rôle")}
+            </button>
+          )}
+          {!m.is_self && (
+            <button
+              className="ghost"
+              onClick={() => { setPermissionsOpen(true); setMenuOpen(false); }}
+              style={{ display: "block", width: "100%", textAlign: "left", padding: "6px 10px", border: "none", background: "transparent" }}
+            >
+              {t("Permissions")}
+            </button>
+          )}
           <button
             className="ghost"
             onClick={() => { setNumbersOpen(true); setMenuOpen(false); }}
             style={{ display: "block", width: "100%", textAlign: "left", padding: "6px 10px", border: "none", background: "transparent" }}
           >
-            {t("Numéros entrants")}
+            {t("Numéros de l'agent")}
           </button>
-          <button
-            className="ghost"
-            onClick={toggleActive}
-            style={{
-              display: "block",
-              width: "100%",
-              textAlign: "left",
-              padding: "6px 10px",
-              border: "none",
-              background: "transparent",
-              color: m.status === "active" ? "var(--bad)" : "var(--good)",
-            }}
-          >
-            {m.status === "active" ? t("Désactiver") : t("Réactiver")}
-          </button>
+          {!m.is_self && (
+            <button
+              className="ghost"
+              onClick={toggleActive}
+              style={{
+                display: "block",
+                width: "100%",
+                textAlign: "left",
+                padding: "6px 10px",
+                border: "none",
+                background: "transparent",
+                color: m.status === "active" ? "var(--bad)" : "var(--good)",
+              }}
+            >
+              {m.status === "active" ? t("Désactiver") : t("Réactiver")}
+            </button>
+          )}
         </div>
       )}
       {permissionsOpen && (
@@ -574,13 +579,12 @@ function MemberRow({
             setMenuPos({ top: r.bottom + 4, right: Math.max(8, window.innerWidth - r.right) });
             setMenuOpen(true);
           }}
-          disabled={busy || m.is_self}
-          title={m.is_self ? t("Vous ne pouvez pas modifier votre propre rôle.") : ""}
+          disabled={busy}
           style={{ padding: "4px 10px" }}
         >
           ⋯
         </button>
-        {menuOpen && !m.is_self && menuPos && (
+        {menuOpen && menuPos && (
           <div
             style={{
               position: "fixed",
@@ -596,46 +600,52 @@ function MemberRow({
               textAlign: "left",
             }}
           >
-            <button
-              className="ghost"
-              onClick={() => {
-                setEditingRole(true);
-                setMenuOpen(false);
-                setNewRole(m.role);
-              }}
-              style={{ display: "block", width: "100%", textAlign: "left", padding: "6px 10px", border: "none", background: "transparent" }}
-            >
-              {t("Changer le rôle")}
-            </button>
-            <button
-              className="ghost"
-              onClick={() => { setPermissionsOpen(true); setMenuOpen(false); }}
-              style={{ display: "block", width: "100%", textAlign: "left", padding: "6px 10px", border: "none", background: "transparent" }}
-            >
-              {t("Permissions")}
-            </button>
+            {!m.is_self && (
+              <button
+                className="ghost"
+                onClick={() => {
+                  setEditingRole(true);
+                  setMenuOpen(false);
+                  setNewRole(m.role);
+                }}
+                style={{ display: "block", width: "100%", textAlign: "left", padding: "6px 10px", border: "none", background: "transparent" }}
+              >
+                {t("Changer le rôle")}
+              </button>
+            )}
+            {!m.is_self && (
+              <button
+                className="ghost"
+                onClick={() => { setPermissionsOpen(true); setMenuOpen(false); }}
+                style={{ display: "block", width: "100%", textAlign: "left", padding: "6px 10px", border: "none", background: "transparent" }}
+              >
+                {t("Permissions")}
+              </button>
+            )}
             <button
               className="ghost"
               onClick={() => { setNumbersOpen(true); setMenuOpen(false); }}
               style={{ display: "block", width: "100%", textAlign: "left", padding: "6px 10px", border: "none", background: "transparent" }}
             >
-              {t("Numéros entrants")}
+              {t("Numéros de l'agent")}
             </button>
-            <button
-              className="ghost"
-              onClick={toggleActive}
-              style={{
-                display: "block",
-                width: "100%",
-                textAlign: "left",
-                padding: "6px 10px",
-                border: "none",
-                background: "transparent",
-                color: m.status === "active" ? "var(--bad)" : "var(--good)",
-              }}
-            >
-              {m.status === "active" ? t("Désactiver") : t("Réactiver")}
-            </button>
+            {!m.is_self && (
+              <button
+                className="ghost"
+                onClick={toggleActive}
+                style={{
+                  display: "block",
+                  width: "100%",
+                  textAlign: "left",
+                  padding: "6px 10px",
+                  border: "none",
+                  background: "transparent",
+                  color: m.status === "active" ? "var(--bad)" : "var(--good)",
+                }}
+              >
+                {m.status === "active" ? t("Désactiver") : t("Réactiver")}
+              </button>
+            )}
           </div>
         )}
         {permissionsOpen && (
