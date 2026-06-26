@@ -3645,25 +3645,68 @@ async def entrypoint(ctx: JobContext) -> None:
     _is_inbound = _dir_hdr in ("in", "inbound") or (
         bool(_sip_from or _sip_to) and _dir_hdr != "out" and not _has_campaign
     )
-    if call_id and _is_inbound:
+    if _is_inbound:
+        # ── Direct-SIP path: no webhook called, no calls row yet ──────────────
+        # When the Twilio SIP trunk Origination URI points straight at LiveKit
+        # (the user's telephony-platform setup), voice-inbound is never called.
+        # We create the calls row here so the rest of the pipeline has a row to
+        # write to, and so Mon poste can ring via human_first.
+        if not call_id:
+            try:
+                from human_first import (
+                    _create_inbound_call_row,
+                    _lookup_inbound_agent_id,
+                    _norm_e164,
+                )
+                _sip_from_e164 = _norm_e164(_sip_from)
+                _sip_to_e164 = _norm_e164(_sip_to)
+                new_call_id = await asyncio.to_thread(
+                    _create_inbound_call_row,
+                    _sip_from_e164,
+                    _sip_to_e164,
+                    ctx.room.name,
+                )
+                if new_call_id:
+                    call_id = new_call_id
+                    clog = _logger_for_call(call_id)
+                    clog.info(
+                        "[inbound] created call row for direct-SIP path to=%s",
+                        _sip_to_e164,
+                    )
+                # Resolve Charlotte (or whichever persona) from the phone number
+                # when no X-LK-Agent-Id was forwarded (direct-SIP path).
+                if not agent_id and _sip_to_e164:
+                    resolved = await asyncio.to_thread(
+                        _lookup_inbound_agent_id, _sip_to_e164
+                    )
+                    if resolved:
+                        agent_id = resolved
+                        clog.info(
+                            "[inbound] resolved agent_id=%s from phone number %s",
+                            agent_id, _sip_to_e164,
+                        )
+            except Exception:
+                clog.exception("[inbound] direct-SIP row creation / agent resolution failed")
+
         # ALWAYS (ungated): backfill from/to on the call row so the dashboard
         # Entrants tab + per-number routing have the dialed/caller numbers.
         # Only fills NULLs, so outbound rows are never touched.
-        try:
-            from human_first import capture_inbound_numbers
-            await capture_inbound_numbers(call_id, _sip_from, _sip_to, clog)
-        except Exception:
-            clog.exception("[inbound] number capture failed")
-        # Human-first ring — STRICTLY opt-in via HUMAN_FIRST_INBOUND. If an
-        # ONLINE human is assigned to the dialed number we ring them first; the
-        # AI yields (returns) when a human picks up.
-        if os.getenv("HUMAN_FIRST_INBOUND") == "1":
+        if call_id:
             try:
-                from human_first import try_human_first
-                if await try_human_first(ctx, call_id, clog):
-                    return  # a human took the call — the AI does not greet
+                from human_first import capture_inbound_numbers
+                await capture_inbound_numbers(call_id, _sip_from, _sip_to, clog)
             except Exception:
-                clog.exception("[human-first] routine error — AI continues normally")
+                clog.exception("[inbound] number capture failed")
+            # Human-first ring — STRICTLY opt-in via HUMAN_FIRST_INBOUND. If an
+            # ONLINE human is assigned to the dialed number we ring them first; the
+            # AI yields (returns) when a human picks up.
+            if os.getenv("HUMAN_FIRST_INBOUND") == "1":
+                try:
+                    from human_first import try_human_first
+                    if await try_human_first(ctx, call_id, clog):
+                        return  # a human took the call — the AI does not greet
+                except Exception:
+                    clog.exception("[human-first] routine error — AI continues normally")
 
     # Resolve campaign_id now (same sip.h.* gotcha as agent_id: the real value
     # is in the forwarded SIP header attribute; `axon.campaign_id` is the broken
