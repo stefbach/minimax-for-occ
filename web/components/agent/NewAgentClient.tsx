@@ -67,7 +67,7 @@ function Card({ emoji, title, desc, onClick }: { emoji: string; title: string; d
       }}
     >
       <div style={{ fontSize: 28 }}>{emoji}</div>
-      <div style={{ fontWeight: 700, fontSize: 16 }}>{title}</div>
+      <div style={{ fontWeight: 700, fontSize: 16, color: "var(--text)" }}>{title}</div>
       <div className="muted" style={{ fontSize: 13, lineHeight: 1.5 }}>{desc}</div>
     </button>
   );
