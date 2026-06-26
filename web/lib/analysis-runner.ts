@@ -492,7 +492,11 @@ export async function qualifyCall(
   // We do two jobs in one LLM pass: (a) qualify the call IF it has no real
   // qualification yet, and (b) detect the agent-chain stage (1/2/3) IF it's a
   // long-enough call missing one. Either job alone is enough to run the pass.
-  const needQual = current === "autre" && !isExplicitQual;
+  // Also correct auto_inferred "passer_humain" when we have ground-truth evidence
+  // (handoff event) that the lead reached a specialist — those should be SUIVI REQUIS.
+  const needQualCorrection =
+    current === "passer_humain" && qSrc === "auto_inferred";
+  const needQual = (current === "autre" || needQualCorrection) && !isExplicitQual;
   const needStage = meta.agent_stage == null && (call.duration_secs ?? 0) >= AGENT_STAGE_MIN_SECS;
   if (!needQual && !needStage) {
     return { call_id: callId, status: "skipped_existing", bucket: current };
@@ -610,8 +614,11 @@ export async function qualifyCall(
   }
 
   const mergedMeta: Record<string, unknown> = { ...meta };
-  // (a) Qualification — only when the call had none; never override agent/human/Retell.
-  if (needQual) {
+  // (a) Qualification — when the call had none, OR when correcting auto_inferred
+  // passer_humain calls that provably reached a specialist (ground-truth handoff event).
+  const shouldWriteQual =
+    needQual && (current !== "passer_humain" || handedOffToSpecialist);
+  if (shouldWriteQual) {
     mergedMeta.qualification = finalBucket;
     mergedMeta.qualification_source = "ai_auto";
     mergedMeta.qualification_ai = {
@@ -637,7 +644,7 @@ export async function qualifyCall(
   // backlog-drain's progress check stays meaningful.
   return {
     call_id: callId,
-    status: needQual ? "qualified" : "skipped_existing",
+    status: shouldWriteQual ? "qualified" : "skipped_existing",
     bucket: needQual ? finalBucket : current,
     confidence: needQual ? (coerced ? 0 : confidence ?? undefined) : undefined,
     reason: needQual && typeof reason === "string" ? reason : undefined,
