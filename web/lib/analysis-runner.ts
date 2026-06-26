@@ -487,8 +487,16 @@ export async function qualifyCall(
   // this guard a manual reclassification (e.g. SUIVI REQUIS) got re-stamped by
   // the AI on every re-run (D Davies reverted 3×).
   const qSrc = typeof meta.qualification_source === "string" ? meta.qualification_source : "";
+  // reached_specialist is authoritative — never overwrite it (set by Python agent or DB fix).
+  // Also treat any call already confirmed at agent_stage >= 2 as explicitly SUIVI REQUIS
+  // so a late LLM re-run cannot downgrade it to "rappel" or anything else.
+  const alreadyAtSpecialist =
+    qSrc === "reached_specialist" ||
+    (typeof meta.agent_stage === "number" && meta.agent_stage >= 2 &&
+     current !== "autre" && current !== "rdv_confirme");
   const isExplicitQual =
-    !!meta.qualification && !!qSrc && qSrc !== "ai_auto" && !qSrc.startsWith("auto_inferred");
+    alreadyAtSpecialist ||
+    (!!meta.qualification && !!qSrc && qSrc !== "ai_auto" && !qSrc.startsWith("auto_inferred"));
   // We do two jobs in one LLM pass: (a) qualify the call IF it has no real
   // qualification yet, and (b) detect the agent-chain stage (1/2/3) IF it's a
   // long-enough call missing one. Either job alone is enough to run the pass.
