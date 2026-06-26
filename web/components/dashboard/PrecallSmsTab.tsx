@@ -27,12 +27,13 @@ interface SmsRow {
   answered: "answered" | "no_answer" | "voicemail" | "pending";
 }
 
-type StatusFilter = "all" | "answered" | "no_answer" | "pending" | "failed";
+type StatusFilter = "all" | "answered" | "no_answer" | "voicemail" | "pending" | "failed";
 
 const STATUS_FILTERS: { id: StatusFilter; label: string }[] = [
   { id: "all", label: "Tous" },
-  { id: "answered", label: "Décrochés" },
+  { id: "answered", label: "Décrochés (humain)" },
   { id: "no_answer", label: "Sans réponse" },
+  { id: "voicemail", label: "Répondeur" },
   { id: "pending", label: "Appel pas encore passé" },
   { id: "failed", label: "Échec d'envoi" },
 ];
@@ -85,13 +86,14 @@ export function PrecallSmsTab({ from, to }: { from: string; to: string; global?:
   useEffect(() => { fetchData(); }, [fetchData]);
 
   const kpis = useMemo(() => {
-    let sent = 0, failed = 0, called = 0, answered = 0;
+    let sent = 0, failed = 0, called = 0, answered = 0, voicemail = 0;
     for (const r of rows) {
       if (r.status === "failed") failed += 1; else sent += 1;
       if (r.call_id) called += 1;
-      if (r.answered === "answered") answered += 1;
+      if (r.answered === "answered") answered += 1;          // real human only
+      if (r.answered === "voicemail") voicemail += 1;
     }
-    return { sent, failed, called, answered, total: rows.length };
+    return { sent, failed, called, answered, voicemail, total: rows.length };
   }, [rows]);
 
   const filtered = useMemo(() => {
@@ -99,7 +101,8 @@ export function PrecallSmsTab({ from, to }: { from: string; to: string; global?:
     return rows.filter((r) => {
       if (statusFilter === "failed" && r.status !== "failed") return false;
       if (statusFilter === "answered" && r.answered !== "answered") return false;
-      if (statusFilter === "no_answer" && !(r.answered === "no_answer" || r.answered === "voicemail")) return false;
+      if (statusFilter === "no_answer" && r.answered !== "no_answer") return false;
+      if (statusFilter === "voicemail" && r.answered !== "voicemail") return false;
       if (statusFilter === "pending" && r.answered !== "pending") return false;
       if (!q) return true;
       const hay = `${r.lead_name ?? ""} ${r.to_e164 ?? ""}`.toLowerCase();
@@ -138,10 +141,11 @@ export function PrecallSmsTab({ from, to }: { from: string; to: string; global?:
           </div>
         </div>
         <div className="card" style={{ padding: 14 }}>
-          <div className="muted" style={{ fontSize: 11, textTransform: "uppercase" }}>{t("Ont décroché")}</div>
+          <div className="muted" style={{ fontSize: 11, textTransform: "uppercase" }}>{t("Ont décroché (humain)")}</div>
           <div style={{ fontSize: 26, fontWeight: 700, marginTop: 4, color: "var(--good)" }}>✅ {kpis.answered}</div>
           <div className="muted" style={{ fontSize: 11 }}>
             {kpis.called ? Math.round((kpis.answered / kpis.called) * 100) : 0}% {t("des appels")}
+            {kpis.voicemail > 0 ? ` · 📵 ${kpis.voicemail} ${t("répondeur")}` : ""}
           </div>
         </div>
         <div className="card" style={{ padding: 14, borderColor: kpis.failed > 0 ? "var(--bad)" : undefined }}>

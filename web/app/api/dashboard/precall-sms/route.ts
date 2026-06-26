@@ -21,7 +21,7 @@ type CallRow = {
   answered_at: string | null;
   duration_secs: number | null;
   disposition: string | null;
-  metadata: { target_id?: string } | null;
+  metadata: { target_id?: string; qualification?: string } | null;
 };
 
 export async function GET(req: Request) {
@@ -93,9 +93,13 @@ export async function GET(req: Request) {
         sentAt && after.started_at
           ? Math.round((new Date(after.started_at).getTime() - new Date(sentAt).getTime()) / 1000)
           : null;
-      if (after.answered_at) answered = "answered";
-      else if (after.disposition && /repond|voicemail|machine|amd/i.test(after.disposition))
-        answered = "voicemail";
+      // "Décroché" = a real HUMAN picked up. A répondeur / voicemail also sets
+      // answered_at (the machine answers), so we must test the qualification
+      // FIRST and exclude it — otherwise voicemails inflate the answered count
+      // (Wati 26/06). REPONDEUR is carried on calls.metadata.qualification.
+      const qual = String(after.metadata?.qualification ?? after.disposition ?? "");
+      if (/repond|voicemail|messagerie|machine|\bamd\b/i.test(qual)) answered = "voicemail";
+      else if (after.answered_at) answered = "answered";
       else answered = "no_answer";
     }
     return { ...r, call_id, call_at, delay_secs, duration_secs, answered };
