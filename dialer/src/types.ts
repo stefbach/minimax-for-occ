@@ -37,11 +37,14 @@ export interface DialTargetRow {
 }
 
 /**
- * Pre-call SMS config (campaign.metadata.precall_sms). When `enabled`, the dial
- * loop sends `content_sid` from `from` ~`lead_minutes` before each dial.
+ * Pre-call message config. `precall_message` (channel-aware) is the current
+ * shape; `precall_sms` is a legacy SMS-only fallback. When `enabled`, the dial
+ * loop sends `content_sid` from `from` ~`lead_minutes` before each dial, over
+ * `channel` ("sms" default, or "whatsapp").
  */
 export interface PrecallSmsConfig {
   enabled?: boolean;
+  channel?: "sms" | "whatsapp";
   content_sid?: string;
   from?: string;
   lead_minutes?: number;
@@ -56,7 +59,10 @@ export interface DialCampaignRow {
   amd_enabled: boolean | null;
   max_attempts: number | null;
   retry_delay_min: number | null;
-  metadata: { precall_sms?: PrecallSmsConfig } | null;
+  metadata: {
+    precall_message?: PrecallSmsConfig;
+    precall_sms?: PrecallSmsConfig;
+  } | null;
 }
 
 /**
@@ -107,7 +113,7 @@ export function toDialCampaignRow(row: Record<string, unknown>): DialCampaignRow
       typeof row.retry_delay_min === "number" ? row.retry_delay_min : null,
     metadata:
       row.metadata && typeof row.metadata === "object"
-        ? (row.metadata as { precall_sms?: PrecallSmsConfig })
+        ? (row.metadata as { precall_message?: PrecallSmsConfig; precall_sms?: PrecallSmsConfig })
         : null,
   };
 }

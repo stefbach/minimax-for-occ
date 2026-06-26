@@ -78,6 +78,7 @@ export async function POST(req: Request) {
     data_table_id?: string | null;
     mode?: string | null;
     engine?: Record<string, unknown> | null;
+    precall_message?: Record<string, unknown> | null;
     phone_number_id?: string | null;
     caller_id_e164?: string | null;
     schedule?: Record<string, unknown>;
@@ -153,7 +154,10 @@ export async function POST(req: Request) {
       max_attempts: body.max_attempts ?? 3,
       retry_delay_min: body.retry_delay_min ?? 60,
       amd_enabled: body.amd_enabled ?? true,
-      metadata: mode === "dynamic" && body.engine ? { engine: body.engine } : {},
+      metadata: {
+        ...(mode === "dynamic" && body.engine ? { engine: body.engine } : {}),
+        ...(body.precall_message ? { precall_message: body.precall_message } : {}),
+      },
     })
     .select()
     .single();
