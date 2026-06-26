@@ -4179,6 +4179,25 @@ async def entrypoint(ctx: JobContext) -> None:
         if transfer_human_tool is not None:
             tools.append(transfer_human_tool)
             clog.info("transfer_to_human tool enabled")
+        # schedule_callback: when the patient asks the IA to call THEM back at a
+        # specific date/time (and is fine staying with the assistant), this tool
+        # stamps leads_rdv (RAPPEL + rappel_rdv) so the dialer's exact-time
+        # callback runner re-dials via Charlotte at that moment (08:00–21:00 UK).
+        # Distinct from transfer_to_human (which routes to a human). Fail-soft.
+        try:
+            from tools_schedule_callback import build_schedule_callback_tool
+            schedule_cb_tool = build_schedule_callback_tool(
+                org_id=(axon.org_id if axon else None),
+                call_id=call_id,
+                e164=None,  # endpoint resolves the patient phone from call_id
+                language=(axon.language if axon else None),
+            )
+        except Exception:
+            clog.exception("schedule_callback tool build failed")
+            schedule_cb_tool = None
+        if schedule_cb_tool is not None:
+            tools.append(schedule_cb_tool)
+            clog.info("schedule_callback tool enabled")
     else:
         # legacy path: env-only n8n tools
         if os.getenv("N8N_BASE_URL") and os.getenv("N8N_API_KEY"):
