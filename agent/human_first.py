@@ -271,6 +271,14 @@ async def try_human_first(ctx, call_id: str, clog: logging.Logger) -> bool:
         _online_assigned_handle, info["org_id"], info["phone_number_id"]
     )
     if not handle_id:
+        # Retry once after a short delay — the human may have just set themselves
+        # "available" milliseconds before the call arrived and the DB write
+        # may not have committed yet when we first checked.
+        await asyncio.sleep(3)
+        handle_id = await asyncio.to_thread(
+            _online_assigned_handle, info["org_id"], info["phone_number_id"]
+        )
+    if not handle_id:
         clog.info("[human-first] no online human for %s — AI handles", info["to_e164"])
         return False
 
