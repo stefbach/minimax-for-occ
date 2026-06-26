@@ -16,6 +16,7 @@ import { DirectorTab } from "./DirectorTab";
 import { AiInsightsTab } from "./AiInsightsTab";
 import { NhsSuiviTab } from "./NhsSuiviTab";
 import { ErrorsAlertsTab } from "./ErrorsAlertsTab";
+import { LeadsAnalysisTab } from "./LeadsAnalysisTab";
 import { PeriodBar, presetToRange, DEFAULT_FILTERS, type Period, type Filters } from "./PeriodBar";
 import { SyncRetellButton } from "./SyncRetellButton";
 import { SyncTwilioButton } from "./SyncTwilioButton";
@@ -23,10 +24,11 @@ import { ReportButton } from "./ReportButton";
 import { ApiStatusPill } from "./ApiStatusPill";
 import { useT } from "@/lib/i18n";
 
-type TabId = "overview" | "stats" | "logs" | "live" | "errors" | "ai" | "nhs";
+type TabId = "overview" | "stats" | "logs" | "live" | "errors" | "ai" | "nhs" | "leads";
 const ALL_TABS: { id: TabId; label: string; icon: string }[] = [
   { id: "overview", label: "Vue d'ensemble", icon: "🏠" },
   { id: "stats", label: "Statistiques", icon: "📊" },
+  { id: "leads", label: "Analyse Décroché", icon: "📞" },
   { id: "logs", label: "Call Logs", icon: "📋" },
   { id: "live", label: "Live", icon: "🔴" },
   { id: "errors", label: "Erreurs & Alertes", icon: "⚠️" },
@@ -186,7 +188,7 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
         {tab !== "nhs" && (() => {
           const active = TABS.find((x) => x.id === tab);
           if (!active) return null;
-          const periodScoped = tab === "overview" || tab === "stats" || tab === "logs" || tab === "ai";
+          const periodScoped = tab === "overview" || tab === "stats" || tab === "logs" || tab === "ai" || tab === "leads";
           return (
             <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
               <h2 style={{ margin: 0, fontSize: 19 }}>
@@ -230,6 +232,13 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
           <>
             <PeriodBar period={period} filters={filters} onPeriod={setPeriod} onFilters={setFilters} />
             <StatsTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} system={filters.system} global={filters} />
+          </>
+        )}
+
+        {tab === "leads" && (
+          <>
+            <PeriodBar period={period} filters={filters} onPeriod={setPeriod} onFilters={setFilters} />
+            <LeadsAnalysisTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} system={filters.system} global={filters} />
           </>
         )}
 
