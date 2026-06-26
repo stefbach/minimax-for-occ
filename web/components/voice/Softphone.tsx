@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   LiveKitRoom,
@@ -15,7 +16,7 @@ import { ScriptPanel } from "./ScriptPanel";
 import { useToast } from "@/lib/use-toast";
 import { COUNTRIES, countryFor, countryFromE164 } from "@/lib/country-prefixes";
 import { CallNotePanel } from "./CallNotePanel";
-import { getRingtone } from "@/lib/ringtone";
+import { getRingtone, primeAudio } from "@/lib/ringtone";
 
 type PresenceStatus = "offline" | "available" | "busy" | "away";
 
@@ -87,6 +88,8 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
   const [bootstrapping, setBootstrapping] = useState(true);
   const [handle, setHandle] = useState<Handle | null>(null);
   const [registering, setRegistering] = useState(false);
@@ -521,6 +524,9 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
   // Push presence to the server when status changes (debounced via state).
   useEffect(() => {
     if (!handle) return;
+    // Pre-warm AudioContext the moment the agent goes "available" so the
+    // ringtone can play without a "suspended" context when the call arrives.
+    if (status === "available") primeAudio();
     void fetch("/api/desk/presence", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -1191,20 +1197,18 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
           <h3 style={{ marginTop: 24 }}>Session vocale</h3>
           {!conn ? (
             <>
-              <p className="muted" style={{ margin: 0 }}>
-                Connectez-vous à votre salle LiveKit pour recevoir les appels routés
-                vers ce poste.
-              </p>
-              <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-                <button onClick={() => void connect()} disabled={connecting}>
-                  {connecting ? "Connexion…" : "Se connecter à la salle"}
-                </button>
-              </div>
               {connError && (
-                <div style={{ color: "var(--bad)", fontSize: 13, marginTop: 8 }}>
+                <div style={{ color: "var(--bad)", fontSize: 13, marginTop: 4 }}>
                   {connError}
                 </div>
               )}
+              {/* No manual connect button — room connection happens automatically
+                  when the human clicks "Accepter" on an inbound call. */}
+              <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+                {connecting
+                  ? "Connexion à la salle en cours…"
+                  : "En attente d'un appel entrant. Cliquez « Accepter » pour rejoindre la salle."}
+              </p>
             </>
           ) : (
             <LiveKitRoom
@@ -1275,6 +1279,76 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
           50% { opacity: 0.85; }
         }
       `}</style>
+
+      {/* Global incoming-call banner — portaled to document.body so it shows
+          even when the Softphone is mounted off-screen (on other pages). */}
+      {mounted && pendingInbound && createPortal(
+        <div
+          role="alert"
+          aria-live="assertive"
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            gap: 16,
+            padding: "12px 20px",
+            background: "#14532d",
+            borderBottom: "3px solid #22c55e",
+            boxShadow: "0 4px 24px rgba(0,0,0,0.4)",
+            animation: "inbound-banner-pulse 0.8s ease-in-out infinite",
+          }}
+        >
+          <span style={{ fontSize: 24 }}>📞</span>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, color: "#fff", fontSize: 15 }}>
+              Appel entrant
+            </div>
+            <div style={{ color: "#86efac", fontSize: 13 }}>
+              {pendingInbound.from_e164 ?? "Numéro inconnu"}
+            </div>
+          </div>
+          <button
+            onClick={() => void acceptCall(pendingInbound)}
+            style={{
+              padding: "10px 22px",
+              fontSize: 14,
+              fontWeight: 700,
+              background: "#22c55e",
+              color: "#fff",
+              border: "none",
+              borderRadius: 7,
+              cursor: "pointer",
+            }}
+          >
+            ✓ Accepter
+          </button>
+          <button
+            onClick={() => void dismissCall(pendingInbound.id)}
+            style={{
+              padding: "10px 16px",
+              fontSize: 14,
+              background: "#dc2626",
+              color: "#fff",
+              border: "none",
+              borderRadius: 7,
+              cursor: "pointer",
+            }}
+          >
+            ✕ Refuser
+          </button>
+          <style>{`
+            @keyframes inbound-banner-pulse {
+              0%, 100% { background: #14532d; }
+              50% { background: #166534; }
+            }
+          `}</style>
+        </div>,
+        document.body,
+      )}
     </div>
   );
 }
@@ -1414,15 +1488,25 @@ function CallRowView({
           gap: 4,
           alignItems: "stretch",
           background: "transparent",
+          color: isInboundRinging ? "#fff" : undefined,
         }}
       >
         <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-          <strong style={{ fontSize: 13 }}>{formatPhone(call)}</strong>
-          <span className="tag" style={{ fontSize: 10 }}>
+          <strong style={{ fontSize: 13, color: isInboundRinging ? "#fff" : undefined }}>
+            {formatPhone(call)}
+          </strong>
+          <span
+            className="tag"
+            style={{
+              fontSize: 10,
+              background: isInboundRinging ? "#22c55e" : undefined,
+              color: isInboundRinging ? "#fff" : undefined,
+            }}
+          >
             {call.state}
           </span>
         </div>
-        <div className="muted" style={{ fontSize: 11 }}>
+        <div style={{ fontSize: 11, color: isInboundRinging ? "#86efac" : "var(--muted)" }}>
           {call.direction === "in" ? "← entrant" : "→ sortant"} · il y a {formatRelative(call.started_at)}
         </div>
       </button>

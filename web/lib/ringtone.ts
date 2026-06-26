@@ -104,3 +104,19 @@ export function getRingtone(): RingHandle {
   if (!singleton) singleton = createRingtone();
   return singleton;
 }
+
+/**
+ * Pre-warm the AudioContext on the first user gesture so the ringtone can play
+ * without a "suspended" context when the call arrives. Call this once, early,
+ * from any interactive component (e.g. when the user clicks "available").
+ */
+export function primeAudio(): void {
+  if (typeof window === "undefined") return;
+  const ring = getRingtone();
+  // Calling start/stop immediately primes the AudioContext and resumes it.
+  // The 1ms timeout ensures we're inside a user-gesture callback stack.
+  setTimeout(() => {
+    ring.start();
+    setTimeout(() => ring.stop(), 10);
+  }, 1);
+}
