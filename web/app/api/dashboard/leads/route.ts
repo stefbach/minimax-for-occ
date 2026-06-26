@@ -91,7 +91,7 @@ export async function GET(request: Request) {
   ]);
   const inScope = (r: CallRow) =>
     callInLeadsScope(r.to_e164 ?? null, scope)
-    && callInLeadsScope(r.to_e164 ?? null, campaignScope)
+    && (callInLeadsScope(r.to_e164 ?? null, campaignScope) || (r.metadata as any)?.campaign_id === campaignId)
     && callMatchesSystem((r.metadata as { source?: string } | null)?.source, system);
 
   // Filter out phantom calls and active calls
