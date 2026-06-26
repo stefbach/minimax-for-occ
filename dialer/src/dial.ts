@@ -679,17 +679,25 @@ export async function dialTarget(job: DialJob): Promise<void> {
         }
       }
       if (!anySent) {
-        // Every channel failed — roll the marker back so the next pick RE-SENDS
-        // (we must not dial un-messaged), retry sooner than a full lead window.
+        // The message couldn't be sent — most often the recipient replied STOP
+        // (Twilio 21610 "unsubscribed") or the number is invalid/blocked. The
+        // pre-call message is a BEST-EFFORT heads-up, NOT a prerequisite: a STOP
+        // opt-out blocks SMS, not voice (call opt-outs are the DNC list's job,
+        // enforced just below). So we do NOT loop re-sending it — we keep the
+        // marker as "attempted for this dial" and let the lead be DIALED on the
+        // next pick, promptly. (Previously we rolled the marker back and retried
+        // every 60s, which flooded the log — 81× for one unsubscribed number —
+        // and never placed the call.)
         await sb
           .from("campaign_targets")
           .update({
-            next_attempt_at: new Date(Date.now() + 60_000).toISOString(),
-            payload: { ...payload, precall_sms_attempt: lastSmsAttempt, precall_sms_error: lastErr },
+            next_attempt_at: new Date().toISOString(),
+            payload: { ...payload, precall_sms_attempt: upcoming, precall_sms_error: lastErr },
           })
           .eq("id", target.id);
       }
-      return; // dial happens on the next pick, once the message(s) have landed
+      return; // dial happens on the next pick (with the message, or — if it
+              // couldn't be sent — without it)
     }
   }
 
