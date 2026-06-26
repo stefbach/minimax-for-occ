@@ -310,6 +310,144 @@ async function dialViaLiveKit(args: {
 }
 
 /**
+ * Is a human agent ready to take a campaign call right now?
+ *   (a) online + available — presence row status='available' with a fresh
+ *       heartbeat (the softphone beats every ~25s; >90s ⇒ treat as gone).
+ *   (b) not already on a call — checked in REAL TIME via the desk room: a
+ *       `pstn-*` participant in `desk-<handleId>` means a lead is connected
+ *       (ringing or talking), so the agent is busy. This is robust to a calls
+ *       row that never got marked ended.
+ */
+async function humanAgentReady(
+  sb: SupabaseClient,
+  orgId: string,
+  userId: string,
+  handleId: string,
+): Promise<boolean> {
+  const { data: presence } = await sb
+    .from("human_presence")
+    .select("status,last_seen")
+    .eq("org_id", orgId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  const p = presence as { status?: string; last_seen?: string | null } | null;
+  if (!p || p.status !== "available") return false;
+  if (p.last_seen && Date.now() - new Date(p.last_seen).getTime() > 90_000) return false;
+
+  const lkUrlRaw = process.env.LIVEKIT_URL;
+  const lkKey = process.env.LIVEKIT_API_KEY;
+  const lkSecret = process.env.LIVEKIT_API_SECRET;
+  if (lkUrlRaw && lkKey && lkSecret) {
+    const host = lkUrlRaw.replace(/^wss:/i, "https:").replace(/^ws:/i, "http:");
+    try {
+      const rooms = new RoomServiceClient(host, lkKey, lkSecret);
+      const parts = await rooms.listParticipants(`desk-${handleId}`);
+      if (parts.some((pp) => (pp.identity ?? "").startsWith("pstn-"))) return false;
+    } catch {
+      // Room missing (agent not actually connected) — presence said available,
+      // but with no desk room there's nobody to bridge to. Treat as not ready.
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Dial a lead and bridge the answered leg into a HUMAN agent's desk room.
+ * No AI is dispatched: the human's softphone is already joined to
+ * `desk-<handleId>` and is rung by its realtime calls subscription when the
+ * calls row below appears. Mirrors /api/desk/dial's LiveKit SIP path.
+ */
+async function dialViaHumanDesk(args: {
+  sb: SupabaseClient;
+  ctx: LogCtx;
+  orgId: string;
+  handleId: string;
+  campaignId: string;
+  targetId: string;
+  toE164: string;
+  fromE164: string | null;
+  lk: { trunk: string; host: string; key: string; secret: string };
+}): Promise<void> {
+  const { sb, ctx, orgId, handleId, campaignId, targetId, toE164, fromE164, lk } = args;
+  const roomName = `desk-${handleId}`;
+
+  const { data: call, error: callErr } = await sb
+    .from("calls")
+    .insert({
+      org_id: orgId,
+      direction: "out",
+      state: "ringing",
+      from_e164: fromE164,
+      to_e164: toE164,
+      agent_handle_id: handleId,
+      room_id: roomName,
+      metadata: { campaign_id: campaignId, target_id: targetId, via: "human_desk" },
+    })
+    .select()
+    .single();
+  if (callErr || !call) throw new Error(`calls insert failed: ${callErr?.message ?? "unknown"}`);
+  const callId = call.id as string;
+  try {
+    await sb
+      .from("campaign_targets")
+      .update({ last_call_id: callId, last_attempt_at: new Date().toISOString() })
+      .eq("id", targetId);
+  } catch {
+    /* non-fatal */
+  }
+
+  let participant: { participantId?: string } | undefined;
+  try {
+    const sip = new SipClient(lk.host, lk.key, lk.secret);
+    const sipOptions = {
+      participantIdentity: `pstn-${callId}`,
+      participantName: toE164,
+      participantAttributes: {
+        "axon.call_id": callId,
+        "axon.direction": "out",
+        "axon.agent_handle_id": handleId,
+        "axon.campaign_id": campaignId,
+        "axon.target_id": targetId,
+      },
+      waitUntilAnswered: true,
+      ringingTimeout: Math.max(5, Math.min(60, Number(process.env.HUMAN_DIAL_RING_TIMEOUT_SECS ?? 25))),
+      fromNumber: fromE164 ?? undefined,
+    };
+    participant = await sip.createSipParticipant(
+      lk.trunk,
+      toE164,
+      roomName,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      sipOptions as any,
+    );
+  } catch (err) {
+    await sb
+      .from("calls")
+      .update({ state: "failed", ended_at: new Date().toISOString(), duration_secs: 0 })
+      .eq("id", callId);
+    throw err;
+  }
+
+  await sb
+    .from("calls")
+    .update({
+      state: "answered",
+      answered_at: new Date().toISOString(),
+      metadata: { campaign_id: campaignId, target_id: targetId, via: "human_desk", livekit_participant_sid: participant.participantId ?? null },
+    })
+    .eq("id", callId);
+  await sb
+    .from("campaign_targets")
+    .update({
+      status: "answered",
+      payload: { via: "human_desk", room: roomName, call_id: callId, dialed_at: new Date().toISOString() },
+    })
+    .eq("id", targetId);
+  dlog("info", { ...ctx, call_id: callId }, `human-desk originate ok → room=${roomName}`);
+}
+
+/**
  * Dial a single campaign_target.
  *
  * Flow:
@@ -370,17 +508,24 @@ export async function dialTarget(job: DialJob): Promise<void> {
   // back to env defaults and the user hears a generic voice instead of the
   // cloned voice they picked for the campaign.
   let aiAgentId: string | null = null;
+  let handleKind: string | null = null;
+  let handleUserId: string | null = null;
   const handleId = (campaignRaw as { agent_handle_id?: string | null })
     .agent_handle_id ?? null;
   if (handleId) {
     const { data: handle } = await sb
       .from("agent_handles")
-      .select("kind,ai_agent_id")
+      .select("kind,ai_agent_id,user_id")
       .eq("id", handleId)
       .single();
-    const h = handle as { kind?: string; ai_agent_id?: string | null } | null;
+    const h = handle as { kind?: string; ai_agent_id?: string | null; user_id?: string | null } | null;
+    handleKind = h?.kind ?? null;
     if (h?.kind === "ai" && h.ai_agent_id) {
       aiAgentId = h.ai_agent_id;
+    } else if (h?.kind === "human" && h.user_id) {
+      // Human-agent campaign: the answered call is bridged into this user's
+      // desk room (their softphone), no AI dispatched. See Path C below.
+      handleUserId = h.user_id;
     }
   }
 
@@ -411,6 +556,30 @@ export async function dialTarget(job: DialJob): Promise<void> {
       .update({ status: "failed", last_attempt_at: new Date().toISOString() })
       .eq("id", target.id);
     return;
+  }
+
+  // ─── Human-agent campaign gate ───────────────────────────────────────────
+  // A campaign whose handle is a HUMAN bridges the answered lead into that
+  // agent's desk room (their softphone). Only dial when the agent is online +
+  // available AND not already on a call — otherwise a 2nd lead would land in
+  // the same room. If not ready, defer the lead a couple minutes WITHOUT
+  // burning an attempt or sending the pre-call message.
+  if (handleKind === "human") {
+    if (!handleUserId || !handleId) {
+      dlog("error", ctx, "human handle missing user_id — failing target");
+      await sb.from("campaign_targets")
+        .update({ status: "failed", last_attempt_at: new Date().toISOString() })
+        .eq("id", target.id);
+      return;
+    }
+    const ready = await humanAgentReady(sb, campaign.org_id, handleUserId, handleId);
+    if (!ready) {
+      await sb.from("campaign_targets")
+        .update({ status: "pending", next_attempt_at: new Date(Date.now() + 2 * 60_000).toISOString() })
+        .eq("id", target.id);
+      dlog("info", ctx, "human agent offline/busy — deferring lead 2 min");
+      return;
+    }
   }
 
   // ─── Pre-call message gate (campaign.metadata.precall_message) ───────────
@@ -584,6 +753,35 @@ export async function dialTarget(job: DialJob): Promise<void> {
   const lkUrlRaw = process.env.LIVEKIT_URL;
   const lkKey = process.env.LIVEKIT_API_KEY;
   const lkSecret = process.env.LIVEKIT_API_SECRET;
+
+  // ─── Path C: human-agent campaign → bridge into the agent's desk room ────
+  // No AI is dispatched. The answered PSTN leg lands in `desk-<handleId>`,
+  // where the human's softphone is already joined (and gets rung via its
+  // realtime calls subscription). Mirrors /api/desk/dial's LiveKit SIP path.
+  if (handleKind === "human" && handleUserId && handleId && lkTrunk && lkUrlRaw && lkKey && lkSecret && toE164) {
+    const lkHost = lkUrlRaw.replace(/^wss:/i, "https:").replace(/^ws:/i, "http:");
+    try {
+      await dialViaHumanDesk({
+        sb, ctx, orgId: campaign.org_id, handleId,
+        campaignId: campaign.id, targetId: target.id,
+        toE164, fromE164,
+        lk: { trunk: lkTrunk, host: lkHost, key: lkKey, secret: lkSecret },
+      });
+      return;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      dlog("error", ctx, `human-desk originate failed: ${msg}`);
+      const attemptsNow = (target.attempts ?? 0) + 1;
+      const next = attemptsNow < (campaign.max_attempts ?? 3)
+        ? new Date(Date.now() + (campaign.retry_delay_min ?? 60) * 60_000).toISOString()
+        : null;
+      await sb.from("campaign_targets")
+        .update({ status: next ? "pending" : "failed", next_attempt_at: next, payload: { last_error: msg, via: "human_desk" } })
+        .eq("id", target.id);
+      return;
+    }
+  }
+
   if (preferLiveKitSip && lkTrunk && lkUrlRaw && lkKey && lkSecret && aiAgentId && toE164) {
     const lkHost = lkUrlRaw.replace(/^wss:/i, "https:").replace(/^ws:/i, "http:");
     try {

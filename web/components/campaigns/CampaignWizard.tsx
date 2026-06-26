@@ -11,6 +11,9 @@ import type { NormalizedSchedule } from "@/lib/campaigns/schedule-proposal";
 export interface AgentHandleOption {
   id: string;
   display_name: string;
+  /** 'ai' = the AI agent speaks; 'human' = a desk campaign that connects each
+   *  answered lead to this human agent's softphone (they must be online). */
+  kind?: "ai" | "human";
   llm_model: string | null;
   tts_voice_id: string | null;
   /** Wave 1 preflight: true when the referenced `agents.system_prompt` (or
@@ -416,6 +419,9 @@ export function CampaignWizard({
   }, [dataTableId, dynamicMode, statusColumn]);
 
   const selectedAgent = agents.find((a) => a.id === agentHandleId) ?? null;
+  // Human-agent campaign: one human, one call at a time → force concurrency 1
+  // (otherwise the dialer would race several leads into the agent's desk room).
+  const isHumanCampaign = !teamId && selectedAgent?.kind === "human";
   const selectedNumber = numbers.find((n) => n.id === phoneNumberId) ?? null;
 
   const csvTargets = useMemo(() => parseCsv(csvText), [csvText]);
@@ -570,7 +576,7 @@ export function CampaignWizard({
             };
           })(),
           schedule,
-          max_concurrency: maxConcurrency,
+          max_concurrency: isHumanCampaign ? 1 : maxConcurrency,
           max_attempts: maxAttempts,
           retry_delay_min: retryDelayMin,
           amd_enabled: amdEnabled,
@@ -703,7 +709,7 @@ export function CampaignWizard({
           ranges: hourRanges,
         },
       },
-      max_concurrency: maxConcurrency,
+      max_concurrency: isHumanCampaign ? 1 : maxConcurrency,
       max_attempts: maxAttempts,
       retry_delay_min: retryDelayMin,
       amd_enabled: amdEnabled,
@@ -928,16 +934,28 @@ export function CampaignWizard({
                 <label>Agent</label>
                 <select value={agentHandleId} onChange={(e) => setAgentHandleId(e.target.value)}>
                   {agents.map((a) => (
-                    <option key={a.id} value={a.id}>{a.display_name}</option>
+                    <option key={a.id} value={a.id}>
+                      {a.kind === "human" ? "👤 " : "🤖 "}{a.display_name}{a.kind === "human" ? " (humain)" : ""}
+                    </option>
                   ))}
                 </select>
-                {selectedAgent && (
+                {selectedAgent && (selectedAgent.kind === "human" ? (
+                  <div className="muted" style={{ fontSize: 12, marginTop: 8, lineHeight: 1.5 }}>
+                    👤 <strong>Campagne agent humain.</strong> Le système appelle les leads
+                    (et envoie le SMS/WhatsApp si activé ci-dessous), puis connecte chaque appel
+                    <strong> décroché</strong> au softphone de <strong>{selectedAgent.display_name}</strong>.
+                    {" "}L&apos;agent doit être connecté à{" "}
+                    <a href="/desk" target="_blank" rel="noreferrer" style={{ color: "var(--accent-2)" }}>Mon poste</a>{" "}
+                    avec le statut <strong>Disponible</strong>. Les leads sont appelés
+                    <strong> un par un</strong> (le suivant une fois l&apos;appel précédent raccroché).
+                  </div>
+                ) : (
                   <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
                     Modèle : <span className="kbd">{selectedAgent.llm_model ?? "—"}</span>
                     {" · "}
                     Voix : <span className="kbd">{selectedAgent.tts_voice_id ?? "—"}</span>
                   </div>
-                )}
+                ))}
               </div>
             )}
 
