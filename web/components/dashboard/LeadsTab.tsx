@@ -190,59 +190,63 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
       {/* ── Top 3 KPI cards ────────────────────────────────────────────────── */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
 
-        {/* Card 1 — Total calls / unique leads */}
-        <div className="card" style={{ padding: "16px 18px", display: "flex", alignItems: "stretch", gap: 0 }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 4 }}>
-              Total appels
-            </div>
-            <div style={{ fontSize: 32, fontWeight: 700, color: "var(--accent-2)", lineHeight: 1, letterSpacing: -0.5 }}>
-              {stats.total_calls}
-            </div>
-          </div>
-          <div style={{ width: 1, background: "var(--border)", margin: "0 14px", flexShrink: 0 }} />
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 4 }}>
-              Leads uniques
-            </div>
-            <div style={{ fontSize: 32, fontWeight: 700, color: "var(--fg)", lineHeight: 1, letterSpacing: -0.5 }}>
-              {stats.total_unique_contacts}
-            </div>
-            {stats.total_calls > 0 && (
-              <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
-                {Math.round(stats.total_unique_contacts / stats.total_calls * 100)}% des appels
+        {/* Card 1 — Total calls / unique leads (clickable → all leads) */}
+        <Clickable onClick={() => openDrill({}, { title: "Tous les leads", icon: "📋", tone: "var(--accent-2)" })}>
+          <div className="card" style={{ padding: "16px 18px", display: "flex", alignItems: "stretch", gap: 0, cursor: "pointer" }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 4 }}>
+                Total appels
               </div>
-            )}
+              <div style={{ fontSize: 32, fontWeight: 700, color: "var(--accent-2)", lineHeight: 1, letterSpacing: -0.5 }}>
+                {stats.total_calls}
+              </div>
+            </div>
+            <div style={{ width: 1, background: "var(--border)", margin: "0 14px", flexShrink: 0 }} />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 4 }}>
+                Leads uniques
+              </div>
+              <div style={{ fontSize: 32, fontWeight: 700, color: "var(--fg)", lineHeight: 1, letterSpacing: -0.5 }}>
+                {stats.total_unique_contacts}
+              </div>
+              {stats.total_calls > 0 && (
+                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
+                  {Math.round(stats.total_unique_contacts / stats.total_calls * 100)}% des appels
+                </div>
+              )}
+            </div>
           </div>
-        </div>
+        </Clickable>
 
-        {/* Card 2 — Unique answered / contact rate */}
-        <div className="card" style={{ padding: "16px 18px", display: "flex", alignItems: "stretch", gap: 0 }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 4 }}>
-              Appels décrochés
-            </div>
-            <div style={{ fontSize: 32, fontWeight: 700, color: "#22c55e", lineHeight: 1, letterSpacing: -0.5 }}>
-              {analysis?.uniqueIndividuals ?? "—"}
-            </div>
-          </div>
-          <div style={{ width: 1, background: "var(--border)", margin: "0 14px", flexShrink: 0 }} />
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 4 }}>
-              Taux de contact
-            </div>
-            <div style={{ fontSize: 32, fontWeight: 700, color: "#22c55e", lineHeight: 1, letterSpacing: -0.5 }}>
-              {analysis && stats.total_unique_contacts > 0
-                ? `${Math.round(analysis.uniqueIndividuals / stats.total_unique_contacts * 100)}%`
-                : "—"}
-            </div>
-            {analysis && (
-              <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
-                des {stats.total_unique_contacts} leads
+        {/* Card 2 — Unique answered / contact rate (clickable → answered leads) */}
+        <Clickable onClick={() => openDrill({ answered: "yes" }, { title: "Appels décrochés — leads uniques", icon: "✅", tone: "#22c55e" })}>
+          <div className="card" style={{ padding: "16px 18px", display: "flex", alignItems: "stretch", gap: 0, cursor: "pointer" }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 4 }}>
+                Appels décrochés
               </div>
-            )}
+              <div style={{ fontSize: 32, fontWeight: 700, color: "#22c55e", lineHeight: 1, letterSpacing: -0.5 }}>
+                {analysis?.uniqueIndividuals ?? "—"}
+              </div>
+            </div>
+            <div style={{ width: 1, background: "var(--border)", margin: "0 14px", flexShrink: 0 }} />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 4 }}>
+                Taux de contact
+              </div>
+              <div style={{ fontSize: 32, fontWeight: 700, color: "#22c55e", lineHeight: 1, letterSpacing: -0.5 }}>
+                {analysis && stats.total_unique_contacts > 0
+                  ? `${Math.round(analysis.uniqueIndividuals / stats.total_unique_contacts * 100)}%`
+                  : "—"}
+              </div>
+              {analysis && (
+                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
+                  des {stats.total_unique_contacts} leads
+                </div>
+              )}
+            </div>
           </div>
-        </div>
+        </Clickable>
 
         {/* Card 3 — Avg calls until first answer */}
         <div className="card" style={{ padding: "16px 18px" }}>
