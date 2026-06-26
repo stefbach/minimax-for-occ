@@ -172,6 +172,11 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
             dont{" "}
             <span style={{ fontWeight: 600, color: "var(--fg)" }}>{stats.total_unique_contacts}</span>
             {" "}leads uniques
+            {stats.total_calls > 0 && (
+              <span style={{ color: "var(--muted)", fontWeight: 400 }}>
+                {" "}({Math.round(stats.total_unique_contacts / stats.total_calls * 100)}% des appels)
+              </span>
+            )}
           </div>
         </div>
 
@@ -183,11 +188,14 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
           <div style={{ fontSize: 32, fontWeight: 700, color: "#22c55e", lineHeight: 1, letterSpacing: -0.5 }}>
             {analysis?.uniqueIndividuals ?? "—"}
           </div>
-          <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>
-            contacts distincts —{" "}
-            <span style={{ fontWeight: 600, color: "var(--fg)" }}>{analysis?.totalAnswered ?? "—"}</span>
-            {" "}appels au total
-          </div>
+          {analysis && stats.total_unique_contacts > 0 && (
+            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>
+              <span style={{ fontWeight: 600, color: "#22c55e" }}>
+                {Math.round(analysis.uniqueIndividuals / stats.total_unique_contacts * 100)}%
+              </span>
+              {" "}des {stats.total_unique_contacts} leads uniques
+            </div>
+          )}
         </div>
 
         {/* Card 3 — Avg calls until first answer */}
@@ -211,6 +219,7 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
             <tr style={{ borderBottom: "1px solid var(--border)" }}>
               <th style={{ textAlign: "left", padding: "8px 0", fontWeight: 600 }}>{t("Tentatives")}</th>
               <th style={{ textAlign: "right", padding: "8px 0", fontWeight: 600 }}>{t("Leads")}</th>
+              <th style={{ textAlign: "right", padding: "8px 0", fontWeight: 600, color: "var(--muted)", fontStyle: "italic" }}>% leads</th>
               <th style={{ textAlign: "right", padding: "8px 0", fontWeight: 600 }}>{t("Appels")}</th>
             </tr>
           </thead>
@@ -219,6 +228,9 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
               <tr key={row.attempt} style={{ borderBottom: "1px solid var(--border)" }}>
                 <td style={{ padding: "8px 0" }}>{row.attempt === 10 ? "10+" : row.attempt}</td>
                 <td style={{ textAlign: "right", padding: "8px 0" }}>{row.contacts}</td>
+                <td style={{ textAlign: "right", padding: "8px 0", color: "var(--muted)", fontSize: 12 }}>
+                  {stats.total_unique_contacts > 0 ? Math.round(row.contacts / stats.total_unique_contacts * 100) : 0}%
+                </td>
                 <td style={{ textAlign: "right", padding: "8px 0" }}>{row.calls}</td>
               </tr>
             ))}
@@ -252,7 +264,7 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
                   </span>
                 </div>
                 <PctBar pct={analysis.passerHumain.pct} color={CAT_COLORS.passer_humain} />
-                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>Rain / Summer</div>
+                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>sur {analysis.totalAnswered} appels décrochés</div>
               </div>
             </Clickable>
 
@@ -273,7 +285,7 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
                   </span>
                 </div>
                 <PctBar pct={analysis.pasInteresse.pct} color={CAT_COLORS.pas_interesse} />
-                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>des décrochés</div>
+                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>sur {analysis.totalAnswered} appels décrochés</div>
               </div>
             </Clickable>
 
@@ -294,7 +306,7 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
                   </span>
                 </div>
                 <PctBar pct={analysis.rappel.pct} color={CAT_COLORS.rappel} />
-                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>des décrochés</div>
+                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>sur {analysis.totalAnswered} appels décrochés</div>
               </div>
             </Clickable>
 
@@ -315,7 +327,7 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
                   </span>
                 </div>
                 <PctBar pct={analysis.rdvConfirme.pct} color={CAT_COLORS.rdv_confirme} />
-                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>des décrochés</div>
+                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>sur {analysis.totalAnswered} appels décrochés</div>
               </div>
             </Clickable>
 
