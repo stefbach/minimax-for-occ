@@ -1638,6 +1638,16 @@ const EN: Record<string, string> = {
   "Aucun numéro ne correspond aux filtres.": "No numbers match the filters.",
   "● Faible": "● Low",
   "○ Jamais utilisé": "○ Never used",
+  // ── DirectorTab ──
+  "Appels entrants": "Inbound calls",
+  "Voir tous les entrants": "View all inbound calls",
+  "Qualification IA automatique": "Automatic AI qualification",
+  "Analyse IA automatique": "Automatic AI analysis",
+  "restant(s)": "remaining",
+  "Voir les appels": "View calls",
+  "Agent 1 uniquement": "Agent 1 only",
+  "Agent 1 → Agent 2": "Agent 1 → Agent 2",
+  "Agent 1 → 2 → 3": "Agent 1 → 2 → 3",
 };
 
 function readLang(): Lang {
