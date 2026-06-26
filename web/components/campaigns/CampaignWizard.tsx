@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { DynamicEngineConfig, defaultEngineConfig, type EngineConfig } from "./DynamicEngineConfig";
 import { PreflightPanel } from "./PreflightPanel";
-import { preflightCampaign, isPreflightClear } from "@/lib/sentinel/preflight";
+import { preflightCampaign, isPreflightClear, blockingChecks } from "@/lib/sentinel/preflight";
 import { ScheduleChatPanel, type ScheduleChatContext, type FinalizeResult } from "./ScheduleChatPanel";
 import type { NormalizedSchedule } from "@/lib/campaigns/schedule-proposal";
 
@@ -928,7 +928,13 @@ export function CampaignWizard({
       return { ok: false, error: "Choisis d'abord la base de contacts (ou des cibles) à l'étape « Qui appeler »." };
     }
     if (!preflightClear) {
-      return { ok: false, error: "Des blocages subsistent dans le récap de vérification — corrige-les avant de créer." };
+      const blockers = blockingChecks(preflightResult).map((c) => c.label);
+      return {
+        ok: false,
+        error: blockers.length
+          ? `Blocage(s) à corriger avant de créer : ${blockers.join(" ; ")}.`
+          : "Des blocages subsistent dans le récap de vérification — corrige-les avant de créer.",
+      };
     }
     setError(null);
     setSubmitting(true);
