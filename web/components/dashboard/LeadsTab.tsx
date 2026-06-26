@@ -245,123 +245,6 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
         </table>
       </div>
 
-      {/* ── Handoff queue (passer_humain + suivi_requis, last 48 h) ─────── */}
-      {handoff && (
-        <>
-          <div style={{ fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.6, color: "var(--muted)", paddingTop: 4 }}>
-            Transferts à traiter
-          </div>
-
-          <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-            {/* Header row */}
-            <div style={{
-              display: "flex", alignItems: "center", justifyContent: "space-between",
-              padding: "12px 16px", borderBottom: "1px solid var(--border)",
-            }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span style={{
-                  fontSize: 22, fontWeight: 700,
-                  color: handoff.total > 0 ? CAT_COLORS.passer_humain : "var(--muted)",
-                }}>
-                  {handoff.total}
-                </span>
-                <span style={{ fontSize: 13, color: "var(--muted)" }}>
-                  lead{handoff.total !== 1 ? "s" : ""} à passer à Rain / Summer
-                  <span style={{ fontSize: 11, marginLeft: 6 }}>(dernières {handoff.window_hours}h)</span>
-                </span>
-              </div>
-              {handoff.total > 0 && (
-                <button
-                  type="button"
-                  className="ghost"
-                  style={{ fontSize: 12, padding: "4px 10px" }}
-                  onClick={() => openDrill(
-                    { qualification: "passer_humain" },
-                    { title: "Transferts humain", icon: "👤", tone: CAT_COLORS.passer_humain },
-                  )}
-                >
-                  Voir tout →
-                </button>
-              )}
-            </div>
-
-            {/* Lead rows */}
-            {handoff.calls.length === 0 ? (
-              <div style={{ padding: "14px 16px", fontSize: 13, color: "var(--muted)" }}>
-                Aucun transfert en attente sur les dernières {handoff.window_hours}h.
-              </div>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column" }}>
-                {handoff.calls.slice(0, 8).map((hc) => (
-                  <button
-                    key={hc.id}
-                    type="button"
-                    onClick={() => openDrill(
-                      { qualification: hc.bucket },
-                      { title: hc.contact_name ?? hc.phone ?? "Lead", icon: "👤", tone: CAT_COLORS.passer_humain },
-                    )}
-                    style={{
-                      all: "unset", display: "flex", alignItems: "center", gap: 12,
-                      padding: "10px 16px", cursor: "pointer",
-                      borderBottom: "1px solid var(--border)",
-                    }}
-                  >
-                    {/* Avatar */}
-                    <div style={{
-                      width: 32, height: 32, borderRadius: "50%", flexShrink: 0,
-                      background: hc.bucket === "passer_humain"
-                        ? `color-mix(in srgb, ${CAT_COLORS.passer_humain} 20%, transparent)`
-                        : "color-mix(in srgb, var(--accent) 15%, transparent)",
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                      fontSize: 13, fontWeight: 700,
-                      color: hc.bucket === "passer_humain" ? CAT_COLORS.passer_humain : "var(--accent)",
-                    }}>
-                      {(hc.contact_name ?? hc.phone ?? "?")[0].toUpperCase()}
-                    </div>
-
-                    {/* Name + reason */}
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {hc.contact_name ?? hc.phone ?? "Inconnu"}
-                      </div>
-                      {hc.reason && (
-                        <div style={{ fontSize: 11, color: "var(--muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 1 }}>
-                          {hc.reason}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Bucket badge + time */}
-                    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, flexShrink: 0 }}>
-                      <span style={{
-                        fontSize: 10, padding: "2px 6px", borderRadius: 4, fontWeight: 600,
-                        textTransform: "uppercase", letterSpacing: 0.3,
-                        background: hc.bucket === "passer_humain"
-                          ? `color-mix(in srgb, ${CAT_COLORS.passer_humain} 15%, transparent)`
-                          : "color-mix(in srgb, var(--accent) 10%, transparent)",
-                        color: hc.bucket === "passer_humain" ? CAT_COLORS.passer_humain : "var(--accent)",
-                      }}>
-                        {hc.bucket === "passer_humain" ? "Humain" : "Suivi requis"}
-                      </span>
-                      {hc.called_at && (
-                        <span style={{ fontSize: 10, color: "var(--muted)" }}>
-                          {new Date(hc.called_at).toLocaleString("fr-FR", { weekday: "short", hour: "2-digit", minute: "2-digit" })}
-                        </span>
-                      )}
-                    </div>
-                  </button>
-                ))}
-                {handoff.calls.length > 8 && (
-                  <div style={{ padding: "10px 16px", fontSize: 12, color: "var(--muted)", textAlign: "center" }}>
-                    + {handoff.calls.length - 8} autres — cliquez sur "Voir tout" pour la liste complète
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </>
-      )}
-
       {/* ── Analyse décroché (answered calls only) ────────────────────────── */}
       {analysis && (
         <>
@@ -518,6 +401,123 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
               </div>
             </div>
           )}
+        </>
+      )}
+
+      {/* ── Handoff queue (passer_humain + suivi_requis, last 48 h) ─────── */}
+      {handoff && (
+        <>
+          <div style={{ fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.6, color: "var(--muted)", paddingTop: 4 }}>
+            Transferts à traiter
+          </div>
+
+          <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+            {/* Header row */}
+            <div style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              padding: "12px 16px", borderBottom: "1px solid var(--border)",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{
+                  fontSize: 22, fontWeight: 700,
+                  color: handoff.total > 0 ? CAT_COLORS.passer_humain : "var(--muted)",
+                }}>
+                  {handoff.total}
+                </span>
+                <span style={{ fontSize: 13, color: "var(--muted)" }}>
+                  lead{handoff.total !== 1 ? "s" : ""} à passer à Rain / Summer
+                  <span style={{ fontSize: 11, marginLeft: 6 }}>(dernières {handoff.window_hours}h)</span>
+                </span>
+              </div>
+              {handoff.total > 0 && (
+                <button
+                  type="button"
+                  className="ghost"
+                  style={{ fontSize: 12, padding: "4px 10px" }}
+                  onClick={() => openDrill(
+                    { qualification: "passer_humain" },
+                    { title: "Transferts humain", icon: "👤", tone: CAT_COLORS.passer_humain },
+                  )}
+                >
+                  Voir tout →
+                </button>
+              )}
+            </div>
+
+            {/* Lead rows */}
+            {handoff.calls.length === 0 ? (
+              <div style={{ padding: "14px 16px", fontSize: 13, color: "var(--muted)" }}>
+                Aucun transfert en attente sur les dernières {handoff.window_hours}h.
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column" }}>
+                {handoff.calls.slice(0, 8).map((hc) => (
+                  <button
+                    key={hc.id}
+                    type="button"
+                    onClick={() => openDrill(
+                      { qualification: hc.bucket },
+                      { title: hc.contact_name ?? hc.phone ?? "Lead", icon: "👤", tone: CAT_COLORS.passer_humain },
+                    )}
+                    style={{
+                      all: "unset", display: "flex", alignItems: "center", gap: 12,
+                      padding: "10px 16px", cursor: "pointer",
+                      borderBottom: "1px solid var(--border)",
+                    }}
+                  >
+                    {/* Avatar */}
+                    <div style={{
+                      width: 32, height: 32, borderRadius: "50%", flexShrink: 0,
+                      background: hc.bucket === "passer_humain"
+                        ? `color-mix(in srgb, ${CAT_COLORS.passer_humain} 20%, transparent)`
+                        : "color-mix(in srgb, var(--accent) 15%, transparent)",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      fontSize: 13, fontWeight: 700,
+                      color: hc.bucket === "passer_humain" ? CAT_COLORS.passer_humain : "var(--accent)",
+                    }}>
+                      {(hc.contact_name ?? hc.phone ?? "?")[0].toUpperCase()}
+                    </div>
+
+                    {/* Name + reason */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {hc.contact_name ?? hc.phone ?? "Inconnu"}
+                      </div>
+                      {hc.reason && (
+                        <div style={{ fontSize: 11, color: "var(--muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 1 }}>
+                          {hc.reason}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Bucket badge + time */}
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, flexShrink: 0 }}>
+                      <span style={{
+                        fontSize: 10, padding: "2px 6px", borderRadius: 4, fontWeight: 600,
+                        textTransform: "uppercase", letterSpacing: 0.3,
+                        background: hc.bucket === "passer_humain"
+                          ? `color-mix(in srgb, ${CAT_COLORS.passer_humain} 15%, transparent)`
+                          : "color-mix(in srgb, var(--accent) 10%, transparent)",
+                        color: hc.bucket === "passer_humain" ? CAT_COLORS.passer_humain : "var(--accent)",
+                      }}>
+                        {hc.bucket === "passer_humain" ? "Humain" : "Suivi requis"}
+                      </span>
+                      {hc.called_at && (
+                        <span style={{ fontSize: 10, color: "var(--muted)" }}>
+                          {new Date(hc.called_at).toLocaleString("fr-FR", { weekday: "short", hour: "2-digit", minute: "2-digit" })}
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                ))}
+                {handoff.calls.length > 8 && (
+                  <div style={{ padding: "10px 16px", fontSize: 12, color: "var(--muted)", textAlign: "center" }}>
+                    + {handoff.calls.length - 8} autres — cliquez sur "Voir tout" pour la liste complète
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </>
       )}
 
