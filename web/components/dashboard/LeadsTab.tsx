@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { LeadsResponse } from "@/app/api/dashboard/leads/route";
 import type { LeadsAnalysisResponse } from "@/app/api/dashboard/leads-analysis/route";
 import type { LeadsHandoffResponse } from "@/app/api/dashboard/leads-handoff/route";
@@ -124,6 +124,36 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
   useEffect(() => {
     fetchData();
   }, [fetchData, refreshKey]);
+
+  // Silently drain the AI qualification backlog in the background whenever
+  // the tab is viewed. Mirrors DirectorTab's auto-qualify logic so the user
+  // never has to find or click a button. A sig-ref prevents re-draining the
+  // same scope twice in the same session.
+  const drainSigRef = useRef("");
+  useEffect(() => {
+    const sig = `${leadsSource ?? "prod"}|${system ?? "all"}`;
+    if (drainSigRef.current === sig) return;
+    drainSigRef.current = sig;
+    let cancelled = false;
+    (async () => {
+      const qs = new URLSearchParams({ leads_source: leadsSource === "test" ? "test" : "prod" });
+      if (system && system !== "all") qs.set("system", system);
+      let lastPending = Infinity;
+      for (let i = 0; i < 60 && !cancelled; i++) {
+        const r = await fetch(`/api/dashboard/qualify-unqualified?${qs}`, { method: "POST" });
+        if (!r.ok) break;
+        const j = await r.json();
+        const pending = Number(j.pending_before ?? 0);
+        const processed = Number(j.processed ?? 0);
+        if (pending <= 0 || processed === 0) break;
+        if (pending >= lastPending) break;
+        lastPending = pending;
+      }
+      // Refresh the display once drain is done so corrected labels appear.
+      if (!cancelled) fetchData();
+    })().catch(() => {});
+    return () => { cancelled = true; };
+  }, [leadsSource, system, fetchData]);
 
   // Only show full-page spinner on first load — during refreshes keep
   // the existing content visible to avoid a flash.
