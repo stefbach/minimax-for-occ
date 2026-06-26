@@ -1,6 +1,5 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "_branch": "claude/new-branch-from-main-6sg6xb",
   "framework": "nextjs",
   "git": {
     "deploymentEnabled": true
