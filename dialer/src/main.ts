@@ -47,13 +47,38 @@ async function scheduleTick() {
 
   const { data: campaigns, error } = await sb
     .from("campaigns")
-    .select("id,state,max_concurrency,schedule,mode,metadata,data_table_id,org_id")
+    .select("id,state,max_concurrency,schedule,mode,metadata,data_table_id,org_id,agent_handle_id")
     .eq("state", "running");
   if (error) {
     console.error("[scheduler] failed to list running campaigns:", error.message);
     return;
   }
   if (!campaigns || campaigns.length === 0) return;
+
+  // Human desk campaigns are dialled MANUALLY by the agent from "Mon poste"
+  // (the system presents the next lead, the human clicks to call) — the dialer
+  // must NOT auto-dial them. Resolve which campaigns point at a human handle
+  // and skip those entirely.
+  const humanCampaignIds = new Set<string>();
+  try {
+    const handleIds = Array.from(
+      new Set(campaigns.map((c) => (c as any).agent_handle_id).filter(Boolean)),
+    ) as string[];
+    if (handleIds.length > 0) {
+      const { data: handles } = await sb
+        .from("agent_handles")
+        .select("id,kind")
+        .in("id", handleIds);
+      const humanHandleIds = new Set(
+        (handles ?? []).filter((h) => (h as any).kind === "human").map((h) => h.id as string),
+      );
+      for (const c of campaigns) {
+        if (humanHandleIds.has((c as any).agent_handle_id)) humanCampaignIds.add(c.id as string);
+      }
+    }
+  } catch (e) {
+    console.error("[scheduler] human-campaign resolve failed:", (e as Error)?.message);
+  }
 
   const now = new Date();
 
@@ -86,6 +111,10 @@ async function scheduleTick() {
   }
 
   for (const c of campaigns) {
+    // Human desk campaigns are agent-driven (manual dial from "Mon poste") —
+    // never auto-dialled here.
+    if (humanCampaignIds.has(c.id as string)) continue;
+
     // ALL campaigns honour the schedule gate, dynamic and static both —
     // Wati saw a call leak out at 10:04 UK while the slot ended at 10:00
     // UK because the dynamic branch bypassed withinSchedule() entirely.

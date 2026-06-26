@@ -371,8 +371,8 @@ function HumanLeadSelection({
   onToggleQual,
   onToggleAssigned,
 }: {
-  facetQual: Array<{ value: string; count: number }>;
-  facetAgent: Array<{ value: string; count: number }>;
+  facetQual: Array<{ value: string; count: number; label?: string }>;
+  facetAgent: Array<{ value: string; count: number; label?: string }>;
   loaded: boolean;
   selectedQuals: string[];
   selectedAssigned: string[];
@@ -428,13 +428,12 @@ function HumanLeadSelection({
             <div className="muted" style={{ fontSize: 12 }}>{loaded ? "Aucune assignation trouvée." : "Chargement…"}</div>
           ) : (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              {facetAgent.map((f, i) => {
+              {facetAgent.map((f) => {
                 const on = selectedAssigned.includes(f.value);
                 return (
                   <button key={f.value} type="button" className={on ? "" : "ghost"} style={chip(on)}
                     title={f.value} onClick={() => onToggleAssigned(f.value)}>
-                    #{i + 1} · {f.count} leads{" "}
-                    <span style={{ opacity: 0.5, fontFamily: "ui-monospace, monospace" }}>{f.value.slice(0, 6)}…</span>
+                    {f.label ?? "Ancien agent"} <span style={{ opacity: 0.6 }}>· {f.count} leads</span>
                   </button>
                 );
               })}
@@ -609,8 +608,8 @@ export function CampaignWizard({
   // Human-campaign "Qui appeler" facets: distinct qualification + assignment
   // (agent) values with counts, so the operator targets leads by qualification
   // and/or by who they're assigned to. Loaded only for human desk campaigns.
-  const [facetQual, setFacetQual] = useState<Array<{ value: string; count: number }>>([]);
-  const [facetAgent, setFacetAgent] = useState<Array<{ value: string; count: number }>>([]);
+  const [facetQual, setFacetQual] = useState<Array<{ value: string; count: number; label?: string }>>([]);
+  const [facetAgent, setFacetAgent] = useState<Array<{ value: string; count: number; label?: string }>>([]);
   const [facetsLoaded, setFacetsLoaded] = useState(false);
 
   // Step navigation: 1 = Qui appelle, 2 = Qui appeler, 3 = Quand.
@@ -673,7 +672,10 @@ export function CampaignWizard({
         );
         if (!res.ok) return;
         const json = (await res.json()) as {
-          facets?: { qualification?: Array<{ value: string; count: number }>; agent?: Array<{ value: string; count: number }> };
+          facets?: {
+            qualification?: Array<{ value: string; count: number; label?: string }>;
+            agent?: Array<{ value: string; count: number; label?: string }>;
+          };
         };
         if (cancelled) return;
         setFacetQual(json.facets?.qualification ?? []);
@@ -1251,13 +1253,12 @@ export function CampaignWizard({
                 </select>
                 {selectedAgent && (selectedAgent.kind === "human" ? (
                   <div className="muted" style={{ fontSize: 12, marginTop: 8, lineHeight: 1.5 }}>
-                    👤 <strong>Campagne agent humain.</strong> Le système appelle les leads
-                    (et envoie le SMS/WhatsApp si activé ci-dessous), puis connecte chaque appel
-                    <strong> décroché</strong> au softphone de <strong>{selectedAgent.display_name}</strong>.
-                    {" "}L&apos;agent doit être connecté à{" "}
-                    <a href="/desk" target="_blank" rel="noreferrer" style={{ color: "var(--accent-2)" }}>Mon poste</a>{" "}
-                    avec le statut <strong>Disponible</strong>. Les leads sont appelés
-                    <strong> un par un</strong> (le suivant une fois l&apos;appel précédent raccroché).
+                    👤 <strong>Campagne agent humain.</strong> Depuis{" "}
+                    <a href="/desk" target="_blank" rel="noreferrer" style={{ color: "var(--accent-2)" }}>Mon poste</a>,
+                    {" "}<strong>{selectedAgent.display_name}</strong> active la campagne&nbsp;: le système{" "}
+                    <strong>présente le prochain lead</strong> (et envoie le SMS/WhatsApp si activé ci-dessous),
+                    puis <strong>l&apos;agent clique pour appeler</strong> lui-même. Après chaque appel, il qualifie
+                    et le <strong>lead suivant s&apos;affiche</strong>. Le système n&apos;appelle jamais tout seul.
                   </div>
                 ) : (
                   <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>

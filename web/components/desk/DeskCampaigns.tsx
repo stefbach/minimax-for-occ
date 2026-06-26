@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useT } from "@/lib/i18n";
+import { DeskCampaignCaller } from "./DeskCampaignCaller";
 
 /**
  * "Mes campagnes" — the desk agent's own campaigns, with a start/pause switch.
@@ -32,6 +33,8 @@ export function DeskCampaigns() {
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  // The campaign whose manual caller is open (one at a time).
+  const [caller, setCaller] = useState<{ id: string; name: string } | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -129,27 +132,37 @@ export function DeskCampaigns() {
                   {c.target_total > 0 ? ` · ${c.target_total} ${t("total")}` : ""}
                 </div>
               </div>
-              <button
-                onClick={() => toggle(c)}
-                disabled={busy === c.id}
-                className={running ? "ghost" : ""}
-                style={{
-                  padding: "8px 14px",
-                  fontWeight: 600,
-                  whiteSpace: "nowrap",
-                  borderColor: running ? "var(--border)" : undefined,
-                }}
-              >
-                {busy === c.id
-                  ? "…"
-                  : running
-                    ? `⏸ ${t("Désactiver")}`
-                    : `▶ ${t("Activer")}`}
-              </button>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                {running && (
+                  <button
+                    onClick={() => setCaller(caller?.id === c.id ? null : { id: c.id, name: c.name })}
+                    style={{ padding: "8px 14px", fontWeight: 600, whiteSpace: "nowrap" }}
+                  >
+                    📞 {caller?.id === c.id ? t("Masquer") : t("Appeler les leads")}
+                  </button>
+                )}
+                <button
+                  onClick={() => toggle(c)}
+                  disabled={busy === c.id}
+                  className="ghost"
+                  style={{ padding: "8px 14px", fontWeight: 600, whiteSpace: "nowrap", borderColor: "var(--border)" }}
+                >
+                  {busy === c.id
+                    ? "…"
+                    : running
+                      ? `⏸ ${t("Désactiver")}`
+                      : `▶ ${t("Activer")}`}
+                </button>
+              </div>
             </div>
           );
         })}
       </div>
+
+      {/* Manual caller for the campaign the agent opened. */}
+      {caller && (
+        <DeskCampaignCaller campaign={caller} onClose={() => setCaller(null)} />
+      )}
     </section>
   );
 }

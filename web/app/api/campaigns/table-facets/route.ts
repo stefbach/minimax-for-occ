@@ -55,7 +55,7 @@ export async function GET(req: Request) {
     .filter((c) => c && allowed.has(c))
     .slice(0, 5);
 
-  const facets: Record<string, Array<{ value: string; count: number }>> = {};
+  const facets: Record<string, Array<{ value: string; count: number; label?: string }>> = {};
   for (const col of requested) {
     // PostgREST has no GROUP BY and caps a single response (~1000 rows), so a
     // one-shot scan tallies only the first page — missing most values on a big
@@ -89,6 +89,55 @@ export async function GET(req: Request) {
       .map(([value, count]) => ({ value, count }))
       .sort((a, b) => b.count - a.count)
       .slice(0, MAX_DISTINCT);
+  }
+
+  // Resolve person-id values (e.g. the assignment `agent` column holds Axon
+  // user ids) to readable names, so the picker shows "Mégane" not a raw UUID.
+  // Values that don't resolve (former staff / legacy ids) keep no label and the
+  // UI labels them "Ancien agent".
+  const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const ids = Array.from(
+    new Set(
+      Object.values(facets).flatMap((arr) => arr.map((it) => it.value).filter((v) => uuidRe.test(v))),
+    ),
+  );
+  if (ids.length > 0) {
+    const nameById = new Map<string, string>();
+    try {
+      const { data: hs } = await sb
+        .from("agent_handles")
+        .select("user_id, display_name")
+        .eq("org_id", org_id)
+        .in("user_id", ids);
+      for (const h of hs ?? []) {
+        const u = (h as { user_id: string | null }).user_id;
+        const n = (h as { display_name: string | null }).display_name;
+        if (u && n && !nameById.has(u)) nameById.set(u, n);
+      }
+      const missing = ids.filter((id) => !nameById.has(id));
+      if (missing.length > 0) {
+        const { data: ps } = await sb
+          .from("profiles")
+          .select("id, full_name, username, email")
+          .in("id", missing);
+        for (const p of ps ?? []) {
+          const id = (p as { id: string }).id;
+          const nm =
+            (p as { full_name: string | null }).full_name ||
+            (p as { username: string | null }).username ||
+            (p as { email: string | null }).email;
+          if (id && nm && !nameById.has(id)) nameById.set(id, nm);
+        }
+      }
+    } catch {
+      /* best-effort name resolution */
+    }
+    for (const arr of Object.values(facets)) {
+      for (const it of arr) {
+        const nm = nameById.get(it.value);
+        if (nm) it.label = nm;
+      }
+    }
   }
 
   return NextResponse.json({ facets });
