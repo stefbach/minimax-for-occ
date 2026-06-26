@@ -120,12 +120,12 @@ export function SimulationLauncher({ systemPrompt, greeting, onStart, disabled }
       <div className="card" style={{ display: "grid", gap: 10 }}>
         <h3 style={{ margin: 0 }}>Simulation</h3>
         <p style={{ color: "var(--muted)", margin: 0 }}>
-          Aucune variable <span className="kbd">{"{{...}}"}</span> détectée dans
-          le prompt — la simulation utilisera la configuration brute de l&apos;agent.
+          No variable <span className="kbd">{"{{...}}"}</span> detected in the
+          prompt — the simulation will use the agent&apos;s raw configuration.
         </p>
         <div>
           <button onClick={() => onStart({})} disabled={disabled}>
-            ▶ Démarrer la simulation
+            ▶ Start simulation
           </button>
         </div>
       </div>
@@ -137,8 +137,7 @@ export function SimulationLauncher({ systemPrompt, greeting, onStart, disabled }
       <div>
         <h3 style={{ margin: 0 }}>Simulation</h3>
         <p style={{ margin: "4px 0 0 0", color: "var(--muted)", fontSize: 13 }}>
-          Remplissez les variables que l&apos;agent verra. {detected.length} détectée
-          {detected.length > 1 ? "s" : ""} dans le prompt.
+          Fill in the variables the agent will see. {detected.length} detected in the prompt.
         </p>
       </div>
 
@@ -170,10 +169,10 @@ export function SimulationLauncher({ systemPrompt, greeting, onStart, disabled }
           }
           style={{ background: "transparent", border: "1px solid var(--muted)", color: "var(--text)" }}
         >
-          Réinitialiser
+          Reset
         </button>
         <span style={{ fontSize: 12, color: "var(--muted)", marginLeft: "auto" }}>
-          Aucun appel réel ne sera passé — simulation navigateur uniquement.
+          No real call will be made — browser simulation only.
         </span>
       </div>
     </div>

@@ -28,7 +28,7 @@ export function ChatPanel({ agentId }: { agentId: string }) {
       <div className="chat-log">
         {messages.length === 0 && (
           <div style={{ color: "var(--muted)", padding: 8 }}>
-            Tapez un message pour démarrer la conversation textuelle avec cet agent.
+            Type a message to start a text conversation with this agent.
           </div>
         )}
         {messages.map((m) => (
@@ -48,11 +48,11 @@ export function ChatPanel({ agentId }: { agentId: string }) {
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Votre message…"
+          placeholder="Your message…"
           disabled={isLoading}
         />
         <button type="submit" disabled={isLoading || !input.trim()}>
-          Envoyer
+          Send
         </button>
       </form>
     </>

@@ -103,7 +103,7 @@ export function AgentSession({ agent, initialTab }: { agent: Agent; initialTab: 
           </section>
           <section className="panel">
             <header>
-              <h2>Chat texte</h2>
+              <h2>Text chat</h2>
               <div className="meta">{agent.llm_provider}/{agent.llm_model}{agent.rag_enabled ? " · RAG active" : ""}</div>
             </header>
             <ChatPanel agentId={agent.id} />
