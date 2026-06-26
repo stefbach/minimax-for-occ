@@ -367,8 +367,8 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
           {data.qualifications.map((q) => (
             <ClickCard
               key={q.key}
-              ariaLabel={`${q.label} — ${t("voir les appels")}`}
-              onClick={() => openDrill(q.label, "tag", "var(--accent)", { qualification: q.key as QualBucket })}
+              ariaLabel={`${t(q.label)} — ${t("voir les appels")}`}
+              onClick={() => openDrill(t(q.label), "tag", "var(--accent)", { qualification: q.key as QualBucket })}
               style={{ padding: 12, textAlign: "center", borderColor: q.count > 0 ? "var(--accent)" : undefined }}
             >
               <div style={{ fontSize: 24, fontWeight: 700, color: q.count > 0 ? "var(--accent)" : "var(--muted)" }}>
@@ -378,7 +378,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
                 {pct(q.count)}
               </div>
               <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginTop: 4 }}>
-                {q.label}
+                {t(q.label)}
               </div>
             </ClickCard>
           ))}

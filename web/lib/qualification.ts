@@ -17,16 +17,16 @@ export type QualBucket =
   | "autre";
 
 export const QUAL_BUCKETS: { key: QualBucket; label: string }[] = [
-  { key: "rdv_confirme", label: "APPT CONFIRMED" },
-  { key: "passer_humain", label: "PASS TO HUMAN" },
-  { key: "rappel", label: "CALLBACK" },
-  { key: "pas_interesse", label: "NOT INTERESTED" },
-  { key: "pas_de_reponse", label: "NO ANSWER" },
-  { key: "repondeur", label: "VOICEMAIL" },
-  { key: "faux_numero", label: "WRONG NUMBER" },
-  { key: "non_eligible", label: "NOT ELIGIBLE" },
-  { key: "ne_pas_rappeler", label: "DO NOT CALL" },
-  { key: "suivi_requis", label: "FOLLOW-UP REQUIRED" },
+  { key: "rdv_confirme", label: "RDV CONFIRME" },
+  { key: "passer_humain", label: "À PASSER À L'HUMAIN" },
+  { key: "rappel", label: "RAPPEL" },
+  { key: "pas_interesse", label: "PAS INTERESSE" },
+  { key: "pas_de_reponse", label: "PAS DE REPONSE" },
+  { key: "repondeur", label: "REPONDEUR" },
+  { key: "faux_numero", label: "FAUX NUMERO" },
+  { key: "non_eligible", label: "NON ELIGIBLE" },
+  { key: "ne_pas_rappeler", label: "NE PAS RAPPELER" },
+  { key: "suivi_requis", label: "SUIVI REQUIS" },
 ];
 
 export function normalizeQualification(raw: string | null | undefined): QualBucket {
