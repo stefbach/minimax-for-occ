@@ -16,11 +16,20 @@ interface AiCallback {
   scheduled_for: string;
 }
 
+interface AgentRow {
+  user_id: string;
+  display_name: string;
+  email: string | null;
+  is_active: boolean;
+}
+
 const UK_TZ = "Europe/London";
 
 export function IaCalendarClient() {
   const t = useT();
   const [rows, setRows] = useState<AiCallback[]>([]);
+  const [agents, setAgents] = useState<AgentRow[]>([]);
+  const [assigning, setAssigning] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   type FilterMode = "today" | "tomorrow" | "h7" | "h30" | "all";
@@ -46,6 +55,43 @@ export function IaCalendarClient() {
 
   useEffect(() => {
     void refresh();
+  }, [refresh]);
+
+  // Agents for the "Confier à un agent" picker (same source as Supervision).
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const r = await fetch("/api/desk/agents", { cache: "no-store" });
+        if (!r.ok) return;
+        const j = (await r.json()) as { agents: AgentRow[] };
+        if (alive) setAgents(j.agents ?? []);
+      } catch {
+        /* picker just stays empty */
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  // Confier un rappel à un humain : crée une tâche assignée + retire le lead de
+  // la file de Charlotte (il disparaît du calendrier IA au refresh).
+  const assign = useCallback(async (row: AiCallback, userId: string | null) => {
+    setAssigning(row.id);
+    setErr(null);
+    try {
+      const r = await fetch("/api/desk/ai-callbacks/assign", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ e164: row.e164, name: row.name, scheduled_for: row.scheduled_for, user_id: userId }),
+      });
+      const j = (await r.json().catch(() => ({}))) as { error?: string };
+      if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
+      await refresh();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAssigning(null);
+    }
   }, [refresh]);
 
   // Filter by UK-day so the buckets line up with the patient's local day.
@@ -176,6 +222,24 @@ export function IaCalendarClient() {
                         <span className="tag" style={{ fontSize: 10 }}>🤖 {t("Rappel Charlotte")}</span>
                       </div>
                     </div>
+                    {/* Confier ce rappel à un humain plutôt que Charlotte. */}
+                    <select
+                      value=""
+                      disabled={assigning === r.id}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        if (!v) return;
+                        void assign(r, v === "__pool__" ? null : v);
+                      }}
+                      title={t("Confier ce rappel à un agent humain")}
+                      style={{ fontSize: 12, padding: "5px 8px", maxWidth: 180, border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg)", color: "var(--text)" }}
+                    >
+                      <option value="">{assigning === r.id ? t("Envoi…") : `👤 ${t("Confier à un agent")}`}</option>
+                      <option value="__pool__">{t("Pool (non assigné)")}</option>
+                      {agents.filter((a) => a.is_active).map((a) => (
+                        <option key={a.user_id} value={a.user_id}>{a.display_name}</option>
+                      ))}
+                    </select>
                   </div>
                 );
               })}
