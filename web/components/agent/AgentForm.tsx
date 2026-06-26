@@ -780,7 +780,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                     onChange={(e) => setFilterProvider(e.target.value)}
                     style={{ width: "auto", fontSize: 13, padding: "6px 12px", borderRadius: 20, background: "var(--bg-2)", color: "var(--text)", fontWeight: filterProvider ? 600 : 400 }}
                   >
-                    <option value="" style={{ background: "var(--bg-2)", color: "var(--text)" }}>Tous les fournisseurs</option>
+                    <option value="" style={{ background: "var(--bg-2)", color: "var(--text)" }}>All providers</option>
                     <option value="cartesia" style={{ background: "var(--bg-2)", color: "var(--text)" }}>Cartesia ({cartesiaVoices.length})</option>
                     <option value="elevenlabs-flash-direct" style={{ background: "var(--bg-2)", color: "var(--text)" }}>ElevenLabs Flash v2.5 — latency ~75ms ({replicateVoices.filter((v) => v.family === "elevenlabs-flash-direct").length})</option>
                     <option value="elevenlabs-turbo-direct" style={{ background: "var(--bg-2)", color: "var(--text)" }}>ElevenLabs Turbo v2.5 — equivalent quality, latency ~100ms ({replicateVoices.filter((v) => v.family === "elevenlabs-turbo-direct").length})</option>

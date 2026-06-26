@@ -76,17 +76,16 @@ export function AgentNumbersSection({ agentId }: { agentId: string }) {
 
   return (
     <div className="card" style={{ marginTop: 16, padding: 16 }}>
-      <h3 style={{ marginTop: 0, fontSize: 15 }}>📞 Numéros pris en charge</h3>
+      <h3 style={{ marginTop: 0, fontSize: 15 }}>📞 Supported numbers</h3>
       <p className="muted" style={{ fontSize: 13, marginTop: 0 }}>
-        Coche les numéros sur lesquels cet agent décroche les appels <strong>entrants</strong>.
-        Rappel : l'entrant ne se déclenche que si le numéro a aussi son interrupteur «&nbsp;Entrant&nbsp;» sur
-        ON (page <em>Numéros de téléphone</em>).
+        Check the numbers on which this agent answers <strong>inbound</strong> calls.
+        Note: inbound only triggers if the number also has its &quot;Inbound&quot; switch set to ON (page <em>Phone numbers</em>).
       </p>
       {loading ? (
-        <div className="muted">Chargement…</div>
+        <div className="muted">Loading…</div>
       ) : (
         <>
-          {numbers.length === 0 && <div className="muted">Aucun numéro dans l'organisation.</div>}
+          {numbers.length === 0 && <div className="muted">No numbers in the organisation.</div>}
           <div style={{ display: "grid", gap: 8 }}>
             {numbers.map((n) => {
               const checked = sel.has(n.id);
@@ -119,13 +118,13 @@ export function AgentNumbersSection({ agentId }: { agentId: string }) {
                   <span style={{ color: "var(--muted)", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {n.label || "—"}
                     {n.taken_by && !checked && (
-                      <span style={{ fontSize: 11 }}> · actuellement : {n.taken_by}</span>
+                      <span style={{ fontSize: 11 }}> · currently: {n.taken_by}</span>
                     )}
                   </span>
                   {n.inbound_enabled ? (
-                    <span className="tag good" style={{ fontSize: 10, whiteSpace: "nowrap" }}>entrant ON</span>
+                    <span className="tag good" style={{ fontSize: 10, whiteSpace: "nowrap" }}>inbound ON</span>
                   ) : (
-                    <span className="tag" style={{ fontSize: 10, whiteSpace: "nowrap" }}>entrant OFF</span>
+                    <span className="tag" style={{ fontSize: 10, whiteSpace: "nowrap" }}>inbound OFF</span>
                   )}
                 </label>
               );
@@ -134,9 +133,9 @@ export function AgentNumbersSection({ agentId }: { agentId: string }) {
           {err && <div style={{ color: "var(--bad)", fontSize: 13, marginTop: 8 }}>{err}</div>}
           <div style={{ marginTop: 12, display: "flex", gap: 10, alignItems: "center" }}>
             <button type="button" onClick={save} disabled={saving}>
-              {saving ? "Enregistrement…" : "Enregistrer les numéros"}
+              {saving ? "Saving…" : "Save numbers"}
             </button>
-            {saved && <span style={{ color: "var(--good)", fontSize: 12 }}>✓ Enregistré</span>}
+            {saved && <span style={{ color: "var(--good)", fontSize: 12 }}>✓ Saved</span>}
           </div>
         </>
       )}
