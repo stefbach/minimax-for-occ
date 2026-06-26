@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useT } from "@/lib/i18n";
 
 /**
  * SimulationLauncher
@@ -94,6 +95,7 @@ interface Props {
 }
 
 export function SimulationLauncher({ systemPrompt, greeting, onStart, disabled }: Props) {
+  const t = useT();
   const detected = useMemo(() => detectVars(systemPrompt, greeting), [systemPrompt, greeting]);
   const [vals, setVals] = useState<Record<string, string>>(() =>
     Object.fromEntries(detected.map((d) => [d.key, d.suggestion ?? ""])),
@@ -120,12 +122,11 @@ export function SimulationLauncher({ systemPrompt, greeting, onStart, disabled }
       <div className="card" style={{ display: "grid", gap: 10 }}>
         <h3 style={{ margin: 0 }}>Simulation</h3>
         <p style={{ color: "var(--muted)", margin: 0 }}>
-          No variable <span className="kbd">{"{{...}}"}</span> detected in the
-          prompt — the simulation will use the agent&apos;s raw configuration.
+          {t("Aucune variable {{...}} détectée dans le prompt — la simulation utilisera la configuration brute de l'agent.")}
         </p>
         <div>
           <button onClick={() => onStart({})} disabled={disabled}>
-            ▶ Start simulation
+            {t("▶ Démarrer la simulation")}
           </button>
         </div>
       </div>
@@ -137,7 +138,7 @@ export function SimulationLauncher({ systemPrompt, greeting, onStart, disabled }
       <div>
         <h3 style={{ margin: 0 }}>Simulation</h3>
         <p style={{ margin: "4px 0 0 0", color: "var(--muted)", fontSize: 13 }}>
-          Fill in the variables the agent will see. {detected.length} detected in the prompt.
+          {t("Remplissez les variables que l'agent verra.")} {detected.length} {detected.length === 1 ? t("détectée dans le prompt.") : t("détectées dans le prompt.")}
         </p>
       </div>
 
@@ -160,7 +161,7 @@ export function SimulationLauncher({ systemPrompt, greeting, onStart, disabled }
 
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
         <button onClick={() => onStart(vals)} disabled={disabled}>
-          ▶ Démarrer la simulation
+          {t("▶ Démarrer la simulation")}
         </button>
         <button
           type="button"
@@ -169,10 +170,10 @@ export function SimulationLauncher({ systemPrompt, greeting, onStart, disabled }
           }
           style={{ background: "transparent", border: "1px solid var(--muted)", color: "var(--text)" }}
         >
-          Reset
+          {t("Réinitialiser")}
         </button>
         <span style={{ fontSize: 12, color: "var(--muted)", marginLeft: "auto" }}>
-          No real call will be made — browser simulation only.
+          {t("Aucun appel réel ne sera passé — simulation navigateur uniquement.")}
         </span>
       </div>
     </div>
