@@ -139,18 +139,22 @@ export async function GET(request: Request) {
     );
   }
 
-  // Group calls by contact_id
+  // Group calls by to_e164 (phone number) — more inclusive than contact_id
+  // since Retell calls frequently have no contact_id in Axon.
+  // All three metrics (unique leads, total calls, distribution) share this map
+  // so they're always consistent with each other.
   const byContact = new Map<string, CallRow[]>();
   for (const r of rows) {
-    if (!r.contact_id) continue;
-    const contact = byContact.get(r.contact_id) ?? [];
-    contact.push(r);
-    byContact.set(r.contact_id, contact);
+    const key = r.to_e164;
+    if (!key) continue;
+    const bucket = byContact.get(key) ?? [];
+    bucket.push(r);
+    byContact.set(key, bucket);
   }
 
-  // Calculate stats
+  // Calculate stats — all derived from the same byContact map
   const totalUniqueContacts = byContact.size;
-  const totalCalls = rows.length;
+  const totalCalls = Array.from(byContact.values()).reduce((sum, calls) => sum + calls.length, 0);
   const avgCallsPerContact = totalUniqueContacts > 0 ? Math.round((totalCalls / totalUniqueContacts) * 10) / 10 : 0;
 
   // Count RDV and transfers
@@ -162,9 +166,9 @@ export async function GET(request: Request) {
     if (b === "passer_humain") rdvTransfer += 1;
   }
 
-  // Distribution of calls per contact (attempt funnel)
+  // Distribution of calls per lead phone (attempt funnel)
   const attemptMap = new Map<number, { contacts: number; calls: number }>();
-  for (const [contactId, calls] of byContact.entries()) {
+  for (const [, calls] of byContact.entries()) {
     calls.sort((a, b) => (a.started_at ?? "").localeCompare(b.started_at ?? ""));
     calls.forEach((r, i) => {
       const attempt = Math.min(i + 1, 10); // cap at "10+"
