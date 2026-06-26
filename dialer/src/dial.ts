@@ -79,6 +79,62 @@ async function pickFromNumberForOrg(
 }
 
 /**
+ * Slot-based retry scheduling — keeps a dynamic (slot-based) campaign to ONE
+ * dial per lead per slot. Returns the next slot time LATER TODAY (in the
+ * campaign's slot timezone); null when there's no later slot today, which tells
+ * the caller to leave the target terminal so the slot-based re-selection
+ * re-arms it on the lead's next cadence day. This replaces the old
+ * `now + retry_delay_min` retry, which re-fired INSIDE the (wide) schedule
+ * window and dialed a no-answer lead 3-4× in a single slot instead of once.
+ */
+function nextSlotTodayIso(now: Date, metadata: unknown): string | null {
+  const slots = (metadata as { engine?: { slots?: { hours?: string[]; timezone?: string } } } | null)?.engine?.slots;
+  const hours = slots?.hours;
+  if (!Array.isArray(hours) || hours.length === 0) return null;
+  const tz = slots?.timezone || "UTC";
+  const mins = hours
+    .map((h) => { const [a, b] = String(h).split(":").map(Number); return (a || 0) * 60 + (b || 0); })
+    .filter((m) => Number.isFinite(m))
+    .sort((x, y) => x - y);
+  if (mins.length === 0) return null;
+  const fmt = new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", hour12: false });
+  const p = Object.fromEntries(fmt.formatToParts(now).map((x) => [x.type, x.value]));
+  const nowMin = Number(p.hour) * 60 + Number(p.minute);
+  // Strictly later today (+1 min guard so the slot we're in can't re-pick).
+  const target = mins.find((m) => m > nowMin + 1);
+  if (target === undefined) return null;
+  // London/UTC advance at the same rate, so the UTC instant is just now + delta.
+  return new Date(now.getTime() + (target - nowMin) * 60_000).toISOString();
+}
+
+function isSlotBased(metadata: unknown): boolean {
+  const h = (metadata as { engine?: { slots?: { hours?: string[] } } } | null)?.engine?.slots?.hours;
+  return Array.isArray(h) && h.length > 0;
+}
+
+/**
+ * Decide a target's retry status + time after a dial that didn't connect.
+ * Slot-based campaigns retry at the NEXT SLOT (one dial per slot); static
+ * campaigns keep the classic attempts/`retry_delay_min` policy.
+ */
+function computeRetry(
+  now: Date,
+  target: { attempts?: number | null },
+  campaign: { metadata?: unknown; max_attempts?: number | null; retry_delay_min?: number | null },
+): { status: "pending" | "no_answer" | "failed"; next_attempt_at: string | null } {
+  if (isSlotBased(campaign.metadata)) {
+    const slotNext = nextSlotTodayIso(now, campaign.metadata);
+    return { status: slotNext ? "pending" : "no_answer", next_attempt_at: slotNext };
+  }
+  const attemptsNow = (target.attempts ?? 0) + 1;
+  const nextAt =
+    attemptsNow < (campaign.max_attempts ?? 3)
+      ? new Date(now.getTime() + (campaign.retry_delay_min ?? 60) * 60_000).toISOString()
+      : null;
+  return { status: nextAt ? "pending" : "failed", next_attempt_at: nextAt };
+}
+
+/**
  * Preferred dial path: LiveKit-originated outbound, the way Retell-style
  * platforms avoid the "ringing tone after pickup".
  *
@@ -817,16 +873,14 @@ export async function dialTarget(job: DialJob): Promise<void> {
       // Instead: schedule a normal retry (same policy as the Twilio path's
       // failure handler) and stop. SIP-only, single attempt per slot.
       dlog("error", ctx, `LiveKit originate failed (no Twilio fallback): ${msg}`);
-      const attemptsNow = (target.attempts ?? 0) + 1;
-      const next =
-        attemptsNow < (campaign.max_attempts ?? 3)
-          ? new Date(Date.now() + (campaign.retry_delay_min ?? 60) * 60_000).toISOString()
-          : null;
+      // Slot-based campaigns: retry at the NEXT SLOT (one dial per lead per
+      // slot), not now+retry_delay — which re-fired inside the window.
+      const retry = computeRetry(new Date(), target, campaign);
       await sb
         .from("campaign_targets")
         .update({
-          status: next ? "pending" : "failed",
-          next_attempt_at: next,
+          status: retry.status,
+          next_attempt_at: retry.next_attempt_at,
           payload: { last_error: msg, via: "livekit" },
         })
         .eq("id", target.id);
@@ -887,17 +941,14 @@ export async function dialTarget(job: DialJob): Promise<void> {
     const isTwilio = err instanceof TwilioError;
     dlog("error", ctx, `Twilio error: ${msg}`);
 
-    // Failed before connecting — schedule a retry if we still have attempts.
-    const attemptsNow = (target.attempts ?? 0) + 1;
-    const next =
-      attemptsNow < (campaign.max_attempts ?? 3)
-        ? new Date(Date.now() + (campaign.retry_delay_min ?? 60) * 60_000).toISOString()
-        : null;
+    // Failed before connecting — schedule a retry (next slot for slot-based
+    // campaigns, else the classic attempts/retry_delay policy).
+    const retry = computeRetry(new Date(), target, campaign);
     await sb
       .from("campaign_targets")
       .update({
-        status: next ? "pending" : "failed",
-        next_attempt_at: next,
+        status: retry.status,
+        next_attempt_at: retry.next_attempt_at,
         payload: { last_error: msg, twilio_status_code: isTwilio ? (err as TwilioError).code : null },
       })
       .eq("id", target.id);
