@@ -16,8 +16,9 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(
   _req: Request,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
+  const { id } = await params;
   if (!hasSupabase()) {
     return NextResponse.json({ error: "unavailable" }, { status: 503 });
   }
@@ -53,7 +54,7 @@ export async function POST(
       ended_at: nowIso,
       disposition: "declined_by_human",
     })
-    .eq("id", params.id)
+    .eq("id", id)
     .eq("agent_handle_id", handle.id);
 
   if (error) {
