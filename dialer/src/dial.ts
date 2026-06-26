@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { SipClient, RoomServiceClient, AgentDispatchClient } from "livekit-server-sdk";
 import { supabase } from "./supabase.js";
-import { createCall, TwilioError } from "./twilio.js";
+import { createCall, sendContentSms, TwilioError } from "./twilio.js";
 import { countryFromE164 } from "./_phone-utils.generated.js";
 import {
   parseContact,
@@ -328,7 +328,7 @@ export async function dialTarget(job: DialJob): Promise<void> {
   const { data: targetRaw, error: tErr } = await sb
     .from("campaign_targets")
     .select(
-      "id,campaign_id,contact_id,status,attempts,contacts(e164,display_name)",
+      "id,campaign_id,contact_id,status,attempts,payload,contacts(e164,display_name)",
     )
     .eq("id", job.target_id)
     .single();
@@ -347,7 +347,7 @@ export async function dialTarget(job: DialJob): Promise<void> {
   const { data: campaignRaw, error: cErr } = await sb
     .from("campaigns")
     .select(
-      "id,org_id,state,phone_number_id,caller_id_e164,amd_enabled,max_attempts,retry_delay_min,agent_handle_id",
+      "id,org_id,state,phone_number_id,caller_id_e164,amd_enabled,max_attempts,retry_delay_min,agent_handle_id,metadata",
     )
     .eq("id", job.campaign_id)
     .single();
@@ -411,6 +411,75 @@ export async function dialTarget(job: DialJob): Promise<void> {
       .update({ status: "failed", last_attempt_at: new Date().toISOString() })
       .eq("id", target.id);
     return;
+  }
+
+  // ─── Pre-call SMS gate (campaign.metadata.precall_sms) ───────────────────
+  // When the campaign opts in, the patient gets a templated SMS ~lead_minutes
+  // before EACH dial attempt (so they recognise the incoming call). We key the
+  // "already texted?" check on the UPCOMING attempt number: payload
+  // .precall_sms_attempt === attempts+1 means the SMS for this very attempt is
+  // already out, so fall through and dial. Otherwise we (atomically) claim the
+  // row, defer it by lead_minutes, send the SMS, and return WITHOUT dialing —
+  // the same target is re-picked ~lead_minutes later and dials then. Because
+  // every real dial bumps `attempts`, the next attempt's check fails again and
+  // re-sends — one SMS per call, exactly as specified. No-op for every campaign
+  // that doesn't set metadata.precall_sms (i.e. all existing campaigns).
+  const precall = campaign.metadata?.precall_sms;
+  if (precall?.enabled && precall.content_sid) {
+    const upcoming = (target.attempts ?? 0) + 1;
+    const payload = target.payload ?? {};
+    const lastSmsAttempt = Number((payload as Record<string, unknown>).precall_sms_attempt ?? 0);
+    if (lastSmsAttempt !== upcoming) {
+      const leadMin = Math.max(1, Math.min(15, Number(precall.lead_minutes ?? 2)));
+      const nextAt = new Date(Date.now() + leadMin * 60_000).toISOString();
+      const smsFrom = precall.from || fromE164;
+      // Atomic claim: mark this attempt's SMS as sent AND push next_attempt_at
+      // out by lead_minutes, guarded on status='pending' so a concurrent tick
+      // can't double-send. If we don't win the row, another worker has it.
+      const { data: claimed, error: claimErr } = await sb
+        .from("campaign_targets")
+        .update({
+          next_attempt_at: nextAt,
+          payload: { ...payload, precall_sms_attempt: upcoming, precall_sms_at: new Date().toISOString() },
+        })
+        .eq("id", target.id)
+        .eq("status", "pending")
+        .select("id");
+      if (claimErr || !claimed || claimed.length === 0) {
+        dlog("info", ctx, "precall-sms: row not claimable (concurrent pick / not pending) — skipping");
+        return;
+      }
+      const rawFirst = (contact?.display_name ?? "").trim().split(/\s+/)[0] || "";
+      const firstName = rawFirst
+        ? rawFirst.charAt(0).toUpperCase() + rawFirst.slice(1)
+        : "there";
+      try {
+        const sms = await sendContentSms({
+          to: toE164,
+          from: smsFrom,
+          contentSid: precall.content_sid,
+          variables: { "1": firstName },
+        });
+        dlog(
+          "info",
+          { ...ctx, call_id: sms.sid },
+          `precall-sms sent to=${toE164} from=${smsFrom} attempt=${upcoming} — dial in ~${leadMin}min`,
+        );
+      } catch (e) {
+        // Send failed: roll the marker back so the next pick RE-SENDS (we must
+        // not dial un-texted), and retry sooner than a full lead window.
+        const msg = e instanceof Error ? e.message : String(e);
+        dlog("warn", ctx, `precall-sms send failed (will retry): ${msg}`);
+        await sb
+          .from("campaign_targets")
+          .update({
+            next_attempt_at: new Date(Date.now() + 60_000).toISOString(),
+            payload: { ...payload, precall_sms_attempt: lastSmsAttempt, precall_sms_error: msg },
+          })
+          .eq("id", target.id);
+      }
+      return; // dial happens on the next pick, once the SMS has had time to land
+    }
   }
 
   // DNC enforcement — abort before bumping attempts so we don't burn through

@@ -31,6 +31,20 @@ export interface DialTargetRow {
   status: string;
   attempts: number | null;
   contacts: ContactRow | ContactRow[] | null;
+  // jsonb bag carried through the dial loop (twilio sid, last_error, and — for
+  // the pre-call SMS gate — precall_sms_attempt bookkeeping).
+  payload: Record<string, unknown> | null;
+}
+
+/**
+ * Pre-call SMS config (campaign.metadata.precall_sms). When `enabled`, the dial
+ * loop sends `content_sid` from `from` ~`lead_minutes` before each dial.
+ */
+export interface PrecallSmsConfig {
+  enabled?: boolean;
+  content_sid?: string;
+  from?: string;
+  lead_minutes?: number;
 }
 
 export interface DialCampaignRow {
@@ -42,6 +56,7 @@ export interface DialCampaignRow {
   amd_enabled: boolean | null;
   max_attempts: number | null;
   retry_delay_min: number | null;
+  metadata: { precall_sms?: PrecallSmsConfig } | null;
 }
 
 /**
@@ -70,6 +85,10 @@ export function toDialTargetRow(row: Record<string, unknown>): DialTargetRow {
     status: String(row.status),
     attempts: typeof row.attempts === "number" ? row.attempts : null,
     contacts: (row.contacts ?? null) as ContactRow | ContactRow[] | null,
+    payload:
+      row.payload && typeof row.payload === "object"
+        ? (row.payload as Record<string, unknown>)
+        : null,
   };
 }
 
@@ -86,5 +105,9 @@ export function toDialCampaignRow(row: Record<string, unknown>): DialCampaignRow
     max_attempts: typeof row.max_attempts === "number" ? row.max_attempts : null,
     retry_delay_min:
       typeof row.retry_delay_min === "number" ? row.retry_delay_min : null,
+    metadata:
+      row.metadata && typeof row.metadata === "object"
+        ? (row.metadata as { precall_sms?: PrecallSmsConfig })
+        : null,
   };
 }
