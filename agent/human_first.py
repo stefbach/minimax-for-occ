@@ -59,6 +59,56 @@ def _patch_call(call_id: str, body: dict) -> bool:
         return False
 
 
+def _norm_e164(raw: Any) -> Optional[str]:
+    """Normalise a SIP-provided number to +E.164, or None if it doesn't look
+    like one. LiveKit usually hands a clean +44…; we strip spaces and a leading
+    'sip:'/'tel:' wrapper just in case."""
+    s = str(raw or "").strip()
+    if not s:
+        return None
+    for pfx in ("sip:", "tel:"):
+        if s.lower().startswith(pfx):
+            s = s[len(pfx):]
+    s = s.split("@", 1)[0].replace(" ", "")
+    if s and not s.startswith("+") and s.isdigit():
+        s = "+" + s
+    return s if (s.startswith("+") and s[1:].isdigit() and 6 <= len(s) - 1 <= 15) else None
+
+
+def _patch_call_if_null(call_id: str, col: str, val: str) -> None:
+    """Set calls.<col>=val ONLY when it is currently NULL (PostgREST filter).
+    Safe for outbound rows (already populated) — it only fills the gaps the
+    inbound SIP path leaves behind. Never raises."""
+    try:
+        with httpx.Client(timeout=_TIMEOUT, headers=_supabase_headers()) as c:
+            c.patch(
+                _supabase_url(f"/rest/v1/calls?id=eq.{call_id}&{col}=is.null"),
+                headers={**_supabase_headers(), "Content-Type": "application/json", "Prefer": "return=minimal"},
+                json={col: val},
+            )
+    except Exception:
+        pass
+
+
+async def capture_inbound_numbers(call_id: str, from_raw: Any, to_raw: Any, clog: logging.Logger) -> Optional[str]:
+    """Persist the caller (from) + dialed (to) E.164 on an inbound call row.
+
+    Genuine inbound SIP calls arrive via the trunk with LiveKit's native
+    ``sip.phoneNumber`` (caller) / ``sip.trunkPhoneNumber`` (dialed number), NOT
+    the ``X-LK-*`` headers the dispatch rule maps — so calls.from_e164/to_e164
+    stay NULL and per-number routing + the dashboard Entrants tab have nothing
+    to key on. We fill the NULLs here. Returns the resolved to_e164 (dialed
+    number) so the caller can drive per-number routing. Best-effort."""
+    f = _norm_e164(from_raw)
+    t = _norm_e164(to_raw)
+    clog.info("[inbound] capture numbers from=%s to=%s (raw from=%r to=%r)", f, t, from_raw, to_raw)
+    if f:
+        await asyncio.to_thread(_patch_call_if_null, call_id, "from_e164", f)
+    if t:
+        await asyncio.to_thread(_patch_call_if_null, call_id, "to_e164", t)
+    return t
+
+
 def _lookup_inbound(call_id: str) -> Optional[dict]:
     """Resolve {org_id, to_e164, state, phone_number_id, inbound_enabled}."""
     rows = _get(f"/rest/v1/calls?id=eq.{call_id}&select=org_id,to_e164,state&limit=1")
