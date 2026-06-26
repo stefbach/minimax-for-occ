@@ -166,17 +166,16 @@ export async function GET(request: Request) {
     if (b === "passer_humain") rdvTransfer += 1;
   }
 
-  // Distribution of calls per lead phone (attempt funnel)
+  // Distribution: each lead is bucketed by their TOTAL call count.
+  // "Tentative N" = leads who received exactly N calls (capped at 10+).
+  // "Leads" = unique leads in that bucket, "Appels" = their total calls.
   const attemptMap = new Map<number, { contacts: number; calls: number }>();
   for (const [, calls] of byContact.entries()) {
-    calls.sort((a, b) => (a.started_at ?? "").localeCompare(b.started_at ?? ""));
-    calls.forEach((r, i) => {
-      const attempt = Math.min(i + 1, 10); // cap at "10+"
-      const agg = attemptMap.get(attempt) ?? { contacts: 0, calls: 0 };
-      if (i === 0) agg.contacts += 1; // count contact once per first call
-      agg.calls += 1;
-      attemptMap.set(attempt, agg);
-    });
+    const n = Math.min(calls.length, 10);
+    const agg = attemptMap.get(n) ?? { contacts: 0, calls: 0 };
+    agg.contacts += 1;
+    agg.calls += calls.length;
+    attemptMap.set(n, agg);
   }
   const calls_distribution = Array.from(attemptMap.entries())
     .sort((a, b) => a[0] - b[0])
