@@ -1638,6 +1638,16 @@ const EN: Record<string, string> = {
   "Aucun numéro ne correspond aux filtres.": "No numbers match the filters.",
   "● Faible": "● Low",
   "○ Jamais utilisé": "○ Never used",
+  // ── Calendrier IA ──
+  "Calendrier IA": "AI Calendar",
+  "Les rappels que Charlotte (IA) passera à l'heure demandée par le patient.": "Callbacks Charlotte (AI) will make at the patient's requested time.",
+  "Rappels que Charlotte (IA) passera à l'heure demandée par le patient. Heures affichées en heure UK.": "Callbacks Charlotte (AI) will make at the patient's requested time. Times shown in UK time.",
+  "Rappels IA": "AI Callbacks",
+  "Rappel Charlotte": "Charlotte callback",
+  "Confier à un agent": "Hand off to agent",
+  "Confier ce rappel à un agent humain": "Hand this callback off to a human agent",
+  "Pool (non assigné)": "Pool (unassigned)",
+  "Aucun rappel programmé pour l'IA. Quand un patient demande à être rappelé à une heure précise, le rappel apparaîtra ici.": "No AI callbacks scheduled. When a patient requests a specific callback time, it will appear here.",
   // ── DirectorTab ──
   "Appels entrants": "Inbound calls",
   "Voir tous les entrants": "View all inbound calls",
