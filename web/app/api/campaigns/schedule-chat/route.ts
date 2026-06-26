@@ -24,6 +24,8 @@ interface ChatContext {
   detected_relance_phases?: number | null;
   concurrency_limit?: number | null;
   org_category?: string | null;
+  is_human_campaign?: boolean;
+  human_agent_name?: string | null;
 }
 
 function buildSystem(ctx: ChatContext): string {
@@ -32,7 +34,15 @@ function buildSystem(ctx: ChatContext): string {
   const sectorLine = ctx.org_category
     ? `\nSecteur du client : ${ctx.org_category}. Adapte ton vocabulaire à ce métier (ex. « réservations » pour un restaurant/hôtel, « relances » pour un recouvrement, « rappels » pour une clinique), mais ne change RIEN à la mécanique de planification.`
     : "";
-  return `Tu es l'assistant de planification de campagnes d'appels d'Axon. L'opérateur a déjà choisi QUI appelle (le numéro émetteur) et QUI appeler (la base de contacts). Ton SEUL rôle est de définir le « QUAND » : jours, fuseau horaire, plages horaires, et — pour les campagnes continues — la cadence de relances, les statuts ciblés et le volume.${sectorLine}
+  const humanLine = ctx.is_human_campaign
+    ? `\n\nCAMPAGNE AGENT HUMAIN${ctx.human_agent_name ? ` (${ctx.human_agent_name})` : ""} : ce n'est PAS une campagne IA. Le système appelle les leads (et envoie le SMS/WhatsApp si activé) puis connecte chaque appel décroché au softphone de l'agent, UN PAR UN. Conséquences à prendre en compte quand tu planifies :
+- Les plages horaires que tu définis doivent correspondre aux heures où l'agent est réellement disponible pour décrocher (pas 24h/24).
+- C'est l'agent qui démarre et arrête la campagne depuis « Mon poste » : le système n'envoie les messages et n'appelle QUE quand l'agent a activé la campagne ET qu'il est en ligne avec le statut « Disponible ». Rappelle-le à l'opérateur si utile.
+- La concurrence est forcée à 1 (un appel à la fois) — ne propose pas plus.
+- Le volume « nouveaux par créneau » peut rester modéré : l'agent ne traite qu'un appel à la fois.
+Reste sur le « quand » comme pour toute campagne ; ces points ne changent que le cadrage, pas tes outils.`
+    : "";
+  return `Tu es l'assistant de planification de campagnes d'appels d'Axon. L'opérateur a déjà choisi QUI appelle (le numéro émetteur) et QUI appeler (la base de contacts). Ton SEUL rôle est de définir le « QUAND » : jours, fuseau horaire, plages horaires, et — pour les campagnes continues — la cadence de relances, les statuts ciblés et le volume.${sectorLine}${humanLine}
 
 Déroulé attendu :
 1. Discute avec l'opérateur en français, naturel et concis. Pose des questions seulement si une information indispensable manque (jours, heures, fuseau).

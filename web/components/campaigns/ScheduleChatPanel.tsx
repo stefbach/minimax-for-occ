@@ -18,6 +18,12 @@ export interface ScheduleChatContext {
   /** Business vertical of the org (Hôtel, Restaurant, Clinique, …) so the
    *  assistant speaks the client's language. */
   org_category: string | null;
+  /** True when a human desk agent runs this campaign (the system dials and
+   *  connects answered leads to the agent's softphone). Changes how the
+   *  assistant frames timing: the agent activates the campaign from "Mon
+   *  poste" and must be online for calls to go out. */
+  is_human_campaign?: boolean;
+  human_agent_name?: string | null;
 }
 
 export interface FinalizeResult {

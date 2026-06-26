@@ -73,6 +73,16 @@ interface Target {
   name: string | null;
 }
 
+/** A Twilio Content template, as returned by /api/twilio/content-templates. */
+interface ContentTemplate {
+  sid: string;
+  friendly_name: string;
+  language: string | null;
+  variables: string[];
+  body: string | null;
+  type_keys: string[];
+}
+
 const DAYS = [
   { id: 1, label: "Lun" },
   { id: 2, label: "Mar" },
@@ -254,6 +264,195 @@ function parseCsv(text: string): Target[] {
   return out;
 }
 
+/**
+ * Picks a Twilio Content template (SMS or WhatsApp) from a dropdown, with a
+ * manual "saisir un SID" escape hatch — and a graceful fallback to a raw input
+ * when Twilio returned no templates (not configured / none approved). The
+ * selected template's body is previewed so the operator confirms the wording.
+ */
+function ContentSidPicker({
+  channel,
+  templates,
+  templatesLoaded,
+  value,
+  onChange,
+}: {
+  channel: string;
+  templates: ContentTemplate[];
+  templatesLoaded: boolean;
+  value: string;
+  onChange: (sid: string) => void;
+}) {
+  const known = templates.find((t) => t.sid === value) ?? null;
+  const noTemplates = templatesLoaded && templates.length === 0;
+  // Manual when the operator asked for it, or a value is set that isn't a known
+  // template (e.g. a legacy SID), or Twilio returned nothing.
+  const [manual, setManual] = useState<boolean>(Boolean(value) && templatesLoaded && !known);
+  const useManual = manual || noTemplates;
+
+  return (
+    <div style={{ display: "grid", gap: 6 }}>
+      {!useManual ? (
+        <>
+          <select
+            value={known ? value : ""}
+            onChange={(e) => {
+              if (e.target.value === "__manual__") {
+                setManual(true);
+                onChange("");
+              } else {
+                onChange(e.target.value);
+              }
+            }}
+          >
+            <option value="">{templatesLoaded ? "— choisir un modèle —" : "Chargement des modèles…"}</option>
+            {templates.map((t) => (
+              <option key={t.sid} value={t.sid}>
+                {t.friendly_name}
+                {t.language ? ` (${t.language})` : ""}
+                {t.variables.length ? ` · ${t.variables.length} var.` : ""}
+              </option>
+            ))}
+            <option value="__manual__">✏️ Autre — saisir un SID manuellement…</option>
+          </select>
+          {known?.body && (
+            <div className="muted" style={{ fontSize: 12, fontStyle: "italic", lineHeight: 1.45 }}>
+              « {known.body.length > 160 ? `${known.body.slice(0, 160)}…` : known.body} »
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          <input
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder="HX…"
+            style={{ fontFamily: "ui-monospace, monospace" }}
+          />
+          {!noTemplates && (
+            <button
+              type="button"
+              className="ghost"
+              style={{ justifySelf: "start", padding: "4px 10px", fontSize: 12 }}
+              onClick={() => {
+                setManual(false);
+                onChange("");
+              }}
+            >
+              ↩ Choisir dans la liste
+            </button>
+          )}
+        </>
+      )}
+      <div className="muted" style={{ fontSize: 12 }}>
+        {noTemplates ? (
+          `Aucun modèle ${channel} récupéré depuis Twilio — saisis le Content SID (HX…) à la main.`
+        ) : (
+          <>Modèle {channel} approuvé dans Twilio. La variable {"{{1}}"} reçoit le prénom du patient.</>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Human desk campaign "Qui appeler" picker: choose which leads the agent calls
+ * by qualification and/or by assignment (the `agent` column). Both write into
+ * engineConfig.selection (include_statuses + assigned_column/assigned_values)
+ * and combine with AND. Assignment values are often opaque ids, so each is
+ * shown with its lead count — the operator recognises a bucket by its size.
+ */
+function HumanLeadSelection({
+  facetQual,
+  facetAgent,
+  loaded,
+  selectedQuals,
+  selectedAssigned,
+  onToggleQual,
+  onToggleAssigned,
+}: {
+  facetQual: Array<{ value: string; count: number }>;
+  facetAgent: Array<{ value: string; count: number }>;
+  loaded: boolean;
+  selectedQuals: string[];
+  selectedAssigned: string[];
+  onToggleQual: (v: string) => void;
+  onToggleAssigned: (v: string) => void;
+}) {
+  const nothingSelected = selectedQuals.length === 0 && selectedAssigned.length === 0;
+  const chip = (on: boolean): React.CSSProperties => ({
+    padding: "6px 10px",
+    fontSize: 12,
+    borderColor: on ? "var(--accent)" : "var(--border)",
+  });
+  return (
+    <div style={{ display: "grid", gap: 14, background: "var(--bg-2)", border: "1px solid var(--border)", borderRadius: 10, padding: 14 }}>
+      <div>
+        <h4 style={{ margin: 0, fontSize: 14 }}>👤 Qui appeler — leads de l&apos;agent</h4>
+        <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+          Cible les leads par <strong>qualification</strong> et/ou par <strong>assignation</strong>. Les deux se combinent (ET).
+        </div>
+      </div>
+
+      {/* Par qualification */}
+      <div style={{ display: "grid", gap: 8 }}>
+        <label style={{ fontSize: 13, fontWeight: 600 }}>Par qualification</label>
+        {facetQual.length === 0 ? (
+          <div className="muted" style={{ fontSize: 12 }}>{loaded ? "Aucune qualification trouvée dans la table." : "Chargement…"}</div>
+        ) : (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {facetQual.map((f) => {
+              const on = selectedQuals.includes(f.value);
+              return (
+                <button key={f.value} type="button" className={on ? "" : "ghost"} style={chip(on)}
+                  onClick={() => onToggleQual(f.value)}>
+                  {f.value} <span style={{ opacity: 0.6 }}>· {f.count}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Par assignation (optionnel) */}
+      <details>
+        <summary style={{ cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
+          Filtrer aussi par assignation (optionnel)
+        </summary>
+        <div style={{ marginTop: 8 }}>
+          <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>
+            Restreindre aux leads assignés à un agent précis dans la table (colonne « agent »).
+            Chaque case = une valeur d&apos;assignation et son nombre de leads.
+          </div>
+          {facetAgent.length === 0 ? (
+            <div className="muted" style={{ fontSize: 12 }}>{loaded ? "Aucune assignation trouvée." : "Chargement…"}</div>
+          ) : (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {facetAgent.map((f, i) => {
+                const on = selectedAssigned.includes(f.value);
+                return (
+                  <button key={f.value} type="button" className={on ? "" : "ghost"} style={chip(on)}
+                    title={f.value} onClick={() => onToggleAssigned(f.value)}>
+                    #{i + 1} · {f.count} leads{" "}
+                    <span style={{ opacity: 0.5, fontFamily: "ui-monospace, monospace" }}>{f.value.slice(0, 6)}…</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </details>
+
+      {nothingSelected && loaded && (
+        <div style={{ fontSize: 12, color: "#b45309" }}>
+          ⚠️ Aucun filtre : la campagne appellera <strong>tous les leads éligibles</strong> de la table.
+          Choisis au moins une qualification ou une assignation pour ne cibler que les leads de l&apos;agent.
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function CampaignWizard({
   template = null,
   agents,
@@ -381,6 +580,33 @@ export function CampaignWizard({
   const [precallLeadMin, setPrecallLeadMin] = useState(2);
   const precallOn = precallSmsOn || precallWaOn;
 
+  // Twilio Content templates — fetched once so the SMS/WhatsApp pickers offer a
+  // dropdown of real, approved templates instead of a raw HX… SID field.
+  const [templates, setTemplates] = useState<ContentTemplate[]>([]);
+  const [templatesLoaded, setTemplatesLoaded] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/twilio/content-templates");
+        const json = (await res.json()) as { templates?: ContentTemplate[] };
+        if (!cancelled) setTemplates(Array.isArray(json.templates) ? json.templates : []);
+      } catch {
+        /* leave empty → pickers fall back to manual SID entry */
+      } finally {
+        if (!cancelled) setTemplatesLoaded(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Human-campaign "Qui appeler" facets: distinct qualification + assignment
+  // (agent) values with counts, so the operator targets leads by qualification
+  // and/or by who they're assigned to. Loaded only for human desk campaigns.
+  const [facetQual, setFacetQual] = useState<Array<{ value: string; count: number }>>([]);
+  const [facetAgent, setFacetAgent] = useState<Array<{ value: string; count: number }>>([]);
+  const [facetsLoaded, setFacetsLoaded] = useState(false);
+
   // Step navigation: 1 = Qui appelle, 2 = Qui appeler, 3 = Quand.
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -423,6 +649,74 @@ export function CampaignWizard({
   // (otherwise the dialer would race several leads into the agent's desk room).
   const isHumanCampaign = !teamId && selectedAgent?.kind === "human";
   const selectedNumber = numbers.find((n) => n.id === phoneNumberId) ?? null;
+
+  // Load qualification + assignment facets when configuring a human campaign on
+  // a data table (the only case the friendly "Qui appeler" pickers are shown).
+  useEffect(() => {
+    if (!isHumanCampaign || !dataTableId) {
+      setFacetQual([]);
+      setFacetAgent([]);
+      setFacetsLoaded(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/campaigns/table-facets?data_table_id=${encodeURIComponent(dataTableId)}&columns=qualification,agent`,
+        );
+        if (!res.ok) return;
+        const json = (await res.json()) as {
+          facets?: { qualification?: Array<{ value: string; count: number }>; agent?: Array<{ value: string; count: number }> };
+        };
+        if (cancelled) return;
+        setFacetQual(json.facets?.qualification ?? []);
+        setFacetAgent(json.facets?.agent ?? []);
+      } catch {
+        /* non-blocking */
+      } finally {
+        if (!cancelled) setFacetsLoaded(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isHumanCampaign, dataTableId]);
+
+  // Selection helpers for the human "Qui appeler" pickers — they write straight
+  // into engineConfig.selection (include_statuses + assigned_column/values).
+  const humanQuals = engineConfig?.selection.include_statuses ?? [];
+  const humanAssigned = engineConfig?.selection.assigned_values ?? [];
+  function toggleHumanQual(v: string) {
+    setEngineConfig((prev) => {
+      if (!prev) return prev;
+      const has = prev.selection.include_statuses.includes(v);
+      return {
+        ...prev,
+        selection: {
+          ...prev.selection,
+          status_column: prev.selection.status_column || "qualification",
+          include_statuses: has
+            ? prev.selection.include_statuses.filter((x) => x !== v)
+            : [...prev.selection.include_statuses, v],
+        },
+      };
+    });
+  }
+  function toggleHumanAssigned(v: string) {
+    setEngineConfig((prev) => {
+      if (!prev) return prev;
+      const cur = prev.selection.assigned_values ?? [];
+      const has = cur.includes(v);
+      const next = has ? cur.filter((x) => x !== v) : [...cur, v];
+      return {
+        ...prev,
+        selection: {
+          ...prev.selection,
+          assigned_column: next.length > 0 ? "agent" : null,
+          assigned_values: next,
+        },
+      };
+    });
+  }
 
   const csvTargets = useMemo(() => parseCsv(csvText), [csvText]);
   const pickedContacts = useMemo(
@@ -532,6 +826,11 @@ export function CampaignWizard({
     const finalEngine = dynamicMode && dataTableId && engineConfig
       ? {
           ...engineConfig,
+          // The assignment filter is a human-campaign concept only — strip it
+          // from AI campaigns so a stale selection can't narrow them.
+          selection: isHumanCampaign
+            ? engineConfig.selection
+            : { ...engineConfig.selection, assigned_column: null, assigned_values: [] },
           slots: {
             ...engineConfig.slots,
             days,
@@ -761,9 +1060,11 @@ export function CampaignWizard({
       detected_relance_phases: selectedDataTable ? relancePhases : null,
       concurrency_limit: PLAN_CONCURRENCY_LIMIT,
       org_category: orgCategory,
+      is_human_campaign: isHumanCampaign,
+      human_agent_name: isHumanCampaign ? (selectedAgent?.display_name ?? null) : null,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dynamicMode, dataTableId, selectedDataTable, tableStatusValues, orgCategory]);
+  }, [dynamicMode, dataTableId, selectedDataTable, tableStatusValues, orgCategory, isHumanCampaign, selectedAgent]);
 
   const STEPS: { n: 1 | 2 | 3; label: string; icon: string }[] = [
     { n: 1, label: "Qui appelle ?", icon: "🎙" },
@@ -1132,18 +1433,33 @@ export function CampaignWizard({
               )}
 
               {selectedDataTable && dynamicMode && engineConfig && (
-                <DynamicEngineConfig
-                  columns={selectedDataTable.columns}
-                  phoneColumn={selectedDataTable.phone_column}
-                  value={engineConfig}
-                  onChange={setEngineConfig}
-                  // Créneaux are configured once in step 3 (single source of
-                  // truth — no more dual UI between engine + planning). Same
-                  // for the multi-day relances (J1/J3/J5) — those are timing
-                  // logic and belong with step 3 "Quand", not "Qui appeler".
-                  hideSlots
-                  section="no-cadence"
-                />
+                isHumanCampaign ? (
+                  // Human desk campaign: a friendly target picker (qualification
+                  // and/or assignment) instead of the full engine form — the
+                  // operator just chooses which leads this agent calls.
+                  <HumanLeadSelection
+                    facetQual={facetQual}
+                    facetAgent={facetAgent}
+                    loaded={facetsLoaded}
+                    selectedQuals={humanQuals}
+                    selectedAssigned={humanAssigned}
+                    onToggleQual={toggleHumanQual}
+                    onToggleAssigned={toggleHumanAssigned}
+                  />
+                ) : (
+                  <DynamicEngineConfig
+                    columns={selectedDataTable.columns}
+                    phoneColumn={selectedDataTable.phone_column}
+                    value={engineConfig}
+                    onChange={setEngineConfig}
+                    // Créneaux are configured once in step 3 (single source of
+                    // truth — no more dual UI between engine + planning). Same
+                    // for the multi-day relances (J1/J3/J5) — those are timing
+                    // logic and belong with step 3 "Quand", not "Qui appeler".
+                    hideSlots
+                    section="no-cadence"
+                  />
+                )
               )}
             </div>
           )}
@@ -1253,9 +1569,8 @@ export function CampaignWizard({
             {precallSmsOn && (
               <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
                 <div>
-                  <label>Modèle SMS — identifiant Twilio (Content SID)</label>
-                  <input value={precallSmsSid} onChange={(e) => setPrecallSmsSid(e.target.value)} placeholder="HX…" style={{ fontFamily: "ui-monospace, monospace" }} />
-                  <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>Modèle approuvé dans Twilio (Messaging → Content Template Builder). La variable {"{{1}}"} reçoit le prénom du patient.</div>
+                  <label>Modèle SMS</label>
+                  <ContentSidPicker channel="SMS" templates={templates} templatesLoaded={templatesLoaded} value={precallSmsSid} onChange={setPrecallSmsSid} />
                 </div>
                 <div>
                   <label>Numéro d&apos;envoi SMS</label>
@@ -1274,9 +1589,8 @@ export function CampaignWizard({
             {precallWaOn && (
               <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
                 <div>
-                  <label>Modèle WhatsApp — identifiant Twilio (Content SID)</label>
-                  <input value={precallWaSid} onChange={(e) => setPrecallWaSid(e.target.value)} placeholder="HX…" style={{ fontFamily: "ui-monospace, monospace" }} />
-                  <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>Modèle WhatsApp approuvé dans Twilio. La variable {"{{1}}"} reçoit le prénom du patient.</div>
+                  <label>Modèle WhatsApp</label>
+                  <ContentSidPicker channel="WhatsApp" templates={templates} templatesLoaded={templatesLoaded} value={precallWaSid} onChange={setPrecallWaSid} />
                 </div>
                 <div>
                   <label>Numéro d&apos;envoi WhatsApp</label>

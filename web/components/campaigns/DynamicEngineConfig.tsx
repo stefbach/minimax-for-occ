@@ -27,6 +27,11 @@ export interface EngineConfig {
     phone_starts_with: string;
     phone_min_len: number | null;
     phone_max_len: number | null;
+    /** Optional second filter (ANDed with the status whitelist): restrict to
+     *  rows whose `assigned_column` is one of `assigned_values`. Used by human
+     *  desk campaigns to call only the leads assigned to that agent. */
+    assigned_column?: string | null;
+    assigned_values?: string[];
   };
   callback: { enabled: boolean; status_value: string; datetime_column: string };
   cadence: {
@@ -136,6 +141,8 @@ export function defaultEngineConfig(columns: Column[], phoneColumn: string): Eng
       phone_starts_with: "",
       phone_min_len: null,
       phone_max_len: null,
+      assigned_column: null,
+      assigned_values: [],
     },
     callback: { enabled: Boolean(cbCol), status_value: "RAPPEL", datetime_column: cbCol },
     cadence: {

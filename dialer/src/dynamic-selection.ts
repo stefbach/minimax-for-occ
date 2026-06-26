@@ -54,6 +54,12 @@ interface EngineConfig {
     phone_starts_with: string;
     phone_min_len: number | null;
     phone_max_len: number | null;
+    /** Optional second filter, ANDed with the status whitelist: restrict to
+     *  rows whose `assigned_column` is one of `assigned_values`. Used by human
+     *  desk campaigns to call ONLY the leads assigned to that agent. Empty /
+     *  unset = no assignment filter (every status-matching row is eligible). */
+    assigned_column?: string | null;
+    assigned_values?: string[];
   };
   callback: { enabled: boolean; status_value: string; datetime_column: string };
   cadence: {
@@ -370,6 +376,10 @@ export async function runDynamicSelection(sb: SupabaseClient, campaign: Campaign
       if (engine.selection.include_statuses.length > 0) {
         q = q.in(engine.selection.status_column, engine.selection.include_statuses);
       }
+      // Optional assignment filter (human desk campaigns): only this agent's leads.
+      if (engine.selection.assigned_column && (engine.selection.assigned_values?.length ?? 0) > 0) {
+        q = q.in(engine.selection.assigned_column, engine.selection.assigned_values!);
+      }
       // Claim campaigns work ONLY their reserved leads; every other campaign
       // skips claimed leads so it can't double-dial a reserved patient. With no
       // lead claimed yet, `claimed_by_campaign IS NULL` matches everything, so
@@ -511,6 +521,11 @@ async function claimNewLeads(
     .limit(Math.min(1000, perDay + 300));
   if (engine.selection.include_statuses.length > 0) {
     q = q.in(engine.selection.status_column, engine.selection.include_statuses);
+  }
+  // Same assignment filter at claim time, so a human campaign only reserves
+  // (claims) leads that belong to its agent.
+  if (engine.selection.assigned_column && (engine.selection.assigned_values?.length ?? 0) > 0) {
+    q = q.in(engine.selection.assigned_column, engine.selection.assigned_values!);
   }
   // Sanity-bound the order column so corrupt values (BMI up to 1.5M) can't be
   // reserved ahead of real high-BMI patients.
