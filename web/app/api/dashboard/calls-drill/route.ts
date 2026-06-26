@@ -36,6 +36,7 @@ export type DrillCall = {
   agent_name: string | null;
   phone: string | null;
   disposition: string | null;
+  assignee: string | null;
 };
 
 export type DrillResponse = {
@@ -224,6 +225,7 @@ export async function GET(request: Request) {
         agent_name: r.agent_handles?.display_name ?? null,
         phone,
         disposition: r.disposition,
+        assignee: null,
       };
     }),
   };
