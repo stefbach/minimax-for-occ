@@ -85,6 +85,7 @@ export async function GET(req: Request) {
     let call_at: string | null = null;
     let delay_secs: number | null = null;
     let duration_secs: number | null = null;
+    let qualification: string | null = null;
     if (after) {
       call_id = after.id;
       call_at = after.started_at;
@@ -93,16 +94,19 @@ export async function GET(req: Request) {
         sentAt && after.started_at
           ? Math.round((new Date(after.started_at).getTime() - new Date(sentAt).getTime()) / 1000)
           : null;
+      // Post-call qualification (RAPPEL, PAS INTERESSE, RDV CONFIRME, …) for the
+      // dashboard column — what the agent recorded once the call ended.
+      qualification = (after.metadata?.qualification ?? after.disposition ?? null) || null;
       // "Décroché" = a real HUMAN picked up. A répondeur / voicemail also sets
       // answered_at (the machine answers), so we must test the qualification
       // FIRST and exclude it — otherwise voicemails inflate the answered count
       // (Wati 26/06). REPONDEUR is carried on calls.metadata.qualification.
-      const qual = String(after.metadata?.qualification ?? after.disposition ?? "");
+      const qual = String(qualification ?? "");
       if (/repond|voicemail|messagerie|machine|\bamd\b/i.test(qual)) answered = "voicemail";
       else if (after.answered_at) answered = "answered";
       else answered = "no_answer";
     }
-    return { ...r, call_id, call_at, delay_secs, duration_secs, answered };
+    return { ...r, call_id, call_at, delay_secs, duration_secs, answered, qualification };
   });
 
   return NextResponse.json(out);

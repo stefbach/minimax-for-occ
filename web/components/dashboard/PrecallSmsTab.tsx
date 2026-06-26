@@ -25,6 +25,17 @@ interface SmsRow {
   delay_secs: number | null;
   duration_secs: number | null;
   answered: "answered" | "no_answer" | "voicemail" | "pending";
+  qualification: string | null;
+}
+
+// Colour the post-call qualification by outcome family.
+function qualTone(q: string | null): string {
+  if (!q) return "var(--muted)";
+  const u = q.toUpperCase();
+  if (/RDV CONFIRME|A PASSER A L'HUMAIN|INTERESSE(?! PAS)|RAPPEL/.test(u) && !/PAS INTERESSE/.test(u)) return "var(--good)";
+  if (/PAS INTERESSE|NE PAS RAPPELER|NON ELIGIBLE|FAUX NUMERO/.test(u)) return "var(--bad)";
+  if (/REPONDEUR|PAS DE REPONSE|SUIVI REQUIS/.test(u)) return "var(--warn)";
+  return "var(--muted)";
 }
 
 type StatusFilter = "all" | "answered" | "no_answer" | "voicemail" | "pending" | "failed";
@@ -187,13 +198,14 @@ export function PrecallSmsTab({ from, to }: { from: string; to: string; global?:
               <th style={{ textAlign: "center" }}>{t("Envoi")}</th>
               <th>{t("Appel après")}</th>
               <th>{t("A décroché ?")}</th>
+              <th>{t("Qualification")}</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={7} className="muted" style={{ padding: 16, textAlign: "center" }}>{t("Chargement…")}</td></tr>
+              <tr><td colSpan={8} className="muted" style={{ padding: 16, textAlign: "center" }}>{t("Chargement…")}</td></tr>
             ) : filtered.length === 0 ? (
-              <tr><td colSpan={7} className="muted" style={{ padding: 24, textAlign: "center" }}>
+              <tr><td colSpan={8} className="muted" style={{ padding: 24, textAlign: "center" }}>
                 {rows.length === 0
                   ? t("Aucun SMS pré-appel envoyé sur cette période. Ils apparaîtront ici dès que la campagne tourne.")
                   : t("Aucun SMS ne correspond aux filtres.")}
@@ -233,6 +245,15 @@ export function PrecallSmsTab({ from, to }: { from: string; to: string; global?:
                       </Link>
                     ) : (
                       answeredBadge(r)
+                    )}
+                  </td>
+                  <td>
+                    {r.qualification ? (
+                      <span className="tag" style={{ color: qualTone(r.qualification), borderColor: qualTone(r.qualification), fontSize: 10, whiteSpace: "nowrap" }}>
+                        {r.qualification}
+                      </span>
+                    ) : (
+                      <span className="muted" style={{ fontSize: 11 }}>—</span>
                     )}
                   </td>
                 </tr>
