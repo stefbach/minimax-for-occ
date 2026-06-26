@@ -1018,6 +1018,9 @@ export function CampaignWizard({
       max_attempts: maxAttempts,
       retry_delay_min: retryDelayMin,
       amd_enabled: amdEnabled,
+      // Human desk campaigns have no AI prompt/voice — tell preflight to skip
+      // those AI-only blockers, otherwise a human campaign can never be created.
+      is_human_agent: isHumanCampaign,
       // The wizard doesn't have the raw agent row — pass a derived snapshot
       // built from the AgentHandleOption (page-loader fetched `has_prompt`
       // and `tts_voice_id` already). When the prompt is non-empty we feed a

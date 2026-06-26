@@ -74,13 +74,15 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   // voice checks. Errors are tolerated — a missing row will surface as a
   // failing check, not a 500.
   let agentSnapshot: { system_prompt: string | null; tts_voice_id: string | null } | null = null;
+  let isHumanAgent = false;
   if (campaign.agent_handle_id) {
     const { data: handle } = await sb
       .from("agent_handles")
-      .select("ai_agent_id")
+      .select("ai_agent_id, kind")
       .eq("id", campaign.agent_handle_id)
       .eq("org_id", orgId)
       .maybeSingle();
+    isHumanAgent = (handle as { kind: string | null } | null)?.kind === "human";
     const aiId = (handle as { ai_agent_id: string | null } | null)?.ai_agent_id ?? null;
     if (aiId) {
       const { data: ag } = await sb
@@ -136,6 +138,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     max_attempts: campaign.max_attempts,
     retry_delay_min: campaign.retry_delay_min,
     amd_enabled: campaign.amd_enabled,
+    is_human_agent: isHumanAgent,
     engine: campaign.metadata?.engine ?? null,
     org_id: orgId,
     agent: agentSnapshot,
