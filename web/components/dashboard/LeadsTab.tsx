@@ -242,10 +242,10 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
       {analysis && (
         <>
           <div style={{ fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.6, color: "var(--muted)", paddingTop: 4 }}>
-            Analyse décroché — {analysis.totalAnswered} conversations humaines (IA)
+            Analyse décroché — Qualifié par l&apos;IA
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
 
             <Clickable onClick={() => openDrill(
               { qualification: "passer_humain", answered: "yes" },
