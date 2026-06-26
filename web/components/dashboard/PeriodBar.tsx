@@ -30,6 +30,8 @@ export type Filters = GlobalFilters & {
   //   après-midi  = 13:00-14:00 UK = 12:00-13:00 UTC
   //   soir        = 18:00-20:00 UK = 17:00-19:00 UTC
   slot: "all" | "morning" | "afternoon" | "evening";
+  // Campaign filter: "all" means no filter, otherwise a campaign UUID
+  campaignId: string;
 };
 
 export const DEFAULT_FILTERS: Filters = {
@@ -38,6 +40,7 @@ export const DEFAULT_FILTERS: Filters = {
   leadsSource: "prod",
   system: "all",
   slot: "all",
+  campaignId: "all",
 };
 
 function startOfDay(d: Date): Date {
@@ -281,6 +284,16 @@ export function PeriodBar({
       .catch(() => alive && setOptions({ agents: [], sources: [] }));
     return () => { alive = false; };
   }, [filters.leadsSource]);
+
+  const [campaigns, setCampaigns] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    let alive = true;
+    fetch(`/api/dashboard/campaigns`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : { campaigns: [] }))
+      .then((j) => alive && setCampaigns(j.campaigns ?? []))
+      .catch(() => alive && setCampaigns([]));
+    return () => { alive = false; };
+  }, []);
   // Custom date pickers stay hidden behind the 📅 Personnalisé button until
   // wanted (or a range is already active), mirroring the legacy bar.
   const [showCustom, setShowCustom] = useState(false);
@@ -486,6 +499,20 @@ export function PeriodBar({
             <option value="all">{t("Tous")}</option>
             <option value="retell">Retell</option>
             <option value="axon">Axon</option>
+          </select>
+        </div>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+          <span className="muted" style={{ fontSize: 12 }}>{t("Campagne")}</span>
+          <select
+            value={filters.campaignId}
+            onChange={(e) => onFilters({ ...filters, campaignId: e.target.value })}
+            style={{ width: "auto", padding: "5px 8px", fontSize: 13, maxWidth: 180 }}
+            title={t("Filtrer par campagne")}
+          >
+            <option value="all">{t("Toutes")}</option>
+            {campaigns.map((c) => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
           </select>
         </div>
         <button

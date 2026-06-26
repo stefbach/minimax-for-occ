@@ -4,7 +4,7 @@ import { requestOrgId } from "@/lib/request-org";
 import { requireModule } from "@/lib/permissions-server";
 import { bucketForCall, QUAL_BUCKETS, type QualBucket } from "@/lib/qualification";
 import { isInbound, normalizeDirectionForDb } from "@/lib/call-direction";
-import { callInLeadsScope, leadsTableFor, leadsScopeFor, type LeadsSource } from "@/lib/leads-source";
+import { callInLeadsScope, campaignScopeFor, leadsTableFor, leadsScopeFor, type LeadsSource } from "@/lib/leads-source";
 import { fetchAllPaged, type Rangeable } from "@/lib/supabase-page";
 import { callMatchesSystem, parseCallSystem } from "@/lib/call-system";
 import { isPhantomCall, isSoftphoneTestLeg } from "@/lib/call-quality";
@@ -138,6 +138,7 @@ export async function GET(request: Request) {
   const leadsSource: LeadsSource = searchParams.get("leads_source") === "test" ? "test" : "prod";
   const leadsTable = leadsTableFor(leadsSource);
   const system = parseCallSystem(searchParams.get("system"));
+  const campaignId = searchParams.get("campaign_id");
   // Optional slot filter: limit every KPI on the page to calls that
   // started during the chosen UK calling window. Computed below with
   // slotForDate so the SQL stays simple (broad time range) and the
@@ -178,13 +179,17 @@ export async function GET(request: Request) {
   // selected table (Prod or Test). Without this filter the Total / Coût /
   // RDV tiles would mix sandbox + production numbers, which is what the
   // operator was actually seeing in the original toggle UX.
-  const scope = await leadsScopeFor(leadsSource);
+  const [scope, campaignScope] = await Promise.all([
+    leadsScopeFor(leadsSource),
+    campaignId && campaignId !== "all" ? campaignScopeFor(campaignId) : Promise.resolve(null),
+  ]);
 
   let rows = ((data ?? []) as unknown as CallRow[]).filter(
     (r) =>
       !ACTIVE.has(r.state ?? "")
       && !isPhantomCall(r)
       && callInLeadsScope(r.to_e164 ?? null, scope)
+      && (callInLeadsScope(r.to_e164 ?? null, campaignScope) || (r.metadata as any)?.campaign_id === campaignId)
       && callMatchesSystem((r.metadata as { source?: string } | null)?.source, system)
       // Skip the Twilio-side inbound legs of /desk softphone outbound calls
       // — Wati's June 10 manual tests created phantom 'AUTRE' rows like
@@ -239,7 +244,7 @@ export async function GET(request: Request) {
   const qcount: Record<QualBucket, number> = {
     rdv_confirme: 0, passer_humain: 0, rappel: 0, pas_interesse: 0,
     pas_de_reponse: 0, repondeur: 0, faux_numero: 0, non_eligible: 0,
-    ne_pas_rappeler: 0, autre: 0,
+    ne_pas_rappeler: 0, suivi_requis: 0, autre: 0,
   };
   const buckets: { row: CallRow; bucket: QualBucket }[] = [];
   for (const r of rows) {

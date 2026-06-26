@@ -13,6 +13,7 @@ import {
   parseGlobalFilters, hasActiveGlobalFilters, hasLeadScopedFilters, matchesGlobalFilters,
   buildLeadFilterIndex, buildAttemptIndex, eligibilityForPhone, EMPTY_LEAD_INDEX,
 } from "@/lib/global-filters";
+import { nhsLegacyClient } from "@/lib/nhs-legacy";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,6 +37,7 @@ export type DrillCall = {
   agent_name: string | null;
   phone: string | null;
   disposition: string | null;
+  assignee: string | null;
 };
 
 export type DrillResponse = {
@@ -205,6 +207,28 @@ export async function GET(request: Request) {
 
   const LIMIT = 100;
   const sliced = filtered.slice(0, LIMIT);
+
+  // Fetch current assignments from legacy DB for these calls' phone numbers.
+  const phones = [...new Set(sliced.map((r) => isInbound(r.direction) ? r.from_e164 : r.to_e164).filter(Boolean))] as string[];
+  const assigneeByPhone = new Map<string, string>();
+  if (phones.length > 0) {
+    try {
+      const legacy = nhsLegacyClient();
+      type AssignRow = { numero_telephone: string | null; assigned_to: string | null };
+      const { data: assignRows } = await legacy
+        .from("leads_rdv")
+        .select("numero_telephone, dashboard_assignments!inner(assigned_to, status)")
+        .in("numero_telephone", phones)
+        .eq("dashboard_assignments.status", "open") as unknown as { data: (AssignRow & { dashboard_assignments: { assigned_to: string | null; status: string }[] })[] | null };
+      for (const row of assignRows ?? []) {
+        const name = row.dashboard_assignments?.[0]?.assigned_to ?? null;
+        if (row.numero_telephone && name) assigneeByPhone.set(row.numero_telephone, name);
+      }
+    } catch {
+      /* non-critical — fall back to null */
+    }
+  }
+
   const body: DrillResponse = {
     total: filtered.length,
     returned: sliced.length,
@@ -224,6 +248,7 @@ export async function GET(request: Request) {
         agent_name: r.agent_handles?.display_name ?? null,
         phone,
         disposition: r.disposition,
+        assignee: (phone && assigneeByPhone.get(phone)) ?? null,
       };
     }),
   };

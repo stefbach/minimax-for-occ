@@ -32,7 +32,7 @@ export async function POST(
 
   const { data: row, error } = await admin
     .from("human_callback_tasks")
-    .select("id, assigned_to, status")
+    .select("id, assigned_to, status, e164")
     .eq("id", id)
     .eq("org_id", orgId)
     .maybeSingle();
@@ -56,6 +56,15 @@ export async function POST(
     .eq("id", id)
     .eq("org_id", orgId);
   if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 });
+
+  // Sync claim → leads_rdv.agent so all pages stay coherent.
+  const phone = (row as { e164?: string | null }).e164 ?? null;
+  if (phone) {
+    try {
+      await admin.from("leads_rdv" as never).update({ agent: user.id })
+        .eq("numero_telephone", phone);
+    } catch { /* non-fatal — tenant may not have leads_rdv */ }
+  }
 
   return NextResponse.json({ ok: true, task_id: id });
 }

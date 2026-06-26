@@ -4,10 +4,13 @@ import { useCallback, useEffect, useState } from "react";
 import { useT } from "@/lib/i18n";
 
 interface Props {
-  contactId: string;
+  /** Contact id when known. Desk tasks from the auto-qualifier have none —
+   *  in that case the drawer loads the patient by phone (e164) instead. */
+  contactId?: string | null;
   /** Display name shown in the header until the lead row loads. */
   displayName?: string | null;
-  /** Phone shown in the header until the lead row loads. */
+  /** Phone shown in the header until the lead row loads. Also used as the
+   *  lookup key when contactId is absent. */
   e164?: string | null;
   onClose: () => void;
   /** Optional headline (e.g. the task qualification chip) shown in the header. */
@@ -76,9 +79,17 @@ export function PatientDrawer({ contactId, displayName, e164, onClose, headline 
     setLoading(true);
     setErr(null);
     try {
+      // Tasks created by the auto-qualifier have no contact_id — load the
+      // leads_rdv row by phone instead. The calls list is keyed on contact_id,
+      // so it's only fetched when we have one (the row's call_*_note fields
+      // still surface recent call context either way).
+      const rowSeg = contactId ?? "by-phone";
+      const e164q = e164 ? `?e164=${encodeURIComponent(e164)}` : "";
       const [rowR, callsR] = await Promise.all([
-        fetch(`/api/desk/patient-row/${contactId}`, { cache: "no-store" }),
-        fetch(`/api/desk/contact-calls/${contactId}?limit=10`, { cache: "no-store" }),
+        fetch(`/api/desk/patient-row/${rowSeg}${e164q}`, { cache: "no-store" }),
+        contactId
+          ? fetch(`/api/desk/contact-calls/${contactId}?limit=10`, { cache: "no-store" })
+          : Promise.resolve(null),
       ]);
       if (rowR.ok) {
         const j = (await rowR.json()) as PatientRowResponse;
@@ -92,7 +103,7 @@ export function PatientDrawer({ contactId, displayName, e164, onClose, headline 
         const j = (await rowR.json().catch(() => ({}))) as { error?: string };
         setErr(j.error ?? `HTTP ${rowR.status}`);
       }
-      if (callsR.ok) {
+      if (callsR && callsR.ok) {
         const j = (await callsR.json()) as { calls: CallSummary[] };
         setCalls(j.calls ?? []);
       }
@@ -101,7 +112,7 @@ export function PatientDrawer({ contactId, displayName, e164, onClose, headline 
     } finally {
       setLoading(false);
     }
-  }, [contactId]);
+  }, [contactId, e164]);
 
   useEffect(() => {
     void load();
@@ -136,7 +147,9 @@ export function PatientDrawer({ contactId, displayName, e164, onClose, headline 
         setSaving(false);
         return;
       }
-      const r = await fetch(`/api/desk/patient-row/${contactId}`, {
+      const rowSeg = contactId ?? "by-phone";
+      const e164q = e164 ? `?e164=${encodeURIComponent(e164)}` : "";
+      const r = await fetch(`/api/desk/patient-row/${rowSeg}${e164q}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ values }),

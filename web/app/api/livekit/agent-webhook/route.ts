@@ -4,6 +4,7 @@ import { qualifyCall } from "@/lib/analysis-runner";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 
 /**
  * LiveKit Cloud Agents webhook — receives session-ended payloads containing
@@ -202,7 +203,16 @@ export async function POST(request: Request) {
     const callId = row.id;
     after(async () => {
       try {
-        await qualifyCall(callId);
+        let result = await qualifyCall(callId);
+        // Transcript is usually stored before this fires, but retry as a
+        // safety net for calls that dropped before STT completed.
+        if (result.status === "no_evidence") {
+          for (const delaySecs of [30, 60, 90]) {
+            await new Promise<void>((r) => setTimeout(r, delaySecs * 1000));
+            result = await qualifyCall(callId);
+            if (result.status !== "no_evidence") break;
+          }
+        }
       } catch (e) {
         console.warn("[lk-webhook] auto-qualify failed", {
           call_id: callId,

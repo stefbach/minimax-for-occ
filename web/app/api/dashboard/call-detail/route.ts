@@ -82,14 +82,21 @@ export async function GET(request: Request) {
   let recordingUrl = call.recording_url;
 
   if (axonTurns.length) {
-    // Anchor on the FIRST transcript turn, not answered_at: Twilio's
-    // answered/in-progress timestamp can land well after the conversation
-    // actually started (observed ~76s late), which would push every early turn
-    // negative → all 0:00. The first turn's time is the true t=0.
+    // Anchor on answered_at (= recording start) so transcript positions
+    // align with the audio player. Fall back to the first transcript turn
+    // when answered_at is absent OR when it arrives after the first turn
+    // (Twilio's StatusCallback has been observed up to 76s late, which
+    // would push all early turns to 0:00 if we used that stale timestamp).
     const firstTurnIso = axonTurns.find((t) => t.started_at)?.started_at ?? null;
-    const anchorMs = firstTurnIso ? Date.parse(firstTurnIso)
-      : call.answered_at ? Date.parse(call.answered_at)
-      : call.started_at ? Date.parse(call.started_at) : NaN;
+    const firstTurnMs = firstTurnIso ? Date.parse(firstTurnIso) : NaN;
+    const answeredMs = call.answered_at ? Date.parse(call.answered_at) : NaN;
+    const anchorMs =
+      // answered_at before first turn → recording start precedes speech → use it
+      (Number.isFinite(answeredMs) && Number.isFinite(firstTurnMs) && answeredMs <= firstTurnMs)
+        ? answeredMs
+        : Number.isFinite(firstTurnMs) ? firstTurnMs
+        : Number.isFinite(answeredMs) ? answeredMs
+        : call.started_at ? Date.parse(call.started_at) : NaN;
     transcript = axonTurns
       .filter((t) => t.text)
       .map((t) => {

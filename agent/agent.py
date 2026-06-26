@@ -475,18 +475,27 @@ def _llm_for_resilient(agent: Optional[AxonAgent]):
         return primary
 
 
-async def _warm_session_llm(llm, clog) -> None:
+async def _warm_session_llm(llm, clog, instructions: str | None = None) -> None:
     """Fire one throwaway micro-completion on the session's REAL llm so the
-    first patient turn doesn't pay a cold handshake.
+    first patient turn doesn't pay a cold start.
 
     Called right after the greeting or re-greeting finishes. At this point the
-    patient will reply in 5-15s, so the socket warms while we wait for their
+    patient will reply in 5-15s, so the warmup runs while we wait for their
     speech, without the timeout risk of warming during session.start(). Fire-
     and-forget: best-effort, non-blocking (fails silently).
 
-    Disable with LLM_SESSION_WARMUP=off. Does NOT fix provider-side generation
-    throttling ("inference is slower than realtime") — that's capacity on the
-    inference node, not a cold socket."""
+    When `instructions` is provided we warm with the REAL system prompt as the
+    cache prefix (plus a 1-token user turn), instead of a 14-token throwaway.
+    This is what actually cuts the cold FIRST-turn latency: the inference node
+    has to do its first full-prompt prefill + decode against ~3-4k tokens, and
+    on a cold node that costs ~1s more than steady-state. Doing it here, during
+    the greeting dead-time, means the patient's first real answer lands on an
+    already-warm node + warm prompt cache. A bare 14-token warmup only primed
+    the socket, not the generation path, so the first real turn still paid it.
+
+    Disable with LLM_SESSION_WARMUP=off. Does NOT fix sustained provider-side
+    throttling ("inference is slower than realtime") — that's node capacity,
+    not a cold start."""
     if os.getenv("LLM_SESSION_WARMUP", "on").lower() in ("off", "false", "0", "no", "disabled"):
         return
     try:
@@ -495,11 +504,31 @@ async def _warm_session_llm(llm, clog) -> None:
         return
     try:
         ctx = ChatContext.empty() if hasattr(ChatContext, "empty") else ChatContext()
-        try:
-            ctx.add_message(role="user", content="Reply with the single character: .")
-        except Exception:
-            from livekit.agents.llm import ChatMessage  # type: ignore
-            ctx.messages.append(ChatMessage(role="user", content="Reply with the single character: ."))  # type: ignore
+        # Prime with the real system prompt so the node warms the SAME prefix
+        # the first real turn will use (full prefill + cache write). Falls back
+        # to the socket-only warmup if instructions are absent or the API
+        # rejects a system role on this SDK version.
+        # REGRESSION REVERT (Wati 23/06): priming with the FULL system prompt
+        # (~3.8k tokens) made the first turn WORSE, not better. The LLM runs
+        # through the SHARED LiveKit Inference gateway, which was already
+        # logging "inference is slower than realtime" — firing a heavy warmup
+        # there can't pin a warm node for our turn, it just adds load to a
+        # saturating gateway. Back to the lightweight socket-only warmup.
+        # Re-enable the experiment explicitly with LLM_WARMUP_FULL_PROMPT=on.
+        primed_full = False
+        if instructions and os.getenv("LLM_WARMUP_FULL_PROMPT", "off").lower() in ("1", "true", "yes", "on"):
+            try:
+                ctx.add_message(role="system", content=instructions)
+                ctx.add_message(role="user", content="Reply with the single character: .")
+                primed_full = True
+            except Exception:
+                primed_full = False
+        if not primed_full:
+            try:
+                ctx.add_message(role="user", content="Reply with the single character: .")
+            except Exception:
+                from livekit.agents.llm import ChatMessage  # type: ignore
+                ctx.messages.append(ChatMessage(role="user", content="Reply with the single character: ."))  # type: ignore
         _t0 = time.monotonic()
         stream = llm.chat(chat_ctx=ctx)
         async for chunk in stream:
@@ -511,7 +540,11 @@ async def _warm_session_llm(llm, clog) -> None:
             await stream.aclose()
         except Exception:
             pass
-        clog.info("LLM warmup: connection primed in %.0fms", (time.monotonic() - _t0) * 1000.0)
+        clog.info(
+            "LLM warmup: %s primed in %.0fms",
+            "full-prompt (node+cache)" if primed_full else "socket-only",
+            (time.monotonic() - _t0) * 1000.0,
+        )
     except Exception:
         clog.debug("LLM warmup skipped (non-fatal)", exc_info=True)
 
@@ -814,6 +847,7 @@ def _tts_for(agent: Optional[AxonAgent], sample_rate: Optional[int] = None):
                 language=(
                     (agent.tts_language if agent and agent.tts_language else None)
                 ),
+                volume=(agent.tts_volume if agent else None),
                 optimize_streaming_latency=_env_int(
                     "ELEVENLABS_STREAMING_LATENCY", 3
                 ),
@@ -1054,6 +1088,15 @@ def _tts_for(agent: Optional[AxonAgent], sample_rate: Optional[int] = None):
     return _cartesia_tts_for(agent, sample_rate)
 
 
+# Proven OCC English Cartesia voice (Charlotte-old). Used ONLY as the last-
+# resort voice when an ElevenLabs/Replicate/MiniMax agent falls back to Cartesia
+# and would otherwise hand Cartesia an unresolvable provider-prefixed voice_id
+# (→ "no audio frames" → silent call). Override with CARTESIA_VOICE_ID.
+_CARTESIA_FALLBACK_VOICE_ID = os.getenv(
+    "CARTESIA_FALLBACK_VOICE_ID", "d1d9c946-7cfc-4378-85a4-07d09827cb7e"
+)
+
+
 def _cartesia_tts_for(agent: Optional[AxonAgent], sample_rate: Optional[int] = None) -> cartesia.TTS:
     """Cartesia Sonic TTS — honors the per-agent voice/language/speed.
 
@@ -1092,6 +1135,26 @@ def _cartesia_tts_for(agent: Optional[AxonAgent], sample_rate: Optional[int] = N
         (agent.tts_voice_id if agent and agent.tts_voice_id else None)
         or os.getenv("CARTESIA_VOICE_ID")
     )
+    # Defensive (Wati 24/06) — the silent-call root cause. When an agent routed
+    # to ElevenLabs/Replicate/MiniMax FALLS BACK to Cartesia (e.g. ElevenLabs
+    # init/selection failed for this call), its tts_voice_id is a provider-
+    # prefixed id like "elevenlabs:turbo:R3I0jGceivkHLDdoBi9a" that Cartesia
+    # cannot resolve. Cartesia then pushes ZERO audio frames ("no audio frames
+    # were pushed for text: …") and the agent stays SILENT for the WHOLE call
+    # (tts_chars=0) while the LLM transcript still fills in — exactly the
+    # "agent muet / transcript faux" calls of 24/06. A colon-prefixed id is
+    # NEVER a valid Cartesia voice (Cartesia voices are bare UUIDs), so swap it
+    # for a real Cartesia voice (env override, else the proven OCC English
+    # voice) so the fallback actually SPEAKS instead of producing dead air.
+    if voice and ":" in str(voice):
+        _bad_voice = voice
+        voice = os.getenv("CARTESIA_VOICE_ID") or _CARTESIA_FALLBACK_VOICE_ID
+        logger.warning(
+            "cartesia fallback: agent voice_id %r is not a Cartesia voice "
+            "(ElevenLabs likely failed to init for this call) — using %r so the "
+            "agent isn't silent",
+            _bad_voice, voice,
+        )
 
     speed = (
         float(agent.tts_speed)
@@ -1215,6 +1278,12 @@ def _build_save_contact_tool(
         CRM record. Call this as soon as you have confirmed values — don't wait
         until the end of the call. Safe to call multiple times; fields merge.
 
+        ⚠️ For callback requests: If the patient asks to be called back at a
+        SPECIFIC DATE/TIME (e.g., "rappelle-moi le 25 juin à 14h"), use
+        transfer_to_human(reason="...", callback_date="2026-06-25",
+        callback_time="14:00") instead. Do NOT use this tool for callback requests
+        with specific times — the transfer_to_human tool handles scheduling.
+
         Args:
             fields_json: A JSON object of field→value pairs to save. Use the
                 field keys defined for this campaign, e.g.
@@ -1222,6 +1291,12 @@ def _build_save_contact_tool(
                  "nhs_wmp_status": "tier3", "patient_dob": "1985-04-12",
                  "allergies": "penicillin", "current_medications": "metformin"}.
                 Numbers as numbers, dates as YYYY-MM-DD strings.
+                Special qualification values:
+                  - "RDV CONFIRME" — appointment booked (use for confirmed bookings)
+                  - "RAPPEL" — patient wants a callback (use only for callbacks
+                    without specific times; specific-time callbacks → transfer_to_human)
+                  - "PAS INTERESSE" — patient explicitly not interested
+                  - "FAUX NUMERO" — ONLY if patient explicitly says "wrong number"
             display_name: Optional — the patient's full name if newly confirmed.
             email: Optional — the patient's email if newly confirmed.
             notes: Optional — a short free-text note to append about this call.
@@ -1322,6 +1397,13 @@ class AxonVoiceAgent(Agent):
             kwargs["vad"] = vad
         super().__init__(**kwargs)
         self._greeting = greeting
+        # Keep the raw system prompt so the LLM warmup can prime the inference
+        # node with the REAL prompt prefix (not a 14-token throwaway) during the
+        # greeting dead-time — see _warm_session_llm. This is what cuts the cold
+        # first-turn latency (the patient's first real answer was paying ~1.8s
+        # TTFT vs ~0.6s on warm turns, because the node had never generated
+        # against this prompt yet).
+        self._instructions = instructions
         # Optional reference to the SIP participant already resolved by the
         # entrypoint via ctx.wait_for_participant(). on_enter uses this to
         # poll sip.callStatus directly instead of relying on room events
@@ -1395,7 +1477,7 @@ class AxonVoiceAgent(Agent):
             logger.info("greeting: re-greet say() returned in %.2fs", _t.monotonic() - _b)
             # Warm LLM connection after re-greeting, as with main greeting.
             try:
-                asyncio.create_task(_warm_session_llm(self.session.llm, logger))
+                asyncio.create_task(_warm_session_llm(self.session.llm, logger, self._instructions))
             except Exception:
                 logger.debug("LLM post-regreeting warmup not scheduled (non-fatal)", exc_info=True)
         except Exception:
@@ -1574,44 +1656,86 @@ class AxonVoiceAgent(Agent):
             except Exception:
                 pass
 
-            last_logged_status: str | None = None
-            while _t.monotonic() - gate_start < max_gate:
+            # ── GREET-ON-VOICE early release (Wati 23/06) ──────────────────
+            # The dead-air problem: on lagging PSTN routes sip.callStatus
+            # flips to "active" 3-5s AFTER the patient actually picks up and
+            # starts talking. Real prod transcripts show patients saying
+            # "Hello?… Hello?" 2-3 times into silence before the gate frees.
+            # The patient's own VOICE is the most reliable "they're really on
+            # the line" signal we have, and it ALWAYS precedes the laggy
+            # callStatus update. So: if the session detects the patient
+            # speaking, release the gate immediately and greet. This is purely
+            # ADDITIVE — it can only free the gate EARLIER, never later — and
+            # leaves the callStatus path and the re-greet backstop untouched.
+            _voice_seen = {"v": False}
+
+            def _on_user_state(ev) -> None:  # noqa: ANN001
                 try:
-                    attrs = dict(getattr(sp, "attributes", None) or {})
-                    status = (attrs.get("sip.callStatus") or "").lower()
-                    if status != last_logged_status:
-                        logger.info(
-                            "greeting: SIP gate poll callStatus=%r at %.2fs",
-                            status,
-                            _t.monotonic() - gate_start,
-                        )
-                        last_logged_status = status
-                    if status == "active":
-                        logger.info(
-                            "greeting: SIP gate released (callStatus=active) after %.2fs",
-                            _t.monotonic() - gate_start,
-                        )
-                        break
-                    # Some LK SIP outbound flows omit the explicit "active"
-                    # transition and just clear the dialing/ringing flag.
-                    # If status leaves dialing/ringing/automation but isn't
-                    # "active", treat it as ready too.
-                    if status and status not in {"dialing", "ringing", "automation"}:
-                        logger.info(
-                            "greeting: SIP gate released (callStatus=%r) after %.2fs",
-                            status,
-                            _t.monotonic() - gate_start,
-                        )
-                        break
+                    if getattr(ev, "new_state", None) == "speaking":
+                        _voice_seen["v"] = True
                 except Exception:
-                    logger.debug("greeting: poll failed", exc_info=True)
-                await asyncio.sleep(0.2)
-            else:
-                logger.warning(
-                    "greeting: SIP gate timed out at %.1fs with last status=%r — greeting anyway",
-                    max_gate,
-                    last_logged_status,
-                )
+                    pass
+
+            _voice_handler_attached = False
+            try:
+                self.session.on("user_state_changed", _on_user_state)
+                _voice_handler_attached = True
+            except Exception:
+                logger.debug("greeting: could not attach user_state_changed listener", exc_info=True)
+
+            last_logged_status: str | None = None
+            try:
+                while _t.monotonic() - gate_start < max_gate:
+                    # Patient's voice beats the laggy callStatus — release now.
+                    if _voice_seen["v"]:
+                        logger.info(
+                            "greeting: SIP gate released EARLY on patient voice after %.2fs (last callStatus=%r)",
+                            _t.monotonic() - gate_start,
+                            last_logged_status,
+                        )
+                        break
+                    try:
+                        attrs = dict(getattr(sp, "attributes", None) or {})
+                        status = (attrs.get("sip.callStatus") or "").lower()
+                        if status != last_logged_status:
+                            logger.info(
+                                "greeting: SIP gate poll callStatus=%r at %.2fs",
+                                status,
+                                _t.monotonic() - gate_start,
+                            )
+                            last_logged_status = status
+                        if status == "active":
+                            logger.info(
+                                "greeting: SIP gate released (callStatus=active) after %.2fs",
+                                _t.monotonic() - gate_start,
+                            )
+                            break
+                        # Some LK SIP outbound flows omit the explicit "active"
+                        # transition and just clear the dialing/ringing flag.
+                        # If status leaves dialing/ringing/automation but isn't
+                        # "active", treat it as ready too.
+                        if status and status not in {"dialing", "ringing", "automation"}:
+                            logger.info(
+                                "greeting: SIP gate released (callStatus=%r) after %.2fs",
+                                status,
+                                _t.monotonic() - gate_start,
+                            )
+                            break
+                    except Exception:
+                        logger.debug("greeting: poll failed", exc_info=True)
+                    await asyncio.sleep(0.2)
+                else:
+                    logger.warning(
+                        "greeting: SIP gate timed out at %.1fs with last status=%r — greeting anyway",
+                        max_gate,
+                        last_logged_status,
+                    )
+            finally:
+                if _voice_handler_attached:
+                    try:
+                        self.session.off("user_state_changed", _on_user_state)
+                    except Exception:
+                        logger.debug("greeting: could not detach user_state_changed listener", exc_info=True)
 
         # ────────────────────────────────────────────────────────────────
         # GREET-ON-ANSWER (Wati 2026-06-12: "il faut qu'il dit son greeting
@@ -1651,6 +1775,24 @@ class AxonVoiceAgent(Agent):
             preroll = float(os.getenv("GREETING_PREROLL_SECONDS", "0.4"))
             if preroll > 0:
                 await asyncio.sleep(preroll)
+            # Wati 24/06 — ARM the opener-response budget BEFORE the greeting
+            # say(), not after. Root cause of the "How can I help you today?"
+            # hallucination on répondeur / early-answer calls (Rachel Brant,
+            # Christabel Probert 24/06): the canned greeting say() below is
+            # NON-interruptible and blocks ~2-3 s. On a voicemail / early-answer
+            # the callee audio ("Hi.", the répondeur's opener) reaches STT WHILE
+            # that say() is still awaiting — so on_user_turn_completed fired with
+            # _opener_replies_left STILL 0 (it used to be set only AFTER say()
+            # returned). With the budget at 0 the bare opener fell straight
+            # through to the LLM, which improvised "Hello! How can I help you
+            # today? Are you interested in exploring bariatric surgery…" — NOT
+            # Charlotte's scripted "Hello am I speaking with {{firstname}}?".
+            # Arming the budget first means an early "Hi."/"Hello?" re-fires the
+            # canned greeting (via _say_regreet) and suppresses the LLM reply,
+            # closing the race. _BARE_OPENER_RE only matches pure openers, so a
+            # real substantive "Yes, speaking" from someone who DID hear the
+            # greeting still goes to the LLM — no double-greeting for them.
+            self._opener_replies_left = 2
             _b = _t.monotonic()
             logger.info("greeting: say() begin (on-answer)")
             try:
@@ -1664,23 +1806,21 @@ class AxonVoiceAgent(Agent):
                     "greeting: say() interrupted after %.2fs (likely hangup)",
                     _t.monotonic() - _b,
                 )
-            # Wati 18/06 — ARM the opener-response budget in on-answer mode too.
-            # History: it used to be 0 here, on the theory that the agent had
-            # ALREADY greeted at pickup so any "Hello?" came from someone who
-            # DID hear it. Real outbound calls disproved that: the carrier's
-            # early-answer / ringback connects the callee's audio a beat AFTER
-            # sip.callStatus flips to "active", so the greeting routinely plays
-            # into a dead leg and the patient hears NOTHING. They then say
-            # "Hello?" — and with the budget at 0 that bare opener fell straight
-            # through to the LLM, which improvised generic assistant-speak
-            # ("I just wanted to confirm the identity. How can I assist you
-            # today?") — absurd on a call WE placed. Arming the budget makes a
-            # bare opener re-fire the identity question (politely varied via
-            # _say_regreet prefixes) instead. _BARE_OPENER_RE only matches pure
-            # openers (hello/hi/hey/who's this), so a real "Yes" / substantive
-            # answer from someone who DID hear the greeting still goes to the
-            # LLM — no double-greeting for them.
-            self._opener_replies_left = 2
+            # Warm the LLM with the REAL system prompt NOW, while the patient is
+            # still picking up / about to answer. This is the on-answer path's
+            # cold-start fix: the patient's first substantive reply was paying
+            # ~1.8s TTFT because the inference node had never generated against
+            # this prompt; priming it during the dead-time drops the first real
+            # turn to steady-state (~0.6s). Fire-and-forget.
+            try:
+                asyncio.create_task(
+                    _warm_session_llm(self.session.llm, logger, self._instructions)
+                )
+            except Exception:
+                logger.debug("LLM on-answer warmup not scheduled (non-fatal)", exc_info=True)
+            # NOTE: the opener-response budget (_opener_replies_left = 2) is now
+            # armed BEFORE the greeting say() above (Wati 24/06 race fix), so it
+            # is intentionally NOT re-set here.
             return
 
         if sp is not None:
@@ -1730,7 +1870,7 @@ class AxonVoiceAgent(Agent):
             # BEFORE the patient replies. At this point the socket won't timeout
             # before the 1st real turn (usually 5-15s away). Best-effort.
             try:
-                asyncio.create_task(_warm_session_llm(self.session.llm, logger))
+                asyncio.create_task(_warm_session_llm(self.session.llm, logger, self._instructions))
             except Exception:
                 logger.debug("LLM post-greeting warmup not scheduled (non-fatal)", exc_info=True)
         except Exception:
@@ -2264,6 +2404,11 @@ def _install_call_hygiene(
     # "press hash" inside their first 10 s is implausible, so the window
     # stays safe against false REPONDEUR on humans.
     voicemail_detect_window = float(os.getenv("VOICEMAIL_DETECT_WINDOW_SECS", "10.0"))
+    # Maximum duration for a voicemail call after detection. Once voicemail
+    # is detected, we should cut the call quickly to avoid paying for long
+    # TTS on a voicemail announcement. Default 15s to handle various carrier
+    # greetings while still being much shorter than full message playback.
+    voicemail_max_duration = float(os.getenv("VOICEMAIL_MAX_DURATION_SECS", "15.0"))
 
     # Distress / safety phrases that MUST trigger immediate handoff in a
     # healthcare context. We listen across the WHOLE call (not just the first
@@ -2312,6 +2457,7 @@ def _install_call_hygiene(
         "call_started_at": _t.monotonic(),
         "goodbye_armed_at": None,  # monotonic ts when goodbye phrase was detected
         "hung_up": False,
+        "voicemail_detected_at": None,  # monotonic ts when voicemail was detected
         # The agent is considered 'active' (speaking / thinking) while
         # session.agent_state is "speaking" or "thinking". The idle watchdog
         # skips its hangup check while the agent is active so a long TTS
@@ -2652,6 +2798,7 @@ def _install_call_hygiene(
                 return
             if _voicemail_re.search(str(text)):
                 clog.info("call hygiene: voicemail detected via STT (t=%.1fs after first speech): %r", elapsed, str(text)[:120])
+                state["voicemail_detected_at"] = now_ts
                 asyncio.create_task(_hangup("voicemail detected via STT"))
                 return
             # STRUCTURAL HEURISTIC — monologue without our reply.
@@ -2682,6 +2829,7 @@ def _install_call_hygiene(
                     "(t=%.1fs, %d consecutive customer turns, %d words): %r",
                     elapsed, len(turns), total_words, " | ".join(turns)[:160],
                 )
+                state["voicemail_detected_at"] = now_ts
                 asyncio.create_task(_hangup("voicemail detected via monologue heuristic"))
         except Exception:
             clog.debug("call hygiene: voicemail STT check failed", exc_info=True)
@@ -2885,6 +3033,17 @@ def _install_call_hygiene(
                     await _hangup(
                         f"idle {effective_idle:.0f}s — likely voicemail or dropped audio"
                     )
+                    return
+                # Voicemail max-duration enforcement. Once voicemail is detected
+                # (either via STT regex or monologue heuristic), enforce a hard
+                # timeout so we don't pay for extended TTS on a voicemail greeting.
+                vm_detected_at = state.get("voicemail_detected_at")
+                if vm_detected_at is not None and (now - vm_detected_at) >= voicemail_max_duration:
+                    clog.info(
+                        "watchdog: voicemail call reached max duration (%.0fs)",
+                        voicemail_max_duration,
+                    )
+                    await _hangup(f"voicemail max duration ({voicemail_max_duration:.0f}s) exceeded")
                     return
                 # Post-greeting / pre-user-speech voicemail catcher
                 # (Wati June 10 v7 — Joanne Houston 42 s, Winifred Jonathan
@@ -3469,6 +3628,86 @@ async def entrypoint(ctx: JobContext) -> None:
         "resolved agent_id=%s (room_meta=%s, p_attrs_keys=%s, p_meta=%s)",
         agent_id, bool(ctx.room.metadata), list(p_attrs.keys()), bool(p_meta),
     )
+
+    # ── Inbound capture + human-first routing (Wati 25/06) ──────────────────
+    # Genuine inbound PSTN calls arrive via the SIP trunk: LiveKit sets the
+    # native sip.phoneNumber (caller) / sip.trunkPhoneNumber (the number dialed)
+    # and NO X-LK-* headers (those are forwarded only on desk/outbound legs). So
+    # we detect inbound from the trunk attrs + absence of campaign markers — not
+    # X-LK-Direction, which is null for genuine inbound.
+    _sip_from = p_attrs.get("sip.phoneNumber")
+    _sip_to = p_attrs.get("sip.trunkPhoneNumber")
+    _dir_hdr = str(p_attrs.get("sip.h.x-lk-direction") or p_attrs.get("axon.direction") or "").lower()
+    _has_campaign = bool(
+        p_attrs.get("sip.h.x-lk-campaign-id") or p_attrs.get("axon.campaign_id")
+        or p_attrs.get("sip.h.x-lk-target-id") or p_attrs.get("axon.target_id")
+    )
+    _is_inbound = _dir_hdr in ("in", "inbound") or (
+        bool(_sip_from or _sip_to) and _dir_hdr != "out" and not _has_campaign
+    )
+    if _is_inbound:
+        # ── Direct-SIP path: no webhook called, no calls row yet ──────────────
+        # When the Twilio SIP trunk Origination URI points straight at LiveKit
+        # (the user's telephony-platform setup), voice-inbound is never called.
+        # We create the calls row here so the rest of the pipeline has a row to
+        # write to, and so Mon poste can ring via human_first.
+        if not call_id:
+            try:
+                from human_first import (
+                    _create_inbound_call_row,
+                    _lookup_inbound_agent_id,
+                    _norm_e164,
+                )
+                _sip_from_e164 = _norm_e164(_sip_from)
+                _sip_to_e164 = _norm_e164(_sip_to)
+                new_call_id = await asyncio.to_thread(
+                    _create_inbound_call_row,
+                    _sip_from_e164,
+                    _sip_to_e164,
+                    ctx.room.name,
+                )
+                if new_call_id:
+                    call_id = new_call_id
+                    clog = _logger_for_call(call_id)
+                    clog.info(
+                        "[inbound] created call row for direct-SIP path to=%s",
+                        _sip_to_e164,
+                    )
+                # Resolve Charlotte (or whichever persona) from the phone number
+                # when no X-LK-Agent-Id was forwarded (direct-SIP path).
+                if not agent_id and _sip_to_e164:
+                    resolved = await asyncio.to_thread(
+                        _lookup_inbound_agent_id, _sip_to_e164
+                    )
+                    if resolved:
+                        agent_id = resolved
+                        clog.info(
+                            "[inbound] resolved agent_id=%s from phone number %s",
+                            agent_id, _sip_to_e164,
+                        )
+            except Exception:
+                clog.exception("[inbound] direct-SIP row creation / agent resolution failed")
+
+        # ALWAYS (ungated): backfill from/to on the call row so the dashboard
+        # Entrants tab + per-number routing have the dialed/caller numbers.
+        # Only fills NULLs, so outbound rows are never touched.
+        if call_id:
+            try:
+                from human_first import capture_inbound_numbers
+                await capture_inbound_numbers(call_id, _sip_from, _sip_to, clog)
+            except Exception:
+                clog.exception("[inbound] number capture failed")
+            # Human-first ring — STRICTLY opt-in via HUMAN_FIRST_INBOUND. If an
+            # ONLINE human is assigned to the dialed number we ring them first; the
+            # AI yields (returns) when a human picks up.
+            if os.getenv("HUMAN_FIRST_INBOUND") == "1":
+                try:
+                    from human_first import try_human_first
+                    if await try_human_first(ctx, call_id, clog):
+                        return  # a human took the call — the AI does not greet
+                except Exception:
+                    clog.exception("[human-first] routine error — AI continues normally")
+
     # Resolve campaign_id now (same sip.h.* gotcha as agent_id: the real value
     # is in the forwarded SIP header attribute; `axon.campaign_id` is the broken
     # dispatch-rule mapping that yields the literal "X-LK-Campaign-Id").
@@ -3720,7 +3959,28 @@ async def entrypoint(ctx: JobContext) -> None:
     # Reuse the VAD loaded once at worker startup (prewarm) instead of paying
     # the model-load cost on every single call — that load was part of the
     # delay before the agent could start listening/speaking.
-    vad = (ctx.proc.userdata.get("vad") if getattr(ctx, "proc", None) else None) or silero.VAD.load()
+    #
+    # Per-turn EOU latency lever (Wati 2026-06-23 latency research): with
+    # turn_detection="vad", Silero VAD's `min_silence_duration` is what ACTUALLY
+    # ends every turn — not the AssemblyAI min_turn_silence we tuned. Its default
+    # is 0.55s, so every turn waited ~550ms of trailing silence regardless of the
+    # STT config. When a call carries a `min_silence_duration` override (set via
+    # agents.metadata.call_tuning, so prod agents with no metadata are unaffected
+    # and keep the prewarmed default-0.55 VAD), load a fresh VAD at that value.
+    # 0.30 cuts ~250ms off EOU on every turn. The fresh-load cost is one-off at
+    # session start and does NOT affect the per-turn EOU we're optimising.
+    _prewarmed_vad = ctx.proc.userdata.get("vad") if getattr(ctx, "proc", None) else None
+    _tun_min_sil = campaign_tuning.get("min_silence_duration")
+    if _tun_min_sil is not None:
+        try:
+            _ms = float(_tun_min_sil)
+            vad = silero.VAD.load(min_silence_duration=_ms)
+            clog.info("VAD: per-call min_silence_duration=%.2fs (tuning override)", _ms)
+        except Exception:
+            clog.warning("VAD: min_silence_duration override %r invalid — using prewarmed VAD", _tun_min_sil, exc_info=True)
+            vad = _prewarmed_vad or silero.VAD.load()
+    else:
+        vad = _prewarmed_vad or silero.VAD.load()
 
     import inspect as _inspect
 
@@ -3848,36 +4108,47 @@ async def entrypoint(ctx: JobContext) -> None:
         else float(os.getenv("MIN_INTERRUPTION_DURATION", "0")) or None
     )
 
+    # ── INTERRUPTION FIX (Wati 2026-06-23) ─────────────────────────────────
+    # By default livekit-agents spins up its ML-based "AdaptiveInterruptionDetector"
+    # whenever the STT exposes streaming + aligned transcripts (AssemblyAI
+    # u3-rt-pro does). On an 8 kHz phone line that detector was SUPPRESSING
+    # normal-volume interruptions: a patient asking "What is the next step?" was
+    # classified as "not a real interruption" and the agent kept talking. Prod
+    # traces proved it — interruption_num_requests=1 for an entire call of
+    # repeated, increasingly loud attempts; the patient literally had to shout
+    # before it fired. This is STT-gated, NOT llm-gated, so it hit every agent
+    # (deepseek, openai, anthropic) identically.
+    #
+    # Fix: force interruption.mode="vad". That drops the ML classifier — any
+    # clear speech past min_interruption_duration (0.25s here) stops the agent
+    # immediately, like a normal call. This MUST go through the nested
+    # turn_handling dict: the deprecated flat-kwargs path (below) has no knob for
+    # the interruption mode, which is why the adaptive detector was always on.
     new_api_applied = False
     try:
-        from livekit.agents import TurnHandlingOptions  # type: ignore
-        try:
-            tho_params = set(_inspect.signature(TurnHandlingOptions.__init__).parameters)
-        except (ValueError, TypeError):
-            tho_params = set()
-        tho_candidate = {
-            "preemptive_generation": True,
-            "min_endpointing_delay": min_endp,
-            "allow_interruptions": True,
-            "turn_detection": chosen_turn_detector,
-        }
+        _session_params = set(_inspect.signature(AgentSession.__init__).parameters)
+    except (ValueError, TypeError):
+        _session_params = set()
+    if "turn_handling" in _session_params:
+        # TurnHandlingOptions is a TypedDict — a plain dict with these keys is
+        # accepted directly (and is forward/backward compatible: unknown keys on
+        # an older build are simply ignored rather than raising).
+        interruption_opts = {"mode": "vad", "enabled": True}
         if min_interruption:
-            tho_candidate["min_interruption_duration"] = min_interruption
-        tho_kwargs = {k: v for k, v in tho_candidate.items() if k in tho_params}
-        if tho_kwargs:
-            try:
-                _session_params = set(_inspect.signature(AgentSession.__init__).parameters)
-            except (ValueError, TypeError):
-                _session_params = set()
-            if "turn_handling" in _session_params:
-                session_kwargs["turn_handling"] = TurnHandlingOptions(**tho_kwargs)
-                new_api_applied = True
-                clog.info(
-                    "turn_handling: TurnHandlingOptions(turn_detection=%s, min_endpointing_delay=%.2f)",
-                    turn_detector_mode, min_endp,
-                )
-    except ImportError:
-        pass
+            interruption_opts["min_duration"] = min_interruption
+        turn_handling_cfg = {
+            "turn_detection": chosen_turn_detector,
+            "endpointing": {"min_delay": min_endp},
+            "interruption": interruption_opts,
+            "preemptive_generation": {"enabled": True},
+        }
+        session_kwargs["turn_handling"] = turn_handling_cfg
+        new_api_applied = True
+        clog.info(
+            "turn_handling: interruption.mode=vad (adaptive ML detector OFF), "
+            "turn_detection=%s, min_endpointing_delay=%.2f, min_interruption=%s",
+            turn_detector_mode, min_endp, min_interruption,
+        )
 
     if not new_api_applied:
         # Old API path. Pass only what this version's AgentSession accepts.
@@ -3972,6 +4243,25 @@ async def entrypoint(ctx: JobContext) -> None:
         if transfer_human_tool is not None:
             tools.append(transfer_human_tool)
             clog.info("transfer_to_human tool enabled")
+        # schedule_callback: when the patient asks the IA to call THEM back at a
+        # specific date/time (and is fine staying with the assistant), this tool
+        # stamps leads_rdv (RAPPEL + rappel_rdv) so the dialer's exact-time
+        # callback runner re-dials via Charlotte at that moment (08:00–21:00 UK).
+        # Distinct from transfer_to_human (which routes to a human). Fail-soft.
+        try:
+            from tools_schedule_callback import build_schedule_callback_tool
+            schedule_cb_tool = build_schedule_callback_tool(
+                org_id=(axon.org_id if axon else None),
+                call_id=call_id,
+                e164=None,  # endpoint resolves the patient phone from call_id
+                language=(axon.language if axon else None),
+            )
+        except Exception:
+            clog.exception("schedule_callback tool build failed")
+            schedule_cb_tool = None
+        if schedule_cb_tool is not None:
+            tools.append(schedule_cb_tool)
+            clog.info("schedule_callback tool enabled")
     else:
         # legacy path: env-only n8n tools
         if os.getenv("N8N_BASE_URL") and os.getenv("N8N_API_KEY"):

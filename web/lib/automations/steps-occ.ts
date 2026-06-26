@@ -5,6 +5,7 @@ import { searchMessages, getMessageAttachments, sendEmail, createDraft, type Gma
 import { uploadObject, downloadObject, publicUrl, upsertNhsDocument, renderPdf } from "./storage";
 import { extractClinicalPrompt, medicalReportPrompt, undueDelayPrompt, s2SubmissionEmailPrompt } from "./prompts-occ";
 import { buildComms } from "./comms-occ";
+import { sendWhatsAppTemplate, sendWhatsAppFreeform } from "./whatsapp-twilio";
 
 /**
  * OCC patient-pipeline compound steps.
@@ -551,17 +552,23 @@ async function generateDocuments(rc: RunCtx, step: Record<string, unknown>, ctx:
 
 // ── Agent 4: Communicate (status comms + relance + forms/clinic drafts) ──────
 
-async function watiSessionMessage(cred: Record<string, unknown>, phone: string, text: string): Promise<void> {
-  const base = String(cred.base_url ?? "").replace(/\/+$/, "");
-  const token = String(cred.token ?? "");
-  if (!base || !token) throw new Error("WATI credential missing base_url/token");
-  const url = `${base}/api/v1/sendSessionMessage/${encodeURIComponent(phone.replace(/^\+/, ""))}?messageText=${encodeURIComponent(text)}`;
-  const r = await fetch(url, {
-    method: "POST",
-    headers: { Authorization: token.startsWith("Bearer ") ? token : `Bearer ${token}` },
-    signal: AbortSignal.timeout(15000),
-  });
-  if (!r.ok) throw new Error(`WATI session ${r.status}: ${(await r.text()).slice(0, 150)}`);
+// WhatsApp now ships via Twilio (migrated off WATI). These keep their original
+// signatures so the communicate step is unchanged; the `cred`/`broadcastName`
+// args are ignored and the positional params map onto Twilio ContentVariables.
+async function watiSessionMessage(_cred: Record<string, unknown> | null, phone: string, text: string): Promise<void> {
+  await sendWhatsAppFreeform(phone, text);
+}
+
+async function watiTemplateMessage(
+  _cred: Record<string, unknown> | null,
+  phone: string,
+  templateName: string,
+  _broadcastName: string,
+  parameters: Array<{ name: string; value: string }>,
+): Promise<void> {
+  const variables: Record<string, string> = {};
+  for (const p of parameters) variables[p.name] = p.value;
+  await sendWhatsAppTemplate(phone, templateName, variables);
 }
 
 async function telegramSend(cred: Record<string, unknown>, text: string): Promise<void> {
@@ -595,7 +602,7 @@ function dossierDocFlags(d: Record<string, unknown>): Record<string, string> {
 
 async function communicatePatient(rc: RunCtx, step: Record<string, unknown>, ctx: Ctx): Promise<void> {
   const stormi = (await cred(rc, step.gmail_stormi_credential_id as string)) as GmailCred | null;
-  const wati = await cred(rc, step.wati_credential_id as string);
+  // WhatsApp ships via Twilio now (env creds) — no WATI credential needed.
   const telegram = step.telegram_credential_id ? await cred(rc, step.telegram_credential_id as string) : null;
   const leadTable = String(step.table_lead ?? "leads_rdv");
   const dossierTable = String(step.table_dossier ?? "nhs_dossiers");
@@ -650,9 +657,23 @@ async function communicatePatient(rc: RunCtx, step: Record<string, unknown>, ctx
     try { await mail(stormi, { to: email, subject: pfx + subject, html }); rc.stats.actions++; }
     catch (e) { rc.log("warn", `A4: patient email failed: ${e instanceof Error ? e.message : e}`); }
   }
-  if (wati && phone) {
-    try { await watiSessionMessage(wati, phone, comms.waFor(status)); rc.stats.actions++; }
-    catch (e) { rc.log("warn", `A4: WhatsApp failed: ${e instanceof Error ? e.message : e}`); }
+  if (phone) {
+    try {
+      if (reminder) {
+        // Relance reminder → approved WhatsApp template ({{1}} = first name).
+        // Free-form messages only deliver inside the 24h window, which is closed
+        // for a non-responding patient, so the reminder must go via a template.
+        const template = String(
+          step.wati_followup_template ?? "s2_application_documentation_followup__assistance",
+        );
+        await watiTemplateMessage(null, phone, template, `${template}_${patientId}`, [
+          { name: "1", value: nom || "Patient" },
+        ]);
+      } else {
+        await watiSessionMessage(null, phone, comms.waFor(status));
+      }
+      rc.stats.actions++;
+    } catch (e) { rc.log("warn", `A4: WhatsApp failed: ${e instanceof Error ? e.message : e}`); }
   }
 
   // Forms to sign (S2 / Patient Authorisation) → email to the patient.

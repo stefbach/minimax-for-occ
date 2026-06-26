@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import type { Agent, AgentInput, LlmProvider, Voice } from "@/lib/types";
 import { PromptEditor } from "@/components/agents/PromptEditor";
 import { parsePersona, serializePersona } from "@/lib/personas/parser";
+import { AgentNumbersSection } from "@/components/agent/AgentNumbersSection";
 
 type ModelOption = { id: string; label: string };
 
@@ -19,7 +20,8 @@ const PROVIDER_MODELS: Record<LlmProvider, ModelOption[]> = {
     { id: "deepseek-v4-flash", label: "deepseek-v4-flash ($0.001/min) — Ultra rapide, 3× moins cher (recommandé appels vocaux)" },
   ],
   openai: [
-    { id: "gpt-4o-mini",  label: "gpt-4o-mini ($0.002/min) — Rapide et économique (recommandé)" },
+    { id: "gpt-4.1-nano", label: "gpt-4.1-nano ($0.001/min) — Ultra rapide, latence minimale (recommandé appels vocaux)" },
+    { id: "gpt-4o-mini",  label: "gpt-4o-mini ($0.002/min) — Rapide et économique" },
     { id: "gpt-4.1-mini", label: "gpt-4.1-mini ($0.004/min) — Dernière génération, économique" },
     { id: "gpt-4.1",      label: "gpt-4.1 ($0.016/min) — Dernière génération haute qualité" },
     { id: "gpt-4o",       label: "gpt-4o ($0.020/min) — Polyvalent haute qualité" },
@@ -510,6 +512,12 @@ export function AgentForm({ initial }: { initial?: Agent }) {
           model: ttsModel || "sonic-3.5",
           speed: speed !== 1.0 ? speed : undefined,
           language: CARTESIA_LANGUAGE[language] ?? undefined,
+          // Send the agent's REAL ElevenLabs voice settings so the preview
+          // matches the live call (ignored by non-ElevenLabs voices).
+          stability: stability ?? undefined,
+          similarity_boost: similarityBoost ?? undefined,
+          style: styleVal ?? undefined,
+          use_speaker_boost: speakerBoost,
         }),
       });
       if (!r.ok) {
@@ -1277,6 +1285,8 @@ export function AgentForm({ initial }: { initial?: Agent }) {
       )}
 
       {error && <div className="card" style={{ borderColor: "var(--bad)", color: "var(--bad)" }}>{error}</div>}
+
+      {initial?.id && <AgentNumbersSection agentId={initial.id} />}
 
       <div style={{ display: "flex", gap: 10, justifyContent: "space-between" }}>
         <button type="submit" disabled={busy || !name}>

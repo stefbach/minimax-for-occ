@@ -5,6 +5,7 @@ import { generateText, type AnthropicCred } from "./ai";
 import { sendEmail, createDraft, type GmailCred } from "./gmail";
 import { type RunCtx, loadCredential } from "./runtime";
 import { runOccStep } from "./steps-occ";
+import { sendWhatsAppTemplate, sendWhatsAppFreeform } from "./whatsapp-twilio";
 
 /**
  * Native Axon automation engine ("mini-n8n"), v2.
@@ -255,54 +256,29 @@ async function sendEmailSmtp(
   });
 }
 
+// WhatsApp now ships via Twilio Content templates (migrated off WATI). The
+// signature is unchanged so every call site switches over transparently: the
+// `cred`/`broadcastName` args are ignored, and the positional WATI parameters
+// (name "1", "2"…) map straight onto Twilio ContentVariables.
 async function sendWatiTemplate(
-  cred: Record<string, unknown>,
+  _cred: Record<string, unknown> | null,
   phone: string,
   templateName: string,
-  broadcastName: string,
+  _broadcastName: string,
   parameters: Array<{ name: string; value: string }>,
 ): Promise<void> {
-  const base = String(cred.base_url ?? "").replace(/\/+$/, "");
-  const token = String(cred.token ?? "");
-  if (!base || !token) throw new Error("WATI credential missing base_url/token");
-  const waNumber = phone.replace(/^\+/, "");
-  const r = await fetch(
-    `${base}/api/v1/sendTemplateMessage?whatsappNumber=${encodeURIComponent(waNumber)}`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: token.startsWith("Bearer ") ? token : `Bearer ${token}`,
-      },
-      body: JSON.stringify({ template_name: templateName, broadcast_name: broadcastName, parameters }),
-      signal: AbortSignal.timeout(15000),
-    },
-  );
-  if (!r.ok) {
-    const body = await r.text().catch(() => "");
-    throw new Error(`WATI ${r.status}: ${body.slice(0, 200)}`);
-  }
+  const variables: Record<string, string> = {};
+  for (const p of parameters) variables[p.name] = p.value;
+  await sendWhatsAppTemplate(phone, templateName, variables);
 }
 
 async function sendWatiSession(
-  cred: Record<string, unknown>,
+  _cred: Record<string, unknown> | null,
   phone: string,
   messageText: string,
 ): Promise<void> {
-  const base = String(cred.base_url ?? "").replace(/\/+$/, "");
-  const token = String(cred.token ?? "");
-  if (!base || !token) throw new Error("WATI credential missing base_url/token");
-  const waNumber = phone.replace(/^\+/, "");
-  const url = `${base}/api/v1/sendSessionMessage/${encodeURIComponent(waNumber)}?messageText=${encodeURIComponent(messageText)}`;
-  const r = await fetch(url, {
-    method: "POST",
-    headers: { Authorization: token.startsWith("Bearer ") ? token : `Bearer ${token}` },
-    signal: AbortSignal.timeout(15000),
-  });
-  if (!r.ok) {
-    const body = await r.text().catch(() => "");
-    throw new Error(`WATI session ${r.status}: ${body.slice(0, 200)}`);
-  }
+  // Free-form WhatsApp via Twilio (only delivers inside the 24h window).
+  await sendWhatsAppFreeform(phone, messageText);
 }
 
 async function sendTelegram(
@@ -397,7 +373,10 @@ async function executeStep(rc: RunCtx, step: StepConfig, ctx: Ctx): Promise<void
         return;
       }
       const cred = credId ? await loadCredential(rc, credId) : null;
-      if (!cred) {
+      // Email channels still need their Gmail/SMTP credential; WhatsApp now
+      // ships via Twilio (env creds), so it no longer requires the WATI cred.
+      const needsCred = step.type === "send_gmail" || step.type === "send_email_smtp";
+      if (needsCred && !cred) {
         rc.log("warn", `row ${rowId}: ${step.type} — credential missing`);
         rc.stats.skipped++;
         return;
@@ -418,7 +397,7 @@ async function executeStep(rc: RunCtx, step: StepConfig, ctx: Ctx): Promise<void
           rc.stats.skipped++;
           return;
         }
-        await sendEmailSmtp(cred, to, get("subject"), get("html"));
+        await sendEmailSmtp(cred!, to, get("subject"), get("html"));
         rc.log("info", `row ${rowId}: email sent to ${to}`);
       } else if (step.type === "send_wati_template") {
         const phone = get("phone").trim();

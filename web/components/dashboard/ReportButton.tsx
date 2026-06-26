@@ -195,7 +195,13 @@ export function ReportButton({
               key={`${c.freq}-${c.format}`}
               type="button"
               className="ghost"
-              onClick={() => c.format === "pdf" ? runPdf(c.freq) : runCsv(c.freq as ReportFrequency)}
+              onClick={() => {
+                if (c.format === "pdf" || c.freq === "monthly") {
+                  runPdf(c.freq);
+                } else {
+                  runCsv(c.freq);
+                }
+              }}
               style={{
                 border: "none", background: "transparent", color: "var(--text)",
                 textAlign: "left", width: "100%", padding: "6px 8px", borderRadius: 4,

@@ -1,0 +1,323 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import type { LeadsResponse } from "@/app/api/dashboard/leads/route";
+import type { LeadsAnalysisResponse } from "@/app/api/dashboard/leads-analysis/route";
+import { useT } from "@/lib/i18n";
+import type { Filters } from "./PeriodBar";
+import { appendGlobalFilters } from "@/lib/global-filters";
+
+const CAT_COLORS = {
+  passer_humain: "#f59e0b",
+  rappel:        "#3b82f6",
+  pas_interesse: "#ef4444",
+  rdv_confirme:  "#22c55e",
+};
+
+function PctBar({ pct, color }: { pct: number; color: string }) {
+  return (
+    <div style={{ marginTop: 4, height: 4, borderRadius: 2, background: "var(--border)", overflow: "hidden" }}>
+      <div style={{ width: `${Math.min(pct, 100)}%`, height: "100%", background: color, borderRadius: 2 }} />
+    </div>
+  );
+}
+
+type Props = {
+  from: string;
+  to: string;
+  direction?: string | null;
+  leadsSource?: string | null;
+  system?: string | null;
+  global?: Filters;
+  refreshKey?: number;
+  orgId?: string;
+  campaignId?: string;
+};
+
+export function LeadsTab({ from, to, direction, leadsSource, system, global, refreshKey, orgId, campaignId }: Props) {
+  const t = useT();
+  const [data, setData] = useState<LeadsResponse | null>(null);
+  const [analysis, setAnalysis] = useState<LeadsAnalysisResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const fetchData = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const qs = new URLSearchParams({
+        from,
+        to,
+        ...(direction && { direction }),
+        ...(leadsSource && { leads_source: leadsSource }),
+        ...(system && { system }),
+        ...(global && global.quals.length && { gf_qual: global.quals.join(",") }),
+        ...(global && global.agents.length && { gf_agent: global.agents.join(",") }),
+        ...(global && global.answered !== "all" && { gf_answered: global.answered }),
+        ...(global && global.attempt !== "all" && { gf_attempt: global.attempt }),
+        ...(global && global.durations.length && { gf_dur: global.durations.join(",") }),
+        ...(global && global.eligibility !== "all" && { gf_elig: global.eligibility }),
+        ...(global && global.sources.length && { gf_src: global.sources.join(",") }),
+        ...(global && global.q && { gf_q: global.q }),
+        ...(orgId && { org_id: orgId }),
+        ...(campaignId && campaignId !== "all" && { campaign_id: campaignId }),
+      });
+
+      const analysisQs = new URLSearchParams({ from, to });
+      if (direction) analysisQs.set("direction", direction);
+      if (leadsSource) analysisQs.set("leads_source", leadsSource);
+      if (system) analysisQs.set("system", system);
+      if (global) appendGlobalFilters(analysisQs, global);
+
+      const [res, analysisRes] = await Promise.all([
+        fetch(`/api/dashboard/leads?${qs}`, { cache: "no-store" }),
+        fetch(`/api/dashboard/leads-analysis?${analysisQs}`, { cache: "no-store" }),
+      ]);
+
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error || `HTTP ${res.status}`);
+      }
+      const j = (await res.json()) as LeadsResponse;
+      setData(j);
+
+      if (analysisRes.ok) {
+        const aj = (await analysisRes.json()) as LeadsAnalysisResponse;
+        setAnalysis(aj);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "fetch error");
+    } finally {
+      setLoading(false);
+    }
+  }, [from, to, direction, leadsSource, system, global, orgId, campaignId]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData, refreshKey]);
+
+  if (loading) {
+    return <div className="card" style={{ padding: 20 }}>{t("Chargement…")}</div>;
+  }
+
+  if (error) {
+    return <div className="card" style={{ padding: 20, color: "var(--bad)" }}>Erreur : {error}</div>;
+  }
+
+  if (!data) {
+    return <div className="card" style={{ padding: 20 }}>{t("Aucune donnée")}</div>;
+  }
+
+  const { stats } = data;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+
+      {/* ── Pipeline leads (existing section) ─────────────────────────────── */}
+      <div
+        className="grid"
+        style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}
+      >
+        <div className="card" style={{ padding: 14 }}>
+          <div style={{ color: "var(--muted)", fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4 }}>
+            {t("Leads uniques")}
+          </div>
+          <div style={{ fontSize: 26, fontWeight: 700, margin: "6px 0 4px", color: "var(--accent-2)", letterSpacing: -0.4 }}>
+            {stats.total_unique_contacts}
+          </div>
+          <div style={{ fontSize: 12, color: "var(--muted)" }}>{t("personnes différentes appelées")}</div>
+        </div>
+
+        <div className="card" style={{ padding: 14 }}>
+          <div style={{ color: "var(--muted)", fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4 }}>
+            {t("Total appels")}
+          </div>
+          <div style={{ fontSize: 26, fontWeight: 700, margin: "6px 0 4px", color: "var(--accent-2)", letterSpacing: -0.4 }}>
+            {stats.total_calls}
+          </div>
+          <div style={{ fontSize: 12, color: "var(--muted)" }}>{t("appels passés")}</div>
+        </div>
+
+        <div className="card" style={{ padding: 14 }}>
+          <div style={{ color: "var(--muted)", fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4 }}>
+            {t("Appels / lead")}
+          </div>
+          <div style={{ fontSize: 26, fontWeight: 700, margin: "6px 0 4px", color: "var(--accent-2)", letterSpacing: -0.4 }}>
+            {stats.avg_calls_per_contact}
+          </div>
+          <div style={{ fontSize: 12, color: "var(--muted)" }}>{t("moyenne par personne")}</div>
+        </div>
+
+        <div className="card" style={{ padding: 14 }}>
+          <div style={{ color: "var(--muted)", fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4 }}>
+            {t("RDV confirmés")}
+          </div>
+          <div style={{ fontSize: 26, fontWeight: 700, margin: "6px 0 4px", color: "var(--good)", letterSpacing: -0.4 }}>
+            {stats.rdv_confirmed}
+          </div>
+          <div style={{ fontSize: 12, color: "var(--muted)" }}>{t("conversion confirmée")}</div>
+        </div>
+
+        <div className="card" style={{ padding: 14 }}>
+          <div style={{ color: "var(--muted)", fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4 }}>
+            {t("Transferts humain")}
+          </div>
+          <div style={{ fontSize: 26, fontWeight: 700, margin: "6px 0 4px", color: "var(--accent)", letterSpacing: -0.4 }}>
+            {stats.rdv_transfer}
+          </div>
+          <div style={{ fontSize: 12, color: "var(--muted)" }}>{t("à confirmer")}</div>
+        </div>
+      </div>
+
+      <div className="card" style={{ padding: 14 }}>
+        <h3 style={{ margin: "0 0 12px 0", fontSize: 14 }}>{t("Distribution des appels par lead")}</h3>
+        <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
+          <thead>
+            <tr style={{ borderBottom: "1px solid var(--border)" }}>
+              <th style={{ textAlign: "left", padding: "8px 0", fontWeight: 600 }}>{t("Tentatives")}</th>
+              <th style={{ textAlign: "right", padding: "8px 0", fontWeight: 600 }}>{t("Leads")}</th>
+              <th style={{ textAlign: "right", padding: "8px 0", fontWeight: 600 }}>{t("Appels")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {stats.calls_distribution.map((row) => (
+              <tr key={row.attempt} style={{ borderBottom: "1px solid var(--border)" }}>
+                <td style={{ padding: "8px 0" }}>{row.attempt === 10 ? "10+" : row.attempt}</td>
+                <td style={{ textAlign: "right", padding: "8px 0" }}>{row.contacts}</td>
+                <td style={{ textAlign: "right", padding: "8px 0" }}>{row.calls}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* ── Analyse décroché (answered calls only) ────────────────────────── */}
+      {analysis && (
+        <>
+          <div style={{ fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.6, color: "var(--muted)", paddingTop: 4 }}>
+            Analyse décroché
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 12 }}>
+
+            <div className="card" style={{ padding: "16px 18px" }}>
+              <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 4 }}>
+                Appels décrochés
+              </div>
+              <div style={{ fontSize: 30, fontWeight: 700, color: "#22c55e", lineHeight: 1 }}>
+                {analysis.totalAnswered}
+              </div>
+              <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>sur la période</div>
+            </div>
+
+            <div className="card" style={{ padding: "16px 18px" }}>
+              <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 4 }}>
+                Personnes uniques
+              </div>
+              <div style={{ fontSize: 30, fontWeight: 700, color: "var(--accent)", lineHeight: 1 }}>
+                {analysis.uniqueIndividuals}
+              </div>
+              <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>contacts distincts atteints</div>
+            </div>
+
+            <div className="card" style={{ padding: "16px 18px" }}>
+              <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 4 }}>
+                À passer à l&apos;humain
+              </div>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                <span style={{ fontSize: 30, fontWeight: 700, color: CAT_COLORS.passer_humain, lineHeight: 1 }}>
+                  {analysis.passerHumain.count}
+                </span>
+                <span style={{ fontSize: 14, color: CAT_COLORS.passer_humain, fontWeight: 600 }}>
+                  {analysis.passerHumain.pct}%
+                </span>
+              </div>
+              <PctBar pct={analysis.passerHumain.pct} color={CAT_COLORS.passer_humain} />
+              <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>Rain / Summer</div>
+            </div>
+
+            <div className="card" style={{ padding: "16px 18px" }}>
+              <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 4 }}>
+                Pas intéressé
+              </div>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                <span style={{ fontSize: 30, fontWeight: 700, color: CAT_COLORS.pas_interesse, lineHeight: 1 }}>
+                  {analysis.pasInteresse.count}
+                </span>
+                <span style={{ fontSize: 14, color: CAT_COLORS.pas_interesse, fontWeight: 600 }}>
+                  {analysis.pasInteresse.pct}%
+                </span>
+              </div>
+              <PctBar pct={analysis.pasInteresse.pct} color={CAT_COLORS.pas_interesse} />
+              <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>des décrochés</div>
+            </div>
+
+            <div className="card" style={{ padding: "16px 18px" }}>
+              <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 4 }}>
+                Rappel demandé
+              </div>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                <span style={{ fontSize: 30, fontWeight: 700, color: CAT_COLORS.rappel, lineHeight: 1 }}>
+                  {analysis.rappel.count}
+                </span>
+                <span style={{ fontSize: 14, color: CAT_COLORS.rappel, fontWeight: 600 }}>
+                  {analysis.rappel.pct}%
+                </span>
+              </div>
+              <PctBar pct={analysis.rappel.pct} color={CAT_COLORS.rappel} />
+              <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>des décrochés</div>
+            </div>
+
+            <div className="card" style={{ padding: "16px 18px" }}>
+              <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 4 }}>
+                RDV confirmés
+              </div>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                <span style={{ fontSize: 30, fontWeight: 700, color: CAT_COLORS.rdv_confirme, lineHeight: 1 }}>
+                  {analysis.rdvConfirme.count}
+                </span>
+                <span style={{ fontSize: 14, color: CAT_COLORS.rdv_confirme, fontWeight: 600 }}>
+                  {analysis.rdvConfirme.pct}%
+                </span>
+              </div>
+              <PctBar pct={analysis.rdvConfirme.pct} color={CAT_COLORS.rdv_confirme} />
+              <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>des décrochés</div>
+            </div>
+          </div>
+
+          {analysis.qualBreakdown.length > 0 && (
+            <div className="card" style={{ padding: 16 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12 }}>
+                Qualifications — décrochés uniquement
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {analysis.qualBreakdown.map((q) => {
+                  const color =
+                    q.key === "passer_humain" ? CAT_COLORS.passer_humain
+                    : q.key === "pas_interesse" ? CAT_COLORS.pas_interesse
+                    : q.key === "rappel" ? CAT_COLORS.rappel
+                    : q.key === "rdv_confirme" ? CAT_COLORS.rdv_confirme
+                    : q.key === "non_eligible" ? "#8b5cf6"
+                    : q.key === "ne_pas_rappeler" ? "#6b7280"
+                    : q.key === "faux_numero" ? "#f97316"
+                    : "var(--accent)";
+                  return (
+                    <div key={q.key}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                        <span style={{ fontSize: 12, fontWeight: 500 }}>{q.label}</span>
+                        <span style={{ fontSize: 12, color: "var(--muted)" }}>{q.count} · {q.pct}%</span>
+                      </div>
+                      <div style={{ height: 5, borderRadius: 3, background: "var(--border)", overflow: "hidden" }}>
+                        <div style={{ width: `${Math.min(q.pct, 100)}%`, height: "100%", background: color, borderRadius: 3 }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}

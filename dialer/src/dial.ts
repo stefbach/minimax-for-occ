@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { SipClient, RoomServiceClient, AgentDispatchClient } from "livekit-server-sdk";
 import { supabase } from "./supabase.js";
-import { createCall, TwilioError } from "./twilio.js";
+import { createCall, sendContentSms, TwilioError } from "./twilio.js";
 import { countryFromE164 } from "./_phone-utils.generated.js";
 import {
   parseContact,
@@ -328,7 +328,7 @@ export async function dialTarget(job: DialJob): Promise<void> {
   const { data: targetRaw, error: tErr } = await sb
     .from("campaign_targets")
     .select(
-      "id,campaign_id,contact_id,status,attempts,contacts(e164,display_name)",
+      "id,campaign_id,contact_id,status,attempts,payload,contacts(e164,display_name)",
     )
     .eq("id", job.target_id)
     .single();
@@ -347,7 +347,7 @@ export async function dialTarget(job: DialJob): Promise<void> {
   const { data: campaignRaw, error: cErr } = await sb
     .from("campaigns")
     .select(
-      "id,org_id,state,phone_number_id,caller_id_e164,amd_enabled,max_attempts,retry_delay_min,agent_handle_id",
+      "id,org_id,state,phone_number_id,caller_id_e164,amd_enabled,max_attempts,retry_delay_min,agent_handle_id,metadata",
     )
     .eq("id", job.campaign_id)
     .single();
@@ -411,6 +411,117 @@ export async function dialTarget(job: DialJob): Promise<void> {
       .update({ status: "failed", last_attempt_at: new Date().toISOString() })
       .eq("id", target.id);
     return;
+  }
+
+  // ─── Pre-call message gate (campaign.metadata.precall_message) ───────────
+  // When the campaign opts in, the patient gets a templated SMS *or* WhatsApp
+  // ~lead_minutes before EACH dial attempt (so they recognise the incoming
+  // call). We key the "already sent?" check on the UPCOMING attempt number:
+  // payload.precall_sms_attempt === attempts+1 means the message for this very
+  // attempt is already out, so fall through and dial. Otherwise we (atomically)
+  // claim the row, defer it by lead_minutes, send the message, and return
+  // WITHOUT dialing — the same target is re-picked ~lead_minutes later and
+  // dials then. Because every real dial bumps `attempts`, the next attempt's
+  // check fails again and re-sends — one message per call. No-op for every
+  // campaign that doesn't configure it. `precall_message` is the new (channel-
+  // aware) shape; `precall_sms` is kept as a legacy SMS-only fallback.
+  const precall = campaign.metadata?.precall_message ?? campaign.metadata?.precall_sms;
+  // Resolve the channel(s) to fire: the new multi-channel shape (precall.sms /
+  // precall.whatsapp — either or both), or the legacy single-channel shape
+  // (top-level content_sid, used by the existing precall_sms campaign).
+  const precallTargets: { channel: "sms" | "whatsapp"; contentSid: string; from?: string }[] = [];
+  if (precall?.enabled) {
+    if (precall.sms?.content_sid) precallTargets.push({ channel: "sms", contentSid: precall.sms.content_sid, from: precall.sms.from });
+    if (precall.whatsapp?.content_sid) precallTargets.push({ channel: "whatsapp", contentSid: precall.whatsapp.content_sid, from: precall.whatsapp.from });
+    if (precallTargets.length === 0 && precall.content_sid) {
+      precallTargets.push({ channel: precall.channel === "whatsapp" ? "whatsapp" : "sms", contentSid: precall.content_sid, from: precall.from });
+    }
+  }
+  if (precallTargets.length > 0) {
+    const upcoming = (target.attempts ?? 0) + 1;
+    const payload = target.payload ?? {};
+    const lastSmsAttempt = Number((payload as Record<string, unknown>).precall_sms_attempt ?? 0);
+    if (lastSmsAttempt !== upcoming) {
+      const leadMin = Math.max(1, Math.min(15, Number(precall?.lead_minutes ?? 2)));
+      const nextAt = new Date(Date.now() + leadMin * 60_000).toISOString();
+      // Atomic claim: mark this attempt's message(s) as sent AND push
+      // next_attempt_at out by lead_minutes, guarded on status='pending' so a
+      // concurrent tick can't double-send. If we don't win the row, skip.
+      const { data: claimed, error: claimErr } = await sb
+        .from("campaign_targets")
+        .update({
+          next_attempt_at: nextAt,
+          payload: { ...payload, precall_sms_attempt: upcoming, precall_sms_at: new Date().toISOString() },
+        })
+        .eq("id", target.id)
+        .eq("status", "pending")
+        .select("id");
+      if (claimErr || !claimed || claimed.length === 0) {
+        dlog("info", ctx, "precall: row not claimable (concurrent pick / not pending) — skipping");
+        return;
+      }
+      const rawFirst = (contact?.display_name ?? "").trim().split(/\s+/)[0] || "";
+      const firstName = rawFirst
+        ? rawFirst.charAt(0).toUpperCase() + rawFirst.slice(1)
+        : "there";
+      const leadName = (contact?.display_name ?? "").trim() || null;
+      // Best-effort row in precall_sms_log per channel for the dashboard SMS tab.
+      const logPrecall = async (channel: string, contentSid: string, twilioSid: string | null, status: string, error: string | null) => {
+        try {
+          await sb.from("precall_sms_log").insert({
+            org_id: campaign.org_id,
+            campaign_id: campaign.id,
+            target_id: target.id,
+            contact_id: target.contact_id,
+            to_e164: toE164,
+            lead_name: leadName,
+            channel,
+            content_sid: contentSid,
+            twilio_sid: twilioSid,
+            status,
+            error,
+            attempt: upcoming,
+          });
+        } catch (logErr) {
+          dlog("warn", ctx, `precall log insert failed: ${logErr instanceof Error ? logErr.message : String(logErr)}`);
+        }
+      };
+      // Send each enabled channel. WhatsApp goes through the same Twilio Content
+      // API — only the To/From carry the `whatsapp:` prefix.
+      let anySent = false;
+      let lastErr = "";
+      for (const ch of precallTargets) {
+        const chFrom = ch.from || fromE164;
+        const isWa = ch.channel === "whatsapp";
+        try {
+          const sms = await sendContentSms({
+            to: isWa ? `whatsapp:${toE164}` : toE164,
+            from: isWa ? `whatsapp:${chFrom}` : chFrom,
+            contentSid: ch.contentSid,
+            variables: { "1": firstName },
+          });
+          anySent = true;
+          dlog("info", { ...ctx, call_id: sms.sid }, `precall-${ch.channel} sent to=${toE164} attempt=${upcoming} — dial in ~${leadMin}min`);
+          await logPrecall(ch.channel, ch.contentSid, sms.sid ?? null, "sent", null);
+        } catch (e) {
+          lastErr = e instanceof Error ? e.message : String(e);
+          dlog("warn", ctx, `precall-${ch.channel} send failed: ${lastErr}`);
+          await logPrecall(ch.channel, ch.contentSid, null, "failed", lastErr);
+        }
+      }
+      if (!anySent) {
+        // Every channel failed — roll the marker back so the next pick RE-SENDS
+        // (we must not dial un-messaged), retry sooner than a full lead window.
+        await sb
+          .from("campaign_targets")
+          .update({
+            next_attempt_at: new Date(Date.now() + 60_000).toISOString(),
+            payload: { ...payload, precall_sms_attempt: lastSmsAttempt, precall_sms_error: lastErr },
+          })
+          .eq("id", target.id);
+      }
+      return; // dial happens on the next pick, once the message(s) have landed
+    }
   }
 
   // DNC enforcement — abort before bumping attempts so we don't burn through
