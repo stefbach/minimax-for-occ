@@ -27,7 +27,10 @@ export async function GET(req: Request) {
   }
 
   const url = new URL(req.url);
-  const to = (url.searchParams.get("to") ?? "").trim();
+  // Browsers decode a literal "+" in a query string to a space, so "+44…"
+  // arrives as " 44…". Normalise: strip spaces and re-add the leading +.
+  let to = (url.searchParams.get("to") ?? "").replace(/\s+/g, "");
+  if (to && !to.startsWith("+") && /^\d+$/.test(to)) to = "+" + to;
   const name = (url.searchParams.get("name") ?? "Wati").trim();
   if (!/^\+\d{6,15}$/.test(to)) {
     return NextResponse.json({ error: "Paramètre ?to=+E164 requis (ex: ?to=+447360270480)" }, { status: 400 });
