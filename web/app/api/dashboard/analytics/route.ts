@@ -56,6 +56,15 @@ export type HeatCell = { weekday: number; hour: number; count: number; answered:
 export type FunnelStep = { key: string; label: string; count: number; pct_of_total: number };
 export type SourceRow = { source: string; total: number; rdv: number; conv_rate: number };
 // Cost panel — spend broken down by outcome and by hour, plus the headline tiles.
+export type ProviderRow = {
+  event_type: string;
+  label: string;
+  color: string;        // CSS color for the UI chip/bar
+  cost: number;         // USD, 2dp
+  quantity: number;     // raw quantity (minutes, tokens, chars, etc.)
+  unit: string;         // human label for the quantity ("min", "k tokens", "k chars")
+  pct: number;          // fraction of total cost (0–1)
+};
 export type CostPanel = {
   total: number;
   avg_per_call: number;
@@ -64,6 +73,8 @@ export type CostPanel = {
   wasted_pct: number;
   by_outcome: { key: QualBucket; label: string; cost: number }[];
   by_hour: { hour: number; cost: number }[];
+  by_provider: ProviderRow[];                  // per event_type with quantity
+  by_day: { date: string; cost: number }[];    // daily cost trend (YYYY-MM-DD)
 };
 export type SlotRow = { key: "matin" | "midi" | "soir" | "hors"; label: string; total: number; answered: number };
 // Eligibility pipeline (S2 UK NHS WMP) — eligible leads still callable vs lost.
@@ -274,18 +285,21 @@ export async function GET(request: Request) {
   // Real cost from recorded usage (telephony minutes + LLM tokens + TTS chars +
   // STT minutes), summed over the period and restricted to in-scope calls.
   const inScopeIds = new Set(rows.map((r) => r.id));
-  const { rows: usage } = await fetchAllPaged<{ event_type: string; cost_cents: number; metadata: { call_id?: string } | null }>(
+  type UsageRow = { event_type: string; cost_cents: number; quantity: number; occurred_at: string; metadata: { call_id?: string } | null };
+  const { rows: usage } = await fetchAllPaged<UsageRow>(
     () =>
       sb
         .from("usage_events")
-        .select("event_type, cost_cents, metadata")
+        .select("event_type, cost_cents, quantity, occurred_at, metadata")
         .eq("org_id", orgId)
         .gte("occurred_at", from.toISOString())
-        .lte("occurred_at", to.toISOString()) as unknown as Rangeable<{ event_type: string; cost_cents: number; metadata: { call_id?: string } | null }>,
+        .lte("occurred_at", to.toISOString()) as unknown as Rangeable<UsageRow>,
   );
   const breakdown = { call_minutes: 0, llm_tokens: 0, tts_chars: 0, stt_minutes: 0 };
+  const qtyByType: Record<string, number> = { call_minutes: 0, llm_tokens: 0, tts_chars: 0, stt_minutes: 0 };
   let totalCents = 0;
   const costByCall = new Map<string, number>(); // call_id → cents, for the cost panel
+  const costByDay = new Map<string, number>();   // YYYY-MM-DD → cents
   for (const u of usage) {
     const cid = u.metadata?.call_id;
     // Drop events that belong to filtered-out calls. Untagged events
@@ -295,7 +309,15 @@ export async function GET(request: Request) {
     totalCents += cents;
     if (cid) costByCall.set(cid, (costByCall.get(cid) ?? 0) + cents);
     const k = u.event_type as keyof typeof breakdown;
-    if (k in breakdown) breakdown[k] += cents;
+    if (k in breakdown) {
+      breakdown[k] += cents;
+      qtyByType[k] = (qtyByType[k] ?? 0) + (Number(u.quantity) || 0);
+    }
+    // Daily cost trend — keyed by UTC date of the event.
+    if (u.occurred_at) {
+      const day = u.occurred_at.slice(0, 10); // "YYYY-MM-DD"
+      costByDay.set(day, (costByDay.get(day) ?? 0) + cents);
+    }
   }
   const costReal = Math.round((totalCents / 100) * 100) / 100; // → dollars, 2dp
   const r2 = (cents: number) => Math.round((cents / 100) * 100) / 100;
@@ -572,6 +594,33 @@ export async function GET(request: Request) {
     if (r.started_at) hourCost[new Date(r.started_at).getHours()] += c;
     if (b === "faux_numero" || b === "pas_de_reponse") wastedCents += c;
   }
+  // Provider breakdown — 4 fixed rows always present (even if $0) so the UI
+  // can always render all 4 cards without conditional logic.
+  const PROVIDERS: { event_type: string; label: string; color: string; unit: string; scale: number }[] = [
+    { event_type: "call_minutes", label: "Twilio Voice", color: "#2563eb", unit: "min", scale: 1 },
+    { event_type: "llm_tokens",   label: "AI (DeepSeek)", color: "#7c3aed", unit: "k tokens", scale: 1000 },
+    { event_type: "tts_chars",    label: "Text-to-Speech", color: "#059669", unit: "k chars", scale: 1000 },
+    { event_type: "stt_minutes",  label: "Speech-to-Text", color: "#d97706", unit: "min", scale: 1 },
+  ];
+  const by_provider: ProviderRow[] = PROVIDERS.map((p) => {
+    const cents = breakdown[p.event_type as keyof typeof breakdown] ?? 0;
+    const qty = qtyByType[p.event_type] ?? 0;
+    return {
+      event_type: p.event_type,
+      label: p.label,
+      color: p.color,
+      cost: r2(cents),
+      quantity: p.scale > 1 ? Math.round(qty / p.scale * 10) / 10 : Math.round(qty * 10) / 10,
+      unit: p.unit,
+      pct: totalCents > 0 ? cents / totalCents : 0,
+    };
+  });
+
+  // Daily cost trend — sorted chronologically, costs in dollars.
+  const by_day = Array.from(costByDay.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([date, cents]) => ({ date, cost: r2(cents) }));
+
   const cost_panel: CostPanel = {
     total: costReal,
     avg_per_call: total > 0 ? Math.round(totalCents / total) / 100 : 0,
@@ -583,6 +632,8 @@ export async function GET(request: Request) {
       .filter((x) => x.cost > 0)
       .sort((a, b) => b.cost - a.cost),
     by_hour: hourCost.map((c, h) => ({ hour: h, cost: d2(c) })),
+    by_provider,
+    by_day,
   };
 
   // ── Volume per OCC call-slot (Matin / Midi / Soir / Hors), with answer rate ──
