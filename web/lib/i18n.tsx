@@ -1689,18 +1689,6 @@ const EN: Record<string, string> = {
   "Tous les leads": "All leads",
   "RDV confirmés (décrochés)": "Booked appts (answered)",
 
-  // ── QUAL_BUCKETS uppercase labels (from qualification.ts) ──
-  "RDV CONFIRME": "APPT BOOKED",
-  "À PASSER À L'HUMAIN": "TO HAND OVER",
-  "RAPPEL": "CALLBACK",
-  "PAS INTERESSE": "NOT INTERESTED",
-  "PAS DE REPONSE": "NO ANSWER",
-  "REPONDEUR": "VOICEMAIL",
-  "NON ELIGIBLE": "INELIGIBLE",
-  "NE PAS RAPPELER": "DO NOT CALL",
-  "SUIVI REQUIS": "FOLLOW-UP NEEDED",
-  "FAUX NUMERO": "WRONG NUMBER",
-
   // ── DirectorTab ──
   "Appels entrants": "Inbound calls",
   "Voir tous les entrants": "View all inbound calls",
