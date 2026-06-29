@@ -210,15 +210,26 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
             <p className="muted" style={{ fontSize: 13 }}>{t("Aucune qualification dans la période.")}</p>
           ) : (
             <div style={{ display: "grid", gap: 4 }}>
-              {data.qualifications.map((q) => {
+              {[
+                ...data.qualifications.filter((q) => q.key === "passer_humain" || q.key === "pas_interesse"),
+                ...data.qualifications.filter((q) => q.key !== "passer_humain" && q.key !== "pas_interesse"),
+              ].map((q) => {
                 const max = Math.max(1, ...data.qualifications.map((x) => x.count));
+                const isPriority = q.key === "passer_humain" || q.key === "pas_interesse";
+                const barColor = q.key === "passer_humain" ? "var(--good)" : q.key === "pas_interesse" ? "var(--bad)" : q.count > 0 ? "var(--accent)" : "transparent";
                 return (
-                  <div key={q.key} style={{ display: "grid", gridTemplateColumns: "160px 1fr 40px", gap: 8, alignItems: "center" }}>
-                    <span style={{ fontSize: 12 }}>{t(q.label)}</span>
-                    <div style={{ background: "var(--bg-2)", borderRadius: 4, overflow: "hidden", height: 14 }}>
-                      <div style={{ width: `${(q.count / max) * 100}%`, height: "100%", background: q.count > 0 ? "var(--accent)" : "transparent" }} />
+                  <div
+                    key={q.key}
+                    style={{
+                      display: "grid", gridTemplateColumns: "160px 1fr 40px", gap: 8, alignItems: "center",
+                      ...(isPriority ? { padding: "4px 6px", borderRadius: 6, background: q.key === "passer_humain" ? "color-mix(in srgb, var(--good) 6%, transparent)" : "color-mix(in srgb, var(--bad) 6%, transparent)" } : {}),
+                    }}
+                  >
+                    <span style={{ fontSize: 12, fontWeight: isPriority ? 700 : undefined, color: isPriority ? barColor : undefined }}>{t(q.label)}</span>
+                    <div style={{ background: "var(--bg-2)", borderRadius: 4, overflow: "hidden", height: isPriority ? 18 : 14 }}>
+                      <div style={{ width: `${(q.count / max) * 100}%`, height: "100%", background: barColor }} />
                     </div>
-                    <span className="muted" style={{ fontSize: 12, textAlign: "right" }}>{q.count}</span>
+                    <span style={{ fontSize: 12, textAlign: "right", fontWeight: isPriority ? 700 : undefined, color: isPriority ? barColor : undefined }}>{q.count}</span>
                   </div>
                 );
               })}

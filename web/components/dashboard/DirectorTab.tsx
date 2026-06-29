@@ -346,8 +346,87 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
         <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>
           {t("Source")} : <code>calls.metadata.qualification</code> + <code>calls.disposition</code>
         </p>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10 }}>
-          {data.qualifications.map((q) => (
+
+        {/* ── EFFICACY ROW: rate card + the two priority outcome cards ── */}
+        {(() => {
+          const passerHumain = data.qualifications.find((q) => q.key === "passer_humain")?.count ?? 0;
+          const pasInteresse = data.qualifications.find((q) => q.key === "pas_interesse")?.count ?? 0;
+          const totalOutcomes = data.qualifications.reduce((s, q) => s + q.count, 0);
+          const efficacyRate = totalOutcomes > 0 ? ((passerHumain + pasInteresse) / totalOutcomes) * 100 : null;
+          return (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12, marginBottom: 14 }}>
+              {/* Efficacy Rate */}
+              <div
+                className="card"
+                style={{
+                  padding: 16,
+                  borderColor: "var(--accent-2)",
+                  background: "color-mix(in srgb, var(--accent-2) 7%, transparent)",
+                }}
+              >
+                <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 700, color: "var(--accent-2)" }}>
+                  📊 {t("Taux d'efficacité")}
+                </div>
+                <div style={{ fontSize: 38, fontWeight: 800, marginTop: 6, color: "var(--accent-2)", lineHeight: 1 }}>
+                  {efficacyRate !== null ? `${efficacyRate.toFixed(1)}%` : "N/A"}
+                </div>
+                <div
+                  className="muted"
+                  style={{ fontSize: 11, marginTop: 6 }}
+                  title={t("% des appels qualifiés avec une issue claire : transfert humain ou déclin explicite")}
+                >
+                  {t("% appels avec issue claire")} · transfert + déclin
+                </div>
+              </div>
+
+              {/* À passer à l'humain */}
+              <ClickCard
+                ariaLabel={`${t("À PASSER À L'HUMAIN")} — ${t("voir les appels")}`}
+                onClick={() => openDrill(t("À PASSER À L'HUMAIN"), "🤝", "var(--good)", { qualification: "passer_humain" as QualBucket })}
+                style={{
+                  padding: 16,
+                  borderColor: "var(--good)",
+                  borderWidth: 2,
+                  background: "color-mix(in srgb, var(--good) 8%, transparent)",
+                }}
+              >
+                <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 700, color: "var(--good)" }}>
+                  🤝 {t("À PASSER À L'HUMAIN")}
+                </div>
+                <div style={{ fontSize: 38, fontWeight: 800, marginTop: 6, color: "var(--good)", lineHeight: 1 }}>
+                  {passerHumain}
+                </div>
+                <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>{t("Patients à confier à un expert")}</div>
+              </ClickCard>
+
+              {/* Pas intéressé */}
+              <ClickCard
+                ariaLabel={`${t("PAS INTÉRESSÉ")} — ${t("voir les appels")}`}
+                onClick={() => openDrill(t("PAS INTÉRESSÉ"), "✗", "var(--bad)", { qualification: "pas_interesse" as QualBucket })}
+                style={{
+                  padding: 16,
+                  borderColor: "var(--bad)",
+                  borderWidth: 2,
+                  background: "color-mix(in srgb, var(--bad) 8%, transparent)",
+                }}
+              >
+                <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 700, color: "var(--bad)" }}>
+                  ✗ {t("PAS INTÉRESSÉ")}
+                </div>
+                <div style={{ fontSize: 38, fontWeight: 800, marginTop: 6, color: "var(--bad)", lineHeight: 1 }}>
+                  {pasInteresse}
+                </div>
+                <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>{t("Patients ayant décliné explicitement")}</div>
+              </ClickCard>
+            </div>
+          );
+        })()}
+
+        {/* ── Remaining 7 outcome cards ── */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>
+          {data.qualifications
+            .filter((q) => q.key !== "passer_humain" && q.key !== "pas_interesse")
+            .map((q) => (
             <ClickCard
               key={q.key}
               ariaLabel={`${t(q.label)} — ${t("voir les appels")}`}
