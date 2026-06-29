@@ -25,6 +25,7 @@ const ACTIVE = new Set(["ringing", "ivr", "in_progress", "wrap_up"]);
 
 export type DirectorKpis = {
   totalCalls: number;
+  uniqueLeads: number;
   answered: number;
   answeredUniqueContacts: number;
   notAnswered: number;
@@ -272,6 +273,10 @@ export async function GET(request: Request) {
     .filter(humanAnswered)
     .reduce((a, b) => a + (b.row.duration_secs ?? 0), 0);
 
+  // Count all unique contacts in the period (distinct phone numbers, regardless of outcome)
+  const allPhones = new Set(rows.map((r) => r.to_e164).filter(Boolean));
+  const uniqueLeads = allPhones.size;
+
   // Count unique answered contacts (distinct people who answered, by to_e164 or contact_id)
   const answeredContacts = new Set<string>();
   for (const b of buckets) {
@@ -512,6 +517,7 @@ export async function GET(request: Request) {
   const body: DirectorResponse = {
     kpis: {
       totalCalls: total,
+      uniqueLeads,
       answered,
       answeredUniqueContacts,
       notAnswered,
