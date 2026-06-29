@@ -191,11 +191,11 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
 
         {/* Card 1 — Total calls / unique leads (clickable → all leads) */}
-        <Clickable onClick={() => openDrill({}, { title: "Tous les leads", icon: "📋", tone: "var(--accent-2)" })}>
+        <Clickable onClick={() => openDrill({}, { title: t("Tous les leads"), icon: "📋", tone: "var(--accent-2)" })}>
           <div className="card" style={{ padding: "16px 18px", display: "flex", alignItems: "stretch", gap: 0, cursor: "pointer" }}>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 4 }}>
-                Total appels
+                {t("Total appels")}
               </div>
               <div style={{ fontSize: 32, fontWeight: 700, color: "var(--accent-2)", lineHeight: 1, letterSpacing: -0.5 }}>
                 {stats.total_calls}
@@ -204,14 +204,14 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
             <div style={{ width: 1, background: "var(--border)", margin: "0 14px", flexShrink: 0 }} />
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 4 }}>
-                Leads uniques
+                {t("Leads uniques")}
               </div>
               <div style={{ fontSize: 32, fontWeight: 700, color: "var(--fg)", lineHeight: 1, letterSpacing: -0.5 }}>
                 {stats.total_unique_contacts}
               </div>
               {stats.total_calls > 0 && (
                 <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
-                  {Math.round(stats.total_unique_contacts / stats.total_calls * 100)}% des appels
+                  {Math.round(stats.total_unique_contacts / stats.total_calls * 100)}{t("% des appels")}
                 </div>
               )}
             </div>
@@ -219,11 +219,11 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
         </Clickable>
 
         {/* Card 2 — Unique answered / contact rate (clickable → answered leads) */}
-        <Clickable onClick={() => openDrill({ answered: "yes" }, { title: "Appels décrochés — leads uniques", icon: "✅", tone: "#22c55e" })}>
+        <Clickable onClick={() => openDrill({ answered: "yes" }, { title: t("Appels décrochés — leads uniques"), icon: "✅", tone: "#22c55e" })}>
           <div className="card" style={{ padding: "16px 18px", display: "flex", alignItems: "stretch", gap: 0, cursor: "pointer" }}>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 4 }}>
-                Appels décrochés
+                {t("Appels décrochés")}
               </div>
               <div style={{ fontSize: 32, fontWeight: 700, color: "#22c55e", lineHeight: 1, letterSpacing: -0.5 }}>
                 {analysis?.uniqueIndividuals ?? "—"}
@@ -232,7 +232,7 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
             <div style={{ width: 1, background: "var(--border)", margin: "0 14px", flexShrink: 0 }} />
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 4 }}>
-                Taux de contact
+                {t("Taux de contact")}
               </div>
               <div style={{ fontSize: 32, fontWeight: 700, color: "#22c55e", lineHeight: 1, letterSpacing: -0.5 }}>
                 {analysis && stats.total_unique_contacts > 0
@@ -241,7 +241,7 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
               </div>
               {analysis && (
                 <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
-                  des {stats.total_unique_contacts} leads
+                  {t("des X leads").replace("X", String(stats.total_unique_contacts))}
                 </div>
               )}
             </div>
@@ -251,13 +251,13 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
         {/* Card 3 — Avg calls until first answer */}
         <div className="card" style={{ padding: "16px 18px" }}>
           <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 4 }}>
-            Appels / lead jusqu'au décroché
+            {t("Appels / lead jusqu'au décroché")}
           </div>
           <div style={{ fontSize: 32, fontWeight: 700, color: "var(--accent-2)", lineHeight: 1, letterSpacing: -0.5 }}>
             {stats.avg_calls_to_answer}
           </div>
           <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>
-            tentatives moyennes avant réponse
+            {t("tentatives moyennes avant réponse")}
           </div>
         </div>
       </div>
@@ -292,18 +292,18 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
       {analysis && (
         <>
           <div style={{ fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.6, color: "var(--muted)", paddingTop: 4 }}>
-            Analyse décroché — Qualifié par l&apos;IA
+            {t("Analyse décroché — Qualifié par l'IA")}
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
 
             <Clickable onClick={() => openDrill(
               { qualification: "passer_humain", answered: "yes" },
-              { title: "À passer à l'humain", icon: "👤", tone: CAT_COLORS.passer_humain },
+              { title: t("À passer à l'humain"), icon: "👤", tone: CAT_COLORS.passer_humain },
             )}>
               <div className="card" style={{ padding: "16px 18px", cursor: "pointer" }}>
                 <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 4 }}>
-                  À passer à l&apos;humain
+                  {t("À passer à l'humain")}
                 </div>
                 <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
                   <span style={{ fontSize: 30, fontWeight: 700, color: CAT_COLORS.passer_humain, lineHeight: 1 }}>
@@ -314,17 +314,17 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
                   </span>
                 </div>
                 <PctBar pct={analysis.passerHumain.pct} color={CAT_COLORS.passer_humain} />
-                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>sur {analysis.totalAnswered} appels décrochés</div>
+                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>{t("sur X appels décrochés").replace("X", String(analysis.totalAnswered))}</div>
               </div>
             </Clickable>
 
             <Clickable onClick={() => openDrill(
               { qualification: "pas_interesse", answered: "yes" },
-              { title: "Pas intéressé", icon: "✕", tone: CAT_COLORS.pas_interesse },
+              { title: t("Pas intéressé"), icon: "✕", tone: CAT_COLORS.pas_interesse },
             )}>
               <div className="card" style={{ padding: "16px 18px", cursor: "pointer" }}>
                 <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 4 }}>
-                  Pas intéressé
+                  {t("Pas intéressé")}
                 </div>
                 <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
                   <span style={{ fontSize: 30, fontWeight: 700, color: CAT_COLORS.pas_interesse, lineHeight: 1 }}>
@@ -335,17 +335,17 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
                   </span>
                 </div>
                 <PctBar pct={analysis.pasInteresse.pct} color={CAT_COLORS.pas_interesse} />
-                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>sur {analysis.totalAnswered} appels décrochés</div>
+                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>{t("sur X appels décrochés").replace("X", String(analysis.totalAnswered))}</div>
               </div>
             </Clickable>
 
             <Clickable onClick={() => openDrill(
               { qualification: "rappel", answered: "yes" },
-              { title: "Rappel demandé", icon: "↩", tone: CAT_COLORS.rappel },
+              { title: t("Rappel demandé"), icon: "↩", tone: CAT_COLORS.rappel },
             )}>
               <div className="card" style={{ padding: "16px 18px", cursor: "pointer" }}>
                 <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 4 }}>
-                  Rappel demandé
+                  {t("Rappel demandé")}
                 </div>
                 <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
                   <span style={{ fontSize: 30, fontWeight: 700, color: CAT_COLORS.rappel, lineHeight: 1 }}>
@@ -356,17 +356,17 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
                   </span>
                 </div>
                 <PctBar pct={analysis.rappel.pct} color={CAT_COLORS.rappel} />
-                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>sur {analysis.totalAnswered} appels décrochés</div>
+                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>{t("sur X appels décrochés").replace("X", String(analysis.totalAnswered))}</div>
               </div>
             </Clickable>
 
             <Clickable onClick={() => openDrill(
               { qualification: "rdv_confirme", answered: "yes" },
-              { title: "RDV confirmés (décrochés)", icon: "✅", tone: CAT_COLORS.rdv_confirme },
+              { title: t("RDV confirmés (décrochés)"), icon: "✅", tone: CAT_COLORS.rdv_confirme },
             )}>
               <div className="card" style={{ padding: "16px 18px", cursor: "pointer" }}>
                 <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 4 }}>
-                  RDV confirmés
+                  {t("RDV confirmés")}
                 </div>
                 <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
                   <span style={{ fontSize: 30, fontWeight: 700, color: CAT_COLORS.rdv_confirme, lineHeight: 1 }}>
@@ -377,19 +377,19 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
                   </span>
                 </div>
                 <PctBar pct={analysis.rdvConfirme.pct} color={CAT_COLORS.rdv_confirme} />
-                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>sur {analysis.totalAnswered} appels décrochés</div>
+                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>{t("sur X appels décrochés").replace("X", String(analysis.totalAnswered))}</div>
               </div>
             </Clickable>
 
             {analysis.needsReview > 0 && (
               <div className="card" style={{ padding: "16px 18px", border: "1px solid #a16207" }}>
                 <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "#a16207", marginBottom: 4 }}>
-                  À vérifier
+                  {t("À vérifier")}
                 </div>
                 <div style={{ fontSize: 30, fontWeight: 700, color: "#ca8a04", lineHeight: 1 }}>
                   {analysis.needsReview}
                 </div>
-                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>faible confiance IA</div>
+                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>{t("faible confiance IA")}</div>
               </div>
             )}
           </div>
@@ -397,9 +397,9 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
           {analysis.qualBreakdown.length > 0 && (
             <div className="card" style={{ padding: 16 }}>
               <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12, display: "flex", alignItems: "baseline", gap: 8 }}>
-                <span>Qualifications — décrochés uniquement</span>
+                <span>{t("Qualifications — décrochés uniquement")}</span>
                 <span style={{ fontSize: 11, fontWeight: 400, color: "var(--muted)" }}>
-                  % sur {analysis.totalAnswered} décrochés
+                  {t("% sur X décrochés").replace("X", String(analysis.totalAnswered))}
                 </span>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -419,12 +419,12 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
                       type="button"
                       onClick={() => openDrill(
                         { qualification: q.key as QualBucket, answered: "yes" },
-                        { title: q.label, tone: color },
+                        { title: t(q.label), tone: color },
                       )}
                       style={{ all: "unset", display: "block", cursor: "pointer", borderRadius: 4 }}
                     >
                       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-                        <span style={{ fontSize: 12, fontWeight: 500 }}>{q.label}</span>
+                        <span style={{ fontSize: 12, fontWeight: 500 }}>{t(q.label)}</span>
                         <span style={{ fontSize: 12, color: "var(--muted)" }}>{q.count} · {q.pct}%</span>
                       </div>
                       <div style={{ height: 5, borderRadius: 3, background: "var(--border)", overflow: "hidden" }}>
@@ -443,7 +443,7 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
       {handoff && (
         <>
           <div style={{ fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.6, color: "var(--muted)", paddingTop: 4 }}>
-            Transferts à traiter
+            {t("Transferts à traiter")}
           </div>
 
           <div className="card" style={{ padding: 0, overflow: "hidden" }}>
@@ -460,8 +460,8 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
                   {handoff.total}
                 </span>
                 <span style={{ fontSize: 13, color: "var(--muted)" }}>
-                  lead{handoff.total !== 1 ? "s" : ""} à passer à Rain / Summer
-                  <span style={{ fontSize: 11, marginLeft: 6 }}>(dernières {handoff.window_hours}h)</span>
+                  {handoff.total !== 1 ? "leads" : "lead"} {t("à passer à Rain / Summer")}
+                  <span style={{ fontSize: 11, marginLeft: 6 }}>{t("(dernières Xh)").replace("X", String(handoff.window_hours))}</span>
                 </span>
               </div>
               {handoff.total > 0 && (
@@ -471,10 +471,10 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
                   style={{ fontSize: 12, padding: "4px 10px" }}
                   onClick={() => openDrill(
                     { qualification: "passer_humain" },
-                    { title: "Transferts humain", icon: "👤", tone: CAT_COLORS.passer_humain },
+                    { title: t("Transferts humain"), icon: "👤", tone: CAT_COLORS.passer_humain },
                   )}
                 >
-                  Voir tout →
+                  {t("Voir tout →")}
                 </button>
               )}
             </div>
@@ -482,7 +482,7 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
             {/* Lead rows */}
             {handoff.calls.length === 0 ? (
               <div style={{ padding: "14px 16px", fontSize: 13, color: "var(--muted)" }}>
-                Aucun transfert en attente sur les dernières {handoff.window_hours}h.
+                {t("Aucun transfert en attente sur les dernières Xh.").replace("X", String(handoff.window_hours))}
               </div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column" }}>
@@ -492,7 +492,7 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
                     type="button"
                     onClick={() => openDrill(
                       { qualification: hc.bucket },
-                      { title: hc.contact_name ?? hc.phone ?? "Lead", icon: "👤", tone: CAT_COLORS.passer_humain },
+                      { title: hc.contact_name ?? hc.phone ?? t("Lead"), icon: "👤", tone: CAT_COLORS.passer_humain },
                     )}
                     style={{
                       all: "unset", display: "flex", alignItems: "center", gap: 12,
@@ -516,7 +516,7 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
                     {/* Name + reason */}
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {hc.contact_name ?? hc.phone ?? "Inconnu"}
+                        {hc.contact_name ?? hc.phone ?? t("Inconnu")}
                       </div>
                       {hc.reason && (
                         <div style={{ fontSize: 11, color: "var(--muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 1 }}>
@@ -535,7 +535,7 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
                           : "color-mix(in srgb, var(--accent) 10%, transparent)",
                         color: hc.bucket === "passer_humain" ? CAT_COLORS.passer_humain : "var(--accent)",
                       }}>
-                        {hc.bucket === "passer_humain" ? "Humain" : "Suivi requis"}
+                        {hc.bucket === "passer_humain" ? t("Humain") : t("Suivi requis")}
                       </span>
                       {hc.called_at && (
                         <span style={{ fontSize: 10, color: "var(--muted)" }}>
@@ -547,7 +547,7 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
                 ))}
                 {handoff.calls.length > 8 && (
                   <div style={{ padding: "10px 16px", fontSize: 12, color: "var(--muted)", textAlign: "center" }}>
-                    + {handoff.calls.length - 8} autres — cliquez sur "Voir tout" pour la liste complète
+                    {t("+ X autres — voir la liste complète").replace("X", String(handoff.calls.length - 8))}
                   </div>
                 )}
               </div>
