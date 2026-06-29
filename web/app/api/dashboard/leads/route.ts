@@ -18,6 +18,9 @@ export type LeadsStats = {
   total_unique_contacts: number;
   total_calls: number;
   avg_calls_per_contact: number;
+  total_answered: number;
+  unique_answered_contacts: number;
+  avg_calls_to_answer: number;
   rdv_confirmed: number;
   rdv_transfer: number;
   calls_distribution: { attempt: number; contacts: number; calls: number }[];
@@ -155,10 +158,33 @@ export async function GET(request: Request) {
     byContact.set(key, contact);
   }
 
-  // Calculate stats
+  // Calculate stats — all derived from the same byContact map
   const totalUniqueContacts = byContact.size;
-  const totalCalls = rows.length;
+  const totalCalls = Array.from(byContact.values()).reduce((sum, calls) => sum + calls.length, 0);
   const avgCallsPerContact = totalUniqueContacts > 0 ? Math.round((totalCalls / totalUniqueContacts) * 10) / 10 : 0;
+
+  // Answered-call stats:
+  // - total_answered: calls in scope where answered_at is set
+  // - unique_answered_contacts: unique phones that answered at least once
+  // - avg_calls_to_answer: for leads that eventually answered, the average
+  //   number of call attempts made before (and including) the first answered call.
+  //   E.g. if a lead got 3 unanswered calls then answered on the 4th → counts as 4.
+  let totalAnswered = 0;
+  let sumAttemptsToAnswer = 0;
+  let leadsWithAnswer = 0;
+  for (const calls of byContact.values()) {
+    calls.sort((a, b) => (a.started_at ?? "").localeCompare(b.started_at ?? ""));
+    const firstAnswerIdx = calls.findIndex((c) => !!c.answered_at);
+    if (firstAnswerIdx !== -1) {
+      leadsWithAnswer += 1;
+      sumAttemptsToAnswer += firstAnswerIdx + 1; // 1-based position
+    }
+    totalAnswered += calls.filter((c) => !!c.answered_at).length;
+  }
+  const uniqueAnsweredContacts = leadsWithAnswer;
+  const avgCallsToAnswer = leadsWithAnswer > 0
+    ? Math.round((sumAttemptsToAnswer / leadsWithAnswer) * 10) / 10
+    : 0;
 
   // Count RDV and transfers
   let rdvConfirmed = 0;
@@ -169,17 +195,16 @@ export async function GET(request: Request) {
     if (b === "passer_humain") rdvTransfer += 1;
   }
 
-  // Distribution of calls per contact (attempt funnel)
+  // Distribution: each lead is bucketed by their TOTAL call count.
+  // "Tentative N" = leads who received exactly N calls (capped at 10+).
+  // "Leads" = unique leads in that bucket, "Appels" = their total calls.
   const attemptMap = new Map<number, { contacts: number; calls: number }>();
-  for (const [contactId, calls] of byContact.entries()) {
-    calls.sort((a, b) => (a.started_at ?? "").localeCompare(b.started_at ?? ""));
-    calls.forEach((r, i) => {
-      const attempt = Math.min(i + 1, 10); // cap at "10+"
-      const agg = attemptMap.get(attempt) ?? { contacts: 0, calls: 0 };
-      agg.contacts += 1; // count this lead at each attempt level
-      agg.calls += 1;
-      attemptMap.set(attempt, agg);
-    });
+  for (const [, calls] of byContact.entries()) {
+    const n = Math.min(calls.length, 10);
+    const agg = attemptMap.get(n) ?? { contacts: 0, calls: 0 };
+    agg.contacts += 1;
+    agg.calls += calls.length;
+    attemptMap.set(n, agg);
   }
   const calls_distribution = Array.from(attemptMap.entries())
     .sort((a, b) => a[0] - b[0])
@@ -189,6 +214,9 @@ export async function GET(request: Request) {
     total_unique_contacts: totalUniqueContacts,
     total_calls: totalCalls,
     avg_calls_per_contact: avgCallsPerContact,
+    total_answered: totalAnswered,
+    unique_answered_contacts: uniqueAnsweredContacts,
+    avg_calls_to_answer: avgCallsToAnswer,
     rdv_confirmed: rdvConfirmed,
     rdv_transfer: rdvTransfer,
     calls_distribution,

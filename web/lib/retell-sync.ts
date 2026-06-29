@@ -20,6 +20,7 @@
 
 import { supabaseServer } from "./supabase";
 import { qualifyCall } from "./analysis-runner";
+import { notifyHandoff } from "./notify-handoff";
 
 const RETELL_LIST_URL = "https://api.retellai.com/v2/list-calls";
 const RETELL_GET_URL = "https://api.retellai.com/v2/get-call";
@@ -415,7 +416,13 @@ export async function upsertRetellCall(
   // the call already has a real qualification or has no evidence yet.
   if (mapped.row.answered_at && !mapped.row.metadata.qualification) {
     try {
-      await qualifyCall(callId);
+      const qResult = await qualifyCall(callId);
+      if (qResult.status === "qualified") {
+        // Best-effort — don't await so the webhook returns fast.
+        notifyHandoff(callId, qResult).catch((e) =>
+          console.warn(`[retell-sync] notify-handoff failed call=${callId}: ${e instanceof Error ? e.message : e}`),
+        );
+      }
     } catch (e) {
       console.warn(`[retell-sync] auto-qualify failed call=${callId}: ${e instanceof Error ? e.message : e}`);
     }

@@ -28,16 +28,16 @@ import { ReportButton } from "./ReportButton";
 import { ApiStatusPill } from "./ApiStatusPill";
 import { useT } from "@/lib/i18n";
 
-type TabId = "overview" | "stats" | "logs" | "entrants" | "live" | "errors" | "ai" | "leads" | "nhs";
+type TabId = "overview" | "stats" | "leads" | "logs" | "entrants" | "live" | "errors" | "ai" | "nhs";
 const ALL_TABS: { id: TabId; label: string; icon: ReactNode }[] = [
   { id: "overview", label: "Vue d'ensemble", icon: <Home size={15} /> },
   { id: "stats", label: "Statistiques", icon: <BarChart2 size={15} /> },
+  { id: "leads", label: "Leads", icon: <Users size={15} /> },
   { id: "logs", label: "Call Logs", icon: <ClipboardList size={15} /> },
   { id: "entrants", label: "Entrants", icon: <PhoneIncoming size={15} /> },
   { id: "live", label: "Live", icon: <Radio size={15} /> },
   { id: "errors", label: "Erreurs & Alertes", icon: <AlertTriangle size={15} /> },
   { id: "ai", label: "AI Insights", icon: <Sparkles size={15} /> },
-  { id: "leads", label: "Leads", icon: <Users size={15} /> },
   { id: "nhs", label: "Suivi NHS S2", icon: <Building2 size={15} /> },
 ];
 
