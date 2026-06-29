@@ -25,6 +25,7 @@ const ACTIVE = new Set(["ringing", "ivr", "in_progress", "wrap_up"]);
 
 export type DirectorKpis = {
   totalCalls: number;
+  uniqueLeads: number;
   answered: number;
   notAnswered: number;
   answeredPct: number;
@@ -260,6 +261,7 @@ export async function GET(request: Request) {
   const humanAnswered = (b: { row: CallRow; bucket: QualBucket }) =>
     !!b.row.answered_at && b.bucket !== "pas_de_reponse" && b.bucket !== "repondeur";
   const total = rows.length;
+  const uniqueLeads = new Set(rows.map((r) => r.to_e164).filter(Boolean)).size;
   const answered = buckets.filter(humanAnswered).length;
   const notAnswered = total - answered;
   const answeredDur = buckets
@@ -495,6 +497,7 @@ export async function GET(request: Request) {
   const body: DirectorResponse = {
     kpis: {
       totalCalls: total,
+      uniqueLeads,
       answered,
       notAnswered,
       answeredPct: total ? (answered / total) * 100 : 0,

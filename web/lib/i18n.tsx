@@ -79,6 +79,7 @@ const EN: Record<string, string> = {
   "Coût réel": "Real cost",
   "Directeur": "Director",
   "Total appels": "Total calls",
+  "Leads uniques": "Unique leads",
   "Décrochés": "Answered",
   "Coût consommé": "Cost spent",
   "RDV confirmés": "Booked appts",

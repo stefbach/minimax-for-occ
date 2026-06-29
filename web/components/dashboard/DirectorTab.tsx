@@ -216,7 +216,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
     drill: Omit<DrillFilters, "from" | "to" | "direction" | "leads_source"> | null;
   };
   const tiles: Tile[] = [
-    { label: t("Total appels"), value: k.totalCalls.toLocaleString(), icon: "📞", tone: "var(--info)", drill: {} },
+    { label: t("Leads uniques"), value: k.uniqueLeads.toLocaleString(), icon: "👤", tone: "var(--info)", drill: {} },
     { label: t("Décrochés"), value: `${k.answered.toLocaleString()} · ${k.answeredPct.toFixed(0)}%`, icon: "✅", tone: "var(--good)", drill: { answered: "yes" } },
     // Cost is an aggregate over usage_events, not a call subset → no drill.
     // Drill = every call in the period (each one contributed to the spend),
@@ -232,7 +232,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
 
   type TotalCard = { label: string; value: number; tone: string; drill: Omit<DrillFilters, "from" | "to" | "direction" | "leads_source"> };
   const totalsCards: TotalCard[] = [
-    { label: t("Total appels"), value: k.totalCalls, tone: "var(--info)", drill: {} },
+    { label: t("Leads uniques"), value: k.uniqueLeads, tone: "var(--info)", drill: {} },
     { label: t("Décrochés"), value: k.answered, tone: "var(--good)", drill: { answered: "yes" } },
     { label: t("Non décrochés"), value: k.notAnswered, tone: "var(--bad)", drill: { answered: "no" } },
   ];
