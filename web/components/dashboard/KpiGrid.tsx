@@ -73,7 +73,7 @@ function Kpi({
 }
 
 export function KpiGrid({ today, yesterday }: Props) {
-  const tCalls = trend(today.calls_count, yesterday.calls_count);
+  const tCalls = trend(today.unique_leads_count, yesterday.unique_leads_count);
   const tDur = trend(today.avg_duration_secs, yesterday.avg_duration_secs, "duration");
   // Abandon: increase is BAD — flip tone:
   const tAbandonRaw = trend(today.abandon_rate, yesterday.abandon_rate, "pct");
@@ -94,7 +94,7 @@ export function KpiGrid({ today, yesterday }: Props) {
         gap: 12,
       }}
     >
-      <Kpi label="Appels aujourd'hui" value={String(today.calls_count)} hint={tCalls.label} tone={tCalls.tone} />
+      <Kpi label="Leads uniques" value={String(today.unique_leads_count)} hint={tCalls.label} tone={tCalls.tone} />
       <Kpi
         label="Durée moyenne"
         value={fmtDuration(today.avg_duration_secs)}
