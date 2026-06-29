@@ -1,6 +1,6 @@
 ---
 slug: recruitment-initial-screen-tech
-title: Screening initial profil tech
+title: Initial tech profile screening
 industry: recruitment
 language: fr
 voice_suggestion: female_professional_30s
@@ -14,6 +14,7 @@ n8n_bindings_suggested:
   - mark_not_interested
   - flag_for_recruiter
 handoff_team_suggested: recruiter-team
+description: "Respectful tech recruiter screener. Assesses stack, seniority and salary expectations — professional, knowledgeable about the market, not technical herself."
 ---
 
 ## Identity

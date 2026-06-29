@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+import { useT } from "@/lib/i18n";
 
 interface Org {
   id: string;
@@ -20,6 +21,7 @@ interface MeResponse {
 
 export function OrgSwitcher() {
   const router = useRouter();
+  const t = useT();
   const [orgs, setOrgs] = useState<Org[]>([]);
   const [currentOrgId, setCurrentOrgId] = useState<string | null>(null);
   const [email, setEmail] = useState<string | null>(null);
@@ -75,14 +77,14 @@ export function OrgSwitcher() {
 
   return (
     <div style={{ display: "grid", gap: 6, padding: "10px 6px", borderTop: "1px solid var(--border)" }}>
-      <div style={{ fontSize: 11, color: "var(--muted-2)", padding: "0 6px" }}>Organisation</div>
+      <div style={{ fontSize: 11, color: "var(--muted-2)", padding: "0 6px" }}>{t("Organisation")}</div>
       <select
         value={currentOrgId ?? ""}
         onChange={(e) => pick(e.target.value)}
         disabled={orgs.length === 0 || busy}
         style={{ padding: "6px 8px", fontSize: 13 }}
       >
-        {orgs.length === 0 && <option value="">(aucune)</option>}
+        {orgs.length === 0 && <option value="">{t("(aucune)")}</option>}
         {orgs.map((o) => (
           <option key={o.id} value={o.id}>{o.name}</option>
         ))}
@@ -92,7 +94,7 @@ export function OrgSwitcher() {
           {email}
         </span>
         <button className="ghost" onClick={signOut} style={{ padding: "2px 8px", fontSize: 11 }}>
-          Quitter
+          {t("Quitter")}
         </button>
       </div>
     </div>

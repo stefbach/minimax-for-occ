@@ -88,7 +88,7 @@ export async function POST(req: Request) {
   const physical = (body.physical_table ?? "").trim().toLowerCase();
   if (!/^[a-z][a-z0-9_]{2,62}$/.test(physical)) {
     return NextResponse.json(
-      { error: "Nom de table invalide (a-z, 0-9, _, commence par une lettre, min 3 caractères)" },
+      { error: "Invalid table name (a-z, 0-9, _, must start with a letter, min 3 characters)" },
       { status: 400 },
     );
   }
@@ -116,7 +116,7 @@ export async function POST(req: Request) {
       m.includes("unique constraint") ||
       m.includes("physical_table");
     const msg = taken
-      ? `Ce nom de table (« ${physical} ») est déjà utilisé. Choisissez-en un autre.`
+      ? `Table name "${physical}" is already taken. Please choose another.`
       : error.message;
     return NextResponse.json(
       { error: msg, code: taken ? "name_taken" : undefined },

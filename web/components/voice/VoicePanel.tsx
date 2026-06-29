@@ -47,10 +47,10 @@ function DiagnosticBanner({ report, onRetry }: { report: HealthReport; onRetry: 
       }}
     >
       <div style={{ fontWeight: 600, marginBottom: 8, color: "#ff8080" }}>
-        ⚠️ L&apos;agent vocal n&apos;a pas pu démarrer
+        ⚠️ The voice agent could not start
       </div>
       <div style={{ color: "var(--muted)", marginBottom: 12 }}>
-        Diagnostic automatique :
+        Automatic diagnostic:
       </div>
       <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "grid", gap: 6 }}>
         {report.checks.map((c) => (
@@ -69,26 +69,26 @@ function DiagnosticBanner({ report, onRetry }: { report: HealthReport; onRetry: 
       </ul>
       {failed.length > 0 && (
         <div style={{ marginTop: 12, padding: 8, background: "rgba(0,0,0,0.2)", borderRadius: 4, fontSize: 13 }}>
-          <strong>Action requise :</strong>{" "}
+          <strong>Action required:</strong>{" "}
           {failed[0].service === "MiniMax" && failed[0].message.includes("Crédit") && (
-            <>recharger le crédit MiniMax sur <a href="https://platform.minimax.io" target="_blank" rel="noreferrer">platform.minimax.io</a></>
+            <>recharge MiniMax credit at <a href="https://platform.minimax.io" target="_blank" rel="noreferrer">platform.minimax.io</a></>
           )}
           {failed[0].service === "DeepSeek" && failed[0].message.includes("Crédit") && (
-            <>recharger le crédit DeepSeek sur <a href="https://platform.deepseek.com" target="_blank" rel="noreferrer">platform.deepseek.com</a></>
+            <>recharge DeepSeek credit at <a href="https://platform.deepseek.com" target="_blank" rel="noreferrer">platform.deepseek.com</a></>
           )}
           {failed[0].service === "Config agent" && (
-            <>compléter la configuration de l&apos;agent (voix, modèle, LLM)</>
+            <>complete the agent configuration (voice, model, LLM)</>
           )}
           {failed[0].message.includes("invalide") && (
-            <>vérifier la clé API {failed[0].service} dans les variables d&apos;environnement</>
+            <>check the {failed[0].service} API key in environment variables</>
           )}
           {failed[0].message.includes("injoignable") && (
-            <>service {failed[0].service} indisponible, réessayer plus tard</>
+            <>service {failed[0].service} unavailable, try again later</>
           )}
         </div>
       )}
       <button onClick={onRetry} style={{ marginTop: 12 }}>
-        Réessayer
+        Retry
       </button>
     </div>
   );
@@ -99,8 +99,6 @@ function AssistantView({ agentId, onAgentJoinTimeout }: { agentId: string; onAge
   const participants = useRemoteParticipants();
   const connectionState = useConnectionState();
 
-  // Detect if the agent has joined: a remote participant whose identity
-  // starts with "agent-" or who publishes a track.
   const agentPresent = participants.some(
     (p) => p.identity.startsWith("agent-") || p.identity.includes("voice-agent"),
   );
@@ -108,18 +106,18 @@ function AssistantView({ agentId, onAgentJoinTimeout }: { agentId: string; onAge
   useEffect(() => {
     if (connectionState !== ConnectionState.Connected) return;
     if (agentPresent) return;
-    const t = setTimeout(() => {
+    const timerId = setTimeout(() => {
       if (!agentPresent) onAgentJoinTimeout();
     }, AGENT_JOIN_TIMEOUT_MS);
-    return () => clearTimeout(t);
+    return () => clearTimeout(timerId);
   }, [connectionState, agentPresent, onAgentJoinTimeout]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12, alignItems: "center" }}>
       <div style={{ color: "var(--muted)", fontSize: 13 }}>
-        État: {state}
+        Status: {state}
         {!agentPresent && connectionState === ConnectionState.Connected && (
-          <span style={{ marginLeft: 8, color: "#ffa500" }}>— en attente de l&apos;agent…</span>
+          <span style={{ marginLeft: 8, color: "#ffa500" }}>— waiting for agent…</span>
         )}
       </div>
       <div style={{ width: "100%", height: 96 }}>
@@ -162,9 +160,6 @@ export function VoicePanel({
       const params = new URLSearchParams({ agent_id: agentId });
       if (scriptId) params.set("script_id", scriptId);
       if (simulationVars && Object.keys(simulationVars).length > 0) {
-        // Strip empty strings so the worker treats them as "not provided"
-        // and leaves the {{placeholder}} literal in the prompt (helpful for
-        // catching missed fields during a sim).
         const trimmed: Record<string, string> = {};
         for (const [k, v] of Object.entries(simulationVars)) {
           if (v && v.trim() !== "") trimmed[k] = v.trim();
@@ -196,7 +191,7 @@ export function VoicePanel({
         agent_id: agentId,
         error: e instanceof Error ? e.message : String(e),
         checks: [
-          { service: "Diagnostic", status: "fail", message: "Impossible d'exécuter le diagnostic", detail: String(e) },
+          { service: "Diagnostic", status: "fail", message: "Could not run diagnostic", detail: String(e) },
         ],
       });
     } finally {
@@ -205,7 +200,6 @@ export function VoicePanel({
   }, [agentId]);
 
   const onAgentJoinTimeout = useCallback(() => {
-    // Agent didn't join within the timeout — disconnect and run diagnostics.
     setConn(null);
     runHealthCheck();
   }, [runHealthCheck]);
@@ -215,8 +209,6 @@ export function VoicePanel({
     connect();
   }, [connect]);
 
-  // Show the Simulation launcher when we have prompt content to inspect for
-  // {{vars}}; otherwise fall back to the plain "Start session" button.
   const hasPromptContent = Boolean((systemPrompt && systemPrompt.length > 0) || (greeting && greeting.length > 0));
 
   if (!conn) {
@@ -225,7 +217,7 @@ export function VoicePanel({
         {health && <DiagnosticBanner report={health} onRetry={retry} />}
         {healthLoading && (
           <div style={{ color: "var(--muted)", fontSize: 13 }}>
-            Diagnostic en cours…
+            Running diagnostic…
           </div>
         )}
         {hasPromptContent ? (
@@ -238,18 +230,18 @@ export function VoicePanel({
         ) : (
           <>
             <p style={{ color: "var(--muted)", margin: 0 }}>
-              Cliquez pour rejoindre la salle LiveKit. Le worker y sera dispatché et chargera la config de cet agent.
+              Click to join the LiveKit room. The worker will be dispatched and load this agent's config.
             </p>
             <div style={{ display: "flex", gap: 8 }}>
               <button onClick={() => connect()} disabled={loading}>
-                {loading ? "Connexion…" : "Démarrer la session vocale"}
+                {loading ? "Connecting…" : "Start voice session"}
               </button>
             </div>
           </>
         )}
         <div style={{ display: "flex", gap: 8 }}>
           <button onClick={runHealthCheck} disabled={healthLoading} style={{ background: "transparent", border: "1px solid var(--muted)", color: "var(--text)" }}>
-            {healthLoading ? "Diagnostic…" : "Tester les services"}
+            {healthLoading ? "Diagnosing…" : "Test services"}
           </button>
         </div>
         {error && <div style={{ color: "#ff8080" }}>{error}</div>}
@@ -267,7 +259,7 @@ export function VoicePanel({
       onDisconnected={() => setConn(null)}
     >
       <RoomAudioRenderer />
-      <StartAudio label="Activer l'audio" />
+      <StartAudio label="Enable audio" />
       <AssistantView agentId={agentId} onAgentJoinTimeout={onAgentJoinTimeout} />
     </LiveKitRoom>
   );

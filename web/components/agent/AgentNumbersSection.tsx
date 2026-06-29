@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useT } from "@/lib/i18n";
 
 // "Numéros pris en charge" — vue côté agent du routing entrant. Autonome :
 // charge l'état et enregistre via /api/agents/[id]/numbers, indépendamment du
@@ -16,6 +17,7 @@ interface NumRow {
 }
 
 export function AgentNumbersSection({ agentId }: { agentId: string }) {
+  const t = useT();
   const [numbers, setNumbers] = useState<NumRow[]>([]);
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
@@ -76,17 +78,15 @@ export function AgentNumbersSection({ agentId }: { agentId: string }) {
 
   return (
     <div className="card" style={{ marginTop: 16, padding: 16 }}>
-      <h3 style={{ marginTop: 0, fontSize: 15 }}>📞 Numéros pris en charge</h3>
+      <h3 style={{ marginTop: 0, fontSize: 15 }}>📞 {t("Numéros pris en charge")}</h3>
       <p className="muted" style={{ fontSize: 13, marginTop: 0 }}>
-        Coche les numéros sur lesquels cet agent décroche les appels <strong>entrants</strong>.
-        Rappel : l'entrant ne se déclenche que si le numéro a aussi son interrupteur «&nbsp;Entrant&nbsp;» sur
-        ON (page <em>Numéros de téléphone</em>).
+        {t("Coche les numéros sur lesquels cet agent décroche les appels entrants. Rappel : l'entrant ne se déclenche que si le numéro a aussi son interrupteur « Entrant » sur ON (page Numéros de téléphone).")}
       </p>
       {loading ? (
-        <div className="muted">Chargement…</div>
+        <div className="muted">{t("Chargement…")}</div>
       ) : (
         <>
-          {numbers.length === 0 && <div className="muted">Aucun numéro dans l'organisation.</div>}
+          {numbers.length === 0 && <div className="muted">{t("Aucun numéro dans l'organisation.")}</div>}
           <div style={{ display: "grid", gap: 8 }}>
             {numbers.map((n) => {
               const checked = sel.has(n.id);
@@ -119,13 +119,13 @@ export function AgentNumbersSection({ agentId }: { agentId: string }) {
                   <span style={{ color: "var(--muted)", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {n.label || "—"}
                     {n.taken_by && !checked && (
-                      <span style={{ fontSize: 11 }}> · actuellement : {n.taken_by}</span>
+                      <span style={{ fontSize: 11 }}> · {t("actuellement :")} {n.taken_by}</span>
                     )}
                   </span>
                   {n.inbound_enabled ? (
-                    <span className="tag good" style={{ fontSize: 10, whiteSpace: "nowrap" }}>entrant ON</span>
+                    <span className="tag good" style={{ fontSize: 10, whiteSpace: "nowrap" }}>{t("entrant ON")}</span>
                   ) : (
-                    <span className="tag" style={{ fontSize: 10, whiteSpace: "nowrap" }}>entrant OFF</span>
+                    <span className="tag" style={{ fontSize: 10, whiteSpace: "nowrap" }}>{t("entrant OFF")}</span>
                   )}
                 </label>
               );
@@ -134,9 +134,9 @@ export function AgentNumbersSection({ agentId }: { agentId: string }) {
           {err && <div style={{ color: "var(--bad)", fontSize: 13, marginTop: 8 }}>{err}</div>}
           <div style={{ marginTop: 12, display: "flex", gap: 10, alignItems: "center" }}>
             <button type="button" onClick={save} disabled={saving}>
-              {saving ? "Enregistrement…" : "Enregistrer les numéros"}
+              {saving ? t("Enregistrement…") : t("Enregistrer les numéros")}
             </button>
-            {saved && <span style={{ color: "var(--good)", fontSize: 12 }}>✓ Enregistré</span>}
+            {saved && <span style={{ color: "var(--good)", fontSize: 12 }}>{t("✓ Enregistré")}</span>}
           </div>
         </>
       )}

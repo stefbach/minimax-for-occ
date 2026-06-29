@@ -52,10 +52,9 @@ export default async function OutboundCallPage() {
     <>
       <div className="page-header">
         <div>
-          <h1>Appel sortant immédiat</h1>
+          <h1>Immediate outbound call</h1>
           <div className="subtitle">
-            Appelle un numéro maintenant avec un agent IA. Pas de campagne
-            ni de target à créer.
+            Call a number now with an AI agent. No campaign or target to create.
           </div>
         </div>
         <HelpButton contextKey="outbound-call" />

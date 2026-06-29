@@ -37,9 +37,9 @@ export default async function QueuesPage() {
     <>
       <div className="page-header">
         <div>
-          <h1>Files d&apos;attente</h1>
+          <h1>Queues</h1>
           <div className="subtitle">
-            {queues.length} file{queues.length === 1 ? "" : "s"} · routage skill-based vers les agents AI + humains
+            {queues.length} queue{queues.length === 1 ? "" : "s"} · skill-based routing to AI + human agents
           </div>
         </div>
         <HelpButton contextKey="queues" />

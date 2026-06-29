@@ -44,7 +44,7 @@ export function ContactListDetail({ listId, listName, columns, initialContacts }
   function fmt(v: unknown): string {
     if (v === null || v === undefined) return "";
     if (typeof v === "object") return JSON.stringify(v);
-    if (typeof v === "boolean") return v ? "oui" : "non";
+    if (typeof v === "boolean") return v ? "yes" : "no";
     return String(v);
   }
 
@@ -74,7 +74,7 @@ export function ContactListDetail({ listId, listName, columns, initialContacts }
       });
       const body = await r.json();
       if (!r.ok) {
-        setError(body.error ?? `Import échoué (${r.status})`);
+        setError(body.error ?? `Import failed (${r.status})`);
         return;
       }
       setResult(body as ImportResult);
@@ -92,7 +92,7 @@ export function ContactListDetail({ listId, listName, columns, initialContacts }
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Rechercher (nom, téléphone, email, attribut)…"
+          placeholder="Search (name, phone, email, attribute)…"
           style={{ flex: "1 1 240px", minWidth: 200 }}
         />
         <input
@@ -103,29 +103,29 @@ export function ContactListDetail({ listId, listName, columns, initialContacts }
           style={{ display: "none" }}
         />
         <button onClick={() => fileInputRef.current?.click()} disabled={importing}>
-          {importing ? "Import…" : "⬆ Importer CSV/Excel"}
+          {importing ? "Importing…" : "⬆ Import CSV/Excel"}
         </button>
       </div>
 
       {error && (
         <div className="card" style={{ background: "rgba(255,80,80,0.08)", border: "1px solid rgba(255,80,80,0.3)" }}>
-          <strong style={{ color: "#ff8080" }}>Import échoué :</strong> {error}
+          <strong style={{ color: "#ff8080" }}>Import failed:</strong> {error}
         </div>
       )}
 
       {result && (
         <div className="card" style={{ background: "rgba(80,200,120,0.06)", border: "1px solid rgba(80,200,120,0.3)" }}>
-          <strong>✅ Import terminé :</strong> {result.inserted} ligne{result.inserted === 1 ? "" : "s"} importée{result.inserted === 1 ? "" : "s"}
-          {result.skipped > 0 && `, ${result.skipped} ignorée${result.skipped === 1 ? "" : "s"}`}.
+          <strong>✅ Import complete:</strong> {result.inserted} row{result.inserted === 1 ? "" : "s"} imported
+          {result.skipped > 0 && `, ${result.skipped} skipped`}.
           {result.errors.length > 0 && (
             <details style={{ marginTop: 8 }}>
               <summary style={{ cursor: "pointer", color: "var(--muted)" }}>
-                Voir les {result.errors.length} erreur{result.errors.length === 1 ? "" : "s"}
+                Show {result.errors.length} error{result.errors.length === 1 ? "" : "s"}
               </summary>
               <ul style={{ margin: "8px 0 0 18px", padding: 0, fontSize: 13 }}>
                 {result.errors.slice(0, 50).map((er, i) => (
                   <li key={i}>
-                    {er.row > 0 ? `Ligne ${er.row}` : "Batch"} : {er.reason}
+                    {er.row > 0 ? `Row ${er.row}` : "Batch"}: {er.reason}
                   </li>
                 ))}
               </ul>
@@ -136,11 +136,11 @@ export function ContactListDetail({ listId, listName, columns, initialContacts }
 
       {contacts.length === 0 ? (
         <div className="card">
-          <h3>Aucun contact dans <em>{listName}</em></h3>
+          <h3>No contacts in <em>{listName}</em></h3>
           <p className="muted">
-            Cliquez sur <strong>« ⬆ Importer CSV/Excel »</strong> ci-dessus pour charger votre liste.
-            Le fichier doit avoir un en-tête avec une colonne <span className="kbd">phone</span> (E.164 ou local)
-            et peut contenir n&apos;importe quelle colonne déclarée dans cette base.
+            Click <strong>⬆ Import CSV/Excel</strong> above to load your list.
+            The file must have a header with a <span className="kbd">phone</span> column (E.164 or local)
+            and may contain any column declared in this database.
           </p>
         </div>
       ) : (
@@ -148,13 +148,13 @@ export function ContactListDetail({ listId, listName, columns, initialContacts }
           <table className="list">
             <thead>
               <tr>
-                <th>Téléphone</th>
-                <th>Nom</th>
+                <th>Phone</th>
+                <th>Name</th>
                 <th>Email</th>
                 {columns.map((c) => (
                   <th key={c.key} style={{ whiteSpace: "nowrap" }}>{c.label}</th>
                 ))}
-                <th>Mis à jour</th>
+                <th>Updated</th>
               </tr>
             </thead>
             <tbody>

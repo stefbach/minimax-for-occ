@@ -26,16 +26,16 @@ export default async function VoicesPage() {
       <div className="page-header">
         <div>
           <h1>Voice Studio</h1>
-          <div className="subtitle">Cloner, écouter et gérer vos voix MiniMax.</div>
+          <div className="subtitle">Clone, preview and manage your MiniMax voices.</div>
         </div>
         <HelpButton contextKey="voices" />
       </div>
       {!hasSupabase() ? (
         <div className="card">
-          <h3>Supabase non configuré</h3>
+          <h3>Supabase not configured</h3>
           <p className="muted">
-            Définissez <span className="kbd">SUPABASE_URL</span> et{" "}
-            <span className="kbd">SUPABASE_SERVICE_ROLE_KEY</span>, puis appliquez la migration{" "}
+            Set <span className="kbd">SUPABASE_URL</span> and{" "}
+            <span className="kbd">SUPABASE_SERVICE_ROLE_KEY</span>, then apply the migration{" "}
             <span className="kbd">supabase/migrations/0002_voices.sql</span>.
           </p>
         </div>

@@ -22,7 +22,7 @@ export function VoiceStudio({ initial }: { initial: Voice[] }) {
   const [name, setName] = useState("");
   const [lang, setLang] = useState("multi");
   const [desc, setDesc] = useState("");
-  const [sampleText, setSampleText] = useState("Bonjour, je suis votre assistant vocal.");
+  const [sampleText, setSampleText] = useState("Hello, I am your voice assistant.");
 
   useEffect(() => {
     return () => {
@@ -45,7 +45,7 @@ export function VoiceStudio({ initial }: { initial: Voice[] }) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           voice_id: v.voice_id,
-          text: v.sample_text || "Bonjour, je suis votre assistant vocal.",
+          text: v.sample_text || "Hello, I am your voice assistant.",
           model,
         }),
       });
@@ -97,7 +97,7 @@ export function VoiceStudio({ initial }: { initial: Voice[] }) {
 
   async function onDelete(v: Voice) {
     if (v.source === "preset") return;
-    if (!confirm(`Supprimer la voix « ${v.display_name} » de votre catalogue ?`)) return;
+    if (!confirm(`Delete voice "${v.display_name}" from your catalogue?`)) return;
     setBusy(true);
     await fetch(`/api/voices?id=${v.id}`, { method: "DELETE" });
     setBusy(false);
@@ -110,16 +110,16 @@ export function VoiceStudio({ initial }: { initial: Voice[] }) {
   return (
     <div style={{ display: "grid", gap: 16 }}>
       <div className="card">
-        <h3 style={{ marginTop: 0 }}>Cloner une nouvelle voix</h3>
+        <h3 style={{ marginTop: 0 }}>Clone a new voice</h3>
         <p className="muted" style={{ marginTop: 0 }}>
-          Échantillon attendu : <strong>10 s à 5 min</strong>, mono, sans musique,
-          format <strong>mp3 / wav / m4a uniquement</strong> (.ogg / .flac non supportés),
-          ≤ 20 Mo.
+          Expected sample: <strong>10 s to 5 min</strong>, mono, no music,
+          format <strong>mp3 / wav / m4a only</strong> (.ogg / .flac not supported),
+          ≤ 20 MB.
         </p>
         <form onSubmit={onClone} style={{ display: "grid", gap: 12 }}>
           <div className="form-row">
             <div>
-              <label>Fichier audio</label>
+              <label>Audio file</label>
               <input
                 type="file"
                 accept=".mp3,.wav,.m4a,audio/mpeg,audio/wav,audio/x-m4a,audio/mp4"
@@ -129,7 +129,7 @@ export function VoiceStudio({ initial }: { initial: Voice[] }) {
                     const ok = /\.(mp3|wav|m4a)$/i.test(f.name);
                     if (!ok) {
                       alert(
-                        `Format non supporté : "${f.name}".\n\nMiniMax accepte uniquement mp3, wav ou m4a. Convertis ton fichier d'abord (par exemple avec ffmpeg : ffmpeg -i fichier.ogg fichier.mp3).`,
+                        `Unsupported format: "${f.name}".\n\nMiniMax only accepts mp3, wav or m4a. Convert your file first (e.g. with ffmpeg: ffmpeg -i file.ogg file.mp3).`,
                       );
                       e.target.value = "";
                       setFile(null);
@@ -141,14 +141,14 @@ export function VoiceStudio({ initial }: { initial: Voice[] }) {
               />
               {file && (
                 <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
-                  Fichier : <strong>{file.name}</strong> ({(file.size / 1024 / 1024).toFixed(2)} Mo)
+                  File: <strong>{file.name}</strong> ({(file.size / 1024 / 1024).toFixed(2)} MB)
                 </div>
               )}
             </div>
             <div>
               <label>
-                voice_id (technique) — <span style={{ color: "var(--muted)", fontWeight: "normal" }}>
-                  8 à 64 caractères, commence par une lettre, A-Z / 0-9 / _ uniquement
+                voice_id (technical) — <span style={{ color: "var(--muted)", fontWeight: "normal" }}>
+                  8 to 64 characters, starts with a letter, A-Z / 0-9 / _ only
                 </span>
               </label>
               <input
@@ -159,7 +159,7 @@ export function VoiceStudio({ initial }: { initial: Voice[] }) {
                 minLength={8}
                 maxLength={64}
                 required
-                title="8 à 64 caractères, commence par une lettre, puis lettres / chiffres / underscores uniquement"
+                title="8 to 64 characters, starts with a letter, then letters / digits / underscores only"
               />
               <div style={{
                 fontSize: 12,
@@ -167,53 +167,53 @@ export function VoiceStudio({ initial }: { initial: Voice[] }) {
                 marginTop: 4,
               }}>
                 {voiceId.length === 0
-                  ? "Identifiant interne, non visible des utilisateurs finaux"
+                  ? "Internal identifier, not visible to end users"
                   : voiceId.length < 8
-                    ? `${voiceId.length}/8 caractères minimum — encore ${8 - voiceId.length} à taper`
-                    : `${voiceId.length}/64 caractères ✓`}
+                    ? `${voiceId.length}/8 characters minimum — ${8 - voiceId.length} more to go`
+                    : `${voiceId.length}/64 characters ✓`}
               </div>
             </div>
           </div>
           <div className="form-row">
             <div>
-              <label>Nom affiché</label>
+              <label>Display name</label>
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Dr Coste — voix officielle"
+                placeholder="Dr Coste — official voice"
                 required
               />
             </div>
             <div>
-              <label>Langue cible</label>
+              <label>Target language</label>
               <select value={lang} onChange={(e) => setLang(e.target.value)}>
                 {LANGUAGES.map((l) => <option key={l} value={l}>{l}</option>)}
               </select>
             </div>
           </div>
           <div>
-            <label>Description (optionnel)</label>
-            <input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Voix posée, ton médical professionnel" />
+            <label>Description (optional)</label>
+            <input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Calm voice, professional medical tone" />
           </div>
           <div>
-            <label>Phrase d&apos;écoute (optionnel — servira au bouton ▶ Tester)</label>
+            <label>Listening phrase (optional — used by the ▶ Test button)</label>
             <input
               value={sampleText}
               onChange={(e) => setSampleText(e.target.value)}
-              placeholder="Bonjour, je suis votre assistant vocal."
+              placeholder="Hello, I am your voice assistant."
             />
           </div>
           <div>
             <button type="submit" disabled={busy || !file || !voiceId || !name}>
-              {busy ? "Clonage en cours…" : "Cloner cette voix"}
+              {busy ? "Cloning…" : "Clone this voice"}
             </button>
           </div>
         </form>
         {error && <div style={{ color: "var(--bad)", marginTop: 8 }}>{error}</div>}
       </div>
 
-      <Section title="Mes voix clonées" voices={cloned} onPlay={onPlay} onDelete={onDelete} playing={playing} busy={busy} canDelete />
-      <Section title="Voix presets MiniMax" voices={presets} onPlay={onPlay} playing={playing} busy={busy} />
+      <Section title="My cloned voices" voices={cloned} onPlay={onPlay} onDelete={onDelete} playing={playing} busy={busy} canDelete />
+      <Section title="MiniMax preset voices" voices={presets} onPlay={onPlay} playing={playing} busy={busy} />
     </div>
   );
 }
@@ -239,7 +239,7 @@ function Section({
     return (
       <div className="card">
         <h3 style={{ marginTop: 0 }}>{title}</h3>
-        <p className="muted">Aucune voix.</p>
+        <p className="muted">No voices.</p>
       </div>
     );
   }
@@ -251,7 +251,7 @@ function Section({
       <table className="list">
         <thead>
           <tr>
-            <th>Nom</th><th>voice_id</th><th>Langue</th><th>Description</th><th></th>
+            <th>Name</th><th>voice_id</th><th>Language</th><th>Description</th><th></th>
           </tr>
         </thead>
         <tbody>
@@ -268,7 +268,7 @@ function Section({
                   className="ghost"
                   style={{ padding: "5px 10px", marginRight: 6 }}
                 >
-                  {playing === v.voice_id ? "▶ …" : "▶ Tester"}
+                  {playing === v.voice_id ? "▶ …" : "▶ Test"}
                 </button>
                 {canDelete && onDelete && (
                   <button
@@ -277,7 +277,7 @@ function Section({
                     style={{ padding: "5px 9px" }}
                     disabled={busy}
                   >
-                    Supprimer
+                    Delete
                   </button>
                 )}
               </td>

@@ -34,7 +34,7 @@ async function gate(): Promise<
   | { ok: false; res: NextResponse }
 > {
   if (!hasSupabase()) {
-    return { ok: false, res: NextResponse.json({ error: "Supabase non configuré" }, { status: 500 }) };
+    return { ok: false, res: NextResponse.json({ error: "Supabase not configured" }, { status: 500 }) };
   }
   const user = await currentUser();
   if (!user) return { ok: false, res: NextResponse.json({ error: "unauthorized" }, { status: 401 }) };
@@ -76,16 +76,16 @@ async function applyUpdate(
   //    themselves through this endpoint (admins managing themselves leads to
   //    lock-out scenarios).
   if (isSelf && wantsRoleChange) {
-    return NextResponse.json({ error: "Vous ne pouvez pas modifier votre propre rôle." }, { status: 403 });
+    return NextResponse.json({ error: "You cannot change your own role." }, { status: 403 });
   }
   if (isSelf && wantsActiveChange && body.is_active === false) {
-    return NextResponse.json({ error: "Vous ne pouvez pas vous désactiver vous-même." }, { status: 403 });
+    return NextResponse.json({ error: "You cannot deactivate yourself." }, { status: 403 });
   }
 
   // 3. Role validation + "last owner" check.
   if (wantsRoleChange) {
     if (!body.role || !ALLOWED_ROLES.has(body.role)) {
-      return NextResponse.json({ error: "rôle invalide" }, { status: 400 });
+      return NextResponse.json({ error: "invalid role" }, { status: 400 });
     }
     if (targetMembership.role === "owner" && body.role !== "owner") {
       const { count } = await sb
@@ -123,7 +123,7 @@ async function applyUpdate(
       }
       nextValue = cleaned;
     } else {
-      return NextResponse.json({ error: "visible_modules doit être null ou un tableau" }, { status: 400 });
+      return NextResponse.json({ error: "visible_modules must be null or an array" }, { status: 400 });
     }
     const { error: vmErr } = await sb
       .from("memberships")

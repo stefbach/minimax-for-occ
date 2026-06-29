@@ -73,7 +73,7 @@ function fmtDate(s: string | null): string {
   return d.toLocaleString();
 }
 
-const DAY_LABELS = ["D", "L", "M", "M", "J", "V", "S"];
+const DAY_LABELS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 
 export function CampaignDetailClient({
   campaign,
@@ -113,7 +113,7 @@ export function CampaignDetailClient({
       setState(next);
       router.refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Erreur");
+      setError(e instanceof Error ? e.message : "Error");
     } finally {
       setBusy(null);
     }
@@ -129,7 +129,7 @@ export function CampaignDetailClient({
       setState("running");
       router.refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Erreur");
+      setError(e instanceof Error ? e.message : "Error");
     } finally {
       setBusy(null);
     }
@@ -149,7 +149,7 @@ export function CampaignDetailClient({
       .filter((r) => r.e164);
     if (contacts.length === 0) {
       setBusy(null);
-      setError("Aucune cible valide.");
+      setError("No valid targets.");
       return;
     }
     try {
@@ -164,7 +164,7 @@ export function CampaignDetailClient({
       setShowImport(false);
       router.refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Erreur");
+      setError(e instanceof Error ? e.message : "Error");
     } finally {
       setBusy(null);
     }
@@ -172,10 +172,10 @@ export function CampaignDetailClient({
 
   const kpis: Array<{ label: string; key: string; tone?: string }> = [
     { label: "Total", key: "_total" },
-    { label: "En cours", key: "dialing" },
-    { label: "Répondus", key: "answered" },
-    { label: "Terminés", key: "done" },
-    { label: "Échecs", key: "failed", tone: "bad" },
+    { label: "Dialing", key: "dialing" },
+    { label: "Answered", key: "answered" },
+    { label: "Done", key: "done" },
+    { label: "Failed", key: "failed", tone: "bad" },
   ];
   const total = targets.length;
 
@@ -184,7 +184,7 @@ export function CampaignDetailClient({
       <div className="page-header">
         <div>
           <Link href="/campaigns" style={{ fontSize: 13, color: "var(--muted)" }}>
-            ← Toutes les campagnes
+            ← All campaigns
           </Link>
           <h1 style={{ display: "flex", alignItems: "center", gap: 12 }}>
             {campaign.name}
@@ -200,14 +200,14 @@ export function CampaignDetailClient({
               className="ghost"
               onClick={() => setEditOpen(true)}
               disabled={busy !== null}
-              title="Modifier le nom, les jours, les plages horaires et la cadence"
+              title="Edit name, days, time slots and pacing"
             >
-              ✎ Éditer
+              ✎ Edit
             </button>
           )}
           {state !== "running" && state !== "completed" && state !== "cancelled" && (
             <button onClick={start} disabled={busy !== null}>
-              {busy === "start" ? "…" : "Démarrer"}
+              {busy === "start" ? "…" : "Start"}
             </button>
           )}
           {state === "running" && (
@@ -216,12 +216,12 @@ export function CampaignDetailClient({
               onClick={() => patchState("paused")}
               disabled={busy !== null}
             >
-              Mettre en pause
+              Pause
             </button>
           )}
           {state === "paused" && (
             <button onClick={() => patchState("running")} disabled={busy !== null}>
-              Reprendre
+              Resume
             </button>
           )}
           {/* Reopen: a finished or cancelled campaign can be reactivated at any
@@ -229,7 +229,7 @@ export function CampaignDetailClient({
               static ones re-dial any remaining/failed targets. */}
           {(state === "completed" || state === "cancelled") && (
             <button onClick={() => patchState("running")} disabled={busy !== null}>
-              {busy === "running" ? "…" : "Rouvrir la campagne"}
+              {busy === "running" ? "…" : "Reopen campaign"}
             </button>
           )}
           {state !== "completed" && state !== "cancelled" && (
@@ -238,7 +238,7 @@ export function CampaignDetailClient({
               onClick={() => patchState("cancelled")}
               disabled={busy !== null}
             >
-              Annuler
+              Cancel
             </button>
           )}
           <HelpButton contextKey="campaigns" />
@@ -285,18 +285,18 @@ export function CampaignDetailClient({
             <div>{campaign.agent_handle_name ?? "—"}</div>
           </div>
           <div>
-            <div className="muted" style={{ fontSize: 12 }}>Numéro émetteur</div>
+            <div className="muted" style={{ fontSize: 12 }}>Caller ID</div>
             <div>{campaign.phone_e164 ?? "—"}</div>
           </div>
           <div>
-            <div className="muted" style={{ fontSize: 12 }}>Concurrence / tentatives</div>
+            <div className="muted" style={{ fontSize: 12 }}>Concurrency / attempts</div>
             <div>
               {campaign.max_concurrency} · {campaign.max_attempts} (retry {campaign.retry_delay_min}min)
             </div>
           </div>
           <div>
             <div className="muted" style={{ fontSize: 12 }}>AMD</div>
-            <div>{campaign.amd_enabled ? "Activé" : "Désactivé"}</div>
+            <div>{campaign.amd_enabled ? "Enabled" : "Disabled"}</div>
           </div>
         </div>
       </div>
@@ -304,12 +304,12 @@ export function CampaignDetailClient({
       {campaign.mode === "dynamic" && campaign.engine && (
         <div className="card" style={{ marginBottom: 16 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-            <h2 style={{ fontSize: 18, margin: 0 }}>Campagne continue</h2>
-            <span className="tag accent">re-sélection automatique</span>
+            <h2 style={{ fontSize: 18, margin: 0 }}>Continuous campaign</h2>
+            <span className="tag accent">auto-selection</span>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 8 }}>
             <div>
-              <div className="muted" style={{ fontSize: 12 }}>Jours</div>
+              <div className="muted" style={{ fontSize: 12 }}>Days</div>
               <div style={{ display: "flex", gap: 4 }}>
                 {[1, 2, 3, 4, 5, 6, 0].map((d) => (
                   <span
@@ -326,21 +326,21 @@ export function CampaignDetailClient({
               </div>
             </div>
             <div>
-              <div className="muted" style={{ fontSize: 12 }}>Créneaux ({campaign.engine.timezone})</div>
+              <div className="muted" style={{ fontSize: 12 }}>Slots ({campaign.engine.timezone})</div>
               <div>{campaign.engine.hours.length > 0 ? campaign.engine.hours.join(" · ") : "—"}</div>
             </div>
             <div>
-              <div className="muted" style={{ fontSize: 12 }}>Nouveaux / créneau max</div>
+              <div className="muted" style={{ fontSize: 12 }}>Max new / slot</div>
               <div>{campaign.engine.max_new_per_day ?? "∞"}</div>
             </div>
             <div>
-              <div className="muted" style={{ fontSize: 12 }}>Phases de relance</div>
+              <div className="muted" style={{ fontSize: 12 }}>Follow-up phases</div>
               <div>{campaign.engine.phases.length > 0 ? campaign.engine.phases.join(" → ") : "—"}</div>
             </div>
           </div>
           {campaign.engine.include_statuses.length > 0 && (
             <div>
-              <div className="muted" style={{ fontSize: 12 }}>Statuts ciblés</div>
+              <div className="muted" style={{ fontSize: 12 }}>Target statuses</div>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
                 {campaign.engine.include_statuses.map((s) => (
                   <span key={s} className="tag">{s}</span>
@@ -350,11 +350,11 @@ export function CampaignDetailClient({
           )}
 
           <div className="muted" style={{ fontSize: 12, marginTop: 16, marginBottom: 6 }}>
-            Historique des passages (60 derniers)
+            Run history (last 60)
           </div>
           {runs.length === 0 ? (
             <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-              Aucun passage encore. Le moteur sélectionnera des contacts au prochain créneau.
+              No runs yet. The engine will select contacts at the next slot.
             </p>
           ) : (
             <div style={{ overflowX: "auto" }}>
@@ -362,11 +362,11 @@ export function CampaignDetailClient({
                 <thead>
                   <tr>
                     <th>Date</th>
-                    <th>Créneau</th>
-                    <th>Sélectionnés</th>
-                    <th>Lancés</th>
-                    <th>Par phase</th>
-                    <th>État</th>
+                    <th>Slot</th>
+                    <th>Selected</th>
+                    <th>Launched</th>
+                    <th>By phase</th>
+                    <th>Status</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -386,12 +386,12 @@ export function CampaignDetailClient({
                       <td>
                         {r.error ? (
                           <span className="tag" style={{ color: "var(--bad)" }} title={r.error}>
-                            erreur
+                            error
                           </span>
                         ) : r.finished_at ? (
                           <span className="tag good">ok</span>
                         ) : (
-                          <span className="tag">en cours</span>
+                          <span className="tag">running</span>
                         )}
                       </td>
                     </tr>
@@ -405,16 +405,16 @@ export function CampaignDetailClient({
 
       <div className="page-header" style={{ marginTop: 0 }}>
         <h2 style={{ fontSize: 18, margin: 0 }}>
-          {campaign.mode === "dynamic" ? "File d'appel actuelle" : "Cibles"}
+          {campaign.mode === "dynamic" ? "Current call queue" : "Targets"}
         </h2>
         <button className="subtle" onClick={() => setShowImport((v) => !v)}>
-          {showImport ? "Annuler" : "Ajouter des cibles"}
+          {showImport ? "Cancel" : "Add targets"}
         </button>
       </div>
 
       {showImport && (
         <div className="card" style={{ marginBottom: 12 }}>
-          <label>Coller un CSV (e164,nom)</label>
+          <label>Paste a CSV (e164,name)</label>
           <textarea
             value={csvText}
             onChange={(e) => setCsvText(e.target.value)}
@@ -423,7 +423,7 @@ export function CampaignDetailClient({
           />
           <div style={{ marginTop: 8 }}>
             <button onClick={importTargets} disabled={busy !== null}>
-              {busy === "import" ? "Import…" : "Importer"}
+              {busy === "import" ? "Importing…" : "Import"}
             </button>
           </div>
         </div>
@@ -434,23 +434,22 @@ export function CampaignDetailClient({
           {campaign.mode === "dynamic" ? (
             <>
               <p style={{ margin: 0, fontWeight: 600 }}>
-                ⟳ Sélection automatique à chaque créneau
+                ⟳ Automatic selection at each slot
               </p>
               <p className="muted" style={{ margin: "6px 0 0 0", fontSize: 13, lineHeight: 1.5 }}>
-                Cette campagne est en mode <strong>continu</strong> : le moteur tire les contacts
-                directement depuis ta table à chaque créneau horaire, selon les règles que tu as
-                définies (statuts ciblés, relances J+X, plafond par jour). La file n&apos;est
-                jamais figée à l&apos;avance — elle se renouvelle automatiquement.
+                This campaign is in <strong>continuous</strong> mode: the engine pulls contacts
+                directly from your table at each time slot, according to the rules you defined
+                (target statuses, follow-ups D+X, daily cap). The queue is never fixed in
+                advance — it refreshes automatically.
               </p>
               <p className="muted" style={{ margin: "8px 0 0 0", fontSize: 12 }}>
-                Une fois la campagne <strong>démarrée</strong>, l&apos;historique des passages
-                ci-dessus se remplira au fur et à mesure (créneau, nombre tiré, lancés).
+                Once the campaign is <strong>started</strong>, the run history above will fill up
+                progressively (slot, count selected, launched).
               </p>
             </>
           ) : (
             <p className="muted" style={{ margin: 0 }}>
-              Aucune cible pour cette campagne. Utilise « Ajouter des cibles » pour importer
-              un CSV ou sélectionner des contacts.
+              No targets for this campaign. Use &ldquo;Add targets&rdquo; to import a CSV or select contacts.
             </p>
           )}
         </div>
@@ -460,11 +459,11 @@ export function CampaignDetailClient({
             <thead>
               <tr>
                 <th>Contact</th>
-                <th>Statut</th>
-                <th>Tentatives</th>
-                <th>Dernier essai</th>
-                <th>Prochain essai</th>
-                <th>Appel</th>
+                <th>Status</th>
+                <th>Attempts</th>
+                <th>Last attempt</th>
+                <th>Next attempt</th>
+                <th>Call</th>
               </tr>
             </thead>
             <tbody>
@@ -488,7 +487,7 @@ export function CampaignDetailClient({
                   </td>
                   <td>
                     {t.last_call_id ? (
-                      <Link href={`/calls/${t.last_call_id}`}>Voir</Link>
+                      <Link href={`/calls/${t.last_call_id}`}>View</Link>
                     ) : (
                       <span className="muted">—</span>
                     )}

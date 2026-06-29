@@ -72,14 +72,14 @@ export default async function NumbersPage() {
     <>
       <div className="page-header">
         <div>
-          <h1>Numéros de téléphone</h1>
+          <h1>Phone numbers</h1>
           <div className="subtitle">
-            {initial.length} numéro{initial.length === 1 ? "" : "s"} provisionné{initial.length === 1 ? "" : "s"} via Twilio
+            {initial.length} number{initial.length === 1 ? "" : "s"} provisioned via Twilio
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <Link href="/numbers/health" className="button" style={{ textDecoration: "none" }}>
-            Santé des numéros
+            Number health
           </Link>
           <HelpButton contextKey="numbers" />
         </div>
@@ -87,12 +87,12 @@ export default async function NumbersPage() {
 
       {!hasTwilio() && (
         <div className="card" style={{ marginBottom: 16, borderColor: "var(--bad)" }}>
-          <h3 style={{ marginTop: 0, color: "var(--bad)" }}>Twilio non configuré</h3>
+          <h3 style={{ marginTop: 0, color: "var(--bad)" }}>Twilio not configured</h3>
           <p className="muted" style={{ margin: 0 }}>
-            Définissez <span className="kbd">TWILIO_ACCOUNT_SID</span> et{" "}
-            <span className="kbd">TWILIO_AUTH_TOKEN</span> dans les variables d&apos;environnement Vercel
-            pour rechercher et acheter des numéros. La recherche et l&apos;achat sont désactivés tant que ces
-            variables sont absentes.
+            Set <span className="kbd">TWILIO_ACCOUNT_SID</span> and{" "}
+            <span className="kbd">TWILIO_AUTH_TOKEN</span> in your Vercel environment variables
+            to search and purchase numbers. Search and purchase are disabled until these
+            variables are present.
           </p>
         </div>
       )}

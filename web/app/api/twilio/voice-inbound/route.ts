@@ -39,7 +39,7 @@ export async function POST(req: Request) {
 
   if (!to) {
     return twiml(
-      `<Say>Numéro de destination manquant.</Say><Reject/>`,
+      `<Say>Destination number missing.</Say><Reject/>`,
       404,
     );
   }
@@ -66,7 +66,7 @@ export async function POST(req: Request) {
 
   if (!numberRow || !numberRow.active) {
     return twiml(
-      `<Say>Numéro non disponible.</Say><Reject/>`,
+      `<Say>Number not available.</Say><Reject/>`,
       404,
     );
   }
@@ -162,7 +162,7 @@ export async function POST(req: Request) {
       `/api/twilio/queue-wait?lang=${encodeURIComponent(queueLang)}`,
     );
     return twiml(
-      `<Say language="fr-FR">Bonjour, un agent va vous répondre.</Say>` +
+      `<Say>Hello, an agent will be with you shortly.</Say>` +
         `<Enqueue waitUrl="${escapeXml(waitUrl)}" waitUrlMethod="POST">${escapeXml(queueName)}</Enqueue>`,
     );
   }

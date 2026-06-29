@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useT } from "@/lib/i18n";
 import * as XLSX from "xlsx";
 
 export interface ColumnSpec {
@@ -67,10 +68,13 @@ export function DataTableDetail({
   initialTotal,
   initialPerPage = 20,
 }: Props) {
+  const t = useT();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [rows, setRows] = useState(initialRows);
   const [total, setTotal] = useState<number>(initialTotal ?? initialRows.length);
-  const [search, setSearch] = useState("");
+  // Pre-fill from ?q= URL param so dashboard patient search can deep-link here.
+  const [search, setSearch] = useState(() => searchParams.get("q") ?? "");
   // Pagination state (Wati 2026-06-15): server-driven page/per_page so a
   // 7800-row table doesn't dump everything into the DOM. The first page
   // ships with the SSR payload (initialRows); every subsequent
@@ -334,7 +338,7 @@ export function DataTableDetail({
     const id = row.id as string;
     if (!id) return;
     const label = String(row[phoneColumn] ?? id);
-    if (!confirm(`Supprimer ce contact (${label}) ? Cette action est irréversible.`)) return;
+    if (!confirm(`${t("Supprimer ce contact")} (${label}) ? ${t("Cette action est irréversible.")}`)) return;
     setDeletingId(id);
     try {
       const r = await fetch(`/api/data-tables/${registryId}/rows/${id}`, {
@@ -385,7 +389,7 @@ export function DataTableDetail({
         />
         {distinctQuals.length > 0 && (
           <select value={qualFilter} onChange={(e) => setQualFilter(e.target.value)} style={{ fontSize: 13 }}>
-            <option value="">Toutes qualifications</option>
+            <option value="">{t("Toutes qualifications")}</option>
             {distinctQuals.map((q) => (
               <option key={q} value={q}>{q}</option>
             ))}
@@ -393,7 +397,7 @@ export function DataTableDetail({
         )}
         {distinctPhases.length > 0 && (
           <select value={phaseFilter} onChange={(e) => setPhaseFilter(e.target.value)} style={{ fontSize: 13 }}>
-            <option value="">Toutes phases</option>
+            <option value="">{t("Toutes phases")}</option>
             {distinctPhases.map((p) => (
               <option key={p} value={p}>{p}</option>
             ))}
@@ -401,7 +405,7 @@ export function DataTableDetail({
         )}
         {(qualFilter || phaseFilter || search) && (
           <button className="ghost" onClick={() => { setQualFilter(""); setPhaseFilter(""); setSearch(""); }} style={{ fontSize: 12 }}>
-            ✕ Réinitialiser
+            ✕ {t("Réinitialiser")}
           </button>
         )}
         <span className="muted" style={{ fontSize: 12, marginLeft: 4 }}>
@@ -424,7 +428,7 @@ export function DataTableDetail({
             fontSize: 12,
           }}
         >
-          <label style={{ color: "var(--muted)" }}>Par page</label>
+          <label style={{ color: "var(--muted)" }}>{t("Par page")}</label>
           <select
             value={String(perPage)}
             onChange={(e) => {
@@ -462,14 +466,14 @@ export function DataTableDetail({
           </button>
         </div>
         <div style={{ flex: 1 }} />
-        <button onClick={() => setShowAdd((v) => !v)}>{showAdd ? "Annuler" : "+ Ajouter un contact"}</button>
+        <button onClick={() => setShowAdd((v) => !v)}>{showAdd ? t("Annuler") : t("+ Ajouter un contact")}</button>
         <button
           className="ghost"
           onClick={() => fileInputRef.current?.click()}
           disabled={importBusy}
           title="Importer un fichier CSV ou Excel"
         >
-          {importBusy ? "Import…" : "📥 Importer CSV/Excel"}
+          {importBusy ? t("Import…") : `📥 ${t("Importer CSV/Excel")}`}
         </button>
         <input
           ref={fileInputRef}
@@ -489,7 +493,7 @@ export function DataTableDetail({
           }}
           title="Télécharger un modèle Excel pré-rempli avec les bonnes colonnes"
         >
-          📤 Modèle Excel
+          📤 {t("Modèle Excel")}
         </a>
       </div>
 
@@ -520,7 +524,7 @@ export function DataTableDetail({
                 {importReport.errors.length > 0 && (
                   <details style={{ marginTop: 6 }}>
                     <summary style={{ cursor: "pointer", color: "var(--warn)", fontSize: 12 }}>
-                      Voir les {importReport.errors.length} erreur(s) ▾
+                      {t("Voir les")} {importReport.errors.length} {t("erreur(s)")} ▾
                     </summary>
                     <ul style={{ margin: "6px 0 0 0", paddingLeft: 18, fontSize: 12 }}>
                       {importReport.errors.slice(0, 50).map((er, i) => (
@@ -537,7 +541,7 @@ export function DataTableDetail({
             className="ghost"
             onClick={() => { setImportReport(null); setImportError(null); }}
             style={{ padding: "2px 8px" }}
-            title="Fermer"
+            title={t("Fermer")}
           >
             ×
           </button>
@@ -546,7 +550,7 @@ export function DataTableDetail({
 
       {showAdd && (
         <form className="card" onSubmit={addRow} style={{ display: "grid", gap: 12 }}>
-          <h3 style={{ margin: 0 }}>Nouveau contact</h3>
+          <h3 style={{ margin: 0 }}>{t("Nouveau contact")}</h3>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
             {allCols.map((c) => {
               const long = isLongText(c.key, c.type);
@@ -578,7 +582,7 @@ export function DataTableDetail({
           </div>
           {error && <div style={{ color: "#ff8080" }}>{error}</div>}
           <div>
-            <button type="submit" disabled={busy}>{busy ? "Ajout…" : "Ajouter"}</button>
+            <button type="submit" disabled={busy}>{busy ? t("Ajout…") : t("Ajouter")}</button>
           </div>
         </form>
       )}
@@ -589,10 +593,9 @@ export function DataTableDetail({
 
       {rows.length === 0 ? (
         <div className="card">
-          <h3>Table vide</h3>
+          <h3>{t("Table vide")}</h3>
           <p className="muted">
-            Ajoutez des contacts un par un avec « + Ajouter un contact », ou importez un CSV
-            depuis Supabase. Pour tester, mettez 2-3 numéros que vous pouvez appeler vous-même.
+            {t("Ajoutez des contacts un par un avec « + Ajouter un contact », ou importez un CSV depuis Supabase. Pour tester, mettez 2-3 numéros que vous pouvez appeler vous-même.")}
           </p>
         </div>
       ) : (
@@ -694,9 +697,9 @@ export function DataTableDetail({
                               borderRadius: 5,
                               display: "inline-block",
                             }}
-                            title="Composer ce numéro depuis Mon poste"
+                            title={t("Composer ce numéro depuis Mon poste")}
                           >
-                            ☎ Appeler
+                            ☎ {t("Appeler")}
                           </Link>
                         ) : null;
                       })()}
@@ -705,9 +708,9 @@ export function DataTableDetail({
                         onClick={() => openEdit(r)}
                         disabled={!rowId || isDeleting}
                         style={{ padding: "3px 8px", marginRight: 4, fontSize: 12 }}
-                        title="Voir la fiche complète"
+                        title={t("Voir la fiche complète")}
                       >
-                        Voir
+                        {t("Voir")}
                       </button>
                       <button
                         className="ghost"
@@ -742,7 +745,7 @@ export function DataTableDetail({
             style={{ width: "min(720px, 100%)", marginTop: 30, display: "grid", gap: 12 }}
           >
             <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
-              <h3 style={{ margin: 0 }}>Fiche complète du contact</h3>
+              <h3 style={{ margin: 0 }}>{t("Fiche complète du contact")}</h3>
               <button className="ghost" onClick={() => setEditingId(null)} disabled={editBusy} style={{ padding: "2px 8px" }}>×</button>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
@@ -776,10 +779,10 @@ export function DataTableDetail({
             {editError && <div style={{ color: "var(--bad)", fontSize: 13 }}>{editError}</div>}
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
               <button className="ghost" onClick={() => setEditingId(null)} disabled={editBusy}>
-                Annuler
+                {t("Annuler")}
               </button>
               <button onClick={saveEdit} disabled={editBusy || !editDraft[phoneColumn]?.trim()}>
-                {editBusy ? "Enregistrement…" : "Enregistrer"}
+                {editBusy ? t("Enregistrement…") : t("Enregistrer")}
               </button>
             </div>
           </div>

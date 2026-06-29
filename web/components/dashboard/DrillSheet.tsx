@@ -254,8 +254,9 @@ export function DrillSheet({ spec, onClose, onClosed }: { spec: DrillSpec | null
       lastFocused.current = (document.activeElement as HTMLElement) ?? null;
       // Defer to next tick so the close button is mounted.
       setTimeout(() => closeBtnRef.current?.focus(), 0);
-    } else if (lastFocused.current) {
-      lastFocused.current.focus();
+    } else {
+      if (lastFocused.current) lastFocused.current.focus();
+      onClosed?.();
     }
   }, [open]);
 

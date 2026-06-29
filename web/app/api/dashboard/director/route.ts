@@ -26,6 +26,7 @@ const ACTIVE = new Set(["ringing", "ivr", "in_progress", "wrap_up"]);
 export type DirectorKpis = {
   totalCalls: number;
   answered: number;
+  answeredUniqueContacts: number;
   notAnswered: number;
   answeredPct: number;
   cost: number;
@@ -270,6 +271,17 @@ export async function GET(request: Request) {
   const answeredDur = buckets
     .filter(humanAnswered)
     .reduce((a, b) => a + (b.row.duration_secs ?? 0), 0);
+
+  // Count unique answered contacts (distinct people who answered, by to_e164 or contact_id)
+  const answeredContacts = new Set<string>();
+  for (const b of buckets) {
+    if (humanAnswered(b)) {
+      const key = b.row.to_e164 ?? b.row.contact_id;
+      if (key) answeredContacts.add(key);
+    }
+  }
+  const answeredUniqueContacts = answeredContacts.size;
+
   const over = rows.filter((r) => (r.duration_secs ?? 0) > threshold).length;
 
   // Inbound block — independent of the direction filter for this card.
@@ -501,6 +513,7 @@ export async function GET(request: Request) {
     kpis: {
       totalCalls: total,
       answered,
+      answeredUniqueContacts,
       notAnswered,
       answeredPct: total ? (answered / total) * 100 : 0,
       cost: Math.round(cost * 100) / 100,

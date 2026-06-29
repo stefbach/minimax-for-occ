@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useT } from "@/lib/i18n";
 
 export interface PhoneNumberRow {
   id: string;
@@ -88,11 +89,12 @@ function healthOf(n: PhoneNumberRow): "active" | "low_volume" | "dormant" | "nev
 }
 
 function HealthBadge({ row }: { row: PhoneNumberRow }) {
+  const t = useT();
   const h = healthOf(row);
   if (h === "active") return <span className="tag good">● Active</span>;
   if (h === "dormant") return <span className="tag" style={{ color: "var(--bad)" }}>● Dormant</span>;
-  if (h === "low_volume") return <span className="tag" style={{ color: "var(--warn,#b58900)" }}>● Faible</span>;
-  return <span className="tag muted">○ Jamais utilisé</span>;
+  if (h === "low_volume") return <span className="tag" style={{ color: "var(--warn,#b58900)" }}>{t("● Faible")}</span>;
+  return <span className="tag muted">{t("○ Jamais utilisé")}</span>;
 }
 
 export function NumbersClient({
@@ -108,6 +110,7 @@ export function NumbersClient({
   agents: AgentOption[];
   twilioReady: boolean;
 }) {
+  const t = useT();
   const [rows, setRows] = useState<PhoneNumberRow[]>(initial);
 
   // ─── Twilio search/purchase state ────────────────────────────────────────
@@ -362,11 +365,11 @@ export function NumbersClient({
     <div style={{ display: "grid", gap: 16 }}>
       {/* ─── Search & purchase ─── */}
       <div className="card" data-numbers-search>
-        <h3 style={{ marginTop: 0 }}>Rechercher et acheter un numéro</h3>
+        <h3 style={{ marginTop: 0 }}>{t("Rechercher et acheter un numéro")}</h3>
         <form onSubmit={doSearch} style={{ display: "grid", gap: 10 }}>
           <div className="form-row">
             <div>
-              <label>Pays</label>
+              <label>{t("Pays")}</label>
               <select
                 value={searchCountry}
                 onChange={(e) => setSearchCountry(e.target.value)}
@@ -394,7 +397,7 @@ export function NumbersClient({
           </div>
           <div className="form-row">
             <div>
-              <label>Indicatif régional (optionnel, US/CA)</label>
+              <label>{t("Indicatif régional (optionnel, US/CA)")}</label>
               <input
                 value={searchArea}
                 onChange={(e) => setSearchArea(e.target.value)}
@@ -404,7 +407,7 @@ export function NumbersClient({
             </div>
             <div style={{ display: "flex", alignItems: "flex-end" }}>
               <button type="submit" disabled={!twilioReady || searching}>
-                {searching ? "Recherche…" : "Rechercher"}
+                {searching ? t("Recherche…") : t("Rechercher")}
               </button>
             </div>
           </div>
@@ -417,14 +420,14 @@ export function NumbersClient({
           <div style={{ marginTop: 14 }}>
             {results.length === 0 ? (
               <div className="muted" style={{ fontSize: 13 }}>
-                Aucun numéro disponible pour ces critères.
+                {t("Aucun numéro disponible pour ces critères.")}
               </div>
             ) : (
               <table className="list">
                 <thead>
                   <tr>
-                    <th>Numéro</th>
-                    <th>Localité</th>
+                    <th>{t("Numéro (E.164)")}</th>
+                    <th>{t("Localité")}</th>
                     <th>Capabilities</th>
                     <th></th>
                   </tr>
@@ -451,7 +454,7 @@ export function NumbersClient({
                           onClick={() => purchase(n.phoneNumber)}
                           disabled={purchasing === n.phoneNumber}
                         >
-                          {purchasing === n.phoneNumber ? "Achat…" : "Acheter"}
+                          {purchasing === n.phoneNumber ? t("Achat…") : t("Acheter")}
                         </button>
                       </td>
                     </tr>
@@ -465,17 +468,14 @@ export function NumbersClient({
 
       {/* ─── Import an existing Twilio number ─── */}
       <div className="card">
-        <h3 style={{ marginTop: 0 }}>Importer un numéro Twilio existant</h3>
+        <h3 style={{ marginTop: 0 }}>{t("Importer un numéro Twilio existant")}</h3>
         <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
-          Pour un numéro déjà acheté sur Twilio (avant Axon, ou ailleurs). Axon
-          vérifie que le numéro appartient bien au compte Twilio relié, puis
-          (re)configure ses webhooks (VoiceUrl + StatusCallback) pour qu&apos;il
-          se comporte comme un numéro acheté via Axon.
+          {t("Pour un numéro déjà acheté sur Twilio (avant Axon, ou ailleurs). Axon vérifie que le numéro appartient bien au compte Twilio relié, puis (re)configure ses webhooks (VoiceUrl + StatusCallback) pour qu'il se comporte comme un numéro acheté via Axon.")}
         </p>
         <form onSubmit={importExisting} style={{ display: "grid", gap: 10 }}>
           <div className="form-row">
             <div>
-              <label>Numéro (E.164)</label>
+              <label>{t("Numéro (E.164)")}</label>
               <input
                 value={importE164}
                 onChange={(e) => setImportE164(e.target.value)}
@@ -485,7 +485,7 @@ export function NumbersClient({
               />
             </div>
             <div>
-              <label>Label (optionnel)</label>
+              <label>{t("Label (optionnel)")}</label>
               <input
                 value={importLabel}
                 onChange={(e) => setImportLabel(e.target.value)}
@@ -496,7 +496,7 @@ export function NumbersClient({
           </div>
           <div>
             <button type="submit" disabled={!twilioReady || importing || !importE164.trim()}>
-              {importing ? "Import…" : "Importer ce numéro"}
+              {importing ? t("Import…") : t("Importer ce numéro")}
             </button>
           </div>
         </form>
@@ -517,7 +517,7 @@ export function NumbersClient({
       <div className="card" style={{ display: "grid", gap: 10 }}>
         <div className="form-row" style={{ flexWrap: "wrap" }}>
           <div style={{ flex: "1 1 180px" }}>
-            <label>Recherche (numéro / label)</label>
+            <label>{t("Recherche (numéro / label)")}</label>
             <input
               value={fSearch}
               onChange={(e) => setFSearch(e.target.value)}
@@ -525,35 +525,35 @@ export function NumbersClient({
             />
           </div>
           <div>
-            <label>Pays</label>
+            <label>{t("Pays")}</label>
             <select value={fCountry} onChange={(e) => setFCountry(e.target.value)}>
-              <option value="">Tous</option>
+              <option value="">{t("Tous")}</option>
               {countryFacets.map((c) => (
                 <option key={c} value={c}>{c}</option>
               ))}
             </select>
           </div>
           <div>
-            <label>État</label>
+            <label>{t("État")}</label>
             <select value={fStatus} onChange={(e) => setFStatus(e.target.value as StatusFilter)}>
-              <option value="">Tous</option>
-              <option value="active">Actif</option>
-              <option value="inactive">Inactif</option>
+              <option value="">{t("Tous")}</option>
+              <option value="active">{t("Actif")}</option>
+              <option value="inactive">{t("Inactif")}</option>
             </select>
           </div>
           <div>
-            <label>Santé</label>
+            <label>{t("Santé")}</label>
             <select value={fHealth} onChange={(e) => setFHealth(e.target.value)}>
-              <option value="">Toutes</option>
-              <option value="active">Active</option>
+              <option value="">{t("Tous")}</option>
+              <option value="active">{t("Actif")}</option>
               <option value="dormant">Dormant</option>
-              <option value="never_used">Jamais utilisé</option>
+              <option value="never_used">{t("○ Jamais utilisé")}</option>
             </select>
           </div>
           <div>
             <label>Queue</label>
             <select value={fQueue} onChange={(e) => setFQueue(e.target.value)}>
-              <option value="">Toutes</option>
+              <option value="">{t("Tous")}</option>
               {queues.map((q) => (
                 <option key={q.id} value={q.id}>{q.name}</option>
               ))}
@@ -562,7 +562,7 @@ export function NumbersClient({
           <div>
             <label>Agent</label>
             <select value={fAgent} onChange={(e) => setFAgent(e.target.value)}>
-              <option value="">Tous</option>
+              <option value="">{t("Tous")}</option>
               {agents.map((a) => (
                 <option key={a.id} value={a.id}>{a.display_name ?? a.id.slice(0, 6)}</option>
               ))}
@@ -580,12 +580,12 @@ export function NumbersClient({
                 setFSearch("");
               }}
             >
-              Réinitialiser
+              {t("Réinitialiser")}
             </button>
           </div>
         </div>
         <div className="muted" style={{ fontSize: 12 }}>
-          {filtered.length} / {rows.length} numéros affichés
+          {filtered.length} / {rows.length} {t("numéros affichés")}
         </div>
       </div>
 
@@ -601,9 +601,9 @@ export function NumbersClient({
             borderColor: "var(--accent, #4f46e5)",
           }}
         >
-          <strong>{selected.size} numéro(s) sélectionné(s)</strong>
-          <button disabled={bulkBusy} onClick={() => bulk("activate")}>Activer</button>
-          <button disabled={bulkBusy} onClick={() => bulk("deactivate")}>Désactiver</button>
+          <strong>{selected.size} {t("numéro(s) sélectionné(s)")}</strong>
+          <button disabled={bulkBusy} onClick={() => bulk("activate")}>{t("Activer")}</button>
+          <button disabled={bulkBusy} onClick={() => bulk("deactivate")}>{t("Désactiver")}</button>
           <select
             disabled={bulkBusy}
             defaultValue=""
@@ -614,8 +614,8 @@ export function NumbersClient({
               else if (v) bulk("assign_queue", { queue_id: v });
             }}
           >
-            <option value="">Assigner queue…</option>
-            <option value="__clear__">— Retirer la queue —</option>
+            <option value="">{t("Assigner queue…")}</option>
+            <option value="__clear__">{t("— Retirer la queue —")}</option>
             {queues.map((q) => (
               <option key={q.id} value={q.id}>{q.name}</option>
             ))}
@@ -630,8 +630,8 @@ export function NumbersClient({
               else if (v) bulk("assign_agent", { agent_handle_id: v });
             }}
           >
-            <option value="">Assigner agent…</option>
-            <option value="__clear__">— Retirer l&apos;agent —</option>
+            <option value="">{t("Assigner agent…")}</option>
+            <option value="__clear__">{t("— Retirer l'agent —")}</option>
             {agents.map((a) => (
               <option key={a.id} value={a.id}>{a.display_name ?? a.id.slice(0, 6)}</option>
             ))}
@@ -646,17 +646,17 @@ export function NumbersClient({
               else if (v) bulk("assign_flow", { flow_id: v });
             }}
           >
-            <option value="">Assigner flow…</option>
-            <option value="__clear__">— Retirer le flow —</option>
+            <option value="">{t("Assigner flow…")}</option>
+            <option value="__clear__">{t("— Retirer le flow —")}</option>
             {flows.map((f) => (
               <option key={f.id} value={f.id}>{f.name}</option>
             ))}
           </select>
           <button className="danger" disabled={bulkBusy} onClick={() => bulk("delete")}>
-            Supprimer
+            {t("Supprimer")}
           </button>
           <button type="button" onClick={clearSelection} disabled={bulkBusy}>
-            Effacer sélection
+            {t("Effacer sélection")}
           </button>
         </div>
       )}
@@ -666,12 +666,10 @@ export function NumbersClient({
         {rows.length === 0 ? (
           <div style={{ padding: 20, display: "grid", gap: 10 }}>
             <div style={{ color: "var(--muted)" }}>
-              Aucun numéro provisionné pour l&apos;instant.
+              {t("Aucun numéro provisionné pour l'instant.")}
             </div>
             <div className="muted" style={{ fontSize: 12, lineHeight: 1.5, maxWidth: 560 }}>
-              Achetez un numéro Twilio pour le brancher sur un flow IVR, une file
-              d&apos;attente ou un agent IA. Le webhook Twilio est configuré
-              automatiquement à l&apos;achat.
+              {t("Achetez un numéro Twilio pour le brancher sur un flow IVR, une file d'attente ou un agent IA. Le webhook Twilio est configuré automatiquement à l'achat.")}
             </div>
             <div>
               <button
@@ -683,7 +681,7 @@ export function NumbersClient({
                 disabled={!twilioReady}
                 title={!twilioReady ? "Twilio non configuré (variables d'env manquantes)" : ""}
               >
-                Acheter un numéro
+                {t("Acheter un numéro")}
               </button>
             </div>
           </div>
@@ -694,19 +692,19 @@ export function NumbersClient({
                 <th style={{ width: 28 }}>
                   <input
                     type="checkbox"
-                    aria-label="Tout sélectionner"
+                    aria-label={t("Tout sélectionner")}
                     checked={allFilteredSelected}
                     onChange={(e) => toggleAll(e.target.checked)}
                   />
                 </th>
-                <th>Numéro</th>
-                <th>Pays</th>
-                <th>Routing</th>
-                <th>Health</th>
+                <th>{t("Numéro (E.164)")}</th>
+                <th>{t("Pays")}</th>
+                <th>{t("Routage")}</th>
+                <th>{t("Santé")}</th>
                 <th>Webhook</th>
-                <th>Compliance</th>
-                <th>Actif</th>
-                <th>Entrant</th>
+                <th>{t("Conformité")}</th>
+                <th>{t("Actif")}</th>
+                <th>{t("Entrant")}</th>
                 <th></th>
               </tr>
             </thead>
@@ -744,7 +742,7 @@ export function NumbersClient({
                           onChange={(e) => patch(n.id, { flow_id: e.target.value || null })}
                           style={{ fontSize: 12 }}
                         >
-                          <option value="">— Flow: aucun —</option>
+                          <option value="">{t("— Flow: aucun —")}</option>
                           {flows.map((f) => (
                             <option key={f.id} value={f.id}>Flow: {f.name}</option>
                           ))}
@@ -754,7 +752,7 @@ export function NumbersClient({
                           onChange={(e) => patch(n.id, { queue_id: e.target.value || null })}
                           style={{ fontSize: 12 }}
                         >
-                          <option value="">— Queue: aucune —</option>
+                          <option value="">{t("— Queue: aucune —")}</option>
                           {queues.map((q) => (
                             <option key={q.id} value={q.id}>Queue: {q.name}</option>
                           ))}
@@ -764,7 +762,7 @@ export function NumbersClient({
                           onChange={(e) => patch(n.id, { agent_handle_id: e.target.value || null })}
                           style={{ fontSize: 12 }}
                         >
-                          <option value="">— Agent: aucun —</option>
+                          <option value="">{t("— Agent: aucun —")}</option>
                           {agents.map((a) => (
                             <option key={a.id} value={a.id}>Agent: {a.display_name ?? a.id.slice(0, 6)}</option>
                           ))}
@@ -787,15 +785,15 @@ export function NumbersClient({
                     </td>
                     <td>
                       {n.webhook_configured ? (
-                        <span className="tag good">✓ Configuré</span>
+                        <span className="tag good">{t("✓ Configuré")}</span>
                       ) : (
                         <div style={{ display: "grid", gap: 4 }}>
-                          <span className="tag" style={{ color: "var(--warn,#b58900)" }}>⚠ À configurer</span>
+                          <span className="tag" style={{ color: "var(--warn,#b58900)" }}>{t("⚠ À configurer")}</span>
                           <button
                             style={{ padding: "3px 7px", fontSize: 11 }}
                             onClick={() => reconfigureWebhook(n)}
                           >
-                            Configurer
+                            {t("Configurer")}
                           </button>
                         </div>
                       )}
@@ -832,7 +830,7 @@ export function NumbersClient({
                           checked={n.active}
                           onChange={(e) => patch(n.id, { active: e.target.checked })}
                         />
-                        {n.active ? <span className="tag good">actif</span> : <span className="tag">inactif</span>}
+                        {n.active ? <span className="tag good">{t("actif")}</span> : <span className="tag">{t("inactif")}</span>}
                       </label>
                     </td>
                     <td>
@@ -902,14 +900,14 @@ export function NumbersClient({
                             fontSize: 12,
                           }}
                         >
-                          Réglages
+                          {t("Réglages")}
                         </a>
                         <button
                           className="danger"
                           style={{ padding: "5px 9px" }}
                           onClick={() => release(n)}
                         >
-                          Libérer
+                          {t("Libérer")}
                         </button>
                       </div>
                     </td>
@@ -919,7 +917,7 @@ export function NumbersClient({
               {filtered.length === 0 && rows.length > 0 && (
                 <tr>
                   <td colSpan={10} style={{ padding: 14, color: "var(--muted)" }}>
-                    Aucun numéro ne correspond aux filtres.
+                    {t("Aucun numéro ne correspond aux filtres.")}
                   </td>
                 </tr>
               )}

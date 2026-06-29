@@ -13,14 +13,14 @@ import {
 // Management agents only need a text brain — no voice/TTS. Keep the model
 // picker minimal and aligned with the platform defaults.
 const PROVIDER_MODELS: Record<LlmProvider, { id: string; label: string }[]> = {
-  deepseek: [{ id: "deepseek-v4-flash", label: "deepseek-v4-flash — rapide, économique (recommandé)" }],
+  deepseek: [{ id: "deepseek-v4-flash", label: "deepseek-v4-flash — fast, economical (recommended)" }],
   openai: [
-    { id: "gpt-4o-mini", label: "gpt-4o-mini — rapide et fiable" },
+    { id: "gpt-4o-mini", label: "gpt-4o-mini — fast and reliable" },
     { id: "gpt-4.1-mini", label: "gpt-4.1-mini" },
   ],
   anthropic: [
-    { id: "claude-haiku-4-5-20251001", label: "claude-haiku-4-5 — excellent suivi d'instructions" },
-    { id: "claude-sonnet-4-6", label: "claude-sonnet-4-6 — qualité supérieure" },
+    { id: "claude-haiku-4-5-20251001", label: "claude-haiku-4-5 — excellent instruction following" },
+    { id: "claude-sonnet-4-6", label: "claude-sonnet-4-6 — superior quality" },
   ],
   minimax: [{ id: "MiniMax-M2", label: "MiniMax-M2" }],
 };
@@ -62,8 +62,8 @@ export function ManagementAgentForm({ orgCategory = null }: { orgCategory?: stri
 
   async function doCreate(): Promise<FinalizeAgentResult> {
     const d = draftRef.current;
-    if (!d.name.trim()) return { ok: false, error: "Donne un nom à l'agent (ou laisse l'assistant en proposer un)." };
-    if (!d.system_prompt.trim()) return { ok: false, error: "Les directives sont vides — décris d'abord ce que l'agent doit faire." };
+    if (!d.name.trim()) return { ok: false, error: "Give the agent a name (or let the assistant suggest one)." };
+    if (!d.system_prompt.trim()) return { ok: false, error: "Directives are empty — first describe what the agent should do." };
     const body: AgentInput = {
       name: d.name.trim(),
       description: d.description.trim() || null,
@@ -93,7 +93,7 @@ export function ManagementAgentForm({ orgCategory = null }: { orgCategory?: stri
     setBusy(true);
     const r = await doCreate();
     if (!r.ok) {
-      setError(r.error ?? "Erreur inconnue");
+      setError(r.error ?? "Unknown error");
       setBusy(false);
       return r;
     }
@@ -115,22 +115,22 @@ export function ManagementAgentForm({ orgCategory = null }: { orgCategory?: stri
       <div style={{ display: "grid", gap: 16, gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)" }}>
         {/* Identity + model */}
         <section className="card" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <h3 style={{ margin: 0 }}>Identité</h3>
+          <h3 style={{ margin: 0 }}>Identity</h3>
           <div>
-            <label>Nom *</label>
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex. Relances no-show" />
+            <label>Name *</label>
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex. No-show follow-ups" />
           </div>
           <div>
             <label>Description</label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Ce que fait l'agent en une phrase…"
+              placeholder="What the agent does in one sentence…"
             />
           </div>
           <div className="wizard-row-2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <div>
-              <label>Fournisseur LLM</label>
+              <label>LLM Provider</label>
               <select
                 value={provider}
                 onChange={(e) => {
@@ -146,7 +146,7 @@ export function ManagementAgentForm({ orgCategory = null }: { orgCategory?: stri
               </select>
             </div>
             <div>
-              <label>Modèle</label>
+              <label>Model</label>
               <select value={model} onChange={(e) => setModel(e.target.value)}>
                 {models.map((m) => (
                   <option key={m.id} value={m.id}>{m.label}</option>
@@ -156,25 +156,25 @@ export function ManagementAgentForm({ orgCategory = null }: { orgCategory?: stri
           </div>
 
           <div>
-            <label>Directives de l&apos;agent (son cerveau)</label>
+            <label>Agent directives (its brain)</label>
             <textarea
               value={systemPrompt}
               onChange={(e) => setSystemPrompt(e.target.value)}
-              placeholder="Rédigées par l'assistant à droite — éditables ici."
+              placeholder="Drafted by the assistant on the right — editable here."
               style={{ minHeight: 220, fontFamily: "ui-monospace, monospace", fontSize: 12 }}
             />
             <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-              Tu pourras brancher cet agent à une table / email / WhatsApp ensuite dans <strong>Workflows</strong>.
+              You can connect this agent to a table / email / WhatsApp in <strong>Workflows</strong>.
             </div>
           </div>
 
           {error && <div style={{ color: "var(--bad)", fontSize: 13 }}>{error}</div>}
           <div style={{ display: "flex", gap: 8 }}>
             <button type="button" onClick={onManualCreate} disabled={busy}>
-              {busy ? "Création…" : "Créer l'agent de gestion"}
+              {busy ? "Creating…" : "Create management agent"}
             </button>
             <button type="button" className="ghost" onClick={() => router.push("/agents")} disabled={busy}>
-              Annuler
+              Cancel
             </button>
           </div>
         </section>
@@ -182,10 +182,10 @@ export function ManagementAgentForm({ orgCategory = null }: { orgCategory?: stri
         {/* Directives chatbot */}
         <section className="card" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <div>
-            <h3 style={{ margin: 0 }}>Configure les directives avec l&apos;assistant</h3>
+            <h3 style={{ margin: 0 }}>Configure directives with the assistant</h3>
             <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-              Explique ce que l&apos;agent doit faire ; l&apos;assistant rédige ses directives (à gauche)
-              et crée l&apos;agent quand tu dis « go ».
+              Describe what the agent should do; the assistant drafts its directives (on the left)
+              and creates the agent when you say &quot;go&quot;.
             </div>
           </div>
           <AgentDirectivesChatPanel

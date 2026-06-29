@@ -88,18 +88,18 @@ export function AgentWorkflowForm({
   }
 
   function buildPayload(): { ok: true; body: Record<string, unknown> } | { ok: false; error: string } {
-    if (!name.trim()) return { ok: false, error: "Donne un nom au workflow." };
-    if (!agentId) return { ok: false, error: "Choisis un agent de gestion." };
-    if (!selectedTable) return { ok: false, error: "Choisis une table." };
-    if (!emailOn && !waOn && !updOn) return { ok: false, error: "Active au moins un canal (email, WhatsApp ou mise à jour)." };
+    if (!name.trim()) return { ok: false, error: "Give the workflow a name." };
+    if (!agentId) return { ok: false, error: "Select a management agent." };
+    if (!selectedTable) return { ok: false, error: "Select a table." };
+    if (!emailOn && !waOn && !updOn) return { ok: false, error: "Enable at least one channel (email, WhatsApp, or row update)." };
 
     const filters: Array<{ column: string; op: string; value?: string }> = [];
     if (filterColumn && filterValue) filters.push({ column: filterColumn, op: "eq", value: filterValue });
 
     const steps: Record<string, unknown>[] = [];
     if (emailOn) {
-      if (!emailCred) return { ok: false, error: "Email activé : choisis une connexion SMTP (ou ajoute-en une dans Connexions)." };
-      if (!emailToCol) return { ok: false, error: "Email activé : choisis la colonne contenant l'adresse email." };
+      if (!emailCred) return { ok: false, error: "Email enabled: choose an SMTP connection (or add one in Connections)." };
+      if (!emailToCol) return { ok: false, error: "Email enabled: choose the column containing the recipient email address." };
       steps.push({
         type: "ai_email",
         credential_id: emailCred,
@@ -110,9 +110,9 @@ export function AgentWorkflowForm({
       });
     }
     if (waOn) {
-      if (!waCred) return { ok: false, error: "WhatsApp activé : choisis une connexion WATI." };
-      if (!waPhoneCol) return { ok: false, error: "WhatsApp activé : choisis la colonne téléphone." };
-      if (!waTemplate.trim()) return { ok: false, error: "WhatsApp activé : indique le nom du template WATI." };
+      if (!waCred) return { ok: false, error: "WhatsApp enabled: choose a WATI connection." };
+      if (!waPhoneCol) return { ok: false, error: "WhatsApp enabled: choose the phone column." };
+      if (!waTemplate.trim()) return { ok: false, error: "WhatsApp enabled: enter the WATI template name." };
       const param_slots = waSlots
         .split(",")
         .map((s) => s.trim())
@@ -130,7 +130,7 @@ export function AgentWorkflowForm({
       });
     }
     if (updOn) {
-      if (updCols.length === 0) return { ok: false, error: "Mise à jour activée : choisis au moins une colonne." };
+      if (updCols.length === 0) return { ok: false, error: "Row update enabled: choose at least one column." };
       steps.push({ type: "ai_update_row", columns: updCols, goal: updGoal || undefined });
     }
 
@@ -192,16 +192,16 @@ export function AgentWorkflowForm({
     try {
       parsed = JSON.parse(jsonText);
     } catch {
-      setError("JSON invalide.");
+      setError("Invalid JSON.");
       return;
     }
     if (!parsed.trigger || !Array.isArray(parsed.steps)) {
-      setError("Le JSON doit contenir au moins « trigger » et « steps ».");
+      setError('JSON must contain at least "trigger" and "steps".');
       return;
     }
     // Fill missing binding fields from the form so the import is complete.
     const body: Record<string, unknown> = {
-      name: (parsed.name as string) || name.trim() || "Workflow importé",
+      name: (parsed.name as string) || name.trim() || "Imported workflow",
       description: (parsed.description as string) ?? (description.trim() || null),
       agent_id: (parsed.agent_id as string) || agentId || null,
       approval_mode: (parsed.approval_mode as string) || approvalMode,
@@ -216,8 +216,8 @@ export function AgentWorkflowForm({
     return (
       <section className="card">
         <p style={{ margin: 0 }}>
-          Aucun <strong>agent de gestion</strong> disponible. Crée-en un d&apos;abord :{" "}
-          <Link href="/agents/new" style={{ color: "var(--accent)" }}>Nouvel agent → Gestion</Link>.
+          No <strong>management agent</strong> available. Create one first:{" "}
+          <Link href="/agents/new" style={{ color: "var(--accent)" }}>New agent → Management</Link>.
         </p>
       </section>
     );
@@ -225,20 +225,20 @@ export function AgentWorkflowForm({
 
   return (
     <div style={{ display: "grid", gap: 16, maxWidth: 820 }}>
-      {/* 1. Identité + agent + table */}
+      {/* 1. Identity + agent + table */}
       <section className="card" style={{ display: "grid", gap: 12 }}>
-        <h3 style={{ margin: 0 }}>1. Quel agent, sur quelle table</h3>
+        <h3 style={{ margin: 0 }}>1. Which agent, on which table</h3>
         <div>
-          <label>Nom du workflow *</label>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Relances no-show" />
+          <label>Workflow name *</label>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="No-show follow-ups" />
         </div>
         <div>
           <label>Description</label>
-          <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Ce que fait ce workflow…" />
+          <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What this workflow does…" />
         </div>
         <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1fr 1fr" }}>
           <div>
-            <label>Agent de gestion *</label>
+            <label>Management agent *</label>
             <select value={agentId} onChange={(e) => setAgentId(e.target.value)}>
               {agents.map((a) => (
                 <option key={a.id} value={a.id}>{a.name}</option>
@@ -246,9 +246,9 @@ export function AgentWorkflowForm({
             </select>
           </div>
           <div>
-            <label>Table de contacts *</label>
+            <label>Contact table *</label>
             <select value={tableId} onChange={(e) => setTableId(e.target.value)}>
-              <option value="">— Choisir —</option>
+              <option value="">— Choose —</option>
               {dataTables.map((t) => (
                 <option key={t.id} value={t.id}>{t.label}</option>
               ))}
@@ -258,17 +258,17 @@ export function AgentWorkflowForm({
         {selectedTable && (
           <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1fr 1fr", alignItems: "end" }}>
             <div>
-              <label>N&apos;agir que si (optionnel)</label>
+              <label>Only act when (optional)</label>
               <select value={filterColumn} onChange={(e) => setFilterColumn(e.target.value)}>
-                <option value="">— Toutes les fiches —</option>
+                <option value="">— All records —</option>
                 {columns.map((c) => (
                   <option key={c.key} value={c.key}>{c.label || c.key}</option>
                 ))}
               </select>
             </div>
             <div>
-              <label>… est égal à</label>
-              <input value={filterValue} onChange={(e) => setFilterValue(e.target.value)} placeholder="ex. no-show" disabled={!filterColumn} />
+              <label>… equals</label>
+              <input value={filterValue} onChange={(e) => setFilterValue(e.target.value)} placeholder="e.g. no-show" disabled={!filterColumn} />
             </div>
           </div>
         )}
@@ -277,33 +277,33 @@ export function AgentWorkflowForm({
       {/* 2. Channels */}
       {selectedTable && (
         <section className="card" style={{ display: "grid", gap: 14 }}>
-          <h3 style={{ margin: 0 }}>2. Ce que l&apos;agent fait pour chaque fiche</h3>
+          <h3 style={{ margin: 0 }}>2. What the agent does for each record</h3>
 
           {/* Email */}
-          <ChannelBlock on={emailOn} setOn={setEmailOn} title="✉️ Envoyer un email (rédigé par l'agent)">
+          <ChannelBlock on={emailOn} setOn={setEmailOn} title="✉️ Send an email (drafted by the agent)">
             {smtpCreds.length === 0 ? (
               <NoCred kind="SMTP" />
             ) : (
               <div style={{ display: "grid", gap: 10 }}>
                 <Row>
-                  <Field label="Connexion email">
+                  <Field label="Email connection">
                     <select value={emailCred} onChange={(e) => setEmailCred(e.target.value)}>
                       {smtpCreds.map((c) => (<option key={c.id} value={c.id}>{c.name}</option>))}
                     </select>
                   </Field>
-                  <Field label="Colonne email du destinataire">
+                  <Field label="Recipient email column">
                     <select value={emailToCol} onChange={(e) => setEmailToCol(e.target.value)}>
-                      <option value="">— Choisir —</option>
+                      <option value="">— Choose —</option>
                       {columns.map((c) => (<option key={c.key} value={c.key}>{c.label || c.key}</option>))}
                     </select>
                   </Field>
                 </Row>
-                <Field label="Objectif / consigne (optionnel)">
-                  <input value={emailGoal} onChange={(e) => setEmailGoal(e.target.value)} placeholder="Proposer un nouveau créneau cette semaine" />
+                <Field label="Goal / instructions (optional)">
+                  <input value={emailGoal} onChange={(e) => setEmailGoal(e.target.value)} placeholder="Offer a new slot this week" />
                 </Field>
-                <Field label="Colonne « déjà envoyé » (anti-doublon, optionnel)">
+                <Field label="«Already sent» column (dedup, optional)">
                   <select value={emailMark} onChange={(e) => setEmailMark(e.target.value)}>
-                    <option value="">— Aucune —</option>
+                    <option value="">— None —</option>
                     {columns.map((c) => (<option key={c.key} value={c.key}>{c.label || c.key}</option>))}
                   </select>
                 </Field>
@@ -312,38 +312,38 @@ export function AgentWorkflowForm({
           </ChannelBlock>
 
           {/* WhatsApp */}
-          <ChannelBlock on={waOn} setOn={setWaOn} title="💬 Envoyer un WhatsApp (template, variables remplies par l'agent)">
+          <ChannelBlock on={waOn} setOn={setWaOn} title="💬 Send a WhatsApp (template, variables filled by the agent)">
             {watiCreds.length === 0 ? (
               <NoCred kind="WATI" />
             ) : (
               <div style={{ display: "grid", gap: 10 }}>
                 <Row>
-                  <Field label="Connexion WhatsApp">
+                  <Field label="WhatsApp connection">
                     <select value={waCred} onChange={(e) => setWaCred(e.target.value)}>
                       {watiCreds.map((c) => (<option key={c.id} value={c.id}>{c.name}</option>))}
                     </select>
                   </Field>
-                  <Field label="Colonne téléphone">
+                  <Field label="Phone column">
                     <select value={waPhoneCol} onChange={(e) => setWaPhoneCol(e.target.value)}>
-                      <option value="">— Choisir —</option>
+                      <option value="">— Choose —</option>
                       {columns.map((c) => (<option key={c.key} value={c.key}>{c.label || c.key}</option>))}
                     </select>
                   </Field>
                 </Row>
                 <Row>
-                  <Field label="Nom du template WATI">
-                    <input value={waTemplate} onChange={(e) => setWaTemplate(e.target.value)} placeholder="relance_rdv" />
+                  <Field label="WATI template name">
+                    <input value={waTemplate} onChange={(e) => setWaTemplate(e.target.value)} placeholder="appointment_reminder" />
                   </Field>
-                  <Field label="Variables du template (séparées par virgule)">
-                    <input value={waSlots} onChange={(e) => setWaSlots(e.target.value)} placeholder="prenom, date" />
+                  <Field label="Template variables (comma-separated)">
+                    <input value={waSlots} onChange={(e) => setWaSlots(e.target.value)} placeholder="first_name, date" />
                   </Field>
                 </Row>
-                <Field label="Objectif / consigne (optionnel)">
-                  <input value={waGoal} onChange={(e) => setWaGoal(e.target.value)} placeholder="Ton chaleureux, rappeler le bénéfice" />
+                <Field label="Goal / instructions (optional)">
+                  <input value={waGoal} onChange={(e) => setWaGoal(e.target.value)} placeholder="Warm tone, remind the benefit" />
                 </Field>
-                <Field label="Colonne « déjà envoyé » (optionnel)">
+                <Field label="«Already sent» column (optional)">
                   <select value={waMark} onChange={(e) => setWaMark(e.target.value)}>
-                    <option value="">— Aucune —</option>
+                    <option value="">— None —</option>
                     {columns.map((c) => (<option key={c.key} value={c.key}>{c.label || c.key}</option>))}
                   </select>
                 </Field>
@@ -352,9 +352,9 @@ export function AgentWorkflowForm({
           </ChannelBlock>
 
           {/* Update row */}
-          <ChannelBlock on={updOn} setOn={setUpdOn} title="✎ Mettre à jour la fiche (valeurs décidées par l'agent)">
+          <ChannelBlock on={updOn} setOn={setUpdOn} title="✎ Update the record (values decided by the agent)">
             <div style={{ display: "grid", gap: 10 }}>
-              <Field label="Colonnes que l'agent peut renseigner">
+              <Field label="Columns the agent can fill in">
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                   {columns.map((c) => (
                     <button
@@ -369,8 +369,8 @@ export function AgentWorkflowForm({
                   ))}
                 </div>
               </Field>
-              <Field label="Objectif / consigne (optionnel)">
-                <input value={updGoal} onChange={(e) => setUpdGoal(e.target.value)} placeholder="Marquer le statut selon l'issue" />
+              <Field label="Goal / instructions (optional)">
+                <input value={updGoal} onChange={(e) => setUpdGoal(e.target.value)} placeholder="Set status based on outcome" />
               </Field>
             </div>
           </ChannelBlock>
@@ -379,47 +379,47 @@ export function AgentWorkflowForm({
 
       {/* 3. Cadence + approval */}
       <section className="card" style={{ display: "grid", gap: 12 }}>
-        <h3 style={{ margin: 0 }}>3. Rythme &amp; validation</h3>
+        <h3 style={{ margin: 0 }}>3. Cadence &amp; approval</h3>
         <Row>
-          <Field label="Fréquence (minutes)">
+          <Field label="Frequency (minutes)">
             <input type="number" min={5} max={1440} value={everyMinutes} onChange={(e) => setEveryMinutes(Number(e.target.value) || 30)} />
           </Field>
-          <Field label="Validation">
+          <Field label="Approval">
             <select value={approvalMode} onChange={(e) => setApprovalMode(e.target.value as "auto" | "review")}>
-              <option value="review">Brouillon → je valide avant envoi (recommandé)</option>
-              <option value="auto">Envoi automatique (sans validation)</option>
+              <option value="review">Draft → I approve before sending (recommended)</option>
+              <option value="auto">Auto-send (no approval)</option>
             </select>
           </Field>
         </Row>
         <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} style={{ width: "auto" }} />
-          Activer tout de suite (sinon créé en pause, à activer depuis la liste)
+          Activate immediately (otherwise created paused, activate from the list)
         </label>
       </section>
 
       {error && <div style={{ color: "var(--bad)", fontSize: 14 }}>{error}</div>}
       <div style={{ display: "flex", gap: 8 }}>
         <button type="button" onClick={onCreate} disabled={busy}>
-          {busy ? "Création…" : "Créer le workflow"}
+          {busy ? "Creating…" : "Create workflow"}
         </button>
         <button type="button" className="ghost" onClick={() => router.push("/workflows")} disabled={busy}>
-          Annuler
+          Cancel
         </button>
         <Link href="/workflows/connections" style={{ marginLeft: "auto" }}>
-          <button type="button" className="ghost">⚙️ Gérer les connexions</button>
+          <button type="button" className="ghost">⚙️ Manage connections</button>
         </Link>
       </div>
 
       {/* JSON import */}
       <section className="card">
         <button type="button" className="ghost" onClick={() => setShowJson((v) => !v)} style={{ width: "100%", textAlign: "left", padding: "8px 12px" }}>
-          {showJson ? "▾" : "▸"} Importer depuis un JSON (avancé)
+          {showJson ? "▾" : "▸"} Import from JSON (advanced)
         </button>
         {showJson && (
           <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
             <div className="muted" style={{ fontSize: 12 }}>
-              Colle un JSON d&apos;automation (au moins <code>trigger</code> + <code>steps</code>). L&apos;agent et le
-              mode de validation choisis ci-dessus complètent ce qui manque.
+              Paste an automation JSON (at least <code>trigger</code> + <code>steps</code>). The agent and approval
+              mode chosen above fill in anything missing.
             </div>
             <textarea
               value={jsonText}
@@ -429,7 +429,7 @@ export function AgentWorkflowForm({
             />
             <div>
               <button type="button" onClick={onCreateFromJson} disabled={busy || !jsonText.trim()}>
-                Créer depuis le JSON
+                Create from JSON
               </button>
             </div>
           </div>
@@ -467,8 +467,8 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 function NoCred({ kind }: { kind: string }) {
   return (
     <div className="muted" style={{ fontSize: 13 }}>
-      Aucune connexion {kind}.{" "}
-      <Link href="/workflows/connections" style={{ color: "var(--accent)" }}>Ajoute-en une</Link> pour activer ce canal.
+      No {kind} connection.{" "}
+      <Link href="/workflows/connections" style={{ color: "var(--accent)" }}>Add one</Link> to enable this channel.
     </div>
   );
 }

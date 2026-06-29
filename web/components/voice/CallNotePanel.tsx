@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useT } from "@/lib/i18n";
 
 interface Props {
   /** E.164 number being called (e.g. "+447700123456"). */
@@ -27,17 +26,10 @@ type LeadLookup =
  *  - Loads the lead matching the dialed number (by phone).
  *  - If found → shows the patient note textarea, autosaves to leads_rdv.
  *  - If NOT found → shows a 'Create lead' mini-form (nom, email, etc.).
- *  - When the call ends → shows the manual qualification dialog
- *    (PAS DE REPONSE / RAPPEL / RDV CONFIRME / PAS INTERESSE / …) so the
- *    human can post-tag the call (IA does this auto for IA calls).
- *
- * Wati June 10: 'A coter dialer, section note pendant appel; quand
- * l'agent save, ca va dans note du lead, et si le lead n'existe pas,
- * creer le lead… Permettre à l'agent humain de poser la qualif après
- * l'appel via un dialog "PAS DE REPONSE / RAPPEL / RDV / etc"'.
+ *  - When the call ends → shows the manual qualification dialog so the
+ *    human can post-tag the call (AI does this automatically for AI calls).
  */
 export function CallNotePanel({ e164, callActive, lastCallEndedAt, lastCallId }: Props) {
-  const t = useT();
   const [lookup, setLookup] = useState<LeadLookup>({ state: "idle" });
   const [noteDraft, setNoteDraft] = useState("");
   const [savingNote, setSavingNote] = useState(false);
@@ -45,14 +37,11 @@ export function CallNotePanel({ e164, callActive, lastCallEndedAt, lastCallId }:
   const [creating, setCreating] = useState(false);
   const [createDraft, setCreateDraft] = useState({ nom: "", email: "", note: "" });
   const [createErr, setCreateErr] = useState<string | null>(null);
-  // Qualification dialog appears 1s after the call ends so the agent has
-  // time to finish their last keystroke before being prompted.
   const [showQualDialog, setShowQualDialog] = useState(false);
   const [qualSaving, setQualSaving] = useState(false);
   const [qualSavedAt, setQualSavedAt] = useState<number | null>(null);
   const lastShownEndRef = useRef<number | null>(null);
 
-  // Look up the lead whenever the dialed number changes (and is valid).
   useEffect(() => {
     if (!/^\+\d{6,15}$/.test(e164)) {
       setLookup({ state: "idle" });
@@ -84,7 +73,6 @@ export function CallNotePanel({ e164, callActive, lastCallEndedAt, lastCallId }:
     };
   }, [e164]);
 
-  // Trigger the qualification dialog on call-end (once per ended call).
   useEffect(() => {
     if (lastCallEndedAt && lastCallEndedAt !== lastShownEndRef.current && lastCallId) {
       lastShownEndRef.current = lastCallEndedAt;
@@ -111,7 +99,7 @@ export function CallNotePanel({ e164, callActive, lastCallEndedAt, lastCallId }:
   async function createLead() {
     setCreateErr(null);
     if (!createDraft.nom.trim()) {
-      setCreateErr(t("Le nom est requis."));
+      setCreateErr("Name is required.");
       return;
     }
     setCreating(true);
@@ -135,14 +123,14 @@ export function CallNotePanel({ e164, callActive, lastCallEndedAt, lastCallId }:
   }
 
   const QUAL_OPTIONS = [
-    { value: "PAS DE REPONSE", label: t("Pas de réponse") },
-    { value: "REPONDEUR", label: t("Répondeur") },
-    { value: "RAPPEL", label: t("Rappel") },
-    { value: "RDV CONFIRME", label: t("RDV confirmé") },
-    { value: "PAS INTERESSE", label: t("Pas intéressé") },
-    { value: "A PASSER A L'HUMAIN", label: t("À passer à un humain (autre)") },
-    { value: "FAUX NUMERO", label: t("Faux numéro") },
-    { value: "NE PAS RAPPELER", label: t("Ne pas rappeler") },
+    { value: "PAS DE REPONSE", label: "No answer" },
+    { value: "REPONDEUR", label: "Voicemail" },
+    { value: "RAPPEL", label: "Callback" },
+    { value: "RDV CONFIRME", label: "Appointment confirmed" },
+    { value: "PAS INTERESSE", label: "Not interested" },
+    { value: "A PASSER A L'HUMAIN", label: "Pass to human agent" },
+    { value: "FAUX NUMERO", label: "Wrong number" },
+    { value: "NE PAS RAPPELER", label: "Do not call back" },
   ];
 
   async function saveQualification(qual: string) {
@@ -163,13 +151,6 @@ export function CallNotePanel({ e164, callActive, lastCallEndedAt, lastCallId }:
     }
   }
 
-  // Wati 16/06 — removed the visible "Notes pendant l'appel" card. The
-  // right-hand ContactPanel already exposes a note input + interactions
-  // history, no need for a duplicate textarea here. We keep this component
-  // mounted because it still owns the post-call qualification dialog,
-  // which fires once the call ends.
-  // Suppress unused-variable noise from the lookup/lead flow we kept for
-  // the qualification submission (contact_id link) but don't render here.
   void lookup;
   void noteDraft;
   void setNoteDraft;
@@ -195,7 +176,7 @@ export function CallNotePanel({ e164, callActive, lastCallEndedAt, lastCallId }:
             style={{ width: "min(420px, 100%)", padding: 18, display: "flex", flexDirection: "column", gap: 10 }}
           >
             <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
-              <h3 style={{ margin: 0 }}>{t("Comment qualifies-tu cet appel ?")}</h3>
+              <h3 style={{ margin: 0 }}>How do you qualify this call?</h3>
               <button className="ghost" onClick={() => setShowQualDialog(false)} disabled={qualSaving}>×</button>
             </div>
             <div className="muted" style={{ fontSize: 12 }}>{lookup.state === "found" ? lookup.display_name : e164}</div>
@@ -212,7 +193,7 @@ export function CallNotePanel({ e164, callActive, lastCallEndedAt, lastCallId }:
               ))}
             </div>
             {qualSavedAt && Date.now() - qualSavedAt < 3000 && (
-              <div style={{ color: "var(--good)", fontSize: 12, textAlign: "center" }}>{t("✓ Qualification enregistrée")}</div>
+              <div style={{ color: "var(--good)", fontSize: 12, textAlign: "center" }}>✓ Qualification saved</div>
             )}
           </div>
         </div>

@@ -50,6 +50,22 @@ html[data-theme="light"] {
   --info: #2563eb;
 }
 
+/* Date input calendar icon — the inputs use colorScheme:"dark" inline so the
+   browser renders the icon as white regardless of theme. Reset to black with
+   brightness(0) first, then shift to the desired colour.
+   Dark theme: black → invert → white/light at 65% opacity.
+   Light theme: black at 50% opacity (visible on white background). */
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: brightness(0) invert(1);
+  cursor: pointer;
+  opacity: 0.65;
+}
+html[data-theme="light"] input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: brightness(0);
+  cursor: pointer;
+  opacity: 0.5;
+}
+
 * { box-sizing: border-box; }
 
 html, body {
@@ -403,7 +419,7 @@ table.list tr:hover td { background: var(--panel-2); }
   gap: 14px;
   align-items: start;
 }
-@media (max-width: 1100px) {
+@media (max-width: 900px) {
   .softphone-grid { grid-template-columns: 1fr; }
 }
 .softphone-left, .softphone-center, .softphone-right {

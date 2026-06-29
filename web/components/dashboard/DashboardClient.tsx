@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { AlertTriangle, BarChart2, Building2, ClipboardList, Home, Phone, PhoneIncoming, Radio, Sparkles, Users } from "lucide-react";
 import type { DashboardOverviewResponse } from "@/app/api/dashboard/overview/route";
 import type { NhsPatientsResponse } from "@/app/api/dashboard/nhs-suivi/patients/route";
 import { KpiGrid } from "./KpiGrid";
@@ -21,24 +23,22 @@ import { LeadsTab } from "./LeadsTab";
 import { NhsSuiviTab } from "./NhsSuiviTab";
 import { ErrorsAlertsTab } from "./ErrorsAlertsTab";
 import { PeriodBar, presetToRange, DEFAULT_FILTERS, type Period, type Filters } from "./PeriodBar";
-import { SyncRetellButton } from "./SyncRetellButton";
 import { SyncTwilioButton } from "./SyncTwilioButton";
 import { ReportButton } from "./ReportButton";
 import { ApiStatusPill } from "./ApiStatusPill";
 import { useT } from "@/lib/i18n";
 
-type TabId = "overview" | "stats" | "logs" | "entrants" | "sms" | "live" | "errors" | "ai" | "leads" | "nhs";
-const ALL_TABS: { id: TabId; label: string; icon: string }[] = [
-  { id: "overview", label: "Vue d'ensemble", icon: "🏠" },
-  { id: "stats", label: "Statistiques", icon: "📊" },
-  { id: "logs", label: "Call Logs", icon: "📋" },
-  { id: "entrants", label: "Entrants", icon: "📥" },
-  { id: "sms", label: "SMS", icon: "💬" },
-  { id: "live", label: "Live", icon: "🔴" },
-  { id: "errors", label: "Erreurs & Alertes", icon: "⚠️" },
-  { id: "ai", label: "AI Insights", icon: "✨" },
-  { id: "leads", label: "Leads", icon: "👥" },
-  { id: "nhs", label: "Suivi NHS S2", icon: "🏥" },
+type TabId = "overview" | "stats" | "logs" | "entrants" | "live" | "errors" | "ai" | "leads" | "nhs";
+const ALL_TABS: { id: TabId; label: string; icon: ReactNode }[] = [
+  { id: "overview", label: "Vue d'ensemble", icon: <Home size={15} /> },
+  { id: "stats", label: "Statistiques", icon: <BarChart2 size={15} /> },
+  { id: "logs", label: "Call Logs", icon: <ClipboardList size={15} /> },
+  { id: "entrants", label: "Entrants", icon: <PhoneIncoming size={15} /> },
+  { id: "live", label: "Live", icon: <Radio size={15} /> },
+  { id: "errors", label: "Erreurs & Alertes", icon: <AlertTriangle size={15} /> },
+  { id: "ai", label: "AI Insights", icon: <Sparkles size={15} /> },
+  { id: "leads", label: "Leads", icon: <Users size={15} /> },
+  { id: "nhs", label: "Suivi NHS S2", icon: <Building2 size={15} /> },
 ];
 
 // Short human label for the active period, e.g. "05/06" or "01/06 – 05/06".
@@ -143,7 +143,7 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
     }
     return results.slice(0, 8);
   })();
-  // ─────────────────────────────────────────────────────────────────────────
+  // ────────────────────────────────────────────────────────────────────────
 
   const fetchData = useCallback(async () => {
     try {
@@ -197,10 +197,9 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
       <div style={{ flex: 1, minWidth: 0, width: "100%", display: "flex", flexDirection: "column", gap: 18 }}>
         <div className="page-header" style={{ marginBottom: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <span style={{ fontSize: 22 }}>📞</span>
+            <Phone size={20} style={{ flexShrink: 0 }} />
             <div>
               <h1 style={{ margin: 0 }}>{t("Tableau de bord des appels")}</h1>
-              <div className="subtitle">{t("Pilotage et analyse de vos appels Axon")}.</div>
             </div>
           </div>
           {/* page-header is already flex-wrap; the inner button cluster also
@@ -249,13 +248,124 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
           })}
         </div>
 
-        {/* Section header — tells the operator which tab they're in (legacy
-            parity), with the active period for the period-scoped tabs.
-            Skipped for the NHS tab which renders its own header. */}
-        {tab !== "nhs" && (() => {
+        {/* Section header — overview gets a full card with patient search;
+            other tabs get a simple h2. NHS tab renders its own header. */}
+        {tab === "overview" && (() => {
+          return (
+            <div style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              gap: 12, flexWrap: "wrap",
+              background: "var(--panel)",
+              border: "1px solid var(--border)",
+              borderLeft: "4px solid var(--accent)",
+              borderRadius: 10,
+              padding: "14px 18px",
+            }}>
+              {/* Left: icon + title + period */}
+              <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+                <h2 style={{ margin: 0, fontSize: 19, display: "flex", alignItems: "center", gap: 8 }}>
+                  <Home size={18} />
+                  {t("Vue d'ensemble")}
+                </h2>
+                <span className="muted" style={{ fontSize: 13 }}>
+                  {t("Période")} : {periodLabelFor(period)}
+                </span>
+              </div>
+              {/* Right: patient search */}
+              <div style={{ position: "relative", minWidth: 260 }}>
+                <input
+                  type="search"
+                  placeholder={t("Rechercher un patient…")}
+                  value={patientSearchQuery}
+                  onFocus={() => { loadNhsPatients(); setPatientSearchOpen(true); }}
+                  onBlur={() => setTimeout(() => setPatientSearchOpen(false), 180)}
+                  onChange={(e) => { setPatientSearchQuery(e.target.value); setPatientSearchOpen(true); }}
+                  style={{
+                    width: "100%", boxSizing: "border-box",
+                    padding: "8px 12px 8px 34px",
+                    borderRadius: 8,
+                    border: "1px solid var(--border)",
+                    background: "var(--bg)",
+                    color: "var(--text)",
+                    fontSize: 14,
+                    outline: "none",
+                  }}
+                />
+                <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 15, pointerEvents: "none", opacity: 0.5 }}>🔍</span>
+                {patientSearchOpen && patientSearchResults.length > 0 && (
+                  <div style={{
+                    position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 200,
+                    background: "var(--panel)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 8,
+                    boxShadow: "0 8px 24px rgba(0,0,0,0.2)",
+                    overflow: "hidden",
+                  }}>
+                    {patientSearchResults.map((r, i) => {
+                      if (r.kind === "patient") {
+                        const p = r.patient;
+                        return (
+                          <button
+                            key={`p-${p.id ?? i}`}
+                            className="ghost"
+                            onMouseDown={() => {
+                              setPatientSearchQuery("");
+                              setPatientSearchOpen(false);
+                              setNhsOpenPatientId(p.id ?? null);
+                              setTab("nhs");
+                            }}
+                            style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", width: "100%", padding: "10px 14px", gap: 2, borderRadius: 0, borderBottom: "1px solid var(--border)" }}
+                          >
+                            <span style={{ fontWeight: 600, fontSize: 14 }}>{p.name ?? "—"}</span>
+                            <span className="muted" style={{ fontSize: 12 }}>{p.phone ?? p.email ?? ""} · <span style={{ color: "var(--accent)" }}>{t("Dossier patient")}</span></span>
+                          </button>
+                        );
+                      } else if (r.kind === "lead") {
+                        return (
+                          <button
+                            key={`l-${r.table_id}-${r.id}`}
+                            className="ghost"
+                            onMouseDown={() => {
+                              setPatientSearchQuery("");
+                              setPatientSearchOpen(false);
+                              router.push(`/contacts/${r.table_id}?q=${encodeURIComponent(r.name)}`);
+                            }}
+                            style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", width: "100%", padding: "10px 14px", gap: 2, borderRadius: 0, borderBottom: "1px solid var(--border)" }}
+                          >
+                            <span style={{ fontWeight: 600, fontSize: 14 }}>{r.name || "—"}</span>
+                            <span className="muted" style={{ fontSize: 12 }}>{r.phone ?? ""} · <span style={{ color: "var(--info, #6aa0ff)" }}>{t("Fiche contact")}</span></span>
+                          </button>
+                        );
+                      } else {
+                        return (
+                          <button
+                            key={`c-${r.id}`}
+                            className="ghost"
+                            onMouseDown={() => {
+                              setPatientSearchQuery("");
+                              setPatientSearchOpen(false);
+                              setNhsOpenContactId(r.id);
+                              setTab("nhs");
+                            }}
+                            style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", width: "100%", padding: "10px 14px", gap: 2, borderRadius: 0, borderBottom: "1px solid var(--border)" }}
+                          >
+                            <span style={{ fontWeight: 600, fontSize: 14 }}>{r.name || "—"}</span>
+                            <span className="muted" style={{ fontSize: 12 }}>{r.phone ?? ""} · <span style={{ color: "var(--muted)" }}>{t("Fiche CRM")}</span></span>
+                          </button>
+                        );
+                      }
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
+        {tab !== "nhs" && tab !== "overview" && (() => {
           const active = TABS.find((x) => x.id === tab);
           if (!active) return null;
-          const periodScoped = tab === "overview" || tab === "stats" || tab === "logs" || tab === "entrants" || tab === "sms" || tab === "ai" || tab === "leads";
+          const periodScoped = tab === "stats" || tab === "logs" || tab === "entrants" || tab === "ai" || tab === "leads";
           return (
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
               <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
@@ -365,7 +475,14 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
 
         {tab === "overview" && (
           <>
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <div style={{
+              display: "flex", gap: 10, flexWrap: "wrap",
+              background: "var(--panel)",
+              border: "1px solid var(--border)",
+              borderLeft: "4px solid var(--accent)",
+              borderRadius: 10,
+              padding: "14px 18px",
+            }}>
               <Link href="/agents/new" style={{ textDecoration: "none" }}>
                 <button>{t("+ Nouvel agent")}</button>
               </Link>
@@ -378,7 +495,6 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
               <Link href="/contacts" style={{ textDecoration: "none" }}>
                 <button className="ghost">{t("◐ Contacts")}</button>
               </Link>
-              <SyncRetellButton />
               <SyncTwilioButton />
             </div>
             <PeriodBar period={period} filters={filters} onPeriod={setPeriod} onFilters={setFilters} />

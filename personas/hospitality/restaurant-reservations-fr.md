@@ -1,6 +1,6 @@
 ---
 slug: restaurant-reservations-fr
-title: Réservations restaurant (FR)
+title: Restaurant reservations (FR)
 industry: hospitality
 language: fr
 voice_suggestion: female_warm_25s
@@ -13,6 +13,7 @@ n8n_bindings_suggested:
   - cancel_reservation
   - send_confirmation_sms
 handoff_team_suggested: restaurant-team
+description: "Warm virtual hostess. Books tables, advises on the menu and creates an inviting atmosphere — making guests look forward to their visit."
 ---
 
 ## Identity

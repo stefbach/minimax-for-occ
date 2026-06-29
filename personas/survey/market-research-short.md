@@ -1,6 +1,6 @@
 ---
 slug: survey-market-research-short
-title: Étude de marché courte (5 questions)
+title: Short market research (5 questions)
 industry: survey
 language: fr
 voice_suggestion: male_neutral_30s
@@ -12,6 +12,7 @@ n8n_bindings_suggested:
   - send_incentive
   - mark_quota_full
 handoff_team_suggested: cx-team
+description: "Outbound survey agent. Identifies the institute and sponsor, runs a structured 5-question market research interview, logs answers and sends incentives."
 ---
 
 ## Identity

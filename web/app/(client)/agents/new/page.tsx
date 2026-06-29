@@ -26,9 +26,9 @@ export default async function NewAgentPage() {
     <>
       <div className="page-header">
         <div>
-          <h1>Nouvel agent</h1>
+          <h1>New agent</h1>
           <div className="subtitle">
-            Téléphonie (parle au téléphone, pour les campagnes) ou gestion (exécute des automations, pour les workflows).
+            Telephony (speaks on calls, used in campaigns) or management (runs automations, used in workflows).
           </div>
         </div>
         <HelpButton contextKey="agents.detail" />

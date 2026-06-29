@@ -126,7 +126,7 @@ export function PersistentSoftphoneShell() {
       {!onDesk && (
         <Link
           href="/desk"
-          aria-label="Aller à Mon poste"
+          aria-label="Go to my desk"
           style={{
             position: "fixed",
             top: 12,
@@ -147,7 +147,7 @@ export function PersistentSoftphoneShell() {
           }}
         >
           <span aria-hidden style={{ fontSize: 14 }}>☎</span>
-          <span>Mon poste</span>
+          <span>My desk</span>
         </Link>
       )}
     </>

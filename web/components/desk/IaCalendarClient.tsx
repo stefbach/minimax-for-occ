@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useT } from "@/lib/i18n";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useLang, useT } from "@/lib/i18n";
 
 // Calendrier de l'agent IA (Charlotte) — les rappels qu'elle doit passer à
 // l'heure demandée par le patient. Lecture seule : reflet de ce que le dialer
@@ -27,6 +27,7 @@ const UK_TZ = "Europe/London";
 
 export function IaCalendarClient() {
   const t = useT();
+  const lang = useLang();
   const [rows, setRows] = useState<AiCallback[]>([]);
   const [agents, setAgents] = useState<AgentRow[]>([]);
   const [assigning, setAssigning] = useState<string | null>(null);
@@ -184,6 +185,12 @@ export function IaCalendarClient() {
 
   return (
     <div style={{ display: "grid", gap: 14 }}>
+      <div className="page-header">
+        <div>
+          <h1>{t("Calendrier IA")}</h1>
+          <div className="subtitle">{t("Les rappels que Charlotte (IA) passera à l'heure demandée par le patient.")}</div>
+        </div>
+      </div>
       <div className="card" style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
         <div role="group" style={{ display: "inline-flex", border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
           <FilterTab active={filterMode === "today"} onClick={() => setFilterMode("today")}>{t("Aujourd'hui")}</FilterTab>
@@ -226,7 +233,7 @@ export function IaCalendarClient() {
                 gap: 8,
               }}
             >
-              <strong style={{ fontSize: 14 }}>{formatUkDayHeader(g.key)}</strong>
+              <strong style={{ fontSize: 14 }}>{formatUkDayHeader(g.key, lang)}</strong>
               <span className="muted" style={{ fontSize: 12 }}>
                 {g.items.length} {g.items.length > 1 ? t("rappels") : t("rappel")}
               </span>
@@ -394,13 +401,13 @@ function formatUkTime(iso: string): string {
   if (!Number.isFinite(t)) return iso;
   return new Date(t).toLocaleTimeString("fr-FR", { timeZone: UK_TZ, hour: "2-digit", minute: "2-digit", hour12: false });
 }
-function formatUkDayHeader(ymd: string): string {
-  // ymd is a UK-day key; render a friendly header relative to the UK today.
+function formatUkDayHeader(ymd: string, lang: "fr" | "en"): string {
+  const locale = lang === "en" ? "en-GB" : "fr-FR";
   const todayUk = new Date().toLocaleDateString("en-CA", { timeZone: UK_TZ });
   const d = new Date(`${ymd}T12:00:00Z`);
-  const label = d.toLocaleDateString("fr-FR", { timeZone: UK_TZ, weekday: "long", day: "numeric", month: "long" });
-  if (ymd === todayUk) return `Aujourd'hui — ${label}`;
+  const label = d.toLocaleDateString(locale, { timeZone: UK_TZ, weekday: "long", day: "numeric", month: "long" });
+  if (ymd === todayUk) return lang === "en" ? `Today — ${label}` : `Aujourd'hui — ${label}`;
   const tmrwUk = new Date(Date.now() + 86400000).toLocaleDateString("en-CA", { timeZone: UK_TZ });
-  if (ymd === tmrwUk) return `Demain — ${label}`;
+  if (ymd === tmrwUk) return lang === "en" ? `Tomorrow — ${label}` : `Demain — ${label}`;
   return label;
 }
