@@ -23,7 +23,6 @@ export const QUAL_BUCKETS: { key: QualBucket; label: string }[] = [
   { key: "pas_interesse", label: "PAS INTERESSE" },
   { key: "pas_de_reponse", label: "PAS DE REPONSE" },
   { key: "repondeur", label: "REPONDEUR" },
-  { key: "faux_numero", label: "FAUX NUMERO" },
   { key: "non_eligible", label: "NON ELIGIBLE" },
   { key: "ne_pas_rappeler", label: "NE PAS RAPPELER" },
   { key: "suivi_requis", label: "SUIVI REQUIS" },
@@ -34,9 +33,8 @@ export function normalizeQualification(raw: string | null | undefined): QualBuck
   const s = raw.toLowerCase().trim();
   if (!s || s === "—") return "autre";
   // Order matters: more specific patterns first.
-  if (/(ne[\s_-]*pas[\s_-]*rappel|do[\s_-]*not[\s_-]*call|dnc)/.test(s)) return "ne_pas_rappeler";
+  if (/(ne[\s_-]*pas[\s_-]*rappel|do[\s_-]*not[\s_-]*call|dnc|faux[\s_-]*num|wrong[\s_-]*number|invalid[\s_-]*number|bad[\s_-]*number)/.test(s)) return "ne_pas_rappeler";
   if (/(non[\s_-]*éligible|non[\s_-]*eligible|ineligib|not[\s_-]*eligib)/.test(s)) return "non_eligible";
-  if (/(faux[\s_-]*num|wrong[\s_-]*number|invalid[\s_-]*number|bad[\s_-]*number)/.test(s)) return "faux_numero";
   if (/(rdv|rendez|appointment|booked|confirm)/.test(s)) return "rdv_confirme";
   // OCC's canonical label is "A PASSER A L'HUMAIN" (no accent on either A).
   // The earlier pattern required à (accented) inside the optional 'à l''
