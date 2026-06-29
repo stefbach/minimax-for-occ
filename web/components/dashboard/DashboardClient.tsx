@@ -16,6 +16,7 @@ import { DirectorTab } from "./DirectorTab";
 import { AiInsightsTab } from "./AiInsightsTab";
 import { NhsSuiviTab } from "./NhsSuiviTab";
 import { ErrorsAlertsTab } from "./ErrorsAlertsTab";
+import { FilActifTab } from "./FilActifTab";
 import { PeriodBar, presetToRange, DEFAULT_FILTERS, type Period, type Filters } from "./PeriodBar";
 import { SyncRetellButton } from "./SyncRetellButton";
 import { SyncTwilioButton } from "./SyncTwilioButton";
@@ -23,12 +24,13 @@ import { ReportButton } from "./ReportButton";
 import { ApiStatusPill } from "./ApiStatusPill";
 import { useT } from "@/lib/i18n";
 
-type TabId = "overview" | "stats" | "logs" | "live" | "errors" | "ai" | "nhs";
+type TabId = "overview" | "stats" | "logs" | "live" | "fil-actif" | "errors" | "ai" | "nhs";
 const ALL_TABS: { id: TabId; label: string; icon: string }[] = [
   { id: "overview", label: "Vue d'ensemble", icon: "🏠" },
   { id: "stats", label: "Statistiques", icon: "📊" },
   { id: "logs", label: "Call Logs", icon: "📋" },
   { id: "live", label: "Live", icon: "🔴" },
+  { id: "fil-actif", label: "Fil Actif", icon: "⏵" },
   { id: "errors", label: "Erreurs & Alertes", icon: "⚠️" },
   { id: "ai", label: "AI Insights", icon: "✨" },
   { id: "nhs", label: "Suivi NHS S2", icon: "🏥" },
@@ -254,6 +256,10 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
         )}
 
         {tab === "live" && <LiveMonitorClient leadsSource={filters.leadsSource} system={filters.system} />}
+
+        {tab === "fil-actif" && (
+          <FilActifTab leadsSource={filters.leadsSource} system={filters.system} global={filters} />
+        )}
 
         {tab === "errors" && <ErrorsAlertsTab />}
 
