@@ -22,7 +22,6 @@ import { LeadsTab } from "./LeadsTab";
 import { NhsSuiviTab } from "./NhsSuiviTab";
 import { ErrorsAlertsTab } from "./ErrorsAlertsTab";
 import { PeriodBar, presetToRange, DEFAULT_FILTERS, type Period, type Filters } from "./PeriodBar";
-import { SyncRetellButton } from "./SyncRetellButton";
 import { SyncTwilioButton } from "./SyncTwilioButton";
 import { ReportButton } from "./ReportButton";
 import { ApiStatusPill } from "./ApiStatusPill";
@@ -400,7 +399,6 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
               <Link href="/contacts" style={{ textDecoration: "none" }}>
                 <button className="ghost">{t("◐ Contacts")}</button>
               </Link>
-              <SyncRetellButton />
               <SyncTwilioButton />
             </div>
             <PeriodBar period={period} filters={filters} onPeriod={setPeriod} onFilters={setFilters} />
