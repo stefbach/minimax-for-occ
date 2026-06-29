@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLang, useT } from "@/lib/i18n";
 
 // Calendrier de l'agent IA (Charlotte) — les rappels qu'elle doit passer à

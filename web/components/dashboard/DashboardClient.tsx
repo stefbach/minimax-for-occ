@@ -15,7 +15,6 @@ import { HelpButton } from "@/components/help/HelpButton";
 import { LiveMonitorClient } from "@/components/live/LiveMonitorClient";
 import { CallLogsTab } from "./CallLogsTab";
 import { InboundTab } from "./InboundTab";
-import { PrecallSmsTab } from "./PrecallSmsTab";
 import { StatsTab } from "./StatsTab";
 import { DirectorTab } from "./DirectorTab";
 import { AiInsightsTab } from "./AiInsightsTab";
@@ -431,13 +430,6 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
           <>
             <PeriodBar period={period} filters={filters} onPeriod={setPeriod} onFilters={setFilters} />
             <InboundTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} system={filters.system} global={filters} />
-          </>
-        )}
-
-        {tab === "sms" && (
-          <>
-            <PeriodBar period={period} filters={filters} onPeriod={setPeriod} onFilters={setFilters} />
-            <PrecallSmsTab from={period.from} to={period.to} global={filters} />
           </>
         )}
 

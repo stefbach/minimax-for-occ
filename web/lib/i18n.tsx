@@ -779,8 +779,6 @@ const EN: Record<string, string> = {
   "IA": "AI",
   "humain": "human",
   "taux de réussite par campagne": "success rate by campaign",
-  "Campagne": "Campaign",
-  "Filtrer par campagne": "Filter by campaign",
   "Cibles": "Targets",
   "Réussies": "Succeeded",
   "Taux de réussite": "Success rate",
