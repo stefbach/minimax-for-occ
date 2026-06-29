@@ -80,6 +80,10 @@ const EN: Record<string, string> = {
   "Directeur": "Director",
   "Total appels": "Total calls",
   "Leads uniques": "Unique leads",
+  // ── Agent spotlight ──
+  "Tous les agents": "All agents",
+  "Vue filtrée — Rain uniquement": "Filtered view — Rain only",
+  "Retirer le filtre": "Clear filter",
   // ── Fil Actif tab ──
   "Fil Actif": "Active Stream",
   "màj": "upd.",

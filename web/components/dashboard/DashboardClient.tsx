@@ -24,6 +24,10 @@ import { ReportButton } from "./ReportButton";
 import { ApiStatusPill } from "./ApiStatusPill";
 import { useT } from "@/lib/i18n";
 
+// Rain's display_name in the agent_handles table.
+// Used by the Agent Spotlight toggle to scope all dashboard views to her calls.
+const RAIN_AGENT_NAME = "bheshouma-arjoon";
+
 type TabId = "overview" | "stats" | "logs" | "live" | "fil-actif" | "errors" | "ai" | "nhs";
 const ALL_TABS: { id: TabId; label: string; icon: string }[] = [
   { id: "overview", label: "Vue d'ensemble", icon: "🏠" },
@@ -180,6 +184,160 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
               </button>
             );
           })}
+        </div>
+
+        {/* ── Agent spotlight ─────────────────────────────────────────────── */}
+        {/* A persistent toggle above all tab content so the manager can switch
+            between the team-wide view and Rain's individual view without
+            losing her place in the tab structure. */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            paddingTop: 4,
+            flexWrap: "wrap",
+          }}
+        >
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              letterSpacing: 0.6,
+              textTransform: "uppercase",
+              color: "var(--muted-2)",
+            }}
+          >
+            {t("Agent")}
+          </span>
+
+          {/* Pill toggle — styled like an iOS-style segmented control */}
+          <div
+            style={{
+              display: "inline-flex",
+              gap: 2,
+              background: "var(--panel)",
+              border: "1px solid var(--border)",
+              borderRadius: 10,
+              padding: 3,
+            }}
+          >
+            {/* "All agents" pill */}
+            <button
+              onClick={() => setFilters((f) => ({ ...f, agents: [] }))}
+              style={{
+                padding: "5px 14px",
+                borderRadius: 7,
+                fontSize: 12,
+                fontWeight: filters.agents.length === 0 ? 700 : 500,
+                background:
+                  filters.agents.length === 0
+                    ? "var(--accent)"
+                    : "transparent",
+                color:
+                  filters.agents.length === 0
+                    ? "#0a0a0a"
+                    : "var(--muted)",
+                border: "none",
+                cursor: "pointer",
+                transition: "background 0.15s, color 0.15s",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {t("Tous les agents")}
+            </button>
+
+            {/* "Rain" pill */}
+            <button
+              onClick={() =>
+                setFilters((f) => ({ ...f, agents: [RAIN_AGENT_NAME] }))
+              }
+              style={{
+                padding: "5px 14px",
+                borderRadius: 7,
+                fontSize: 12,
+                fontWeight: filters.agents.includes(RAIN_AGENT_NAME) ? 700 : 500,
+                background: filters.agents.includes(RAIN_AGENT_NAME)
+                  ? "var(--info)"
+                  : "transparent",
+                color: filters.agents.includes(RAIN_AGENT_NAME)
+                  ? "#0a0a0a"
+                  : "var(--muted)",
+                border: "none",
+                cursor: "pointer",
+                transition: "background 0.15s, color 0.15s",
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                whiteSpace: "nowrap",
+              }}
+            >
+              <span
+                style={{
+                  width: 18,
+                  height: 18,
+                  borderRadius: "50%",
+                  background: filters.agents.includes(RAIN_AGENT_NAME)
+                    ? "rgba(0,0,0,0.20)"
+                    : "var(--border)",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 10,
+                  flexShrink: 0,
+                }}
+              >
+                👤
+              </span>
+              Rain
+            </button>
+          </div>
+
+          {/* Active-filter badge — visible only when Rain is selected */}
+          {filters.agents.includes(RAIN_AGENT_NAME) && (
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                fontSize: 11,
+                fontWeight: 600,
+                color: "var(--info)",
+                background: "color-mix(in srgb, var(--info) 12%, transparent)",
+                border: "1px solid color-mix(in srgb, var(--info) 30%, transparent)",
+                borderRadius: 99,
+                padding: "2px 10px",
+              }}
+            >
+              <span
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: "50%",
+                  background: "var(--info)",
+                  display: "inline-block",
+                }}
+              />
+              {t("Vue filtrée — Rain uniquement")}
+              <button
+                onClick={() => setFilters((f) => ({ ...f, agents: [] }))}
+                style={{
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                  cursor: "pointer",
+                  color: "var(--info)",
+                  fontSize: 13,
+                  lineHeight: 1,
+                  display: "flex",
+                  alignItems: "center",
+                }}
+                title={t("Retirer le filtre")}
+              >
+                ✕
+              </button>
+            </span>
+          )}
         </div>
 
         {/* Section header — tells the operator which tab they're in (legacy
