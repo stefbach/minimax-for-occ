@@ -378,6 +378,7 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
                     {t("Période")} : {periodLabelFor(period)}
                   </span>
                 )}
+              </div>
             </div>
           );
         })()}
