@@ -19,6 +19,7 @@ import { StatsTab } from "./StatsTab";
 import { DirectorTab } from "./DirectorTab";
 import { AiInsightsTab } from "./AiInsightsTab";
 import { LeadsTab } from "./LeadsTab";
+import { FilActifTab } from "./FilActifTab";
 import { NhsSuiviTab } from "./NhsSuiviTab";
 import { ErrorsAlertsTab } from "./ErrorsAlertsTab";
 import { PeriodBar, presetToRange, DEFAULT_FILTERS, type Period, type Filters } from "./PeriodBar";
@@ -27,11 +28,12 @@ import { ReportButton } from "./ReportButton";
 import { ApiStatusPill } from "./ApiStatusPill";
 import { useT } from "@/lib/i18n";
 
-type TabId = "overview" | "stats" | "leads" | "logs" | "entrants" | "live" | "errors" | "ai" | "nhs";
+type TabId = "overview" | "stats" | "leads" | "fil-actif" | "logs" | "entrants" | "live" | "errors" | "ai" | "nhs";
 const ALL_TABS: { id: TabId; label: string; icon: ReactNode }[] = [
   { id: "overview", label: "Vue d'ensemble", icon: <Home size={15} /> },
   { id: "stats", label: "Statistiques", icon: <BarChart2 size={15} /> },
   { id: "leads", label: "Leads", icon: <Users size={15} /> },
+  { id: "fil-actif", label: "Fil Actif", icon: <Radio size={15} /> },
   { id: "logs", label: "Call Logs", icon: <ClipboardList size={15} /> },
   { id: "entrants", label: "Entrants", icon: <PhoneIncoming size={15} /> },
   { id: "live", label: "Live", icon: <Radio size={15} /> },
@@ -361,7 +363,7 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
           );
         })()}
 
-        {tab !== "nhs" && tab !== "overview" && (() => {
+        {tab !== "nhs" && tab !== "overview" && tab !== "fil-actif" && (() => {
           const active = TABS.find((x) => x.id === tab);
           if (!active) return null;
           const periodScoped = tab === "stats" || tab === "logs" || tab === "entrants" || tab === "ai" || tab === "leads";
@@ -453,6 +455,10 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
             <PeriodBar period={period} filters={filters} onPeriod={setPeriod} onFilters={setFilters} />
             <LeadsTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} system={filters.system} global={filters} refreshKey={refreshKey} orgId={orgId} campaignId={filters.campaignId} />
           </>
+        )}
+
+        {tab === "fil-actif" && (
+          <FilActifTab leadsSource={filters.leadsSource as "prod" | "test"} system={filters.system as "all" | "retell" | "axon"} global={filters} />
         )}
 
         {tab === "live" && <LiveMonitorClient leadsSource={filters.leadsSource} system={filters.system} />}

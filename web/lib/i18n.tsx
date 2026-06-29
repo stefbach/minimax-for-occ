@@ -1663,6 +1663,18 @@ const EN: Record<string, string> = {
   "Confier ce rappel à un agent humain": "Hand this callback off to a human agent",
   "Pool (non assigné)": "Pool (unassigned)",
   "Aucun rappel programmé pour l'IA. Quand un patient demande à être rappelé à une heure précise, le rappel apparaîtra ici.": "No AI callbacks scheduled. When a patient requests a specific callback time, it will appear here.",
+  // ── Fil Actif tab ──
+  "Fil Actif": "Active Stream",
+  "Mise à jour automatique": "Auto-refresh",
+  "Mise à jour automatique toutes les 10 secondes. Données du jour uniquement.": "Auto-refreshes every 10 seconds. Today's data only.",
+  "Leads uniques demandant un agent humain": "Unique leads requesting a human agent",
+  "Pas intéressés": "Not interested",
+  "Leads uniques ayant décliné aujourd'hui": "Unique leads that declined today",
+  "Leads à transférer à un humain": "Leads to hand over to a human",
+  "lead(s) uniques aujourd'hui": "unique lead(s) today",
+  "Aucun transfert humain en attente pour le moment.": "No human transfers pending right now.",
+  "Agent IA": "AI Agent",
+
   // ── LeadsTab ──
   "% des appels": "% of calls",
   "Appels décrochés": "Answered calls",
