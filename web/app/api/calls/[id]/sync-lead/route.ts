@@ -191,7 +191,10 @@ export async function POST(
   if (has("last_updated")) patch.last_updated = endedAt;
 
   if (shouldPropagateQualification && has("qualification")) {
-    patch.qualification = callQual;
+    // FAUX NUMERO is treated as NE PAS RAPPELER in the leads table: the lead's
+    // number is invalid so it must never be dialled again. The calls row keeps
+    // the original qualification for audit; only the lead writeback is remapped.
+    patch.qualification = callQual === "FAUX NUMERO" ? "NE PAS RAPPELER" : callQual;
   }
   if (isExplicit && has("last_qualification_update")) {
     patch.last_qualification_update = endedAt;

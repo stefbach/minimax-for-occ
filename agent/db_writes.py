@@ -218,6 +218,11 @@ def save_to_data_table(
                 k: v for k, v in (fields or {}).items()
                 if v is not None and k in valid_cols and k not in ("id", "created_at")
             }
+            # FAUX NUMERO → NE PAS RAPPELER: an invalid number must never be
+            # dialled again. Remap at write time so leads_rdv always carries
+            # the canonical do-not-call label.
+            if clean.get("qualification") == "FAUX NUMERO":
+                clean["qualification"] = "NE PAS RAPPELER"
             # Always bump updated_at if the column exists.
             if "updated_at" in valid_cols:
                 from datetime import datetime, timezone
@@ -1065,7 +1070,7 @@ def auto_qualify_call(call_id: Optional[str]) -> None:
                     r"|mauvais\s+num[ée]ro",
                     joined_full,
                 ):
-                    intent_qual = "FAUX NUMERO"
+                    intent_qual = "NE PAS RAPPELER"
                     intent_source = "transcript_wrong_number"
                 elif re.search(
                     r"(real|actual|live)\s+(person|human|being)"
@@ -1159,18 +1164,17 @@ def auto_qualify_call(call_id: Optional[str]) -> None:
                 qual = "PAS DE REPONSE"
                 qualification_source = "no_speech_heuristic"
             elif duration <= 5:
-                qual = "REPONDEUR"
-                qualification_source = "auto_inferred"
+                # Very short call with speech — patient picked up and
+                # immediately hung up. Treat as PAS DE REPONSE (no real
+                # engagement) rather than REPONDEUR (which implies voicemail).
+                qual = "PAS DE REPONSE"
+                qualification_source = "immediate_hangup"
             elif duration <= 15:
-                # We reach this branch only when any_user_speech=True (the
-                # `not any_user_speech` branch above caught the silent
-                # ones). The patient DID say something — even just "Hello?"
-                # — before hanging up. Calling that PAS DE REPONSE is wrong:
-                # Wati flagged Kerrianne Griffiths (0:13, "Hello.") on
-                # June 11 — she clearly picked up. Treat as RAPPEL so the
-                # campaign retries instead of permanently writing her off.
-                qual = "RAPPEL"
-                qualification_source = "short_pickup_with_speech"
+                # Patient answered and immediately hung up (≤15 s, any speech).
+                # Treat as PAS DE REPONSE — a quick hangup is not a real
+                # conversation; the campaign should not retry as RAPPEL.
+                qual = "PAS DE REPONSE"
+                qualification_source = "immediate_hangup"
             elif duration < 30:
                 # Short engagement: don't lock the patient out unless
                 # they've already been bothered N_GIVEUP times.
