@@ -130,3 +130,24 @@ export function IconEye(p: IconProps) {
     </Svg>
   );
 }
+
+export function IconMic(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <rect x="9" y="2.5" width="6" height="11" rx="3" />
+      <path d="M5 11a7 7 0 0 0 14 0" />
+      <path d="M12 18v3.5" />
+      <path d="M8.5 21.5h7" />
+    </Svg>
+  );
+}
+
+export function IconBrain(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <rect x="5" y="5" width="14" height="14" rx="2" />
+      <rect x="9.5" y="9.5" width="5" height="5" rx="1" />
+      <path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3" />
+    </Svg>
+  );
+}
