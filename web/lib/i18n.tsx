@@ -20,6 +20,7 @@ const EN: Record<string, string> = {
   "Avancé": "Advanced",
   // ── Sidebar items ──
   "Démarrage guidé": "Guided start",
+  "Mon espace": "My workspace",
   "Rapports pilotage": "Management reports",
   "Appel sortant": "Outbound call",
   "Tableau d'analyse": "Analytics",
