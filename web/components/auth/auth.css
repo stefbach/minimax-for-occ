@@ -1,0 +1,140 @@
+/* Editorial auth theme — mirrors the AXON AI homepage (axon-home.css) so the
+   login / signup screens feel like part of the same magazine, not the app
+   shell. Everything is scoped under .ax-auth; the few element rules (input,
+   button) are scoped too so the app's globals.css can't bleed in. */
+
+.ax-auth {
+  --ink: #0E0D0B;
+  --ink2: #16140F;
+  --paper: #F5EFE3;
+  --paper2: #EAE2D2;
+  --mute: #8A8370;
+  --mute2: #5B5645;
+  --rule: rgba(245, 239, 227, 0.10);
+  --rule2: rgba(245, 239, 227, 0.18);
+  --rule3: rgba(245, 239, 227, 0.32);
+  --terra: #D66B3C;
+  --terra2: #E8875C;
+  --bad: #E2725B;
+  --good: #7AB8A8;
+  --serif: var(--font-instrument), 'Instrument Serif', Georgia, serif;
+  --sans: var(--font-inter), 'Inter', system-ui, sans-serif;
+  --mono: var(--font-jetbrains), 'JetBrains Mono', ui-monospace, monospace;
+
+  position: relative;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 32px 20px;
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--sans);
+  isolation: isolate;
+  background-image:
+    radial-gradient(circle at 18% 12%, rgba(214, 107, 60, 0.08), transparent 50%),
+    radial-gradient(circle at 88% 85%, rgba(122, 184, 168, 0.05), transparent 45%);
+}
+.ax-auth * { box-sizing: border-box; }
+
+/* grain — same texture as the homepage */
+.ax-auth::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  opacity: .3;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.45 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+}
+
+.ax-auth-inner { width: 100%; max-width: 430px; position: relative; z-index: 2; }
+
+.ax-auth-back {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase;
+  color: var(--mute); text-decoration: none; margin-bottom: 18px; transition: color .2s;
+}
+.ax-auth-back:hover { color: var(--paper); }
+
+/* card */
+.ax-auth-card {
+  position: relative;
+  background: var(--ink2);
+  border: 1px solid var(--rule2);
+  padding: 40px 36px 36px;
+}
+/* editorial corner ticks */
+.ax-auth-card::before, .ax-auth-card::after {
+  content: ''; position: absolute; width: 12px; height: 12px; opacity: .35;
+  border: 1px solid var(--paper);
+}
+.ax-auth-card::before { top: 10px; left: 10px; border-right: none; border-bottom: none; }
+.ax-auth-card::after { bottom: 10px; right: 10px; border-left: none; border-top: none; }
+
+.ax-auth-logo {
+  display: flex; align-items: center; gap: 10px;
+  font-family: var(--serif); font-size: 24px; color: var(--paper); letter-spacing: -0.01em; margin-bottom: 4px;
+}
+.ax-auth-logo .acc { color: var(--terra); font-style: italic; }
+.ax-auth-kicker {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase;
+  color: var(--terra); margin-bottom: 26px;
+}
+.ax-auth-h {
+  font-family: var(--serif); font-weight: 400; font-size: 38px; line-height: 1.0;
+  letter-spacing: -0.02em; margin: 0 0 6px;
+}
+.ax-auth-sub { font-size: 14px; color: var(--mute); line-height: 1.5; margin-bottom: 26px; max-width: 34ch; }
+
+.ax-auth-form { display: grid; gap: 16px; }
+.ax-auth-field { display: grid; gap: 8px; }
+.ax-auth label {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--mute);
+}
+.ax-auth input {
+  width: 100%; background: var(--ink); border: 1px solid var(--rule2); border-radius: 0;
+  color: var(--paper); padding: 13px 14px; font-family: var(--sans); font-size: 15px;
+  outline: none; transition: border-color .2s, box-shadow .2s;
+}
+.ax-auth input::placeholder { color: var(--mute2); }
+.ax-auth input:focus {
+  border-color: var(--terra);
+  box-shadow: 0 0 0 3px rgba(214, 107, 60, 0.12);
+}
+
+.ax-auth-btn {
+  width: 100%; margin-top: 4px; padding: 14px 16px;
+  background: var(--paper); color: var(--ink); border: 1px solid var(--paper); border-radius: 0;
+  font-family: var(--sans); font-size: 13px; font-weight: 600; letter-spacing: 0.01em; cursor: pointer;
+  filter: none; transition: all .25s cubic-bezier(.2, .7, .2, 1);
+}
+.ax-auth-btn:hover:not(:disabled) {
+  background: var(--terra); color: var(--paper); border-color: var(--terra);
+  transform: translate(-2px, -2px); box-shadow: 4px 4px 0 var(--paper); filter: none;
+}
+.ax-auth-btn:active:not(:disabled) { transform: translate(-1px, -1px); }
+.ax-auth-btn:disabled { opacity: .45; cursor: not-allowed; }
+
+.ax-auth-msg { font-size: 13px; line-height: 1.5; }
+.ax-auth-err { color: var(--bad); }
+.ax-auth-ok { color: var(--good); }
+
+.ax-auth-chip {
+  display: inline-block; font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em;
+  padding: 4px 10px; border: 1px solid var(--rule3); color: var(--mute); width: fit-content;
+}
+
+.ax-auth-alt { margin-top: 22px; font-size: 13px; color: var(--mute); }
+.ax-auth-link { color: var(--terra2); text-decoration: none; transition: color .2s; }
+.ax-auth-link:hover { color: var(--terra); }
+
+.ax-auth-foot {
+  text-align: center; margin-top: 22px;
+  font-family: var(--serif); font-style: italic; font-size: 14px; color: var(--mute);
+}
+
+@media (max-width: 480px) {
+  .ax-auth-card { padding: 32px 22px 28px; }
+  .ax-auth-h { font-size: 32px; }
+}
