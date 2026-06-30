@@ -1,9 +1,23 @@
 "use client";
 
+/**
+ * HomeLanding — public 3D homepage.
+ *
+ * The platform pitch: 100% voice. Job-specialized AI voice agents handling
+ * inbound and outbound calls, orchestrated by the proprietary AXON core,
+ * powered by premium voice engines (ElevenLabs, MiniMax) and high-end text
+ * LLMs (OpenAI, Anthropic, DeepSeek).
+ *
+ * Shares the app's theme contract (data-theme on <html> + axon.theme in
+ * localStorage) so day/night follows the user into login and the client
+ * space.
+ */
+
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { Brand } from "@/components/brand/Brand";
-import { ThemeLangSwitcher } from "@/components/ThemeLangSwitcher";
+import { ThemeLangSwitcher, type Theme } from "@/components/ThemeLangSwitcher";
 import { VoiceFace } from "./VoiceFace";
 import {
   IconAssurance,
@@ -19,27 +33,23 @@ import {
   IconSupport,
 } from "./icons";
 
-function HeroVisual() {
-  return (
-    <div className="mk-hero-visual" aria-hidden>
-      <div className="mk-wave mk-wave-1" />
-      <div className="mk-wave mk-wave-2" />
-      <div className="mk-wave mk-wave-3" />
-      <div className="mk-wave mk-wave-4" />
-      <div className="mk-wave mk-wave-5" />
-      <div className="mk-orb" />
-    </div>
-  );
-}
+const VoiceScene = dynamic(() => import("./VoiceScene"), {
+  ssr: false,
+  loading: () => <div className="mk-scene-loading" aria-hidden />,
+});
 
-function useScrolled() {
-  const [scrolled, setScrolled] = useState(false);
+/** Track <html data-theme> so the 3D scene re-colors when the user toggles. */
+function useTheme(): Theme {
+  const [theme, setTheme] = useState<Theme>("dark");
   useEffect(() => {
-    const handler = () => setScrolled(window.scrollY > 40);
-    window.addEventListener("scroll", handler, { passive: true });
-    return () => window.removeEventListener("scroll", handler);
+    const read = () =>
+      setTheme(document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark");
+    read();
+    const obs = new MutationObserver(read);
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    return () => obs.disconnect();
   }, []);
-  return scrolled;
+  return theme;
 }
 
 const METIERS = [
@@ -76,11 +86,12 @@ const METIERS = [
 ];
 
 export default function HomeLanding({ spaceHref }: { spaceHref: string | null }) {
-  const scrolled = useScrolled();
+  const theme = useTheme();
 
   return (
     <div className="mk-page">
-      <header className={`mk-header${scrolled ? " mk-header-scrolled" : ""}`}>
+      {/* ── Header ── */}
+      <header className="mk-header">
         <Link href="/" className="mk-header-brand">
           <Brand size={18} />
         </Link>
@@ -93,18 +104,21 @@ export default function HomeLanding({ spaceHref }: { spaceHref: string | null })
           <ThemeLangSwitcher />
           {spaceHref ? (
             <Link href={spaceHref}>
-              <button className="mk-btn">Mon espace</button>
+              <button>Mon espace</button>
             </Link>
           ) : (
             <Link href="/login">
-              <button className="mk-btn">Se connecter</button>
+              <button>Se connecter</button>
             </Link>
           )}
         </div>
       </header>
 
+      {/* ── Hero : full-screen 3D ── */}
       <section className="mk-hero">
-        <HeroVisual />
+        <div className="mk-hero-scene" aria-hidden>
+          <VoiceScene theme={theme} />
+        </div>
         <div className="mk-hero-copy">
           <div className="mk-overline">Plateforme d&apos;agents vocaux IA</div>
           <h1 className="mk-display">
@@ -120,15 +134,15 @@ export default function HomeLanding({ spaceHref }: { spaceHref: string | null })
           </p>
           <div className="mk-cta-row">
             <a href="#concept">
-              <button className="mk-btn mk-btn-primary">Découvrir la plateforme</button>
+              <button>Découvrir la plateforme</button>
             </a>
             {spaceHref ? (
               <Link href={spaceHref}>
-                <button className="mk-btn mk-btn-ghost">Accéder à mon espace</button>
+                <button className="ghost">Accéder à mon espace</button>
               </Link>
             ) : (
               <Link href="/login">
-                <button className="mk-btn mk-btn-ghost">Espace client</button>
+                <button className="ghost">Espace client</button>
               </Link>
             )}
           </div>
@@ -139,12 +153,15 @@ export default function HomeLanding({ spaceHref }: { spaceHref: string | null })
             <span className="mk-chip"><IconEye size={14} /> Supervision live</span>
           </div>
         </div>
-        <div className="mk-scroll-hint" aria-hidden>↓</div>
+        <div className="mk-scroll-hint" aria-hidden>
+          ↓
+        </div>
       </section>
 
+      {/* ── Concept : inbound / outbound ── */}
       <section id="concept" className="mk-section">
         <div className="mk-overline mk-center">Le concept</div>
-        <h2 className="mk-h2 mk-center">
+        <h2 className="mk-display mk-h2 mk-center">
           Chaque appel est une décision
           <br />
           qui se prend.
@@ -183,9 +200,10 @@ export default function HomeLanding({ spaceHref }: { spaceHref: string | null })
         </div>
       </section>
 
+      {/* ── Métiers ── */}
       <section id="metiers" className="mk-section">
         <div className="mk-overline mk-center">Les métiers</div>
-        <h2 className="mk-h2 mk-center">Un agent vocal expert, pour chaque métier.</h2>
+        <h2 className="mk-display mk-h2 mk-center">Un agent vocal expert, pour chaque métier.</h2>
         <p className="mk-lede mk-center">
           Pas un robot générique : un spécialiste de votre secteur, avec votre vocabulaire, vos
           process et vos contraintes réglementaires.
@@ -202,9 +220,10 @@ export default function HomeLanding({ spaceHref }: { spaceHref: string | null })
         </div>
       </section>
 
+      {/* ── Stack ── */}
       <section id="stack" className="mk-section">
         <div className="mk-overline mk-center">La technologie</div>
-        <h2 className="mk-h2 mk-center">Trois étages. Zéro compromis.</h2>
+        <h2 className="mk-display mk-h2 mk-center">Trois étages. Zéro compromis.</h2>
         <p className="mk-lede mk-center">
           Le très haut de gamme à chaque niveau : notre plateforme propriétaire au centre, les
           meilleures voix et les meilleurs cerveaux du marché autour.
@@ -239,8 +258,9 @@ export default function HomeLanding({ spaceHref }: { spaceHref: string | null })
         </div>
       </section>
 
+      {/* ── CTA final ── */}
       <section className="mk-section mk-final">
-        <h2 className="mk-h2 mk-center">
+        <h2 className="mk-display mk-h2 mk-center">
           Votre prochaine équipe ne dort jamais.
         </h2>
         <p className="mk-lede mk-center">
@@ -250,15 +270,15 @@ export default function HomeLanding({ spaceHref }: { spaceHref: string | null })
         <div className="mk-cta-row mk-center-row">
           {spaceHref ? (
             <Link href={spaceHref}>
-              <button className="mk-btn mk-btn-primary">Accéder à mon espace</button>
+              <button>Accéder à mon espace</button>
             </Link>
           ) : (
             <>
               <Link href="/login">
-                <button className="mk-btn mk-btn-primary">Se connecter</button>
+                <button>Se connecter</button>
               </Link>
               <Link href="/signup">
-                <button className="mk-btn mk-btn-ghost">Créer un compte</button>
+                <button className="ghost">Créer un compte</button>
               </Link>
             </>
           )}
@@ -267,7 +287,7 @@ export default function HomeLanding({ spaceHref }: { spaceHref: string | null })
 
       <footer className="mk-footer">
         <Brand size={15} />
-        <span className="mk-muted">Plateforme d&apos;agents vocaux IA · Entrants &amp; sortants</span>
+        <span className="muted">Plateforme d&apos;agents vocaux IA · Entrants &amp; sortants</span>
       </footer>
     </div>
   );
