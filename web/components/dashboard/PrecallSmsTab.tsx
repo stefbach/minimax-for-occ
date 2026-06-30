@@ -1,10 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useT } from "@/lib/i18n";
 import { normalizeQualification } from "@/lib/qualification";
 import { GLOBAL_DURATION_BUCKETS, type GlobalFilters } from "@/lib/global-filters";
+import type { DrillCall } from "@/app/api/dashboard/calls-drill/route";
+import { CallDetailPane } from "@/components/dashboard/CallDetailPane";
 
 // SMS tab — suivi des messages pré-appel (Wati 26/06). Une ligne par SMS /
 // WhatsApp envoyé avant un appel : nom du lead, heure d'envoi, canal, statut
@@ -41,12 +43,6 @@ function qualTone(q: string | null): string {
   return "var(--muted)";
 }
 
-// Apply the dashboard's GLOBAL filter bar to an SMS row. The SMS log already
-// carries everything we need for the call-level filters — attempt (Tentative),
-// the resolved answered/voicemail state (Décroché), the post-call qualification
-// (Qualification), the call duration (Durée) and the free text. Lead-scoped
-// filters (Source / Agent / Éligibilité) need the leads table and don't apply
-// to this single-AI-agent campaign view, so they're ignored here.
 function passesGlobal(r: SmsRow, gf?: GlobalFilters): boolean {
   if (!gf) return true;
   if (gf.attempt !== "all") {
@@ -107,6 +103,32 @@ function fmtDelay(secs: number | null): string {
   return m > 0 ? `${m} min ${s.toString().padStart(2, "0")}s` : `${s}s`;
 }
 
+// Adapt a SmsRow (which already carries the call outcome) to the DrillCall
+// shape that CallDetailPane expects. `id` must be the CALL id so the detail
+// pane can fetch the recording / transcript.
+function smsRowToCall(r: SmsRow): DrillCall {
+  return {
+    id: r.call_id!,
+    started_at: r.call_at,
+    direction: "out",
+    duration_secs: r.duration_secs,
+    answered: r.answered === "answered",
+    qualification: normalizeQualification(r.qualification),
+    contact_name: r.lead_name,
+    agent_name: null,
+    phone: r.to_e164,
+    disposition: r.qualification,
+    assignee: null,
+  };
+}
+
+type SmsDrillSpec = {
+  title: string;
+  icon: string;
+  tone: string;
+  rows: SmsRow[];
+};
+
 export function PrecallSmsTab({ from, to, global }: { from: string; to: string; global?: GlobalFilters }) {
   const t = useT();
   const [rows, setRows] = useState<SmsRow[]>([]);
@@ -114,12 +136,30 @@ export function PrecallSmsTab({ from, to, global }: { from: string; to: string; 
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [search, setSearch] = useState("");
-  const tableRef = useRef<HTMLDivElement>(null);
 
-  function drillTo(filter: StatusFilter) {
-    setStatusFilter(filter);
-    setTimeout(() => tableRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
-  }
+  // Side-panel drill state
+  const [smsDrillSpec, setSmsDrillSpec] = useState<SmsDrillSpec | null>(null);
+  const [smsDrillSelected, setSmsDrillSelected] = useState<SmsRow | null>(null);
+
+  // ESC: close detail first, then whole panel
+  useEffect(() => {
+    if (!smsDrillSpec) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (smsDrillSelected) setSmsDrillSelected(null);
+      else setSmsDrillSpec(null);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [smsDrillSpec, smsDrillSelected]);
+
+  // Body scroll lock while panel is open
+  useEffect(() => {
+    if (!smsDrillSpec) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [smsDrillSpec]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -139,10 +179,7 @@ export function PrecallSmsTab({ from, to, global }: { from: string; to: string; 
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  // Apply the dashboard's global filter bar (Tentative, Décroché, Qualification,
-  // Durée, recherche) before everything else, so the KPIs AND the table reflect
-  // e.g. "Tentative · 2ème" → décrochés du 2ème appel.
-  const scoped = useMemo(() => rows.filter((r) => passesGlobal(r, global)), [rows, global]);
+  const scoped = useMemo(() => rows.filter((r: SmsRow) => passesGlobal(r, global)), [rows, global]);
 
   const kpis = useMemo(() => {
     let sent = 0, failed = 0, called = 0, answered = 0, voicemail = 0;
@@ -161,7 +198,7 @@ export function PrecallSmsTab({ from, to, global }: { from: string; to: string; 
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return scoped.filter((r) => {
+    return scoped.filter((r: SmsRow) => {
       if (statusFilter === "failed" && r.status !== "failed") return false;
       if (statusFilter === "called" && (!r.call_id || r.status === "failed")) return false;
       if (statusFilter === "answered" && r.answered !== "answered") return false;
@@ -188,48 +225,54 @@ export function PrecallSmsTab({ from, to, global }: { from: string; to: string; 
     }
   }
 
+  // Open the side-panel drill with a subset of `scoped` rows.
+  function openSmsDrill(title: string, icon: string, tone: string, filterFn: (r: SmsRow) => boolean) {
+    setSmsDrillSpec({ title, icon, tone, rows: scoped.filter(filterFn) });
+    setSmsDrillSelected(null);
+  }
+
+  const kpiCardStyle = {
+    padding: 14, textAlign: "left" as const, font: "inherit", color: "inherit",
+    cursor: "pointer", transition: "transform 120ms, box-shadow 120ms",
+  };
+  function hoverIn(e: { currentTarget: HTMLButtonElement }) {
+    e.currentTarget.style.transform = "translateY(-1px)";
+    e.currentTarget.style.boxShadow = "0 6px 16px rgba(0,0,0,0.08)";
+  }
+  function hoverOut(e: { currentTarget: HTMLButtonElement }) {
+    e.currentTarget.style.transform = "";
+    e.currentTarget.style.boxShadow = "";
+  }
+
   return (
     <>
-      {/* KPI cards — cliquables pour filtrer la liste ci-dessous */}
+      {/* KPI cards — cliquables pour ouvrir le panneau latéral */}
       <div className="grid-kpi" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))" }}>
-        <button type="button" className="card" onClick={() => drillTo("all")}
-          style={{ padding: 14, textAlign: "left", font: "inherit", color: "inherit", cursor: "pointer",
-            transition: "transform 120ms, box-shadow 120ms",
-            ...(statusFilter === "all" ? { borderColor: "var(--accent)" } : {}) }}
-          onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "0 6px 16px rgba(0,0,0,0.08)"; }}
-          onMouseLeave={e => { e.currentTarget.style.transform = ""; e.currentTarget.style.boxShadow = ""; }}>
+        <button type="button" className="card" style={kpiCardStyle} onMouseEnter={hoverIn} onMouseLeave={hoverOut}
+          onClick={() => openSmsDrill(t("SMS envoyés"), "💬", "var(--accent)", (r: SmsRow) => r.status !== "failed")}>
           <div className="muted" style={{ fontSize: 11, textTransform: "uppercase" }}>{t("SMS envoyés")}</div>
           <div style={{ fontSize: 26, fontWeight: 700, marginTop: 4 }}>{kpis.sent}</div>
           <div className="muted" style={{ fontSize: 11 }}>{t("sur la période")}</div>
         </button>
-        <button type="button" className="card" onClick={() => drillTo("called")}
-          style={{ padding: 14, textAlign: "left", font: "inherit", color: "inherit", cursor: "pointer",
-            transition: "transform 120ms, box-shadow 120ms",
-            ...(statusFilter === "called" ? { borderColor: "var(--info)" } : {}) }}
-          onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "0 6px 16px rgba(0,0,0,0.08)"; }}
-          onMouseLeave={e => { e.currentTarget.style.transform = ""; e.currentTarget.style.boxShadow = ""; }}>
+
+        <button type="button" className="card" style={kpiCardStyle} onMouseEnter={hoverIn} onMouseLeave={hoverOut}
+          onClick={() => openSmsDrill(t("Appels passés après SMS"), "📞", "var(--info)", (r) => !!r.call_id && r.status !== "failed")}>
           <div className="muted" style={{ fontSize: 11, textTransform: "uppercase" }}>{t("Appels passés après SMS")}</div>
           <div style={{ fontSize: 26, fontWeight: 700, marginTop: 4, color: "var(--info)" }}>{kpis.called}</div>
           <div className="muted" style={{ fontSize: 11 }}>
             {kpis.sent ? Math.round((kpis.called / kpis.sent) * 100) : 0}% {t("des envois")}
           </div>
         </button>
-        <button type="button" className="card" onClick={() => drillTo("answered")}
-          style={{ padding: 14, textAlign: "left", font: "inherit", color: "inherit", cursor: "pointer",
-            transition: "transform 120ms, box-shadow 120ms",
-            ...(statusFilter === "answered" ? { borderColor: "var(--good)" } : {}) }}
-          onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "0 6px 16px rgba(0,0,0,0.08)"; }}
-          onMouseLeave={e => { e.currentTarget.style.transform = ""; e.currentTarget.style.boxShadow = ""; }}>
+
+        <button type="button" className="card" style={kpiCardStyle} onMouseEnter={hoverIn} onMouseLeave={hoverOut}
+          onClick={() => openSmsDrill(t("Décrochés — leads uniques"), "✅", "var(--good)", (r) => r.answered === "answered")}>
           <div className="muted" style={{ fontSize: 11, textTransform: "uppercase" }}>{t("Décroché — leads uniques")}</div>
           <div style={{ fontSize: 26, fontWeight: 700, marginTop: 4, color: "var(--good)" }}>✅ {kpis.answeredLeads}</div>
           <div className="muted" style={{ fontSize: 11 }}>{t("leads distincts ayant décroché")}</div>
         </button>
-        <button type="button" className="card" onClick={() => drillTo("answered")}
-          style={{ padding: 14, textAlign: "left", font: "inherit", color: "inherit", cursor: "pointer",
-            transition: "transform 120ms, box-shadow 120ms",
-            ...(statusFilter === "answered" ? { borderColor: "var(--good)" } : {}) }}
-          onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "0 6px 16px rgba(0,0,0,0.08)"; }}
-          onMouseLeave={e => { e.currentTarget.style.transform = ""; e.currentTarget.style.boxShadow = ""; }}>
+
+        <button type="button" className="card" style={kpiCardStyle} onMouseEnter={hoverIn} onMouseLeave={hoverOut}
+          onClick={() => openSmsDrill(t("Décrochés — par appels"), "✅", "var(--good)", (r) => r.answered === "answered")}>
           <div className="muted" style={{ fontSize: 11, textTransform: "uppercase" }}>{t("Décroché — par appels")}</div>
           <div style={{ fontSize: 26, fontWeight: 700, marginTop: 4, color: "var(--good)" }}>✅ {kpis.answered}</div>
           <div className="muted" style={{ fontSize: 11 }}>
@@ -237,12 +280,10 @@ export function PrecallSmsTab({ from, to, global }: { from: string; to: string; 
             {kpis.voicemail > 0 ? ` · 📵 ${kpis.voicemail} ${t("répondeur")}` : ""}
           </div>
         </button>
-        <button type="button" className="card" onClick={() => drillTo("failed")}
-          style={{ padding: 14, textAlign: "left", font: "inherit", color: "inherit", cursor: "pointer",
-            transition: "transform 120ms, box-shadow 120ms",
-            borderColor: kpis.failed > 0 ? (statusFilter === "failed" ? "var(--bad)" : "var(--bad)") : undefined }}
-          onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "0 6px 16px rgba(0,0,0,0.08)"; }}
-          onMouseLeave={e => { e.currentTarget.style.transform = ""; e.currentTarget.style.boxShadow = ""; }}>
+
+        <button type="button" className="card"
+          style={{ ...kpiCardStyle, borderColor: kpis.failed > 0 ? "var(--bad)" : undefined }} onMouseEnter={hoverIn} onMouseLeave={hoverOut}
+          onClick={() => openSmsDrill(t("Échecs d'envoi"), "✗", "var(--bad)", (r) => r.status === "failed")}>
           <div className="muted" style={{ fontSize: 11, textTransform: "uppercase" }}>{t("Échecs d'envoi")}</div>
           <div style={{ fontSize: 26, fontWeight: 700, marginTop: 4, color: kpis.failed > 0 ? "var(--bad)" : undefined }}>{kpis.failed}</div>
           <div className="muted" style={{ fontSize: 11 }}>{t("SMS non partis")}</div>
@@ -270,7 +311,7 @@ export function PrecallSmsTab({ from, to, global }: { from: string; to: string; 
       {error && <div className="card" style={{ borderColor: "var(--bad)", color: "var(--bad)" }}>{error}</div>}
 
       {/* Table */}
-      <div ref={tableRef} className="card" style={{ padding: 0, overflow: "hidden" }}>
+      <div className="card" style={{ padding: 0, overflow: "hidden" }}>
         <table className="list" style={{ fontSize: 13 }}>
           <thead>
             <tr>
@@ -349,6 +390,195 @@ export function PrecallSmsTab({ from, to, global }: { from: string; to: string; 
         {filtered.length} / {scoped.length} {t("messages")}
         {scoped.length !== rows.length ? ` (${rows.length} ${t("au total, avant filtres")})` : ""}
       </div>
+
+      {/* SMS drill-down side panel */}
+      {smsDrillSpec && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={smsDrillSpec.title}
+          style={{ position: "fixed", inset: 0, zIndex: 60, display: "flex", justifyContent: "flex-end" }}
+        >
+          {/* Backdrop */}
+          <button
+            type="button"
+            aria-label={t("Fermer")}
+            onClick={() => setSmsDrillSpec(null)}
+            style={{
+              position: "absolute", inset: 0, border: 0, padding: 0, cursor: "pointer",
+              background: "color-mix(in srgb, black 45%, transparent)",
+              backdropFilter: "blur(2px)",
+              animation: "sms-drill-fade 180ms ease-out",
+            }}
+          />
+          {/* Panel */}
+          <aside style={{
+            position: "relative",
+            width: "min(520px, 100vw)",
+            height: "100%",
+            background: "var(--bg)",
+            borderLeft: "1px solid var(--border)",
+            boxShadow: "-12px 0 32px rgba(0,0,0,0.18)",
+            display: "flex", flexDirection: "column",
+            animation: "sms-drill-slide 220ms cubic-bezier(.2,.8,.2,1)",
+          }}>
+            {/* Accent stripe */}
+            <div style={{ height: 3, background: smsDrillSpec.tone }} />
+
+            {/* Header */}
+            <div style={{
+              padding: "14px 16px", display: "flex", alignItems: "center", gap: 12,
+              borderBottom: "1px solid var(--border)", background: "var(--bg)",
+            }}>
+              <span style={{ fontSize: 22 }}>{smsDrillSpec.icon}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 600, fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {smsDrillSpec.title}
+                </div>
+                <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
+                  {smsDrillSpec.rows.length.toLocaleString("fr-FR")} {t("message(s) concerné(s)")}
+                </div>
+              </div>
+              <span style={{
+                padding: "3px 9px", fontSize: 12, fontWeight: 600, borderRadius: 99,
+                background: "color-mix(in srgb, var(--accent) 14%, transparent)",
+                color: "var(--accent)",
+              }}>
+                {smsDrillSpec.rows.length}
+              </span>
+              <button
+                type="button"
+                autoFocus
+                onClick={() => setSmsDrillSpec(null)}
+                className="ghost"
+                aria-label={t("Fermer")}
+                style={{ padding: "4px 10px", fontSize: 16, lineHeight: 1 }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Body — list of SMS rows */}
+            <div style={{ flex: 1, overflowY: "auto", padding: "8px 0" }}>
+              {smsDrillSpec.rows.length === 0 ? (
+                <div style={{ padding: 32, textAlign: "center", color: "var(--muted)" }}>
+                  <div style={{ fontSize: 32, marginBottom: 8 }}>∅</div>
+                  <div style={{ fontSize: 13 }}>{t("Aucun message ne correspond à cette sélection.")}</div>
+                </div>
+              ) : smsDrillSpec.rows.map((r) => {
+                const tone = r.status === "failed" ? "var(--bad)"
+                  : r.answered === "answered" ? "var(--good)"
+                  : r.answered === "voicemail" ? "var(--warn)"
+                  : r.call_id ? "var(--info)"
+                  : "var(--muted)";
+                return (
+                  <div
+                    key={r.id}
+                    className="card"
+                    style={{
+                      display: "flex", alignItems: "center", gap: 12,
+                      margin: "8px 12px", padding: "12px 14px", borderRadius: 10,
+                      borderLeft: `3px solid ${tone}`,
+                    }}
+                  >
+                    <button
+                      type="button"
+                      disabled={!r.call_id}
+                      onClick={() => r.call_id && setSmsDrillSelected(r)}
+                      style={{
+                        display: "flex", alignItems: "center", gap: 12, flex: 1, minWidth: 0,
+                        background: "transparent", border: 0, color: "inherit",
+                        cursor: r.call_id ? "pointer" : "default",
+                        textAlign: "left", padding: 0, font: "inherit",
+                      }}
+                    >
+                      {/* Status icon */}
+                      <span style={{
+                        flexShrink: 0, width: 22, height: 22, borderRadius: 99,
+                        display: "inline-flex", alignItems: "center", justifyContent: "center",
+                        background: `color-mix(in srgb, ${tone} 16%, transparent)`,
+                        color: tone, fontSize: 13,
+                      }}>
+                        {r.status === "failed" ? "✗"
+                          : r.answered === "answered" ? "✅"
+                          : r.answered === "voicemail" ? "📵"
+                          : r.call_id ? "📞"
+                          : "⏳"}
+                      </span>
+                      {/* Main info */}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, fontSize: 15, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {r.lead_name ?? t("Inconnu")}
+                          {r.attempt ? <span className="muted" style={{ fontSize: 11, fontWeight: 400 }}> · {t("tentative")} {r.attempt}</span> : null}
+                        </div>
+                        <div className="muted" style={{ fontSize: 13, marginTop: 3 }}>
+                          {r.to_e164 ?? "—"}
+                          {r.channel === "whatsapp" ? " · 🟢 WhatsApp" : " · 💬 SMS"}
+                        </div>
+                      </div>
+                      {/* Right: qual badge + time */}
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 5, flexShrink: 0 }}>
+                        {r.qualification ? (
+                          <span style={{
+                            fontSize: 11, padding: "4px 10px", borderRadius: 6, whiteSpace: "nowrap",
+                            background: `color-mix(in srgb, ${qualTone(r.qualification)} 14%, transparent)`,
+                            color: qualTone(r.qualification),
+                            border: `1px solid color-mix(in srgb, ${qualTone(r.qualification)} 40%, transparent)`,
+                            fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: 0.4,
+                          }}>
+                            {r.qualification}
+                          </span>
+                        ) : (
+                          <span style={{
+                            fontSize: 11, padding: "4px 10px", borderRadius: 6, whiteSpace: "nowrap",
+                            background: "color-mix(in srgb, var(--muted) 10%, transparent)",
+                            color: "var(--muted)", border: "1px solid color-mix(in srgb, var(--muted) 20%, transparent)",
+                            fontWeight: 600,
+                          }}>
+                            {r.answered === "pending" ? t("En attente") : t("—")}
+                          </span>
+                        )}
+                        <span className="muted" style={{ fontSize: 12, whiteSpace: "nowrap" }}>
+                          {fmtDate(r.sent_at)}
+                          {r.call_at ? ` · +${fmtDelay(r.delay_secs)}` : ""}
+                        </span>
+                      </div>
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Footer */}
+            <div style={{
+              padding: "10px 16px", borderTop: "1px solid var(--border)", background: "var(--bg)",
+              display: "flex", gap: 8, alignItems: "center",
+            }}>
+              <span className="muted" style={{ fontSize: 12, flex: 1 }}>
+                {smsDrillSpec.rows.length} {t("message(s)")}
+                {smsDrillSpec.rows.filter((r) => r.call_id).length !== smsDrillSpec.rows.length
+                  ? ` · ${smsDrillSpec.rows.filter((r) => r.call_id).length} ${t("avec appel")}`
+                  : ""}
+              </span>
+              <span className="muted" style={{ fontSize: 11 }}>{t("Cliquer sur un lead pour voir le détail de l'appel")}</span>
+            </div>
+
+            {/* In-panel call detail overlay */}
+            {smsDrillSelected && smsDrillSelected.call_id && (
+              <CallDetailPane
+                call={smsRowToCall(smsDrillSelected)}
+                leadsSource="prod"
+                onBack={() => setSmsDrillSelected(null)}
+              />
+            )}
+          </aside>
+
+          <style jsx>{`
+            @keyframes sms-drill-fade { from { opacity: 0; } to { opacity: 1; } }
+            @keyframes sms-drill-slide { from { transform: translateX(100%); } to { transform: translateX(0); } }
+          `}</style>
+        </div>
+      )}
     </>
   );
 }

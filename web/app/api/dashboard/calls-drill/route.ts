@@ -131,6 +131,7 @@ export async function GET(request: Request) {
   ]);
   let rows = ((data ?? []) as unknown as Row[])
     .filter((r) => !ACTIVE.has(r.state ?? ""))
+    .filter((r) => r.state !== "failed")
     .filter((r) => !isPhantomCall(r))
     .filter((r) => !isSoftphoneTestLeg(r))
     .filter((r) => callInLeadsScope(r.to_e164, scope))
