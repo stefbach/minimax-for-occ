@@ -178,6 +178,8 @@ const EN: Record<string, string> = {
   "Suivi requis": "Follow-up required",
   "+ X autres — voir la liste complète": "+ X more — view full list",
   "Action requise": "Action required",
+  "Performance Rain": "Rain Performance",
+  "Moy. tentatives / lead": "Avg. attempts / lead",
   // ── Agent spotlight ──
   "Vue filtrée — Rain uniquement": "Filtered view — Rain only",
   "Retirer le filtre": "Clear filter",

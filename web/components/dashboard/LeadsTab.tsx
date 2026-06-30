@@ -11,6 +11,8 @@ import { DrillSheet, type DrillSpec, type DrillFilters } from "@/components/dash
 import type { QualBucket } from "@/lib/qualification";
 
 
+const RAIN_AGENT_HANDLE = "bheshouma-arjoon";
+
 const CAT_COLORS = {
   passer_humain: "#f59e0b",
   rappel:        "#3b82f6",
@@ -287,6 +289,99 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
 
         </div>
       </div>
+
+      {/* ── Rain Performance panel (shown when Rain filter is active) ──────── */}
+      {global?.agents?.includes(RAIN_AGENT_HANDLE) && (
+        <div style={{
+          borderRadius: 12,
+          border: "1px solid #3b82f6",
+          background: "color-mix(in srgb, #3b82f6 8%, transparent)",
+          padding: "18px 20px",
+        }}>
+          {/* Header */}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+            <span style={{ fontSize: 16, fontWeight: 800, color: "#60a5fa", letterSpacing: -0.3 }}>
+              👩 Rain — {t("Performance Rain")}
+            </span>
+            <span style={{
+              fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.6,
+              background: "#3b82f6", color: "#fff", padding: "2px 10px", borderRadius: 99,
+            }}>
+              {t("Vue filtrée — Rain uniquement")}
+            </span>
+          </div>
+
+          {/* 5 KPI tiles */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10 }}>
+
+            {/* Total calls */}
+            <div className="card" style={{ padding: "14px 16px" }}>
+              <div style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 6 }}>
+                {t("Total appels")}
+              </div>
+              <div style={{ fontSize: 32, fontWeight: 800, color: "#60a5fa", lineHeight: 1 }}>
+                {stats.total_calls}
+              </div>
+            </div>
+
+            {/* Unique leads */}
+            <div className="card" style={{ padding: "14px 16px" }}>
+              <div style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 6 }}>
+                {t("Leads uniques")}
+              </div>
+              <div style={{ fontSize: 32, fontWeight: 800, color: "var(--fg)", lineHeight: 1 }}>
+                {stats.total_unique_contacts}
+              </div>
+            </div>
+
+            {/* Transferred to human */}
+            <div className="card" style={{ padding: "14px 16px", borderLeft: `3px solid ${CAT_COLORS.passer_humain}` }}>
+              <div style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 6 }}>
+                {t("À passer à l'humain")}
+              </div>
+              <div style={{ fontSize: 32, fontWeight: 800, color: CAT_COLORS.passer_humain, lineHeight: 1 }}>
+                {analysis?.passerHumain.count ?? "—"}
+              </div>
+              {analysis && stats.total_unique_contacts > 0 && (
+                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
+                  {Math.round(analysis.passerHumain.count / stats.total_unique_contacts * 100)}%{" "}
+                  {t("des X leads").replace("X", String(stats.total_unique_contacts))}
+                </div>
+              )}
+            </div>
+
+            {/* Not interested */}
+            <div className="card" style={{ padding: "14px 16px", borderLeft: `3px solid ${CAT_COLORS.pas_interesse}` }}>
+              <div style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 6 }}>
+                {t("Pas intéressé")}
+              </div>
+              <div style={{ fontSize: 32, fontWeight: 800, color: CAT_COLORS.pas_interesse, lineHeight: 1 }}>
+                {analysis?.pasInteresse.count ?? "—"}
+              </div>
+              {analysis && stats.total_unique_contacts > 0 && (
+                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
+                  {Math.round(analysis.pasInteresse.count / stats.total_unique_contacts * 100)}%{" "}
+                  {t("des X leads").replace("X", String(stats.total_unique_contacts))}
+                </div>
+              )}
+            </div>
+
+            {/* Avg attempts per lead */}
+            <div className="card" style={{ padding: "14px 16px" }}>
+              <div style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 6 }}>
+                {t("Moy. tentatives / lead")}
+              </div>
+              <div style={{ fontSize: 32, fontWeight: 800, color: "var(--accent-2)", lineHeight: 1 }}>
+                {stats.avg_calls_per_contact}
+              </div>
+              <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
+                {t("tentatives moyennes avant réponse")}
+              </div>
+            </div>
+
+          </div>
+        </div>
+      )}
 
       {/* ── Top 3 KPI cards ────────────────────────────────────────────────── */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
