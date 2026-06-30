@@ -12,5 +12,5 @@ export default async function Home() {
     // Supabase not configured or session missing — show public homepage
   }
   if (m) redirect(landingPathFor(m.role));
-  return <AxonHome spaceHref={null} />;
+  return <AxonHome lang="fr" spaceHref={null} />;
 }

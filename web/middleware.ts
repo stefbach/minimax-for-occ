@@ -204,7 +204,11 @@ export const config = {
      * - api (API routes — auth handled there individually)
      * - _next/static, _next/image (Next internals)
      * - favicon.ico, .well-known
+     * - any path with a file extension (static assets in /public, e.g.
+     *   /axon-hero-portrait.png). Without this the auth gate 307-redirects
+     *   public images to /login — app routes never carry a "." so the
+     *   `.*\\..*` clause only ever excludes real static files.
      */
-    "/((?!api|_next/static|_next/image|favicon.ico|\\.well-known).*)",
+    "/((?!api|_next/static|_next/image|favicon.ico|\\.well-known|.*\\..*).*)",
   ],
 };
