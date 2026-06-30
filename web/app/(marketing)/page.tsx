@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import HomeLanding from "@/components/home/HomeLanding";
+import AxonHome from "@/components/home/AxonHome";
 import { currentMembership, landingPathFor } from "@/lib/supabase-auth";
 
 export const dynamic = "force-dynamic";
@@ -12,5 +12,5 @@ export default async function Home() {
     // Supabase not configured or session missing — show public homepage
   }
   if (m) redirect(landingPathFor(m.role));
-  return <HomeLanding spaceHref={null} />;
+  return <AxonHome spaceHref={null} />;
 }

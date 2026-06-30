@@ -99,9 +99,10 @@ export async function middleware(req: NextRequest) {
   await supabase.auth.getUser(); // refresh cookies if needed
 
   const path = req.nextUrl.pathname;
-  // "/" is the public marketing homepage — exact match only.
+  // "/" and the "/en" marketing subtree are the public homepages. "/" is an
+  // exact match; "/en" covers the (future) localized marketing pages.
   const publicPaths = ["/login", "/signup", "/auth", "/api", "/_next", "/favicon"];
-  if (path === "/" || publicPaths.some((p) => path.startsWith(p))) {
+  if (path === "/" || path === "/en" || path.startsWith("/en/") || publicPaths.some((p) => path.startsWith(p))) {
     return res;
   }
 
