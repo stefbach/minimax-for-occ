@@ -19,6 +19,7 @@ import { DirectorTab } from "./DirectorTab";
 import { AiInsightsTab } from "./AiInsightsTab";
 import { LeadsTab } from "./LeadsTab";
 import { NhsSuiviTab } from "./NhsSuiviTab";
+import { RainSuiviTab } from "./RainSuiviTab";
 import { ErrorsAlertsTab } from "./ErrorsAlertsTab";
 import { PeriodBar, presetToRange, DEFAULT_FILTERS, type Period, type Filters } from "./PeriodBar";
 import { SyncRetellButton } from "./SyncRetellButton";
@@ -27,7 +28,7 @@ import { ReportButton } from "./ReportButton";
 import { ApiStatusPill } from "./ApiStatusPill";
 import { useT } from "@/lib/i18n";
 
-type TabId = "overview" | "stats" | "logs" | "entrants" | "sms" | "live" | "errors" | "ai" | "leads" | "nhs";
+type TabId = "overview" | "stats" | "logs" | "entrants" | "sms" | "live" | "errors" | "ai" | "leads" | "nhs" | "rain";
 const ALL_TABS: { id: TabId; label: string; icon: string }[] = [
   { id: "overview", label: "Vue d'ensemble", icon: "🏠" },
   { id: "stats", label: "Statistiques", icon: "📊" },
@@ -39,6 +40,7 @@ const ALL_TABS: { id: TabId; label: string; icon: string }[] = [
   { id: "ai", label: "AI Insights", icon: "✨" },
   { id: "leads", label: "Leads", icon: "👥" },
   { id: "nhs", label: "Suivi NHS S2", icon: "🏥" },
+  { id: "rain", label: "Suivi Rain", icon: "👩" },
 ];
 
 // Short human label for the active period, e.g. "05/06" or "01/06 – 05/06".
@@ -64,7 +66,12 @@ type Props = {
 
 export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props) {
   const showNhs = Boolean(orgSlug && NHS_SLUG_RE.test(orgSlug));
-  const TABS = ALL_TABS.filter((t) => t.id !== "nhs" || showNhs);
+  const showRain = Boolean(orgSlug && NHS_SLUG_RE.test(orgSlug));
+  const TABS = ALL_TABS.filter((t) => {
+    if (t.id === "nhs") return showNhs;
+    if (t.id === "rain") return showRain;
+    return true;
+  });
   const t = useT();
   const [data, setData] = useState<DashboardOverviewResponse | null>(initial);
   const [error, setError] = useState<string | null>(initialError);
@@ -252,7 +259,7 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
         {/* Section header — tells the operator which tab they're in (legacy
             parity), with the active period for the period-scoped tabs.
             Skipped for the NHS tab which renders its own header. */}
-        {tab !== "nhs" && (() => {
+        {tab !== "nhs" && tab !== "rain" && (() => {
           const active = TABS.find((x) => x.id === tab);
           if (!active) return null;
           const periodScoped = tab === "overview" || tab === "stats" || tab === "logs" || tab === "entrants" || tab === "sms" || tab === "ai" || tab === "leads";
@@ -447,6 +454,10 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
             openContactId={nhsOpenContactId}
             onOpened={() => { setNhsOpenPatientId(null); setNhsOpenContactId(null); }}
           />
+        )}
+
+        {tab === "rain" && showRain && (
+          <RainSuiviTab refreshKey={refreshKey} />
         )}
       </div>
     </div>
