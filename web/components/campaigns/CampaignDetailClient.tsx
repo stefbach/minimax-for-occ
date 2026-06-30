@@ -465,27 +465,27 @@ export function CampaignDetailClient({
               </tr>
             </thead>
             <tbody>
-              {targets.map((t) => (
-                <tr key={t.id}>
+              {targets.map((tgt) => (
+                <tr key={tgt.id}>
                   <td>
-                    <div>{t.contact_name ?? t.contact_e164 ?? "—"}</div>
-                    {t.contact_name && (
-                      <div className="muted" style={{ fontSize: 12 }}>{t.contact_e164}</div>
+                    <div>{tgt.contact_name ?? tgt.contact_e164 ?? "—"}</div>
+                    {tgt.contact_name && (
+                      <div className="muted" style={{ fontSize: 12 }}>{tgt.contact_e164}</div>
                     )}
                   </td>
                   <td>
-                    <span className="tag">{t.status}</span>
+                    <span className="tag">{tgt.status}</span>
                   </td>
-                  <td>{t.attempts}</td>
+                  <td>{tgt.attempts}</td>
                   <td className="muted" style={{ fontSize: 12 }}>
-                    {fmtDate(t.last_attempt_at)}
+                    {fmtDate(tgt.last_attempt_at)}
                   </td>
                   <td className="muted" style={{ fontSize: 12 }}>
-                    {fmtDate(t.next_attempt_at)}
+                    {fmtDate(tgt.next_attempt_at)}
                   </td>
                   <td>
-                    {t.last_call_id ? (
-                      <Link href={`/calls/${t.last_call_id}`}>{t("Voir")}</Link>
+                    {tgt.last_call_id ? (
+                      <Link href={`/calls/${tgt.last_call_id}`}>{t("Voir")}</Link>
                     ) : (
                       <span className="muted">—</span>
                     )}
