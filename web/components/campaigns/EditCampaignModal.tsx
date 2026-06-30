@@ -83,6 +83,7 @@ interface TableOpt { id: string; physical_table: string; label: string }
 interface TeamOpt { id: string; name: string }
 
 export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
+  const t = useT();
   const router = useRouter();
 
   // ─── State: simple fields ──────────────────────────────────────────────
@@ -140,8 +141,7 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
   function tryUnlock(k: string, label: string) {
     if (isUnlocked(k)) return;
     const ok = confirm(
-      `Modifying "${label}" on an already active campaign may disrupt the current batch ` +
-      `(pending leads, phase state, etc.). Continue?`,
+      t("Modifier") + ` "${label}" ` + t("sur une campagne active peut perturber le lot en cours (leads en attente, état des phases, etc.). Continuer ?"),
     );
     if (ok) setUnlocked((u) => ({ ...u, [k]: true }));
   }
@@ -300,7 +300,7 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
   // ─── Render helpers ────────────────────────────────────────────────────
   const lockedNote = (
     <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
-      🔒 Locked. Click &ldquo;Modify&rdquo; to allow changes.
+      🔒 {t("Verrouillé. Cliquez sur")} &ldquo;{t("Modifier")}&rdquo; {t("pour autoriser les modifications.")}
     </div>
   );
   const unlockBtn = (key: string, label: string) => (
@@ -310,7 +310,7 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
       onClick={() => tryUnlock(key, label)}
       style={{ padding: "2px 8px", fontSize: 11 }}
     >
-      Modify
+      {t("Modifier")}
     </button>
   );
 
