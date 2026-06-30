@@ -1587,11 +1587,11 @@ export function CampaignWizard({
             {precallSmsOn && (
               <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
                 <div>
-                  <label>Modèle SMS</label>
+                  <label>{t("Modèle SMS")}</label>
                   <ContentSidPicker channel="SMS" templates={templates} templatesLoaded={templatesLoaded} value={precallSmsSid} onChange={setPrecallSmsSid} />
                 </div>
                 <div>
-                  <label>Numéro d&apos;envoi SMS</label>
+                  <label>{t("Numéro d'envoi SMS")}</label>
                   <input value={precallSmsFrom} onChange={(e) => setPrecallSmsFrom(e.target.value)} placeholder="défaut : numéro de la campagne" />
                 </div>
                 {!precallSmsSid.trim() && <div style={{ fontSize: 12, color: "#b45309" }}>⚠️ Renseigne le Content SID, sinon le SMS ne partira pas.</div>}
@@ -1607,11 +1607,11 @@ export function CampaignWizard({
             {precallWaOn && (
               <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
                 <div>
-                  <label>Modèle WhatsApp</label>
+                  <label>{t("Modèle WhatsApp")}</label>
                   <ContentSidPicker channel="WhatsApp" templates={templates} templatesLoaded={templatesLoaded} value={precallWaSid} onChange={setPrecallWaSid} />
                 </div>
                 <div>
-                  <label>Numéro d&apos;envoi WhatsApp</label>
+                  <label>{t("Numéro d'envoi WhatsApp")}</label>
                   <input value={precallWaFrom} onChange={(e) => setPrecallWaFrom(e.target.value)} placeholder="numéro WhatsApp Business Twilio" />
                   <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>Doit être un numéro activé WhatsApp Business chez Twilio.</div>
                 </div>
@@ -1735,7 +1735,7 @@ export function CampaignWizard({
             time so the continuous engine fires inside this window. */}
         <>
             <div style={{ marginTop: 12 }}>
-              <label>Jours autorisés</label>
+              <label>{t("Jours autorisés")}</label>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                 {DAYS.map((d) => {
                   const active = days.includes(d.id);
@@ -1754,7 +1754,7 @@ export function CampaignWizard({
               </div>
             </div>
             <div style={{ marginTop: 12 }}>
-              <label>Fuseau horaire</label>
+              <label>{t("Fuseau horaire")}</label>
               <select value={timezone} onChange={(e) => setTimezone(e.target.value)}>
                 {TIMEZONE_GROUPS.map((group) => (
                   <optgroup key={group.group} label={group.group}>
@@ -1766,7 +1766,7 @@ export function CampaignWizard({
               </select>
             </div>
         <div style={{ marginTop: 12 }}>
-          <label>Plages horaires</label>
+          <label>{t("Plages horaires")}</label>
           <div style={{ display: "grid", gap: 8 }}>
             {hourRanges.map((r, i) => (
               <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -1804,7 +1804,7 @@ export function CampaignWizard({
               onClick={addRange}
               style={{ padding: "6px 12px", alignSelf: "flex-start" }}
             >
-              + Ajouter une plage
+              + {t("Ajouter une plage")}
             </button>
           </div>
           <div className="muted" style={{ fontSize: 11, marginTop: 8, lineHeight: 1.5 }}>
