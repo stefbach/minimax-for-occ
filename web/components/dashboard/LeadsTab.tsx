@@ -10,6 +10,8 @@ import { appendGlobalFilters, globalFilterParams } from "@/lib/global-filters";
 import { DrillSheet, type DrillSpec, type DrillFilters } from "@/components/dashboard/DrillSheet";
 import type { QualBucket } from "@/lib/qualification";
 
+const RAIN_AGENT = "bheshouma-arjoon";
+
 const CAT_COLORS = {
   passer_humain: "#f59e0b",
   rappel:        "#3b82f6",
@@ -62,6 +64,9 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
   const [loading, setLoading] = useState(true);
   const [drillSpec, setDrillSpec] = useState<DrillSpec | null>(null);
 
+  // Agent filter for this tab
+  const [agentFilter, setAgentFilter] = useState<"all" | "rain">("all");
+
   // Live Fil Actif counters — today only, auto-refresh every 10 s
   const [live, setLive] = useState<{ passerHumain: number; pasInteresse: number } | null>(null);
   const [liveLoading, setLiveLoading] = useState(true);
@@ -87,6 +92,7 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
         ...(global && global.q && { gf_q: global.q }),
         ...(orgId && { org_id: orgId }),
         ...(campaignId && campaignId !== "all" && { campaign_id: campaignId }),
+        ...(agentFilter === "rain" && { gf_agent: RAIN_AGENT }),
       });
 
       const analysisQs = new URLSearchParams({ from, to });
@@ -94,6 +100,7 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
       if (leadsSource) analysisQs.set("leads_source", leadsSource);
       if (system) analysisQs.set("system", system);
       if (global) appendGlobalFilters(analysisQs, global);
+      if (agentFilter === "rain") analysisQs.set("gf_agent", RAIN_AGENT);
 
       const handoffQs = new URLSearchParams({ hours: "48" });
       if (leadsSource) handoffQs.set("leads_source", leadsSource);
@@ -124,7 +131,7 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
     } finally {
       setLoading(false);
     }
-  }, [from, to, direction, leadsSource, system, global, orgId, campaignId]);
+  }, [from, to, direction, leadsSource, system, global, orgId, campaignId, agentFilter]);
 
   useEffect(() => {
     fetchData();
@@ -137,6 +144,7 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
     const base = new URLSearchParams({
       from: todayStart, to: now.toISOString(), leads_source: src, limit: "500",
       ...(system && system !== "all" ? { system } : {}),
+      ...(agentFilter === "rain" && { gf_agent: RAIN_AGENT }),
     });
     try {
       type Row = { id: string; to_e164?: string | null };
@@ -156,7 +164,7 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
     } catch { /* silent — don't block the rest of the tab */ } finally {
       setLiveLoading(false);
     }
-  }, [leadsSource, system]);
+  }, [leadsSource, system, agentFilter]);
 
   useEffect(() => {
     loadLive();
@@ -225,6 +233,29 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+
+      {/* ── Agent filter ─────────────────────────────────────────────────── */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ fontSize: 12, fontWeight: 600, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.5 }}>
+          {t("Agent")}
+        </span>
+        {(["all", "rain"] as const).map((opt) => (
+          <button
+            key={opt}
+            type="button"
+            onClick={() => setAgentFilter(opt)}
+            style={{
+              fontSize: 12, padding: "4px 14px", borderRadius: 99, cursor: "pointer",
+              border: `1px solid ${agentFilter === opt ? "var(--accent)" : "var(--border)"}`,
+              background: agentFilter === opt ? "color-mix(in srgb, var(--accent) 15%, transparent)" : "transparent",
+              color: agentFilter === opt ? "var(--accent)" : "var(--muted)",
+              fontWeight: agentFilter === opt ? 700 : 400,
+            }}
+          >
+            {opt === "all" ? t("Tous les agents") : "Rain"}
+          </button>
+        ))}
+      </div>
 
       {/* ── Fil Actif — Live priority board ──────────────────────────────── */}
       <div>
