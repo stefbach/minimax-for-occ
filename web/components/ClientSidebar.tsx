@@ -9,7 +9,7 @@ import { OrgSwitcher } from "./OrgSwitcher";
 import { ThemeLangSwitcher } from "./ThemeLangSwitcher";
 import { useT } from "@/lib/i18n";
 import { supabaseBrowser } from "@/lib/supabase-browser";
-import { Heart, Menu, Music, Pencil, Settings, X, Zap } from "lucide-react";
+import { ChevronLeft, ChevronRight, Heart, Menu, Music, Pencil, Settings, X, Zap } from "lucide-react";
 import { effectiveModules, isModuleId, type ModuleId } from "@/lib/permissions";
 
 // Width below which the sidebar morphs into a slide-in drawer. Kept in sync
@@ -122,9 +122,20 @@ export function ClientSidebar() {
   const [visibleModules, setVisibleModules] = useState<ModuleId[] | null>(null);
   const [loadedRole, setLoadedRole] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
   // Mobile drawer state — only meaningful below MOBILE_BREAKPOINT; ignored
   // by the CSS on desktop where the sidebar is permanently visible.
   const [drawerOpen, setDrawerOpen] = useState(false);
+
+  // Init collapsed state from localStorage, then sync to html dataset.
+  useEffect(() => {
+    const stored = localStorage.getItem("sidebar-collapsed");
+    if (stored === "1") setCollapsed(true);
+  }, []);
+  useEffect(() => {
+    document.documentElement.dataset.sidebarCollapsed = collapsed ? "1" : "0";
+    localStorage.setItem("sidebar-collapsed", collapsed ? "1" : "0");
+  }, [collapsed]);
 
   // Close the drawer whenever the route changes — otherwise a user who taps a
   // nav link sees the overlay linger on top of the destination page.
@@ -252,14 +263,16 @@ export function ClientSidebar() {
         href={n.href}
         className={`nav-link ${active ? "active" : ""}`}
         aria-label={n.label}
+        title={collapsed ? t(n.label) : undefined}
         aria-current={active ? "page" : undefined}
         onClick={() => setDrawerOpen(false)}
-        style={n.indent ? { paddingLeft: 30 } : undefined}
+        style={n.indent && !collapsed ? { paddingLeft: 30 } : undefined}
       >
-        <span aria-hidden="true" style={{ width: 16, opacity: 0.7, fontSize: n.indent ? 12 : undefined }}>{n.icon}</span>
-        <span style={{ flex: 1, fontSize: n.indent ? 13 : undefined, opacity: n.indent && !active ? 0.85 : undefined }}>{t(n.label)}</span>
+        <span aria-hidden="true" style={{ width: 16, opacity: 0.7, fontSize: n.indent ? 12 : undefined, flexShrink: 0 }}>{n.icon}</span>
+        <span className="sidebar-label" style={{ flex: 1, fontSize: n.indent ? 13 : undefined, opacity: n.indent && !active ? 0.85 : undefined }}>{t(n.label)}</span>
         {n.href === "/desk" && deskBadge > 0 ? (
           <span
+            className="sidebar-label"
             aria-label={`${deskBadge} pending task${deskBadge > 1 ? "s" : ""}`}
             style={{
               minWidth: 20,
@@ -314,13 +327,14 @@ export function ClientSidebar() {
         <Brand size={18} />
       </Link>
 
-      <div style={{ marginTop: 10, marginBottom: 4, paddingBottom: 10, borderBottom: "1px solid var(--border)" }}>
+      <div className="sidebar-extras" style={{ marginTop: 10, marginBottom: 4, paddingBottom: 10, borderBottom: "1px solid var(--border)" }}>
         <ThemeLangSwitcher />
       </div>
 
       {GROUP_ORDER.filter((g) => groups[g]?.length).map((group) => (
         <div key={group} style={{ marginTop: 6 }}>
           <div
+            className="sidebar-group-label"
             style={{
               fontSize: 10,
               color: "var(--muted-2)",
@@ -381,7 +395,35 @@ export function ClientSidebar() {
         </div>
       )}
 
-      <div style={{ marginTop: "auto" }}>
+      {/* Collapse toggle button */}
+      <button
+        type="button"
+        onClick={() => setCollapsed((v) => !v)}
+        title={collapsed ? t("Ouvrir le menu") : t("Réduire le menu")}
+        aria-label={collapsed ? t("Ouvrir le menu") : t("Réduire le menu")}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: collapsed ? "center" : "flex-end",
+          gap: 6,
+          marginTop: "auto",
+          padding: "7px 10px",
+          borderRadius: 8,
+          background: "transparent",
+          border: "1px solid var(--border)",
+          color: "var(--muted)",
+          cursor: "pointer",
+          fontSize: 12,
+          width: "100%",
+          boxSizing: "border-box",
+          transition: "color 0.15s",
+        }}
+      >
+        {!collapsed && <span className="sidebar-label" style={{ fontSize: 11 }}>{t("Réduire")}</span>}
+        {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+      </button>
+
+      <div className="sidebar-extras">
         {/* Super-admin: jump to the Axon admin app — made prominent */}
         {loadedRole && role === "super_admin" && (
           <div style={{ padding: "8px 10px 4px" }}>
