@@ -551,17 +551,17 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
         {/* ─── Follow-up phases ──────────────────────────────────────── */}
         <section>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-            <h4 style={{ margin: "0 0 8px 0", fontSize: 14 }}>Follow-up phases</h4>
-            {!isUnlocked("phases") && unlockBtn("phases", "Follow-up phases")}
+            <h4 style={{ margin: "0 0 8px 0", fontSize: 14 }}>{t("Phases de relance")}</h4>
+            {!isUnlocked("phases") && unlockBtn("phases", t("Phases de relance"))}
           </div>
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse" }}>
               <thead>
                 <tr>
-                  <th style={{ textAlign: "left", padding: 4 }}>Name</th>
-                  <th style={{ textAlign: "left", padding: 4 }}>Date col.</th>
-                  <th style={{ textAlign: "left", padding: 4 }}>Attempts col.</th>
-                  <th style={{ textAlign: "left", padding: 4 }}>Wait (business days)</th>
+                  <th style={{ textAlign: "left", padding: 4 }}>{t("Nom")}</th>
+                  <th style={{ textAlign: "left", padding: 4 }}>{t("Col. date")}</th>
+                  <th style={{ textAlign: "left", padding: 4 }}>{t("Col. tentatives")}</th>
+                  <th style={{ textAlign: "left", padding: 4 }}>{t("Attente (jours ouvrés)")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -593,7 +593,7 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8 }}>
             <div>
-              <label style={{ fontSize: 12 }}>Max attempts per phase</label>
+              <label style={{ fontSize: 12 }}>{t("Max tentatives par phase")}</label>
               <input
                 type="number"
                 min={1}
@@ -611,7 +611,7 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
                 disabled={!isUnlocked("phases")}
                 style={{ width: "auto" }}
               />
-              Count in business days
+              {t("Compter en jours ouvrés")}
             </label>
           </div>
           {!isUnlocked("phases") && lockedNote}
@@ -620,20 +620,20 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
         {/* ─── Volume ────────────────────────────────────────────────── */}
         <section>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-            <h4 style={{ margin: "0 0 8px 0", fontSize: 14 }}>Volume / Pacing</h4>
-            {!isUnlocked("volume") && unlockBtn("volume", "Volume")}
+            <h4 style={{ margin: "0 0 8px 0", fontSize: 14 }}>{t("Volume / Cadence")}</h4>
+            {!isUnlocked("volume") && unlockBtn("volume", t("Volume"))}
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
             <div>
-              <label style={{ fontSize: 12 }}>Lead cap / day</label>
+              <label style={{ fontSize: 12 }}>{t("Plafond leads / jour")}</label>
               <input type="number" min={1} value={maxNewPerDay} onChange={(e) => setMaxNewPerDay(Number(e.target.value) || 1)} disabled={!isUnlocked("volume")} />
             </div>
             <div>
-              <label style={{ fontSize: 12 }}>Wave size</label>
+              <label style={{ fontSize: 12 }}>{t("Taille de vague")}</label>
               <input type="number" min={1} value={waveSize} onChange={(e) => setWaveSize(Number(e.target.value) || 1)} disabled={!isUnlocked("volume")} />
             </div>
             <div>
-              <label style={{ fontSize: 12 }}>Pause / call (s)</label>
+              <label style={{ fontSize: 12 }}>{t("Pause / appel (s)")}</label>
               <input type="number" min={0} value={wavePauseSecs} onChange={(e) => setWavePauseSecs(Number(e.target.value) || 0)} disabled={!isUnlocked("volume")} />
             </div>
           </div>
