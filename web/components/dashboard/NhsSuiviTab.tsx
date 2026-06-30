@@ -232,7 +232,7 @@ function NhsSuiviTabInner({
   if (view.name === "report-list") {
     return (
       <NhsReportListView
-        data={data}
+        data={data!}
         reportKey={view.key}
         onBack={() => setView({ name: "dashboard" })}
         onChangeKey={(key) => setView({ name: "report-list", key })}
