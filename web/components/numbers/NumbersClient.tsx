@@ -242,8 +242,8 @@ export function NumbersClient({
     const j = await r.json().catch(() => ({} as { webhook_warning?: string }));
     setActionNote(
       j?.webhook_warning
-        ? t("Numéro {{number}} acheté mais webhook non configuré: {{warning}}", { number: phoneNumber, warning: j.webhook_warning })
-        : t("Numéro {{number}} acheté et webhook Twilio configuré automatiquement.", { number: phoneNumber }),
+        ? `${t("Numéro")} ${phoneNumber} ${t("acheté mais webhook non configuré")}: ${j.webhook_warning}`
+        : `${t("Numéro")} ${phoneNumber} ${t("acheté et webhook Twilio configuré automatiquement.")}`,
     );
     setResults((cur) => (cur ? cur.filter((n) => n.phoneNumber !== phoneNumber) : cur));
     refresh();
@@ -276,8 +276,8 @@ export function NumbersClient({
     const j = await r.json().catch(() => ({} as { webhook_warning?: string }));
     setActionNote(
       j?.webhook_warning
-        ? t("Numéro {{number}} importé mais webhook non reconfiguré: {{warning}}", { number: e164, warning: j.webhook_warning })
-        : t("Numéro {{number}} importé et webhook Twilio reconfiguré automatiquement.", { number: e164 }),
+        ? `${t("Numéro")} ${e164} ${t("importé mais webhook non reconfiguré")}: ${j.webhook_warning}`
+        : `${t("Numéro")} ${e164} ${t("importé et webhook Twilio reconfiguré automatiquement.")}`,
     );
     setImportE164("");
     setImportLabel("");
@@ -285,7 +285,7 @@ export function NumbersClient({
   }
 
   async function release(row: PhoneNumberRow) {
-    if (!confirm(t("Libérer {{number}} ? Le numéro sera supprimé de Twilio et de la base.", { number: row.e164 }))) return;
+    if (!confirm(`${t("Libérer")} ${row.e164} ? ${t("Le numéro sera supprimé de Twilio et de la base.")}`)) return;
     setActionError(null);
     setActionNote(null);
     const r = await fetch(`/api/numbers?id=${row.id}`, { method: "DELETE" });
@@ -324,7 +324,7 @@ export function NumbersClient({
       setActionError(j.error ?? t("Configuration webhook en échec"));
       return;
     }
-    setActionNote(t("Webhook reconfiguré pour {{number}}.", { number: row.e164 }));
+    setActionNote(`${t("Webhook reconfiguré pour")} ${row.e164}.`);
     if (j?.row) {
       setRows((cur) => cur.map((n) => (n.id === row.id ? (j.row as PhoneNumberRow) : n)));
     } else {
@@ -339,7 +339,7 @@ export function NumbersClient({
   ) {
     if (selected.size === 0) return;
     const ids = Array.from(selected);
-    if (action === "delete" && !confirm(t("Supprimer {{count}} numéro(s) ? Ils seront aussi libérés chez Twilio.", { count: ids.length }))) {
+    if (action === "delete" && !confirm(`${t("Supprimer")} ${ids.length} ${t("numéro(s) ? Ils seront aussi libérés chez Twilio.")}`)) {
       return;
     }
     setBulkBusy(true);
@@ -358,11 +358,7 @@ export function NumbersClient({
     }
     const j = await r.json().catch(() => ({}));
     setActionNote(
-      t("Action « {{action}} » appliquée à {{count}} numéro(s).{{warnings}}", {
-        action,
-        count: j.affected ?? ids.length,
-        warnings: j.warnings?.length ? ` (${j.warnings.length} ${t("avertissement(s)")})` : "",
-      }),
+      `${t("Action")} « ${action} » ${t("appliquée à")} ${j.affected ?? ids.length} ${t("numéro(s).")}${j.warnings?.length ? ` (${j.warnings.length} ${t("avertissement(s)")})` : ""}`,
     );
     clearSelection();
     refresh();

@@ -287,7 +287,7 @@ export function DataTableDetail({
         body: JSON.stringify({ values: draft }),
       });
       const body = await r.json();
-      if (!r.ok) { setError(body.error ?? t("Échec ({{status}})", { status: r.status })); return; }
+      if (!r.ok) { setError(body.error ?? t("Échec") + ` (${r.status})`); return; }
       setRows((prev) => [body, ...prev]);
       setTotal((prev) => prev + 1);
       setDraft({});
@@ -325,7 +325,7 @@ export function DataTableDetail({
       });
       const body = await r.json();
       if (!r.ok) {
-        setEditError(body.error ?? t("Échec ({{status}})", { status: r.status }));
+        setEditError(body.error ?? t("Échec") + ` (${r.status})`);
         return;
       }
       setRows((prev) => prev.map((row) => ((row.id as string) === editingId ? body : row)));
@@ -348,7 +348,7 @@ export function DataTableDetail({
       });
       if (!r.ok) {
         const body = await r.json().catch(() => ({}));
-        alert((body as { error?: string }).error ?? t("Échec suppression ({{status}})", { status: r.status }));
+        alert((body as { error?: string }).error ?? t("Échec suppression") + ` (${r.status})`);
         return;
       }
       setRows((prev) => prev.filter((row) => (row.id as string) !== id));
