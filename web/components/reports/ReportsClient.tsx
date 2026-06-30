@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { ReportPayload, ReportType } from "@/lib/reports/types";
 import { ReportViewer } from "./ReportViewer";
-import { useT } from "@/lib/i18n";
+import { useT, useLang } from "@/lib/i18n";
 
 interface TemplateOption {
   id: ReportType;
@@ -80,11 +80,12 @@ function isoDaysAgoUtc(days: number): string {
 
 export function ReportsClient() {
   const t = useT();
+  const siteLang = useLang();
   const [type, setType] = useState<ReportType>("pilotage_hebdo");
   const [period, setPeriod] = useState<Period>("this_week");
   const [customFrom, setCustomFrom] = useState<string>(isoDaysAgoUtc(7));
   const [customTo, setCustomTo] = useState<string>(isoTodayUtc());
-  const [lang, setLang] = useState<"fr" | "en">("fr");
+  const [lang, setLang] = useState<"fr" | "en">(() => siteLang === "en" ? "en" : "fr");
   const [loading, setLoading] = useState(false);
   const [xlsxLoading, setXlsxLoading] = useState(false);
   const [report, setReport] = useState<ReportPayload | null>(null);
@@ -138,7 +139,7 @@ export function ReportsClient() {
       if (!res.ok) throw new Error(j?.error ?? `HTTP ${res.status}`);
       setReport(j as ReportPayload);
     } catch (e) {
-      setError(e instanceof Error ? e.message : (isFr ? "Erreur génération" : "Generation error"));
+      setError(e instanceof Error ? e.message : t("Erreur génération"));
     } finally {
       setLoading(false);
     }
@@ -159,7 +160,7 @@ export function ReportsClient() {
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
-      setError(e instanceof Error ? e.message : (isFr ? "Erreur export" : "Export error"));
+      setError(e instanceof Error ? e.message : t("Erreur export"));
     } finally {
       setXlsxLoading(false);
     }
@@ -181,7 +182,7 @@ export function ReportsClient() {
               cursor: "pointer",
             }}
           >
-            ← {isFr ? "Nouveau rapport" : "New report"}
+            ← {t("Nouveau rapport")}
           </button>
         </div>
         <ReportViewer report={report} />
@@ -190,21 +191,19 @@ export function ReportsClient() {
   }
 
   const PERIODS: Array<{ id: Period; label: string; hint: string }> = [
-    { id: "today", label: isFr ? "Aujourd'hui" : "Today", hint: isFr ? "journée en cours" : "current day" },
-    { id: "this_week", label: isFr ? "Cette semaine" : "This week", hint: isFr ? "7 derniers jours" : "last 7 days" },
-    { id: "this_month", label: isFr ? "Ce mois" : "This month", hint: isFr ? "depuis le 1er" : "since 1st" },
-    { id: "custom", label: isFr ? "Personnalisé" : "Custom", hint: isFr ? "choisir les dates" : "pick dates" },
+    { id: "today", label: t("Aujourd'hui"), hint: t("journée en cours") },
+    { id: "this_week", label: t("Cette semaine"), hint: t("7 derniers jours") },
+    { id: "this_month", label: t("Ce mois"), hint: t("depuis le 1er") },
+    { id: "custom", label: t("Personnalisé"), hint: t("choisir les dates") },
   ];
 
   return (
     <div style={{ maxWidth: 1080, margin: "0 auto" }}>
       <div className="page-header" style={{ marginBottom: 22, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
         <div>
-          <h1>{isFr ? "Rapports de pilotage" : "Management Reports"}</h1>
+          <h1>{t("Rapports de pilotage")}</h1>
           <div className="subtitle">
-            {isFr
-              ? "Synthèse exécutive, KPIs, plan d'action et vigilance — générés à la demande."
-              : "Executive summary, KPIs, action plan and watchpoints — generated on demand."}
+            {t("Synthèse exécutive, KPIs, plan d'action et vigilance — générés à la demande.")}
           </div>
         </div>
         {/* Language toggle */}
@@ -234,10 +233,10 @@ export function ReportsClient() {
       {/* SECTION 1 — TYPE */}
       <div style={{ marginBottom: 8, display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
         <div style={{ fontSize: 11, letterSpacing: 1, textTransform: "uppercase", fontWeight: 700, color: "var(--muted-2)" }}>
-          1 · {isFr ? "Choisir le type de rapport" : "Choose report type"}
+          1 · {t("Choisir le type de rapport")}
         </div>
         <div style={{ fontSize: 11, color: "var(--muted-2)" }}>
-          {TEMPLATES.filter((t) => t.available).length} {isFr ? "disponible" : "available"} · {TEMPLATES.filter((t) => !t.available).length} {isFr ? "à venir" : "coming soon"}
+          {TEMPLATES.filter((tpl) => tpl.available).length} {t("disponible")} · {TEMPLATES.filter((tpl) => !tpl.available).length} {t("à venir")}
         </div>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 10, marginBottom: 26 }}>
@@ -271,7 +270,7 @@ export function ReportsClient() {
                 <span style={{ fontWeight: 600, fontSize: 13.5, flex: 1 }}>{isFr ? tpl.label : tpl.labelEn}</span>
                 {!tpl.available && (
                   <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.5, padding: "2px 6px", borderRadius: 3, background: "var(--surface-3, rgba(0,0,0,0.08))", color: "var(--muted-2)" }}>
-                    {isFr ? "BIENTÔT" : "SOON"}
+                    {t("BIENTÔT")}
                   </span>
                 )}
                 {selected && tpl.available && <span aria-hidden="true" style={{ fontSize: 14, color: "var(--accent)", fontWeight: 700 }}>✓</span>}
@@ -286,7 +285,7 @@ export function ReportsClient() {
 
       {/* SECTION 2 — PÉRIODE */}
       <div style={{ marginBottom: 8, fontSize: 11, letterSpacing: 1, textTransform: "uppercase", fontWeight: 700, color: "var(--muted-2)" }}>
-        2 · {isFr ? "Choisir la période" : "Choose period"}
+        2 · {t("Choisir la période")}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 14 }}>
         {PERIODS.map((p) => {
@@ -320,11 +319,11 @@ export function ReportsClient() {
       {period === "custom" && (
         <div style={{ display: "flex", gap: 12, marginBottom: 14 }}>
           <div style={{ flex: 1 }}>
-            <label style={{ fontSize: 11, color: "var(--muted-2)", marginBottom: 4, display: "block" }}>{isFr ? "Du" : "From"}</label>
+            <label style={{ fontSize: 11, color: "var(--muted-2)", marginBottom: 4, display: "block" }}>{t("Du")}</label>
             <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} style={{ width: "100%", padding: 8, border: "1px solid var(--border)", borderRadius: 5, fontSize: 13 }} />
           </div>
           <div style={{ flex: 1 }}>
-            <label style={{ fontSize: 11, color: "var(--muted-2)", marginBottom: 4, display: "block" }}>{isFr ? "Au" : "To"}</label>
+            <label style={{ fontSize: 11, color: "var(--muted-2)", marginBottom: 4, display: "block" }}>{t("Au")}</label>
             <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} style={{ width: "100%", padding: 8, border: "1px solid var(--border)", borderRadius: 5, fontSize: 13 }} />
           </div>
         </div>
@@ -353,10 +352,10 @@ export function ReportsClient() {
           {loading ? (
             <>
               <span style={{ display: "inline-block", width: 13, height: 13, border: "2px solid white", borderTopColor: "transparent", borderRadius: "50%", animation: "rpt-spin 0.8s linear infinite" }} />
-              {isFr ? "Génération en cours…" : "Generating…"}
+              {t("Génération en cours…")}
             </>
           ) : (
-            <>{isFr ? "✦ Générer le rapport" : "✦ Generate report"}</>
+            <>{t("✦ Générer le rapport")}</>
           )}
         </button>
 
@@ -381,17 +380,17 @@ export function ReportsClient() {
           {xlsxLoading ? (
             <>
               <span style={{ display: "inline-block", width: 13, height: 13, border: "2px solid white", borderTopColor: "transparent", borderRadius: "50%", animation: "rpt-spin 0.8s linear infinite" }} />
-              {isFr ? "Export…" : "Exporting…"}
+              {t("Export…")}
             </>
           ) : (
-            <>{isFr ? "⬇ Export Excel patients" : "⬇ Export patients Excel"}</>
+            <>{t("⬇ Export Excel patients")}</>
           )}
         </button>
 
         <span style={{ fontSize: 12, color: "var(--muted-2)" }}>
           {loading
-            ? (isFr ? "Lecture des appels + rédaction IA, ~5 secondes." : "Reading calls + AI writing, ~5 sec.")
-            : (isFr ? "Le rapport s'ouvre dans un viewer, exportable en PDF." : "Report opens in viewer, exportable to PDF.")}
+            ? t("Lecture des appels + rédaction IA, ~5 secondes.")
+            : t("Le rapport s'ouvre dans un viewer, exportable en PDF.")}
         </span>
       </div>
 
