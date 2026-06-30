@@ -95,8 +95,17 @@ export function Softphone({ compact = false, onExpand, deskSlotEl }: SoftphonePr
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
+  // Pre-populate handle from localStorage so the desk UI shows immediately on
+  // mount/reload without a flash of "not configured". Confirmed by bootstrap.
   const [bootstrapping, setBootstrapping] = useState(true);
-  const [handle, setHandle] = useState<Handle | null>(null);
+  const [handle, setHandle] = useState<Handle | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const saved = window.localStorage.getItem("axon.softphone.handle");
+      if (saved) return JSON.parse(saved) as Handle;
+    } catch { /* ignore */ }
+    return null;
+  });
   const [registering, setRegistering] = useState(false);
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
   // Optional display name passed via ?name= for context next to the
@@ -445,8 +454,10 @@ export function Softphone({ compact = false, onExpand, deskSlotEl }: SoftphonePr
       if (error) throw error;
       if (data) {
         setHandle(data as Handle);
+        try { window.localStorage.setItem("axon.softphone.handle", JSON.stringify(data)); } catch { /* ignore */ }
       } else {
         setHandle(null);
+        try { window.localStorage.removeItem("axon.softphone.handle"); } catch { /* ignore */ }
       }
     } catch (e) {
       setBootstrapError(e instanceof Error ? e.message : String(e));
@@ -518,7 +529,9 @@ export function Softphone({ compact = false, onExpand, deskSlotEl }: SoftphonePr
       const r = await fetch("/api/desk/register", { method: "POST" });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error ?? "register failed");
-      setHandle({ id: data.id, org_id: data.org_id, display_name: data.display_name });
+      const h = { id: data.id, org_id: data.org_id, display_name: data.display_name };
+      setHandle(h);
+      try { window.localStorage.setItem("axon.softphone.handle", JSON.stringify(h)); } catch { /* ignore */ }
     } catch (e) {
       setBootstrapError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -535,6 +548,20 @@ export function Softphone({ compact = false, onExpand, deskSlotEl }: SoftphonePr
       body: JSON.stringify({ status }),
     }).catch(() => {});
   }, [status, handle]);
+
+  // On mount: immediately sync server presence to match localStorage status.
+  // Guards against the F5/tab-close scenario where sendBeacon("offline") fired
+  // on unload but localStorage still holds "available". Without this, the agent
+  // would appear offline to human-first routing for up to 25s after reload.
+  useEffect(() => {
+    if (!handle || status === "offline") return;
+    void fetch("/api/desk/presence", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ status }),
+    }).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [handle?.id]); // intentionally only on handle resolved — not on every status change
 
   // Heartbeat presence every 25s while not offline.
   useEffect(() => {
