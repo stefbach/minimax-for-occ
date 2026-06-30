@@ -99,8 +99,9 @@ export async function middleware(req: NextRequest) {
   await supabase.auth.getUser(); // refresh cookies if needed
 
   const path = req.nextUrl.pathname;
+  // "/" is the public marketing homepage — exact match only.
   const publicPaths = ["/login", "/signup", "/auth", "/api", "/_next", "/favicon"];
-  if (publicPaths.some((p) => path.startsWith(p))) {
+  if (path === "/" || publicPaths.some((p) => path.startsWith(p))) {
     return res;
   }
 
