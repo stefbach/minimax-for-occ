@@ -726,7 +726,7 @@ export async function dialTarget(job: DialJob): Promise<void> {
             to: isWa ? `whatsapp:${toE164}` : toE164,
             from: isWa ? `whatsapp:${chFrom}` : chFrom,
             contentSid: ch.contentSid,
-            variables: { "1": firstName },
+            variables: { "1": firstName, "number": chFrom },
           });
           anySent = true;
           dlog("info", { ...ctx, call_id: sms.sid }, `precall-${ch.channel} sent to=${toE164} attempt=${upcoming} — dial in ~${leadMin}min`);
