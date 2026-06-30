@@ -19,6 +19,13 @@ interface Phase {
   attempts_column: string;
   wait_business_days: number;
 }
+interface PrecallMessage {
+  enabled?: boolean;
+  lead_minutes?: number;
+  sms?: { content_sid?: string | null; from?: string | null } | null;
+  whatsapp?: { content_sid?: string | null; from?: string | null } | null;
+}
+
 interface EngineConfig {
   slots?: { days?: number[]; hours?: string[]; timezone?: string };
   volume?: { wave_size?: number; max_new_per_day?: number; wave_pause_secs?: number };
@@ -52,7 +59,7 @@ interface Props {
     agent_team_id?: string | null;
     phone_number_id?: string | null;
     data_table_id?: string | null;
-    metadata?: { engine?: EngineConfig } | null;
+    metadata?: { engine?: EngineConfig; precall_message?: PrecallMessage | null } | null;
   };
   onClose: () => void;
 }
@@ -134,6 +141,13 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
   const [callbackEnabled, setCallbackEnabled] = useState(engine0.callback?.enabled ?? true);
   const [callbackStatus, setCallbackStatus] = useState(engine0.callback?.status_value ?? "RAPPEL");
   const [callbackCol, setCallbackCol] = useState(engine0.callback?.datetime_column ?? "rappel_rdv");
+
+  const pm0 = initial.metadata?.precall_message ?? {};
+  const [precallEnabled, setPrecallEnabled] = useState(pm0.enabled ?? false);
+  const [precallLeadMin, setPrecallLeadMin] = useState(pm0.lead_minutes ?? 2);
+  const [precallSmsContentSid, setPrecallSmsContentSid] = useState(pm0.sms?.content_sid ?? "");
+  const [precallSmsFrom, setPrecallSmsFrom] = useState(pm0.sms?.from ?? "");
+  const [precallWaContentSid, setPrecallWaContentSid] = useState(pm0.whatsapp?.content_sid ?? "");
 
   // ─── State: which structural sections are unlocked for edit ──────────
   const [unlocked, setUnlocked] = useState<Record<string, boolean>>({});
@@ -262,7 +276,10 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
           include_statuses: includeStatuses,
         },
       };
-      const metadata = { ...(initial.metadata ?? {}), engine: engineMerged };
+      const precallMessage: PrecallMessage = { enabled: precallEnabled, lead_minutes: precallLeadMin };
+      if (precallSmsContentSid) precallMessage.sms = { content_sid: precallSmsContentSid, from: precallSmsFrom || null };
+      if (precallWaContentSid) precallMessage.whatsapp = { content_sid: precallWaContentSid, from: null };
+      const metadata = { ...(initial.metadata ?? {}), engine: engineMerged, precall_message: precallMessage };
 
       const payload: Record<string, unknown> = {
         name: name.trim(),
@@ -661,6 +678,70 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
             </div>
           </div>
           {!isUnlocked("callback") && lockedNote}
+        </section>
+
+        {/* ─── Pre-call message ─────────────────────────────────────── */}
+        <section>
+          <h4 style={{ margin: "0 0 8px 0", fontSize: 14 }}>Pre-call SMS / WhatsApp</h4>
+          <div style={{ display: "grid", gap: 10 }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+              <input
+                type="checkbox"
+                checked={precallEnabled}
+                onChange={(e) => setPrecallEnabled(e.target.checked)}
+                style={{ width: "auto" }}
+              />
+              Send a message X minutes before each call
+            </label>
+            {precallEnabled && (
+              <div style={{ display: "grid", gap: 10, paddingLeft: 22 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 10, alignItems: "end" }}>
+                  <div>
+                    <label style={{ fontSize: 12 }}>Minutes before call</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={15}
+                      value={precallLeadMin}
+                      onChange={(e) => setPrecallLeadMin(Math.max(1, Math.min(15, Number(e.target.value) || 2)))}
+                    />
+                  </div>
+                </div>
+                <div style={{ display: "grid", gap: 6 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600 }}>SMS</label>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                    <div>
+                      <label style={{ fontSize: 12 }}>Content SID (HX…)</label>
+                      <input
+                        value={precallSmsContentSid}
+                        onChange={(e) => setPrecallSmsContentSid(e.target.value.trim())}
+                        placeholder="HX248b9be8…"
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 12 }}>From number (optional)</label>
+                      <input
+                        value={precallSmsFrom}
+                        onChange={(e) => setPrecallSmsFrom(e.target.value.trim())}
+                        placeholder="+447…"
+                      />
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: "grid", gap: 6 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600 }}>WhatsApp (optional)</label>
+                  <div>
+                    <label style={{ fontSize: 12 }}>Content SID (HX…)</label>
+                    <input
+                      value={precallWaContentSid}
+                      onChange={(e) => setPrecallWaContentSid(e.target.value.trim())}
+                      placeholder="HX… (leave empty to use SMS only)"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         </section>
 
         {/* ─── Advanced ─────────────────────────────────────────────── */}

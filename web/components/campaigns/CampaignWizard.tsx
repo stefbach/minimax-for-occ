@@ -982,14 +982,16 @@ export function CampaignWizard({
             wave_size: s.wave_size ?? prev.volume.wave_size,
           },
         };
-        // Map cumulative relance markers ([1,3,5]) onto the detected phases'
-        // wait_business_days (deltas: 1,2,2), capped to however many phases the
-        // table actually exposes.
+        // Map cumulative relance markers ([0,2,4]) onto the detected phases'
+        // wait_business_days (deltas: 0,2,2), capped to however many phases the
+        // table actually exposes. J1 (i=0) ALWAYS starts immediately (wait=0)
+        // regardless of markers[0] — it is the first contact attempt, not a
+        // relance. Subsequent deltas are markers[i] - markers[i-1].
         const markers = s.relance_days_after_first;
         if (markers && markers.length > 0 && prev.cadence.phases.length > 0) {
           const phases = prev.cadence.phases.slice(0, markers.length).map((ph, i) => ({
             ...ph,
-            wait_business_days: i === 0 ? markers[0] : markers[i] - markers[i - 1],
+            wait_business_days: i === 0 ? 0 : markers[i] - markers[i - 1],
           }));
           next.cadence = { ...prev.cadence, enabled: true, phases };
         }
