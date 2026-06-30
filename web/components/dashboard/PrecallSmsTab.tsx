@@ -265,7 +265,18 @@ export function PrecallSmsTab({ from, to, global }: { from: string; to: string; 
         </button>
 
         <button type="button" className="card" style={kpiCardStyle} onMouseEnter={hoverIn} onMouseLeave={hoverOut}
-          onClick={() => openSmsDrill(t("Décrochés — leads uniques"), "✅", "var(--good)", (r) => r.answered === "answered")}>
+          onClick={() => {
+            const seen = new Set<string>();
+            const uniqueRows = scoped.filter((r: SmsRow) => {
+              if (r.answered !== "answered") return false;
+              const key = r.contact_id ?? r.to_e164 ?? r.id;
+              if (seen.has(key)) return false;
+              seen.add(key);
+              return true;
+            });
+            setSmsDrillSpec({ title: t("Décrochés — leads uniques"), icon: "✅", tone: "var(--good)", rows: uniqueRows });
+            setSmsDrillSelected(null);
+          }}>
           <div className="muted" style={{ fontSize: 11, textTransform: "uppercase" }}>{t("Décroché — leads uniques")}</div>
           <div style={{ fontSize: 26, fontWeight: 700, marginTop: 4, color: "var(--good)" }}>✅ {kpis.answeredLeads}</div>
           <div className="muted" style={{ fontSize: 11 }}>{t("leads distincts ayant décroché")}</div>
