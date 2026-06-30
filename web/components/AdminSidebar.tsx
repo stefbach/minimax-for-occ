@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Brand } from "./brand/Brand";
+import { useT } from "@/lib/i18n";
 
 interface NavItem {
   href: string;
@@ -27,6 +28,7 @@ const NAV: NavItem[] = [
 ];
 
 export function AdminSidebar() {
+  const t = useT();
   const pathname = usePathname() ?? "/";
 
   const groups: Record<string, NavItem[]> = {};
@@ -79,10 +81,10 @@ export function AdminSidebar() {
           href="/"
           className="nav-link"
           style={{ fontSize: 12, color: "var(--muted-2)" }}
-          aria-label="Exit admin mode"
+          aria-label={t("Quitter le mode admin")}
         >
           <span aria-hidden="true" style={{ width: 16, opacity: 0.7 }}>←</span>
-          <span>Exit admin mode</span>
+          <span>{t("Quitter le mode admin")}</span>
         </Link>
         <div style={{ padding: "10px 12px", color: "var(--muted-2)", fontSize: 11 }}>
           Axon Admin · v2

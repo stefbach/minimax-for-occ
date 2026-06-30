@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from "react";
 import type { AgentN8nWorkflow, N8nWorkflowSummary } from "@/lib/types";
+import { useT } from "@/lib/i18n";
 
 export function AgentN8nBindings({ agentId }: { agentId: string }) {
+  const t = useT();
   const [bindings, setBindings] = useState<AgentN8nWorkflow[]>([]);
   const [available, setAvailable] = useState<N8nWorkflowSummary[]>([]);
   const [busy, setBusy] = useState(false);
@@ -47,7 +49,7 @@ export function AgentN8nBindings({ agentId }: { agentId: string }) {
     setBusy(false);
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
-      setError(data.error ?? "binding failed");
+      setError(data.error ?? t("échec de la liaison"));
       return;
     }
     refresh();
@@ -57,7 +59,7 @@ export function AgentN8nBindings({ agentId }: { agentId: string }) {
     setBusy(true);
     const res = await fetch(`/api/agents/${agentId}/n8n?binding_id=${b.id}`, { method: "DELETE" });
     setBusy(false);
-    if (!res.ok) setError("unbind failed");
+    if (!res.ok) setError(t("échec de la suppression"));
     refresh();
   }
 
@@ -83,19 +85,19 @@ export function AgentN8nBindings({ agentId }: { agentId: string }) {
     <div style={{ display: "grid", gap: 16 }}>
       <div className="card" style={{ padding: 0, overflow: "hidden" }}>
         <div style={{ padding: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <h3 style={{ margin: 0 }}>Workflows accessible to this agent</h3>
+          <h3 style={{ margin: 0 }}>{t("Workflows accessibles à cet agent")}</h3>
           <button className="ghost" onClick={refresh} disabled={busy} style={{ padding: "6px 10px" }}>
-            ↻ Refresh
+            ↻ {t("Actualiser")}
           </button>
         </div>
         {bindings.length === 0 ? (
           <div style={{ padding: 16, color: "var(--muted)", borderTop: "1px solid var(--border)" }}>
-            No workflows linked. Choose one below from "Available workflows".
+            {t("Aucun workflow lié. Choisissez-en un ci-dessous dans « Workflows disponibles ».")}
           </div>
         ) : (
           <table className="list">
             <thead>
-              <tr><th>Name</th><th>Webhook</th><th>Status</th><th></th></tr>
+              <tr><th>{t("Nom")}</th><th>Webhook</th><th>{t("Statut")}</th><th></th></tr>
             </thead>
             <tbody>
               {bindings.map((b) => (
@@ -104,15 +106,15 @@ export function AgentN8nBindings({ agentId }: { agentId: string }) {
                   <td><span className="kbd">/{b.webhook_path}</span></td>
                   <td>
                     {b.enabled
-                      ? <span className="tag good">enabled</span>
-                      : <span className="tag">disabled</span>}
+                      ? <span className="tag good">{t("activé")}</span>
+                      : <span className="tag">{t("désactivé")}</span>}
                   </td>
                   <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                     <button className="ghost" onClick={() => toggle(b)} disabled={busy} style={{ padding: "5px 9px", marginRight: 6 }}>
-                      {b.enabled ? "Disable" : "Enable"}
+                      {b.enabled ? t("Désactiver") : t("Activer")}
                     </button>
                     <button className="danger" onClick={() => unbind(b)} disabled={busy} style={{ padding: "5px 9px" }}>
-                      Remove
+                      {t("Retirer")}
                     </button>
                   </td>
                 </tr>
@@ -123,9 +125,9 @@ export function AgentN8nBindings({ agentId }: { agentId: string }) {
       </div>
 
       <div className="card">
-        <h3 style={{ marginTop: 0 }}>Available n8n workflows</h3>
+        <h3 style={{ marginTop: 0 }}>{t("Workflows n8n disponibles")}</h3>
         {candidates.length === 0 ? (
-          <p className="muted">No active n8n workflow with a free webhook. Create one (with a Webhook node), activate it, then come back here.</p>
+          <p className="muted">{t("Aucun workflow n8n actif avec un webhook libre. Créez-en un (avec un nœud Webhook), activez-le, puis revenez ici.")}</p>
         ) : (
           <div style={{ display: "grid", gap: 8 }}>
             {candidates.map((w) => (
@@ -134,7 +136,7 @@ export function AgentN8nBindings({ agentId }: { agentId: string }) {
                   <div>
                     <div style={{ fontWeight: 600 }}>{w.name}</div>
                     <div style={{ fontSize: 12, color: "var(--muted)" }}>
-                      {w.tags.map((t) => <span key={t} className="tag" style={{ marginRight: 4 }}>{t}</span>)}
+                      {w.tags.map((tag) => <span key={tag} className="tag" style={{ marginRight: 4 }}>{tag}</span>)}
                     </div>
                   </div>
                   <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>

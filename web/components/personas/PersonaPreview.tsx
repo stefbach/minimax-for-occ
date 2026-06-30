@@ -1,6 +1,7 @@
 "use client";
 
 import { renderMarkdown } from "@/lib/help/markdown";
+import { useT } from "@/lib/i18n";
 
 export type PersonaPreviewData = {
   slug: string;
@@ -21,6 +22,7 @@ export type PersonaPreviewData = {
  * renderer, prefixed by a small metadata bar.
  */
 export function PersonaPreview({ persona }: { persona: PersonaPreviewData }) {
+  const t = useT();
   return (
     <div>
       <div
@@ -42,16 +44,16 @@ export function PersonaPreview({ persona }: { persona: PersonaPreviewData }) {
         {persona.max_call_duration_secs && (
           <span className="tag">max {persona.max_call_duration_secs}s</span>
         )}
-        {persona.tags.map((t) => (
-          <span key={t} className="tag" style={{ opacity: 0.8 }}>
-            #{t}
+        {persona.tags.map((t_) => (
+          <span key={t_} className="tag" style={{ opacity: 0.8 }}>
+            #{t_}
           </span>
         ))}
       </div>
 
       {persona.n8n_bindings_suggested.length > 0 && (
         <div style={{ marginBottom: 14, fontSize: 13 }}>
-          <strong>n8n bindings suggérés : </strong>
+          <strong>{t("n8n bindings suggérés :")} </strong>
           {persona.n8n_bindings_suggested.map((b, i) => (
             <span key={b}>
               <span className="kbd">{b}</span>
@@ -63,7 +65,7 @@ export function PersonaPreview({ persona }: { persona: PersonaPreviewData }) {
 
       {persona.handoff_team_suggested && (
         <div style={{ marginBottom: 14, fontSize: 13 }}>
-          <strong>Handoff team suggérée : </strong>
+          <strong>{t("Handoff team suggérée :")} </strong>
           <span className="kbd">{persona.handoff_team_suggested}</span>
         </div>
       )}

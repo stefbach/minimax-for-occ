@@ -1,32 +1,36 @@
 "use client";
 
 import type { DispositionBucket } from "@/app/api/dashboard/overview/route";
+import { useT } from "@/lib/i18n";
 
-const LABELS: Record<string, { label: string; color: string }> = {
-  resolved: { label: "Résolus", color: "var(--good)" },
-  abandoned: { label: "Abandonnés", color: "var(--bad)" },
-  transferred: { label: "Transférés", color: "var(--info)" },
-  voicemail: { label: "Messagerie", color: "var(--warn)" },
-  unknown: { label: "Inconnu", color: "var(--muted)" },
+const LABELS: Record<string, { labelKey: string; color: string }> = {
+  resolved: { labelKey: "Résolus", color: "var(--good)" },
+  abandoned: { labelKey: "Abandonnés", color: "var(--bad)" },
+  transferred: { labelKey: "Transférés", color: "var(--info)" },
+  voicemail: { labelKey: "Messagerie", color: "var(--warn)" },
+  unknown: { labelKey: "Inconnu", color: "var(--muted)" },
 };
 
 export function DispositionsList({ items }: { items: DispositionBucket[] }) {
+  const t = useT();
   const total = items.reduce((s, b) => s + b.count, 0);
 
   return (
     <div className="card" style={{ padding: 16 }}>
-      <h3 style={{ margin: 0, fontSize: 14 }}>Top dispositions (aujourd&apos;hui)</h3>
+      <h3 style={{ margin: 0, fontSize: 14 }}>{t("Top dispositions (aujourd'hui)")}</h3>
       <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
         Total: {total}
       </div>
       <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
         {items.length === 0 && (
           <div style={{ color: "var(--muted)", fontSize: 13 }}>
-            Aucune disposition enregistrée aujourd&apos;hui.
+            {t("Aucune disposition enregistrée aujourd'hui.")}
           </div>
         )}
         {items.map((b) => {
-          const meta = LABELS[b.disposition] ?? { label: b.disposition, color: "var(--muted)" };
+          const meta = LABELS[b.disposition]
+            ? { label: t(LABELS[b.disposition].labelKey), color: LABELS[b.disposition].color }
+            : { label: b.disposition, color: "var(--muted)" };
           const pct = total > 0 ? (b.count / total) * 100 : 0;
           return (
             <div key={b.disposition}>

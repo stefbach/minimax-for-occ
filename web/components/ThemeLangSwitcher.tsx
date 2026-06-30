@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useT } from "@/lib/i18n";
 
 // Lightweight theme + language switcher. Persists to localStorage and applies
 // `data-theme` / `data-lang` on <html> so any CSS or hook can react.
@@ -26,6 +27,7 @@ function applyLang(l: Lang) {
 }
 
 export function ThemeLangSwitcher() {
+  const t = useT();
   const [theme, setTheme] = useState<Theme>("dark");
   const [lang, setLang] = useState<Lang>("fr");
   const [hydrated, setHydrated] = useState(false);
@@ -76,15 +78,15 @@ export function ThemeLangSwitcher() {
   return (
     <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap", opacity: visibility, transition: "opacity 80ms" }}>
       <div style={pill}>
-        <SegButton active={theme === "dark"} onClick={() => updateTheme("dark")} title="Sombre" ariaLabel="Theme: dark">
+        <SegButton active={theme === "dark"} onClick={() => updateTheme("dark")} title={t("Sombre")} ariaLabel="Theme: dark">
           ☾
         </SegButton>
-        <SegButton active={theme === "light"} onClick={() => updateTheme("light")} title="Clair" ariaLabel="Theme: light">
+        <SegButton active={theme === "light"} onClick={() => updateTheme("light")} title={t("Clair")} ariaLabel="Theme: light">
           ☀
         </SegButton>
       </div>
       <div style={pill}>
-        <SegButton active={lang === "fr"} onClick={() => updateLang("fr")} title="Français" ariaLabel="Language: French">
+        <SegButton active={lang === "fr"} onClick={() => updateLang("fr")} title={t("Français")} ariaLabel="Language: French">
           FR
         </SegButton>
         <SegButton active={lang === "en"} onClick={() => updateLang("en")} title="English" ariaLabel="Language: English">

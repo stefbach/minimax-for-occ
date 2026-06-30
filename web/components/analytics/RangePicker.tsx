@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useT } from "@/lib/i18n";
 
 export type Range = { from: string; to: string };
 
@@ -28,6 +29,7 @@ function presetRange(p: Preset): Range {
 }
 
 export function RangePicker({ value, onChange }: Props) {
+  const t = useT();
   const [preset, setPreset] = useState<Preset>("7d");
 
   const setPresetAndEmit = (p: Preset) => {
@@ -63,9 +65,9 @@ export function RangePicker({ value, onChange }: Props) {
             style={{ padding: "6px 10px", fontSize: 13 }}
           >
             {p === "today"
-              ? "Aujourd'hui"
+              ? t("Aujourd'hui")
               : p === "custom"
-                ? "Personnalisé"
+                ? t("Personnalisé")
                 : p}
           </button>
         ))}

@@ -14,6 +14,7 @@
  */
 
 import { useState } from "react";
+import { useT } from "@/lib/i18n";
 import type {
   PreflightCheck,
   PreflightResult,
@@ -79,6 +80,7 @@ function ChecksGroup({
 }
 
 export function PreflightPanel({ result }: Props) {
+  const t = useT();
   const [showPassed, setShowPassed] = useState(false);
 
   const blockers = result.checks.filter((c) => c.severity === "blocker" && !c.passed);
@@ -98,20 +100,19 @@ export function PreflightPanel({ result }: Props) {
             : "var(--good)",
       }}
     >
-      <h3 style={{ marginBottom: 4 }}>Vérifications avant lancement</h3>
+      <h3 style={{ marginBottom: 4 }}>{t("Vérifications avant lancement")}</h3>
       <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>
-        10 contrôles automatiques sur la configuration. Les blocages doivent être levés
-        pour pouvoir créer la campagne.
+        {t("10 contrôles automatiques sur la configuration. Les blocages doivent être levés pour pouvoir créer la campagne.")}
       </div>
 
       <ChecksGroup
-        title="Blocages — à corriger"
+        title={t("Blocages — à corriger")}
         checks={blockers}
         color="var(--bad)"
         icon="⛔"
       />
       <ChecksGroup
-        title="Avertissements — recommandés"
+        title={t("Avertissements — recommandés")}
         checks={warnings}
         color="var(--warn)"
         icon="⚠️"
@@ -130,7 +131,7 @@ export function PreflightPanel({ result }: Props) {
             fontWeight: 600,
           }}
         >
-          ✓ Tout est prêt — tu peux lancer la campagne.
+          ✓ {t("Tout est prêt — tu peux lancer la campagne.")}
         </div>
       )}
 
@@ -148,7 +149,7 @@ export function PreflightPanel({ result }: Props) {
               gap: 6,
             }}
           >
-            {showPassed ? "▾" : "▸"} {passed.length} vérification{passed.length === 1 ? "" : "s"} OK
+            {showPassed ? "▾" : "▸"} {passed.length} {t("vérification")}{passed.length === 1 ? "" : "s"} OK
           </button>
           {showPassed && (
             <ul

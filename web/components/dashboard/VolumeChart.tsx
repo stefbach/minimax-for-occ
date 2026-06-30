@@ -1,16 +1,18 @@
 "use client";
 
 import type { VolumeBucket } from "@/app/api/dashboard/overview/route";
+import { useT } from "@/lib/i18n";
 
 export function VolumeChart({ buckets }: { buckets: VolumeBucket[] }) {
+  const t = useT();
   const max = Math.max(1, ...buckets.map((b) => b.count));
   const w = 100 / Math.max(buckets.length, 1);
 
   return (
     <div className="card" style={{ padding: 16 }}>
-      <h3 style={{ margin: 0, fontSize: 14 }}>Volume d&apos;appels (24 h glissantes)</h3>
+      <h3 style={{ margin: 0, fontSize: 14 }}>{t("Volume d'appels (24 h glissantes)")}</h3>
       <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
-        Max sur 1 h: {max}
+        {t("Max sur 1 h:")} {max}
       </div>
       <svg
         viewBox="0 0 100 40"
@@ -33,7 +35,7 @@ export function VolumeChart({ buckets }: { buckets: VolumeBucket[] }) {
               rx={0.4}
             >
               <title>
-                {new Date(b.hour).toLocaleString()}: {b.count} appel(s)
+                {new Date(b.hour).toLocaleString()}: {b.count} {t("appel(s)")}
               </title>
             </rect>
           );
@@ -50,7 +52,7 @@ export function VolumeChart({ buckets }: { buckets: VolumeBucket[] }) {
       >
         <span>-24h</span>
         <span>-12h</span>
-        <span>maintenant</span>
+        <span>{t("maintenant")}</span>
       </div>
     </div>
   );
