@@ -1910,6 +1910,23 @@ const EN: Record<string, string> = {
   "Campagne créée en brouillon.": "Campaign created as draft.",
   "création impossible": "creation failed",
   "erreur inconnue": "unknown error",
+  // ── Tasks 7-10: Dashboard refactor ──
+  "Taux d'efficacité": "Efficacy Rate",
+  "% appels avec issue claire": "% calls with clear outcome",
+  "% des appels qualifiés avec une issue claire : transfert humain ou déclin explicite": "% of qualified calls with a clear outcome: human transfer or explicit decline",
+  "Patients à confier à un expert": "Patients to hand over to a specialist",
+  "PAS INTÉRESSÉ": "NOT INTERESTED",
+  "Patients ayant décliné explicitement": "Patients who explicitly declined",
+  "Aucun coût": "No cost",
+  "Dépenses réelles depuis": "Real spend from",
+  "respecte les filtres de période": "respects period filters",
+  "Tendance quotidienne": "Daily trend",
+  "Coût par résultat": "Cost by outcome",
+  "Aucune donnée de coût": "No cost data",
+  "Aucun coût enregistré sur cette période.": "No costs recorded in this period.",
+  "Résultats des appels classés par catégorie": "Call outcomes by category",
+  "Aucune qualification sur la période.": "No qualifications in this period.",
+  "Faux numéro + DNR": "Wrong Number + DNR",
 };
 
 function readLang(): Lang {
