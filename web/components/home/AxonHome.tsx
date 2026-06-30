@@ -538,13 +538,13 @@ export default function AxonHome({ lang = "fr", spaceHref }: { lang?: Lang; spac
       </nav>
 
       {/* ═══════ HERO ═══════ */}
-      <section className="hero">
+      <section className="ax-hero">
         <div className="wrap">
           <div className="hero-meta">
             <span className="dot"></span>
-            <span className="tag">{c.hero.meta1}</span>
+            <span className="ax-tag">{c.hero.meta1}</span>
             <span style={{ flex: 1, height: 1, background: "var(--rule2)", minWidth: 40 }}></span>
-            <span className="tag">{c.hero.metaA}<span style={{ color: "var(--terra)", margin: "0 8px" }}>/</span>{c.hero.metaB}</span>
+            <span className="ax-tag">{c.hero.metaA}<span style={{ color: "var(--terra)", margin: "0 8px" }}>/</span>{c.hero.metaB}</span>
           </div>
 
           <div className="hero-split">
@@ -583,7 +583,7 @@ export default function AxonHome({ lang = "fr", spaceHref }: { lang?: Lang; spac
             <div className="hero-side">
               {c.hero.side.map((s) => (
                 <div className="hero-side-row" key={s.tag}>
-                  <span className="tag">{s.tag}</span>
+                  <span className="ax-tag">{s.tag}</span>
                   <span className="val">{s.val}<span className="unit">{s.unit}</span></span>
                   <span className="desc">{s.desc}</span>
                 </div>
@@ -657,7 +657,7 @@ export default function AxonHome({ lang = "fr", spaceHref }: { lang?: Lang; spac
                     <div className="ch-d">{ch.desc}</div>
                     <div className="ch-meta">{ch.meta}</div>
                   </div>
-                  <div className="tag mono">{ch.n}</div>
+                  <div className="ax-tag mono">{ch.n}</div>
                 </div>
               ))}
             </div>
@@ -683,7 +683,7 @@ export default function AxonHome({ lang = "fr", spaceHref }: { lang?: Lang; spac
 
               <div style={{ marginTop: 32, paddingTop: 20, borderTop: "1px solid var(--rule)" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}>
-                  <span className="tag">{c.channels.chartLabel}</span>
+                  <span className="ax-tag">{c.channels.chartLabel}</span>
                   <span className="mono" style={{ fontSize: 11, color: "var(--terra)" }}>{c.channels.chartVal}</span>
                 </div>
                 <div style={{ display: "flex", gap: 3, alignItems: "flex-end", height: 44 }}>
@@ -744,7 +744,7 @@ export default function AxonHome({ lang = "fr", spaceHref }: { lang?: Lang; spac
 
           <div className="vx-grid" style={{ gridTemplateColumns: "1fr", maxWidth: 880, margin: "0 auto" }}>
             <div>
-              <div className="tag" style={{ marginBottom: 28 }}>{c.voice.tag}</div>
+              <div className="ax-tag" style={{ marginBottom: 28 }}>{c.voice.tag}</div>
               <div className="vx-timeline">
                 {c.voice.steps.map((s) => (
                   <div className={`vx-step${s.live ? " live" : ""}`} key={s.time}>
@@ -823,7 +823,7 @@ export default function AxonHome({ lang = "fr", spaceHref }: { lang?: Lang; spac
 
           <div className="sc-custom">
             <div>
-              <div className="tag" style={{ marginBottom: 16, color: "var(--terra)" }}>{c.sectors.customTag}</div>
+              <div className="ax-tag" style={{ marginBottom: 16, color: "var(--terra)" }}>{c.sectors.customTag}</div>
               <div className="sc-custom-t"><Rich t={c.sectors.customTitle} /></div>
               <div className="sc-custom-d">{c.sectors.customDesc}</div>
             </div>
