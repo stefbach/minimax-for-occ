@@ -290,23 +290,35 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
       {/* ─── TWO COLUMNS: Qualifications + Lead Source ─── */}
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 16 }}>
         <div className="card">
-          <h3 style={{ marginTop: 0 }}>Qualifications</h3>
+          <h3 style={{ marginTop: 0 }}>{t("Qualifications")}</h3>
           <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>
-            Outcome of each call, normalised into 9 categories
+            {t("Résultats des appels classés par catégorie")}
           </p>
           {data.qualifications.every((q) => q.count === 0) ? (
-            <p className="muted" style={{ fontSize: 13 }}>No qualifications in this period.</p>
+            <p className="muted" style={{ fontSize: 13 }}>{t("Aucune qualification sur la période.")}</p>
           ) : (
             <div style={{ display: "grid", gap: 4 }}>
-              {data.qualifications.map((q) => {
+              {[
+                ...data.qualifications.filter((q) => q.key === "passer_humain" || q.key === "pas_interesse"),
+                ...data.qualifications.filter((q) => q.key !== "passer_humain" && q.key !== "pas_interesse"),
+              ].map((q) => {
+                const isPriority = q.key === "passer_humain" || q.key === "pas_interesse";
+                const barColor = q.key === "passer_humain" ? "var(--good)" : q.key === "pas_interesse" ? "var(--bad)" : q.count > 0 ? "var(--accent)" : "transparent";
                 const max = Math.max(1, ...data.qualifications.map((x) => x.count));
                 return (
-                  <div key={q.key} style={{ display: "grid", gridTemplateColumns: "160px 1fr 40px", gap: 8, alignItems: "center" }}>
-                    <span style={{ fontSize: 12 }}>{q.label}</span>
-                    <div style={{ background: "var(--bg-2)", borderRadius: 4, overflow: "hidden", height: 14 }}>
-                      <div style={{ width: `${(q.count / max) * 100}%`, height: "100%", background: q.count > 0 ? "var(--accent)" : "transparent" }} />
+                  <div key={q.key} style={{
+                    display: "grid", gridTemplateColumns: "160px 1fr 40px", gap: 8, alignItems: "center",
+                    padding: isPriority ? "4px 6px" : "0",
+                    borderRadius: isPriority ? 5 : 0,
+                    background: isPriority
+                      ? q.key === "passer_humain" ? "color-mix(in srgb, var(--good) 8%, transparent)" : "color-mix(in srgb, var(--bad) 8%, transparent)"
+                      : "transparent",
+                  }}>
+                    <span style={{ fontSize: 12, fontWeight: isPriority ? 700 : 400, color: isPriority ? barColor : undefined }}>{t(q.label)}</span>
+                    <div style={{ background: "var(--bg-2)", borderRadius: 4, overflow: "hidden", height: isPriority ? 18 : 14 }}>
+                      <div style={{ width: `${(q.count / max) * 100}%`, height: "100%", background: barColor }} />
                     </div>
-                    <span className="muted" style={{ fontSize: 12, textAlign: "right" }}>{q.count}</span>
+                    <span style={{ fontSize: 12, textAlign: "right", fontWeight: isPriority ? 700 : 400, color: isPriority ? barColor : "var(--muted)" }}>{q.count}</span>
                   </div>
                 );
               })}

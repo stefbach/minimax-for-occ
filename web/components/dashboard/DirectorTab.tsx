@@ -357,25 +357,85 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
         ))}
       </div>
 
-      {/* QUALIFICATIONS GRID — 9 fixed cards */}
+      {/* QUALIFICATIONS GRID — efficacy heroes + remaining buckets */}
       <div className="card">
         <h3 style={{ marginTop: 0, marginBottom: 4 }}>{t("Qualifications")}</h3>
         <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>
           {t("Source")} : <code>calls.metadata.qualification</code> + <code>calls.disposition</code>
         </p>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10 }}>
+
+        {/* ── Efficacy hero row (Task 7) ── */}
+        {(() => {
+          const passerHumain = data.qualifications.find((q) => q.key === "passer_humain")?.count ?? 0;
+          const pasInteresse = data.qualifications.find((q) => q.key === "pas_interesse")?.count ?? 0;
+          const totalOutcomes = data.qualifications.reduce((s, q) => s + q.count, 0);
+          const efficacyRate = totalOutcomes > 0 ? ((passerHumain + pasInteresse) / totalOutcomes) * 100 : null;
+          return (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12, marginBottom: 14 }}>
+              {/* Efficacy Rate */}
+              <div className="card" style={{ padding: 16, borderColor: "var(--accent-2)", background: "color-mix(in srgb, var(--accent-2) 7%, transparent)" }}>
+                <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 700, color: "var(--accent-2)" }}>
+                  📊 {t("Taux d'efficacité")}
+                </div>
+                <div style={{ fontSize: 38, fontWeight: 800, marginTop: 6, color: "var(--accent-2)", lineHeight: 1 }}>
+                  {efficacyRate !== null ? `${efficacyRate.toFixed(1)}%` : "N/A"}
+                </div>
+                <div className="muted" style={{ fontSize: 11, marginTop: 6 }}
+                  title={t("% des appels qualifiés avec une issue claire : transfert humain ou déclin explicite")}>
+                  {t("% appels avec issue claire")} · transfert + déclin
+                </div>
+              </div>
+              {/* À PASSER À L'HUMAIN — green */}
+              <ClickCard
+                ariaLabel={`${t("À PASSER À L'HUMAIN")} — ${t("voir les appels")}`}
+                onClick={() => openDrill(t("À PASSER À L'HUMAIN"), "🤝", "var(--good)", { qualification: "passer_humain" as QualBucket })}
+                style={{ padding: 16, borderColor: "var(--good)", borderWidth: 2, background: "color-mix(in srgb, var(--good) 8%, transparent)" }}
+              >
+                <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 700, color: "var(--good)" }}>🤝 {t("À PASSER À L'HUMAIN")}</div>
+                <div style={{ fontSize: 38, fontWeight: 800, marginTop: 6, color: "var(--good)", lineHeight: 1 }}>{passerHumain}</div>
+                <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>{t("Patients à confier à un expert")}</div>
+              </ClickCard>
+              {/* PAS INTÉRESSÉ — red */}
+              <ClickCard
+                ariaLabel={`${t("PAS INTÉRESSÉ")} — ${t("voir les appels")}`}
+                onClick={() => openDrill(t("PAS INTÉRESSÉ"), "✗", "var(--bad)", { qualification: "pas_interesse" as QualBucket })}
+                style={{ padding: 16, borderColor: "var(--bad)", borderWidth: 2, background: "color-mix(in srgb, var(--bad) 8%, transparent)" }}
+              >
+                <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 700, color: "var(--bad)" }}>✗ {t("PAS INTÉRESSÉ")}</div>
+                <div style={{ fontSize: 38, fontWeight: 800, marginTop: 6, color: "var(--bad)", lineHeight: 1 }}>{pasInteresse}</div>
+                <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>{t("Patients ayant décliné explicitement")}</div>
+              </ClickCard>
+            </div>
+          );
+        })()}
+
+        {/* ── Remaining buckets + merged Faux Numéro+DNR (Tasks 7+10) ── */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>
           {(() => {
-            // Merge RAPPEL into PAS DE REPONSE: a quick hang-up is a non-answer,
-            // not a genuine callback intent — Wati 30/06.
+            // Merge RAPPEL into PAS DE REPONSE (main's 30/06 change).
             const rappelCount = data.qualifications.find((q) => q.key === "rappel")?.count ?? 0;
-            return data.qualifications
-              .filter((q) => q.key !== "rappel")
+            // Merge FAUX NUMERO + NE PAS RAPPELER (Task 10).
+            const fauxNumeroCount = data.qualifications.find((q) => q.key === "faux_numero")?.count ?? 0;
+            const dnrCount = data.qualifications.find((q) => q.key === "ne_pas_rappeler")?.count ?? 0;
+            const mergedDnrCount = fauxNumeroCount + dnrCount;
+
+            const filtered = data.qualifications
+              .filter((q) => !["rappel", "passer_humain", "pas_interesse", "faux_numero", "ne_pas_rappeler"].includes(q.key))
               .map((q) => q.key === "pas_de_reponse" ? { ...q, count: q.count + rappelCount } : q);
+
+            const mergedDnrCard = { key: "faux_numero+dnr", label: "Faux numéro + DNR", count: mergedDnrCount };
+            return [...filtered, mergedDnrCard];
           })().map((q) => (
             <ClickCard
               key={q.key}
               ariaLabel={`${t(q.label)} — ${t("voir les appels")}`}
-              onClick={() => openDrill(t(q.label), "tag", "var(--accent)", { qualification: q.key as QualBucket })}
+              onClick={() => {
+                if (q.key === "faux_numero+dnr") {
+                  openDrill(t("Faux numéro + DNR"), "tag", "var(--muted)", { qualification: "faux_numero" as QualBucket });
+                } else {
+                  openDrill(t(q.label), "tag", "var(--accent)", { qualification: q.key as QualBucket });
+                }
+              }}
               style={{ padding: 12, textAlign: "center", borderColor: q.count > 0 ? "var(--accent)" : undefined }}
             >
               <div style={{ fontSize: 24, fontWeight: 700, color: q.count > 0 ? "var(--accent)" : "var(--muted)" }}>

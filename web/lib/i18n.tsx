@@ -1828,6 +1828,34 @@ const EN: Record<string, string> = {
   "Automatisations natives": "Native automations",
   "Prompt système (Markdown)": "System prompt (Markdown)",
   "Historique des versions": "Version history",
+  // ── Task 7: Efficacy metrics ──
+  "Taux d'efficacité": "Efficacy Rate",
+  "% appels avec issue claire": "% calls with clear outcome",
+  "% des appels qualifiés avec une issue claire : transfert humain ou déclin explicite": "% of qualified calls with a clear outcome: human transfer or explicit decline",
+  "À PASSER À L'HUMAIN": "TRANSFER TO HUMAN",
+  "Patients à confier à un expert": "Patients to hand over to a specialist",
+  "PAS INTÉRESSÉ": "NOT INTERESTED",
+  "Patients ayant décliné explicitement": "Patients who explicitly declined",
+  // ── Task 8: Cost breakdown ──
+  "Aucun coût": "No cost",
+  "appels": "calls",
+  "de la dépense": "of spend",
+  "Gaspillé (faux n° / sans réponse)": "Wasted (wrong no. / no answer)",
+  "Coût par RDV": "Cost per appointment",
+  "dépensés": "spent",
+  "période précédente": "previous period",
+  "Dépenses réelles depuis": "Real spend from",
+  "respecte les filtres de période": "respects period filters",
+  "Coût par heure": "Cost by hour",
+  "Tendance quotidienne": "Daily trend",
+  "Coût par résultat": "Cost by outcome",
+  "Aucune donnée de coût": "No cost data",
+  "Aucun coût enregistré sur cette période.": "No costs recorded in this period.",
+  // ── Task 9: Unified dashboard ──
+  "Résultats des appels classés par catégorie": "Call outcomes by category",
+  "Aucune qualification sur la période.": "No qualifications in this period.",
+  // ── Task 10: Merged Faux Numéro + DNR ──
+  "Faux numéro + DNR": "Wrong Number + DNR",
 };
 
 function readLang(): Lang {
