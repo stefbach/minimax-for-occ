@@ -255,23 +255,13 @@ function CallRow({ call, odd, expanded, onToggle }: { call: InboundCall; odd: bo
         <div style={{ fontSize: 11, opacity: 0.7 }}>{formatDate(call.started_at)}</div>
       </td>
 
-      {/* De (numéro + contact cliquable) */}
+      {/* De (numéro + nom du lead) */}
       <td style={{ padding: "10px 12px" }} onClick={(e) => e.stopPropagation()}>
-        {call.contact_id ? (
-          <Link
-            href={`/contacts/${call.contact_id}`}
-            style={{ color: "var(--accent)", fontWeight: 600, textDecoration: "none" }}
-          >
-            {call.contact_name || call.from_e164 || "—"}
-          </Link>
-        ) : (
-          <span style={{ fontWeight: 500 }}>{call.contact_name || call.from_e164 || "—"}</span>
-        )}
-        {call.contact_name && call.from_e164 && call.from_e164 !== call.contact_e164 && (
+        <span style={{ fontWeight: call.contact_name ? 600 : 400 }}>
+          {call.contact_name || call.from_e164 || "—"}
+        </span>
+        {call.contact_name && call.from_e164 && (
           <div className="muted" style={{ fontSize: 11 }}>{call.from_e164}</div>
-        )}
-        {call.contact_name && call.contact_e164 && !call.from_e164 && (
-          <div className="muted" style={{ fontSize: 11 }}>{call.contact_e164}</div>
         )}
       </td>
 

@@ -69,14 +69,14 @@ export async function GET(req: Request) {
     return NextResponse.json({ agents: [], totals: zeroTotals(), server_now: new Date().toISOString() });
   }
 
-  // 2) Profiles for display_name + email.
+  // 2) Profiles for full_name + email. Note: the column is `full_name`, not `display_name`.
   const { data: profs } = await admin
     .from("profiles")
-    .select("user_id, display_name, email")
+    .select("user_id, full_name, email")
     .in("user_id", userIds);
   const profMap = new Map<string, { display_name: string | null; email: string | null }>();
-  for (const p of (profs ?? []) as Array<{ user_id: string; display_name: string | null; email: string | null }>) {
-    profMap.set(p.user_id, { display_name: p.display_name, email: p.email });
+  for (const p of (profs ?? []) as Array<{ user_id: string; full_name: string | null; email: string | null }>) {
+    profMap.set(p.user_id, { display_name: p.full_name, email: p.email });
   }
 
   // 3) Presence rows.
@@ -90,20 +90,23 @@ export async function GET(req: Request) {
     presMap.set(p.user_id, p);
   }
 
-  // 4) Agent handles for the users (needed for call stats lookup).
+  // 4) Agent handles for the users (display_name + call stats lookup).
   const { data: handles } = await admin
     .from("agent_handles")
-    .select("id, user_id")
+    .select("id, user_id, display_name")
     .eq("org_id", orgId)
     .eq("kind", "human")
     .in("user_id", userIds);
   const handleToUser = new Map<string, string>();
   const userToHandles = new Map<string, string[]>();
-  for (const h of (handles ?? []) as Array<{ id: string; user_id: string }>) {
+  const handleDisplayByUser = new Map<string, string | null>();
+  for (const h of (handles ?? []) as Array<{ id: string; user_id: string; display_name: string | null }>) {
     handleToUser.set(h.id, h.user_id);
     const list = userToHandles.get(h.user_id) ?? [];
     list.push(h.id);
     userToHandles.set(h.user_id, list);
+    // Keep the first (or only) handle display_name per user as fallback.
+    if (!handleDisplayByUser.has(h.user_id)) handleDisplayByUser.set(h.user_id, h.display_name);
   }
 
   // 5) Pull every "in-flight" call referenced by a presence row.
@@ -241,9 +244,11 @@ export async function GET(req: Request) {
         : (stored as AgentStatus);
     const call = p?.current_call_id ? callMap.get(p.current_call_id) ?? null : null;
     const stats = statsByUser.get(uid) ?? null;
+    // Priority: profiles.full_name → agent_handles.display_name → email → uuid prefix.
+    const displayName = prof?.display_name || handleDisplayByUser.get(uid) || null;
     return {
       user_id: uid,
-      display_name: prof?.display_name ?? null,
+      display_name: displayName,
       email: prof?.email ?? null,
       status,
       last_seen: p?.last_seen ?? null,
