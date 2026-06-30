@@ -9,7 +9,7 @@ import { OrgSwitcher } from "./OrgSwitcher";
 import { ThemeLangSwitcher } from "./ThemeLangSwitcher";
 import { useT } from "@/lib/i18n";
 import { supabaseBrowser } from "@/lib/supabase-browser";
-import { ChevronLeft, ChevronRight, Heart, Menu, Music, Pencil, Settings, X, Zap } from "lucide-react";
+import { Heart, Menu, Music, Pencil, Settings, X, Zap } from "lucide-react";
 import { effectiveModules, isModuleId, type ModuleId } from "@/lib/permissions";
 
 // Width below which the sidebar morphs into a slide-in drawer. Kept in sync
@@ -122,26 +122,18 @@ export function ClientSidebar() {
   const [visibleModules, setVisibleModules] = useState<ModuleId[] | null>(null);
   const [loadedRole, setLoadedRole] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
   // Collapsed groups — set of group names folded by the user. Persisted in localStorage.
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   // Mobile drawer state — only meaningful below MOBILE_BREAKPOINT; ignored
   // by the CSS on desktop where the sidebar is permanently visible.
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  // Init collapsed state from localStorage, then sync to html dataset.
   useEffect(() => {
-    const stored = localStorage.getItem("sidebar-collapsed");
-    if (stored === "1") setCollapsed(true);
     try {
       const storedGroups = localStorage.getItem("sidebar-collapsed-groups");
       if (storedGroups) setCollapsedGroups(new Set(JSON.parse(storedGroups)));
     } catch { /* ignore */ }
   }, []);
-  useEffect(() => {
-    document.documentElement.dataset.sidebarCollapsed = collapsed ? "1" : "0";
-    localStorage.setItem("sidebar-collapsed", collapsed ? "1" : "0");
-  }, [collapsed]);
 
   const toggleGroup = (group: string) => {
     setCollapsedGroups((prev) => {
@@ -427,33 +419,6 @@ export function ClientSidebar() {
         </div>
       )}
 
-      {/* Collapse toggle button */}
-      <button
-        type="button"
-        onClick={() => setCollapsed((v) => !v)}
-        title={collapsed ? t("Ouvrir le menu") : t("Réduire le menu")}
-        aria-label={collapsed ? t("Ouvrir le menu") : t("Réduire le menu")}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: collapsed ? "center" : "flex-end",
-          gap: 6,
-          marginTop: "auto",
-          padding: "7px 10px",
-          borderRadius: 8,
-          background: "transparent",
-          border: "1px solid var(--border)",
-          color: "var(--muted)",
-          cursor: "pointer",
-          fontSize: 12,
-          width: "100%",
-          boxSizing: "border-box",
-          transition: "color 0.15s",
-        }}
-      >
-        {!collapsed && <span className="sidebar-label" style={{ fontSize: 11 }}>{t("Réduire")}</span>}
-        {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
-      </button>
 
       <div className="sidebar-extras">
         {/* Super-admin: jump to the Axon admin app — made prominent */}
