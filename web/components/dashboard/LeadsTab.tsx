@@ -556,27 +556,6 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
               </div>
             </Clickable>
 
-            <Clickable onClick={() => openDrill(
-              { qualification: "rdv_confirme", answered: "yes" },
-              { title: t("RDV confirmés (décrochés)"), icon: "✅", tone: CAT_COLORS.rdv_confirme },
-            )}>
-              <div className="card" style={{ padding: "16px 18px", cursor: "pointer" }}>
-                <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 4 }}>
-                  {t("RDV confirmés")}
-                </div>
-                <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-                  <span style={{ fontSize: 30, fontWeight: 700, color: CAT_COLORS.rdv_confirme, lineHeight: 1 }}>
-                    {analysis.rdvConfirme.count}
-                  </span>
-                  <span style={{ fontSize: 14, color: CAT_COLORS.rdv_confirme, fontWeight: 600 }}>
-                    {analysis.rdvConfirme.pct}%
-                  </span>
-                </div>
-                <PctBar pct={analysis.rdvConfirme.pct} color={CAT_COLORS.rdv_confirme} />
-                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>{t("sur X appels décrochés").replace("X", String(analysis.totalAnswered))}</div>
-              </div>
-            </Clickable>
-
             {analysis.needsReview > 0 && (
               <div className="card" style={{ padding: "16px 18px", border: "1px solid #a16207" }}>
                 <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "#a16207", marginBottom: 4 }}>
