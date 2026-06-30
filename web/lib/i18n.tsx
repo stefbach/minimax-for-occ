@@ -83,14 +83,12 @@ const EN: Record<string, string> = {
   "Total appels": "Total calls",
   "Leads uniques": "Unique leads",
   // ── Agent spotlight ──
-  "Tous les agents": "All agents",
   "Vue filtrée — Rain uniquement": "Filtered view — Rain only",
   "Retirer le filtre": "Clear filter",
   // ── Fil Actif tab ──
   "Fil Actif": "Active Stream",
   "màj": "upd.",
   "Mise à jour automatique": "Auto-refresh on",
-  "À passer à l'humain": "Transfer to human",
   "Leads uniques demandant un agent humain": "Unique leads requesting a human agent",
   "Pas intéressés": "Not interested",
   "Leads uniques ayant décliné aujourd'hui": "Unique leads who declined today",
@@ -99,7 +97,6 @@ const EN: Record<string, string> = {
   "Aucun transfert humain en attente pour le moment.": "No pending human transfers right now.",
   "Mise à jour automatique toutes les 10 secondes. Données du jour uniquement.":
     "Auto-refreshes every 10 seconds. Today's data only.",
-  "Lead identifié": "Lead identified",
   "Résultat": "Outcome",
   // ── Director overview keys (from main) ──
   "personnes différentes appelées": "unique contacts called",
