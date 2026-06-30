@@ -1,15 +1,16 @@
+import { redirect } from "next/navigation";
 import HomeLanding from "@/components/home/HomeLanding";
 import { currentMembership, landingPathFor } from "@/lib/supabase-auth";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  let spaceHref: string | null = null;
+  let m = null;
   try {
-    const m = await currentMembership();
-    if (m) spaceHref = landingPathFor(m.role);
+    m = await currentMembership();
   } catch {
-    spaceHref = null;
+    // Supabase not configured or session missing — show public homepage
   }
-  return <HomeLanding spaceHref={spaceHref} />;
+  if (m) redirect(landingPathFor(m.role));
+  return <HomeLanding spaceHref={null} />;
 }
