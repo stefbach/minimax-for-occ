@@ -11,6 +11,7 @@ import {
   NHS_REPORT,
   NHS_REPORT_AS_OF,
   NHS_REPORT_APPROVED_BREAKDOWN,
+  NHS_REPORT_TOTAL_SUBMITTED,
   type NhsReportKey,
   type NhsReportPatient,
 } from "@/lib/nhs-report";
@@ -762,10 +763,16 @@ type NhsReportCard = {
 
 // Live counts from nhs_tracking (total, approved, pending, rejected, to_submit).
 // missing_docs and dropped_out have no database equivalent yet — still static.
-function useNhsReportCards(liveData: NhsSuiviResponse): NhsReportCard[] {
+// liveData is optional: callers without API data fall back to NHS_REPORT statics.
+function useNhsReportCards(liveData?: NhsSuiviResponse | null): NhsReportCard[] {
   const t = useT();
   const breakdown = NHS_REPORT_APPROVED_BREAKDOWN;
-  const tr = liveData.nhs_tracking;
+  const tr = liveData?.nhs_tracking ?? {
+    submitted: NHS_REPORT_TOTAL_SUBMITTED,
+    in_review: NHS_REPORT.pending_nhs.patients.length,
+    accepted: NHS_REPORT.approved.patients.length,
+    rejected: NHS_REPORT.rejected.patients.length,
+  };
   const totalPatients = [
     ...NHS_REPORT.approved.patients,
     ...NHS_REPORT.pending_nhs.patients,
@@ -831,7 +838,7 @@ function useNhsReportCards(liveData: NhsSuiviResponse): NhsReportCard[] {
     {
       key: "to_submit",
       label: t("À soumettre"),
-      value: liveData.ready_to_submit,
+      value: liveData?.ready_to_submit ?? NHS_REPORT.to_submit.patients.length,
       hint: t("transmis au NHS en fin de semaine"),
       tone: "var(--accent)",
       icon: "↗",
