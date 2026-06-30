@@ -775,9 +775,18 @@ export function Softphone({ compact = false, onExpand, deskSlotEl }: SoftphonePr
   }, [shouldRing]);
 
   // Inbound ringing call awaiting explicit Accept or Decline from the agent.
+  // Exclude calls whose room we are already connected to — so the banner/buttons
+  // disappear the instant acceptCall() resolves, without waiting for the next
+  // Supabase poll to flip the state from "ringing" to "in_progress".
   const pendingInbound = useMemo(
-    () => calls.find((c) => c.direction === "in" && c.state === "ringing") ?? null,
-    [calls],
+    () =>
+      calls.find(
+        (c) =>
+          c.direction === "in" &&
+          c.state === "ringing" &&
+          !(conn && c.room_id && conn.room === c.room_id),
+      ) ?? null,
+    [calls, conn],
   );
 
   const acceptCall = useCallback(
@@ -801,9 +810,22 @@ export function Softphone({ compact = false, onExpand, deskSlotEl }: SoftphonePr
   );
 
   const disconnect = useCallback(() => {
+    // Mark the call ended in Supabase so it stops re-ringing after the WebRTC
+    // session drops. Without this the DB row stays "ringing" / "in_progress"
+    // and the banner reappears on the next 5-second poll.
+    if (conn) {
+      const callId =
+        calls.find((c) => c.room_id === conn.room)?.id ?? activeCall?.id;
+      if (callId) {
+        void fetch(`/api/desk/calls/${callId}/end`, { method: "POST" }).catch(() => {});
+        // Optimistically drop it so the banner / ringtone stop immediately,
+        // before the DB roundtrip completes.
+        setCalls((prev) => prev.filter((c) => c.id !== callId));
+      }
+    }
     setConn(null);
     setMuted(false);
-  }, []);
+  }, [conn, calls, activeCall]);
 
   const toggleHold = useCallback(async () => {
     if (!activeCall) return;
@@ -834,7 +856,7 @@ export function Softphone({ compact = false, onExpand, deskSlotEl }: SoftphonePr
     setHoldError(null);
   }, [activeCall?.id]);
 
-  // ── Render guards — compact only ──────────────────────────────────────
+  // ── Render guards — compact only ─────────────────────────────────────
   // Non-compact content is assigned to deskPageContent below and then
   // either portalled to deskSlotEl (on /desk) or rendered in-place (hidden
   // off-screen by the shell) so the component is NEVER unmounted.
@@ -1319,7 +1341,7 @@ export function Softphone({ compact = false, onExpand, deskSlotEl }: SoftphonePr
         </div>,
         document.body,
       )}
-      {/* ── Main softphone UI ──────────────────────────────────────────────
+      {/* ── Main softphone UI ─────────────────────────────────────────────────────
           Portalled to the /desk page slot when deskSlotEl is provided,
           otherwise rendered in-place (hidden by the shell's off-screen div). */}
       {deskSlotEl ? createPortal(deskPageContent, deskSlotEl) : deskPageContent}
