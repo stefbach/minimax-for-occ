@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useT } from "@/lib/i18n";
-import { normalizeQualification } from "@/lib/qualification";
+import { normalizeQualification, QUAL_BUCKETS, type QualBucket } from "@/lib/qualification";
 import { GLOBAL_DURATION_BUCKETS, type GlobalFilters } from "@/lib/global-filters";
 import type { DrillCall } from "@/app/api/dashboard/calls-drill/route";
 import { CallDetailPane } from "@/components/dashboard/CallDetailPane";
@@ -41,6 +41,30 @@ function qualTone(q: string | null): string {
   if (/PAS INTERESSE|NE PAS RAPPELER|NON ELIGIBLE|FAUX NUMERO/.test(u)) return "var(--bad)";
   if (/REPONDEUR|PAS DE REPONSE|SUIVI REQUIS/.test(u)) return "var(--warn)";
   return "var(--muted)";
+}
+
+function qualBucketTone(key: QualBucket): string {
+  switch (key) {
+    case "rdv_confirme": case "passer_humain": case "rappel": return "var(--good)";
+    case "pas_interesse": case "ne_pas_rappeler": case "non_eligible": return "var(--bad)";
+    case "repondeur": case "pas_de_reponse": case "suivi_requis": return "var(--warn)";
+    default: return "var(--muted)";
+  }
+}
+
+function qualBucketIcon(key: QualBucket): string {
+  switch (key) {
+    case "rdv_confirme": return "📅";
+    case "passer_humain": return "👤";
+    case "rappel": return "🔄";
+    case "pas_interesse": return "✗";
+    case "pas_de_reponse": return "❌";
+    case "repondeur": return "📵";
+    case "non_eligible": return "⛔";
+    case "ne_pas_rappeler": return "🚫";
+    case "suivi_requis": return "📋";
+    default: return "•";
+  }
 }
 
 function passesGlobal(r: SmsRow, gf?: GlobalFilters): boolean {
@@ -184,16 +208,21 @@ export function PrecallSmsTab({ from, to, global }: { from: string; to: string; 
   const kpis = useMemo(() => {
     let sent = 0, failed = 0, called = 0, answered = 0, voicemail = 0;
     const answeredContacts = new Set<string>();
+    const qualCounts = new Map<QualBucket, number>();
     for (const r of scoped) {
       if (r.status === "failed") failed += 1; else sent += 1;
-      if (r.call_id) called += 1;
+      if (r.call_id) {
+        called += 1;
+        const q = normalizeQualification(r.qualification);
+        if (q !== "autre") qualCounts.set(q, (qualCounts.get(q) ?? 0) + 1);
+      }
       if (r.answered === "answered") {
         answered += 1;
         if (r.contact_id) answeredContacts.add(r.contact_id);
       }
       if (r.answered === "voicemail") voicemail += 1;
     }
-    return { sent, failed, called, answered, answeredLeads: answeredContacts.size, voicemail, total: scoped.length };
+    return { sent, failed, called, answered, answeredLeads: answeredContacts.size, voicemail, qualCounts, total: scoped.length };
   }, [scoped]);
 
   const filtered = useMemo(() => {
@@ -299,6 +328,30 @@ export function PrecallSmsTab({ from, to, global }: { from: string; to: string; 
           <div style={{ fontSize: 26, fontWeight: 700, marginTop: 4, color: kpis.failed > 0 ? "var(--bad)" : undefined }}>{kpis.failed}</div>
           <div className="muted" style={{ fontSize: 11 }}>{t("SMS non partis")}</div>
         </button>
+      </div>
+
+      {/* Qualification cards */}
+      <div>
+        <div style={{ fontSize: 12, fontWeight: 600, color: "var(--muted)", marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>
+          {t("Qualifications")}
+          <span style={{ fontWeight: 400, marginLeft: 8 }}>· {t("Source")} : calls.metadata.qualification + calls.disposition</span>
+        </div>
+        <div className="grid-kpi" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))" }}>
+          {QUAL_BUCKETS.map(({ key, label }) => {
+            const count = kpis.qualCounts.get(key) ?? 0;
+            const pct = kpis.called ? (count / kpis.called * 100).toFixed(1) : "0.0";
+            const tone = qualBucketTone(key);
+            return (
+              <button key={key} type="button" className="card" onMouseEnter={hoverIn} onMouseLeave={hoverOut}
+                style={{ ...kpiCardStyle, borderColor: count > 0 ? tone : undefined }}
+                onClick={() => openSmsDrill(t(label), qualBucketIcon(key), tone, (r: SmsRow) => normalizeQualification(r.qualification) === key && !!r.call_id)}>
+                <div className="muted" style={{ fontSize: 11, textTransform: "uppercase" }}>{t(label)}</div>
+                <div style={{ fontSize: 26, fontWeight: 700, marginTop: 4, color: count > 0 ? tone : undefined }}>{count}</div>
+                <div className="muted" style={{ fontSize: 11 }}>{pct}%</div>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* Filters */}
