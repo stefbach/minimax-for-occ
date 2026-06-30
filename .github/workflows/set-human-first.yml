@@ -26,7 +26,7 @@ jobs:
         run: |
           flyctl secrets set HUMAN_FIRST_INBOUND=${{ github.event.inputs.valeur }} \
             --app axon-agent --stage
-          echo "Secret posé."
+          echo "Secret posé (--stage = pas encore actif)."
 
       - name: Redémarrer axon-agent pour appliquer
         run: |
