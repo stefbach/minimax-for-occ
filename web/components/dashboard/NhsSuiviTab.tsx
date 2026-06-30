@@ -11,7 +11,6 @@ import {
   NHS_REPORT,
   NHS_REPORT_AS_OF,
   NHS_REPORT_APPROVED_BREAKDOWN,
-  NHS_REPORT_TOTAL_SUBMITTED,
   type NhsReportKey,
   type NhsReportPatient,
 } from "@/lib/nhs-report";
@@ -727,8 +726,8 @@ function NhsSuiviTabInner({
         </div>
       </div>
 
-      {/* Rapport NHS — source : rapport du manager (cf. lib/nhs-report.ts) */}
-      <NhsReportSection onOpenCard={(key) => setView({ name: "report-list", key })} />
+      {/* Rapport NHS — counts from live API; patient lists from nhs-report.ts */}
+      <NhsReportSection data={data} onOpenCard={(key) => setView({ name: "report-list", key })} />
 
       {!data.has_data && (
         <div className="card" style={{ borderColor: "var(--warn)", color: "var(--warn)", fontSize: 13 }}>
@@ -760,9 +759,12 @@ type NhsReportCard = {
   patients: NhsReportPatient[];
 };
 
-function useNhsReportCards(): NhsReportCard[] {
+// Live counts from nhs_tracking (total, approved, pending, rejected, to_submit).
+// missing_docs and dropped_out have no database equivalent yet — still static.
+function useNhsReportCards(liveData: NhsSuiviResponse): NhsReportCard[] {
   const t = useT();
   const breakdown = NHS_REPORT_APPROVED_BREAKDOWN;
+  const tr = liveData.nhs_tracking;
   const totalPatients = [
     ...NHS_REPORT.approved.patients,
     ...NHS_REPORT.pending_nhs.patients,
@@ -774,7 +776,7 @@ function useNhsReportCards(): NhsReportCard[] {
     {
       key: "total",
       label: t("Total dossiers"),
-      value: NHS_REPORT_TOTAL_SUBMITTED,
+      value: tr.submitted,
       hint: t("soumis au NHS"),
       tone: "var(--info)",
       icon: "▣",
@@ -783,7 +785,7 @@ function useNhsReportCards(): NhsReportCard[] {
     {
       key: "approved",
       label: t("Approuvés"),
-      value: NHS_REPORT.approved.patients.length,
+      value: tr.accepted,
       hint: `${breakdown.operated} ${t("opérés")} · ${breakdown.scheduled} ${t("programmés")} · ${breakdown.left_pathway} ${t("sortis du parcours")}`,
       tone: "var(--good)",
       icon: "✓",
@@ -792,7 +794,7 @@ function useNhsReportCards(): NhsReportCard[] {
     {
       key: "pending_nhs",
       label: t("En attente NHS"),
-      value: NHS_REPORT.pending_nhs.patients.length,
+      value: tr.in_review,
       hint: t("réponse / appel en cours"),
       tone: "var(--warn)",
       icon: "⌛",
@@ -810,7 +812,7 @@ function useNhsReportCards(): NhsReportCard[] {
     {
       key: "rejected",
       label: t("Rejetés"),
-      value: NHS_REPORT.rejected.patients.length,
+      value: tr.rejected,
       hint: t("critères ICB non remplis"),
       tone: "var(--bad)",
       icon: "✕",
@@ -828,7 +830,7 @@ function useNhsReportCards(): NhsReportCard[] {
     {
       key: "to_submit",
       label: t("À soumettre"),
-      value: NHS_REPORT.to_submit.patients.length,
+      value: liveData.ready_to_submit,
       hint: t("transmis au NHS en fin de semaine"),
       tone: "var(--accent)",
       icon: "↗",
@@ -838,15 +840,14 @@ function useNhsReportCards(): NhsReportCard[] {
 }
 
 function NhsReportSection({
+  data,
   onOpenCard,
 }: {
+  data: NhsSuiviResponse;
   onOpenCard: (key: NhsReportFilter) => void;
 }) {
   const t = useT();
-  const cards = useNhsReportCards();
-  const asOf = new Date(NHS_REPORT_AS_OF).toLocaleDateString("fr-FR", {
-    day: "2-digit", month: "long", year: "numeric",
-  });
+  const cards = useNhsReportCards(data);
   return (
     <div>
       <div
@@ -858,7 +859,7 @@ function NhsReportSection({
         }}
       >
         <span>🏥 {t("Rapport NHS — dossiers S2")}</span>
-        <span style={{ fontSize: 10, fontStyle: "italic" }}>{t("Mis à jour le")} {asOf}</span>
+        <span style={{ fontSize: 10, fontStyle: "italic" }}>En temps réel</span>
       </div>
       <div
         className="grid-kpi"
