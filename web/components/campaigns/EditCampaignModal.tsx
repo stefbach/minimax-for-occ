@@ -673,17 +673,17 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
                 <input type="number" min={1} max={50} value={maxConcurrency} onChange={(e) => setMaxConcurrency(Number(e.target.value) || 1)} />
               </div>
               <div>
-                <label style={{ fontSize: 12 }}>Total attempts</label>
+                <label style={{ fontSize: 12 }}>{t("Tentatives totales")}</label>
                 <input type="number" min={1} max={10} value={maxAttempts} onChange={(e) => setMaxAttempts(Number(e.target.value) || 1)} />
               </div>
               <div>
-                <label style={{ fontSize: 12 }}>Retry delay (min)</label>
+                <label style={{ fontSize: 12 }}>{t("Délai retry (min)")}</label>
                 <input type="number" min={1} max={1440} value={retryDelayMin} onChange={(e) => setRetryDelayMin(Number(e.target.value) || 1)} />
               </div>
             </div>
             <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
               <input type="checkbox" checked={amdEnabled} onChange={(e) => setAmdEnabled(e.target.checked)} style={{ width: "auto" }} />
-              Answering machine detection (AMD)
+              {t("Détection répondeur (AMD)")}
             </label>
           </div>
         </details>
@@ -691,9 +691,9 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
         {error && <div style={{ color: "var(--bad)", fontSize: 13 }}>{error}</div>}
 
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-          <button type="button" className="ghost" onClick={onClose} disabled={busy}>Cancel</button>
+          <button type="button" className="ghost" onClick={onClose} disabled={busy}>{t("Annuler")}</button>
           <button type="button" onClick={save} disabled={busy || !name.trim() || days.length === 0}>
-            {busy ? "Saving…" : "Save"}
+            {busy ? t("Enregistrement…") : t("Enregistrer")}
           </button>
         </div>
       </div>
