@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   LiveKitRoom,
@@ -81,9 +82,14 @@ function formatRelative(ts: string): string {
 export interface SoftphoneProps {
   compact?: boolean;
   onExpand?: () => void;
+  /** When set, the softphone portals its main (non-compact) UI into this
+   *  element instead of rendering in-place. PersistentSoftphoneShell uses
+   *  this so the component stays at one stable mount point in the hidden
+   *  off-screen div while its visible output appears inside the /desk page. */
+  deskSlotEl?: HTMLElement | null;
 }
 
-export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
+export function Softphone({ compact = false, onExpand, deskSlotEl }: SoftphoneProps = {}) {
   const t = useT();
   const toast = useToast();
   const searchParams = useSearchParams();
@@ -705,10 +711,12 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
   // whole point of "transfer interne" without going through PSTN REFER.
   useEffect(() => {
     if (!activeCall?.room_id) return;
+    // Inbound ringing calls require an explicit Accept click — never auto-join.
+    if (activeCall.direction === "in" && activeCall.state === "ringing") return;
     if (status === "offline") return;
     if (conn && conn.room === activeCall.room_id) return;
     void connect(activeCall.id);
-  }, [activeCall?.id, activeCall?.room_id, status, conn, connect]);
+  }, [activeCall?.id, activeCall?.room_id, activeCall?.direction, activeCall?.state, status, conn, connect]);
 
   // Incoming-call ringtone. Ring while a call assigned to this agent is in
   // "ringing" state and we're online but not yet joined to its room. The
@@ -738,6 +746,32 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
     ring.stop();
     return undefined;
   }, [shouldRing]);
+
+  // Inbound ringing call awaiting explicit Accept or Decline from the agent.
+  const pendingInbound = useMemo(
+    () => calls.find((c) => c.direction === "in" && c.state === "ringing") ?? null,
+    [calls],
+  );
+
+  const acceptCall = useCallback(
+    async (call: CallRow) => {
+      await connect(call.id);
+      setActiveCall(call);
+      // Navigate to /desk so the agent can see and use the full softphone UI.
+      if (pathname !== "/desk" && !pathname?.startsWith("/desk/")) {
+        router.push("/desk");
+      }
+    },
+    [connect, pathname, router],
+  );
+
+  const dismissCall = useCallback(
+    async (callId: string) => {
+      await fetch(`/api/desk/calls/${callId}/dismiss`, { method: "POST" });
+      void refreshCalls();
+    },
+    [refreshCalls],
+  );
 
   const disconnect = useCallback(() => {
     setConn(null);
@@ -773,48 +807,18 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
     setHoldError(null);
   }, [activeCall?.id]);
 
-  // ── Render guards ──────────────────────────────────────────────────────
-  if (bootstrapping) {
-    // In compact mode the layout-level sticky bar shows just a thin loader
-    // so it doesn't dominate every page during the initial bootstrap.
-    if (compact) {
-      return (
-        <div style={{ padding: "8px 14px", fontSize: 12, color: "var(--muted)", borderBottom: "1px solid var(--border)", background: "var(--panel)" }}>
-          {"Loading desk…"}
-        </div>
-      );
-    }
-    return <div className="card"><p className="muted">{"Loading desk…"}</p></div>;
-  }
-
-  if (!handle) {
-    // Compact + no handle = a non-agent (manager / admin / supervisor) who
-    // doesn't have a softphone configured. Don't pollute every page with a
-    // "Poste non activé" bar they can't act on. The full /desk page still
-    // shows the proper setup card via the expanded mode.
-    if (compact) return null;
+  // ── Render guards — compact only ──────────────────────────────────────
+  // Non-compact content is assigned to deskPageContent below and then
+  // either portalled to deskSlotEl (on /desk) or rendered in-place (hidden
+  // off-screen by the shell) so the component is NEVER unmounted.
+  if (bootstrapping && compact) {
     return (
-      <div className="card" style={{ maxWidth: 560 }}>
-        <h3>{"Your desk is not configured yet"}</h3>
-        <p className="muted" style={{ marginTop: 6 }}>
-          {"To receive and make calls, an"} <em>agent_handle</em> {"(agent desk) must be linked to your account."}
-        </p>
-        <p className="muted" style={{ marginTop: 4 }}>
-          {"You can activate it yourself below, or ask an administrator."}
-        </p>
-        {bootstrapError && (
-          <div style={{ color: "var(--bad)", fontSize: 13, marginTop: 8 }}>
-            {bootstrapError}
-          </div>
-        )}
-        <div style={{ marginTop: 14 }}>
-          <button onClick={register} disabled={registering}>
-            {registering ? "Activating…" : "Activate my desk"}
-          </button>
-        </div>
+      <div style={{ padding: "8px 14px", fontSize: 12, color: "var(--muted)", borderBottom: "1px solid var(--border)", background: "var(--panel)" }}>
+        {"Loading desk…"}
       </div>
     );
   }
+  if (!handle && compact) return null;
 
   // ── Compact bar (layout-level persistent shell) ──────────────────────
   // Renders a single slim row with status + active-call summary + the
@@ -849,7 +853,7 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
             flex: "0 0 auto",
           }}
         />
-        <strong style={{ fontSize: 13 }}>{handle.display_name}</strong>
+        <strong style={{ fontSize: 13 }}>{handle?.display_name}</strong>
         <select
           value={status}
           onChange={(e) => setStatus(e.target.value as PresenceStatus)}
@@ -929,7 +933,36 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
     );
   }
 
-  return (
+  // ── Non-compact content (loading / setup / full softphone) ───────────
+  // Assigned to a variable so it can be portalled to deskSlotEl when the
+  // shell passes one, or rendered in-place (hidden) otherwise.
+  let deskPageContent: React.ReactNode;
+  if (bootstrapping) {
+    deskPageContent = <div className="card"><p className="muted">{"Loading desk…"}</p></div>;
+  } else if (!handle) {
+    deskPageContent = (
+      <div className="card" style={{ maxWidth: 560 }}>
+        <h3>{"Your desk is not configured yet"}</h3>
+        <p className="muted" style={{ marginTop: 6 }}>
+          {"To receive and make calls, an"} <em>agent_handle</em> {"(agent desk) must be linked to your account."}
+        </p>
+        <p className="muted" style={{ marginTop: 4 }}>
+          {"You can activate it yourself below, or ask an administrator."}
+        </p>
+        {bootstrapError && (
+          <div style={{ color: "var(--bad)", fontSize: 13, marginTop: 8 }}>
+            {bootstrapError}
+          </div>
+        )}
+        <div style={{ marginTop: 14 }}>
+          <button onClick={register} disabled={registering}>
+            {registering ? "Activating…" : "Activate my desk"}
+          </button>
+        </div>
+      </div>
+    );
+  } else {
+    deskPageContent = (
     <div className="softphone">
       <div className="softphone-presence">
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -974,6 +1007,8 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
             calls={calls}
             activeId={activeCall?.id ?? null}
             onSelect={(c) => setActiveCall(c)}
+            onAccept={(c) => void acceptCall(c)}
+            onDismiss={(id) => void dismissCall(id)}
           />
         )}
 
@@ -1185,6 +1220,83 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
         />
       )}
     </div>
+    );
+  } // end else (full softphone deskPageContent)
+
+  return (
+    <>
+      {/* ── Global incoming call banner ────────────────────────────────────
+          Portalled to <body> so it escapes the hidden off-screen div and
+          is visible on EVERY page whenever an inbound call is ringing.    */}
+      {pendingInbound && typeof document !== "undefined" && createPortal(
+        <div
+          role="alert"
+          aria-live="assertive"
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            padding: "10px 16px",
+            background: "#1a472a",
+            borderBottom: "3px solid #22c55e",
+            flexWrap: "wrap",
+            animation: "inboundBannerPulse 1s ease-in-out infinite",
+          }}
+        >
+          <style>{`@keyframes inboundBannerPulse { 0%,100%{opacity:1} 50%{opacity:0.85} }`}</style>
+          <span style={{ fontSize: 22, flexShrink: 0 }}>📞</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 700, color: "#fff", fontSize: 14 }}>
+              Appel entrant
+            </div>
+            <div style={{ color: "#86efac", fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {pendingInbound.from_e164 ?? "Numéro inconnu"}
+            </div>
+          </div>
+          <button
+            onClick={() => void acceptCall(pendingInbound)}
+            style={{
+              padding: "8px 18px",
+              fontSize: 13,
+              fontWeight: 700,
+              background: "#22c55e",
+              color: "#fff",
+              border: "none",
+              borderRadius: 6,
+              cursor: "pointer",
+              flexShrink: 0,
+            }}
+          >
+            ✓ Accepter
+          </button>
+          <button
+            onClick={() => void dismissCall(pendingInbound.id)}
+            style={{
+              padding: "8px 14px",
+              fontSize: 13,
+              background: "#dc2626",
+              color: "#fff",
+              border: "none",
+              borderRadius: 6,
+              cursor: "pointer",
+              flexShrink: 0,
+            }}
+          >
+            ✕ Refuser
+          </button>
+        </div>,
+        document.body,
+      )}
+      {/* ── Main softphone UI ──────────────────────────────────────────────
+          Portalled to the /desk page slot when deskSlotEl is provided,
+          otherwise rendered in-place (hidden by the shell's off-screen div). */}
+      {deskSlotEl ? createPortal(deskPageContent, deskSlotEl) : deskPageContent}
+    </>
   );
 }
 
@@ -1221,10 +1333,14 @@ function CallsList({
   calls,
   activeId,
   onSelect,
+  onAccept,
+  onDismiss,
 }: {
   calls: CallRow[];
   activeId: string | null;
   onSelect: (c: CallRow) => void;
+  onAccept: (c: CallRow) => void;
+  onDismiss: (id: string) => void;
 }) {
   const live = useMemo(
     () => calls.filter((c) => c.state === "ringing" || c.state === "in_progress"),
@@ -1255,6 +1371,8 @@ function CallsList({
               call={c}
               active={c.id === activeId}
               onClick={() => onSelect(c)}
+              onAccept={c.direction === "in" && c.state === "ringing" ? () => onAccept(c) : undefined}
+              onDismiss={c.direction === "in" && c.state === "ringing" ? () => onDismiss(c.id) : undefined}
             />
           ))}
         </div>
@@ -1283,36 +1401,100 @@ function CallRowView({
   call,
   active,
   onClick,
+  onAccept,
+  onDismiss,
 }: {
   call: CallRow;
   active: boolean;
   onClick: () => void;
+  onAccept?: () => void;
+  onDismiss?: () => void;
 }) {
+  const isInboundRinging = call.direction === "in" && call.state === "ringing";
   return (
-    <button
-      className="ghost"
-      onClick={onClick}
+    <div
       style={{
-        textAlign: "left",
-        padding: "10px 12px",
-        borderColor: active ? "var(--accent)" : "var(--border-2)",
-        background: active ? "var(--accent-soft)" : "transparent",
-        display: "flex",
-        flexDirection: "column",
-        gap: 4,
-        alignItems: "stretch",
+        border: `1px solid ${isInboundRinging ? "#22c55e" : active ? "var(--accent)" : "var(--border-2)"}`,
+        background: isInboundRinging ? "#0f2d1a" : active ? "var(--accent-soft)" : "transparent",
+        borderRadius: 6,
+        overflow: "hidden",
       }}
     >
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-        <strong style={{ fontSize: 13 }}>{formatPhone(call)}</strong>
-        <span className="tag" style={{ fontSize: 10 }}>
-          {call.state}
-        </span>
-      </div>
-      <div className="muted" style={{ fontSize: 11 }}>
-        {call.direction === "in" ? "← inbound" : "→ outbound"} · {formatRelative(call.started_at)} ago
-      </div>
-    </button>
+      <button
+        className="ghost"
+        onClick={onClick}
+        style={{
+          textAlign: "left",
+          padding: "10px 12px",
+          border: "none",
+          borderRadius: 0,
+          width: "100%",
+          display: "flex",
+          flexDirection: "column",
+          gap: 4,
+          alignItems: "stretch",
+          background: "transparent",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+          <strong style={{ fontSize: 13, color: isInboundRinging ? "#fff" : undefined }}>
+            {formatPhone(call)}
+          </strong>
+          <span
+            style={{
+              fontSize: 10,
+              padding: "2px 6px",
+              borderRadius: 4,
+              border: `1px solid ${isInboundRinging ? "#22c55e" : "var(--border)"}`,
+              color: isInboundRinging ? "#86efac" : "var(--muted)",
+              background: "transparent",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {call.state}
+          </span>
+        </div>
+        <div style={{ fontSize: 11, color: isInboundRinging ? "#86efac" : "var(--muted)" }}>
+          {call.direction === "in" ? "← entrant" : "→ sortant"} · {formatRelative(call.started_at)}
+        </div>
+      </button>
+      {isInboundRinging && onAccept && onDismiss && (
+        <div style={{ display: "flex", gap: 6, padding: "0 10px 10px" }}>
+          <button
+            onClick={(e) => { e.stopPropagation(); onAccept(); }}
+            style={{
+              flex: 1,
+              padding: "7px",
+              fontSize: 12,
+              fontWeight: 700,
+              background: "#22c55e",
+              color: "#fff",
+              border: "none",
+              borderRadius: 5,
+              cursor: "pointer",
+            }}
+          >
+            ✓ Accepter
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); onDismiss(); }}
+            style={{
+              flex: 1,
+              padding: "7px",
+              fontSize: 12,
+              fontWeight: 600,
+              background: "#dc2626",
+              color: "#fff",
+              border: "none",
+              borderRadius: 5,
+              cursor: "pointer",
+            }}
+          >
+            ✕ Refuser
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
