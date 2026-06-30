@@ -8,6 +8,7 @@
  */
 
 import type { CSSProperties } from "react";
+import { useT } from "@/lib/i18n";
 
 export function Skeleton({
   width,
@@ -50,10 +51,11 @@ export function SkeletonRows({
   height?: number;
   gap?: number;
 }) {
+  const t = useT();
   return (
     <div
       role="status"
-      aria-label="Chargement"
+      aria-label={t("Chargement")}
       style={{ display: "flex", flexDirection: "column", gap }}
     >
       {Array.from({ length: count }).map((_, i) => (

@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useT } from "@/lib/i18n";
 
 interface ColumnSpec {
   key: string;
@@ -33,6 +34,7 @@ interface ImportResult {
 }
 
 export function ContactListDetail({ listId, listName, columns, initialContacts }: Props) {
+  const t = useT();
   const router = useRouter();
   const [contacts, setContacts] = useState<Contact[]>(initialContacts);
   const [search, setSearch] = useState("");
@@ -92,7 +94,7 @@ export function ContactListDetail({ listId, listName, columns, initialContacts }
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search (name, phone, email, attribute)…"
+          placeholder={t("Rechercher (nom, téléphone, email, attribut)…")}
           style={{ flex: "1 1 240px", minWidth: 200 }}
         />
         <input
@@ -103,29 +105,29 @@ export function ContactListDetail({ listId, listName, columns, initialContacts }
           style={{ display: "none" }}
         />
         <button onClick={() => fileInputRef.current?.click()} disabled={importing}>
-          {importing ? "Importing…" : "⬆ Import CSV/Excel"}
+          {importing ? t("Importation…") : t("⬆ Importer CSV/Excel")}
         </button>
       </div>
 
       {error && (
         <div className="card" style={{ background: "rgba(255,80,80,0.08)", border: "1px solid rgba(255,80,80,0.3)" }}>
-          <strong style={{ color: "#ff8080" }}>Import failed:</strong> {error}
+          <strong style={{ color: "#ff8080" }}>{t("Échec de l'import :")}</strong> {error}
         </div>
       )}
 
       {result && (
         <div className="card" style={{ background: "rgba(80,200,120,0.06)", border: "1px solid rgba(80,200,120,0.3)" }}>
-          <strong>✅ Import complete:</strong> {result.inserted} row{result.inserted === 1 ? "" : "s"} imported
-          {result.skipped > 0 && `, ${result.skipped} skipped`}.
+          <strong>✅ {t("Import terminé :")}</strong> {result.inserted} {t("ligne")}{result.inserted === 1 ? "" : "s"} {t("importée")}{result.inserted === 1 ? "" : "s"}
+          {result.skipped > 0 && `, ${result.skipped} ${t("ignorée")}{result.skipped === 1 ? "" : "s"}`}.
           {result.errors.length > 0 && (
             <details style={{ marginTop: 8 }}>
               <summary style={{ cursor: "pointer", color: "var(--muted)" }}>
-                Show {result.errors.length} error{result.errors.length === 1 ? "" : "s"}
+                {t("Voir")} {result.errors.length} {t("erreur")}{result.errors.length === 1 ? "" : "s"}
               </summary>
               <ul style={{ margin: "8px 0 0 18px", padding: 0, fontSize: 13 }}>
                 {result.errors.slice(0, 50).map((er, i) => (
                   <li key={i}>
-                    {er.row > 0 ? `Row ${er.row}` : "Batch"}: {er.reason}
+                    {er.row > 0 ? `Ligne ${er.row}` : t("Lot")} : {er.reason}
                   </li>
                 ))}
               </ul>
@@ -136,11 +138,11 @@ export function ContactListDetail({ listId, listName, columns, initialContacts }
 
       {contacts.length === 0 ? (
         <div className="card">
-          <h3>No contacts in <em>{listName}</em></h3>
+          <h3>{t("Aucun contact dans")} <em>{listName}</em></h3>
           <p className="muted">
-            Click <strong>⬆ Import CSV/Excel</strong> above to load your list.
-            The file must have a header with a <span className="kbd">phone</span> column (E.164 or local)
-            and may contain any column declared in this database.
+            {t("Cliquez sur")} <strong>⬆ {t("Importer CSV/Excel")}</strong> {t("ci-dessus pour charger votre liste.")}
+            {" "}{t("Le fichier doit avoir un en-tête avec une colonne")} <span className="kbd">phone</span> {t("(E.164 ou local)")}
+            {" "}{t("et peut contenir toute colonne déclarée dans cette base.")}
           </p>
         </div>
       ) : (
@@ -148,13 +150,13 @@ export function ContactListDetail({ listId, listName, columns, initialContacts }
           <table className="list">
             <thead>
               <tr>
-                <th>Phone</th>
-                <th>Name</th>
-                <th>Email</th>
+                <th>{t("Téléphone")}</th>
+                <th>{t("Nom")}</th>
+                <th>{t("Email")}</th>
                 {columns.map((c) => (
                   <th key={c.key} style={{ whiteSpace: "nowrap" }}>{c.label}</th>
                 ))}
-                <th>Updated</th>
+                <th>{t("Mis à jour")}</th>
               </tr>
             </thead>
             <tbody>

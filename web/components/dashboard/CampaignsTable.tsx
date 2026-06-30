@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useT } from "@/lib/i18n";
 import type { CampaignRow } from "@/app/api/dashboard/overview/route";
 
 function stateTone(state: string): string {
@@ -32,27 +33,28 @@ function fmtRelative(iso: string | null): string {
 }
 
 export function CampaignsTable({ rows }: { rows: CampaignRow[] }) {
+  const t = useT();
   return (
     <div className="card" style={{ padding: 0, overflow: "hidden" }}>
       <div style={{ padding: "14px 16px", borderBottom: "1px solid var(--border)" }}>
-        <h3 style={{ margin: 0, fontSize: 14 }}>Recent campaigns</h3>
+        <h3 style={{ margin: 0, fontSize: 14 }}>{t("Campagnes récentes")}</h3>
         <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
-          {rows.length} campaign(s)
+          {rows.length} {t("campagne")}{rows.length === 1 ? "" : "s"}
         </div>
       </div>
       {rows.length === 0 ? (
         <div style={{ padding: 18, color: "var(--muted)", fontSize: 13 }}>
-          No campaigns yet. Create one from the Campaigns page.
+          {t("Aucune campagne pour l'instant. Créez-en une depuis la page Campagnes.")}
         </div>
       ) : (
         <table className="list">
           <thead>
             <tr>
-              <th>Name</th>
-              <th>Status</th>
-              <th>Targets</th>
-              <th>Progress</th>
-              <th>Last activity</th>
+              <th>{t("Nom")}</th>
+              <th>{t("Statut")}</th>
+              <th>{t("Cibles")}</th>
+              <th>{t("Progression")}</th>
+              <th>{t("Dernière activité")}</th>
             </tr>
           </thead>
           <tbody>

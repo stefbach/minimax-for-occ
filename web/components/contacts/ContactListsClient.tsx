@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { useT } from "@/lib/i18n";
 import { CreateListModal } from "./CreateListModal";
 
 interface ListRow {
@@ -20,6 +21,7 @@ interface Props {
 }
 
 export function ContactListsClient({ initialLists, unsortedCount }: Props) {
+  const t = useT();
   const router = useRouter();
   const [lists, setLists] = useState<ListRow[]>(initialLists);
   const [showCreate, setShowCreate] = useState(false);
@@ -34,11 +36,11 @@ export function ContactListsClient({ initialLists, unsortedCount }: Props) {
   return (
     <>
       <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-        <button onClick={() => setShowCreate(true)}>+ Créer une base</button>
+        <button onClick={() => setShowCreate(true)}>+ {t("Créer une base")}</button>
         {unsortedCount > 0 && (
           <Link href="/contacts/unsorted">
             <button className="ghost">
-              📂 {unsortedCount} contact{unsortedCount === 1 ? "" : "s"} non classé{unsortedCount === 1 ? "" : "s"}
+              📂 {unsortedCount} contact{unsortedCount === 1 ? "" : "s"} {unsortedCount === 1 ? t("non classé") : t("non classés")}
             </button>
           </Link>
         )}
@@ -46,14 +48,15 @@ export function ContactListsClient({ initialLists, unsortedCount }: Props) {
 
       {lists.length === 0 ? (
         <div className="card">
-          <h3>Aucune base de contacts</h3>
+          <h3>{t("Aucune base de contacts")}</h3>
           <p className="muted">
-            Une « base » regroupe les contacts d&apos;un même usage (ex&nbsp;: <em>leads_rdv_test</em>{" "}
-            pour tester, <em>leads_rdv_prod</em> pour les vrais appels). Chaque base a ses propres
-            colonnes (téléphone, email, IMC, notes, etc.).
+            {t("Une « base » regroupe les contacts d'un même usage")} (ex&nbsp;: <em>leads_rdv_test</em>{" "}
+            {t("pour tester,")}{" "}
+            <em>leads_rdv_prod</em>{" "}
+            {t("pour les vrais appels). Chaque base a ses propres colonnes (téléphone, email, IMC, notes, etc.).")}
           </p>
           <div style={{ marginTop: 12 }}>
-            <button onClick={() => setShowCreate(true)}>+ Créer ma première base</button>
+            <button onClick={() => setShowCreate(true)}>+ {t("Créer ma première base")}</button>
           </div>
         </div>
       ) : (

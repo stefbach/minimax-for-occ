@@ -1673,6 +1673,42 @@ const EN: Record<string, string> = {
   "Agent 1 uniquement": "Agent 1 only",
   "Agent 1 → Agent 2": "Agent 1 → Agent 2",
   "Agent 1 → 2 → 3": "Agent 1 → 2 → 3",
+
+  // ── Skeleton ──
+  "Chargement": "Loading",
+
+  // ── ThemeLangSwitcher tooltips ──
+  "Sombre": "Dark",
+  "Clair": "Light",
+  "Français": "French",
+
+  // ── ContactListsClient ──
+  "Créer une base": "Create a base",
+  "non classé": "unsorted",
+  "non classés": "unsorted",
+  "Aucune base de contacts": "No contact bases",
+  "Une « base » regroupe les contacts d'un même usage": "A \"base\" groups contacts for the same use case",
+  "pour tester,": "for testing,",
+  "pour les vrais appels). Chaque base a ses propres colonnes (téléphone, email, IMC, notes, etc.).": "for real calls). Each base has its own columns (phone, email, BMI, notes, etc.).",
+  "Créer ma première base": "Create my first base",
+
+  // ── Keys added by previous agents (gap-fill) ──
+  "Tentatives totales": "Total attempts",
+  "Délai retry (min)": "Retry delay (min)",
+  "Détection répondeur (AMD)": "Answering machine detection (AMD)",
+  "Quitter le mode admin": "Exit admin mode",
+  "Plan actuel": "Current plan",
+  "Consommation du mois": "Month's usage",
+  "Plans disponibles": "Available plans",
+  "Historique des factures": "Invoice history",
+  "Workflows accessibles à cet agent": "Workflows accessible to this agent",
+  "Workflows n8n disponibles": "Available n8n workflows",
+  "Automation introuvable.": "Automation not found.",
+  "Connexions enregistrées": "Saved connections",
+  "Ajouter / mettre à jour une connexion": "Add / update a connection",
+  "Automatisations natives": "Native automations",
+  "Prompt système (Markdown)": "System prompt (Markdown)",
+  "Historique des versions": "Version history",
 };
 
 function readLang(): Lang {

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useT } from "@/lib/i18n";
 import { DynamicEngineConfig, defaultEngineConfig, type EngineConfig } from "./DynamicEngineConfig";
 import { PreflightPanel } from "./PreflightPanel";
 import { preflightCampaign, isPreflightClear, blockingChecks } from "@/lib/sentinel/preflight";
@@ -476,6 +477,7 @@ export function CampaignWizard({
   orgCategory?: string | null;
 }) {
   const router = useRouter();
+  const t = useT();
 
   // Template-driven defaults (fall back to neutral values when no template).
   const TPL_DEFAULTS = {
@@ -1084,9 +1086,9 @@ export function CampaignWizard({
   }, [dynamicMode, dataTableId, selectedDataTable, tableStatusValues, orgCategory, isHumanCampaign, selectedAgent]);
 
   const STEPS: { n: 1 | 2 | 3; label: string; icon: string }[] = [
-    { n: 1, label: "Qui appelle ?", icon: "🎙" },
-    { n: 2, label: "Qui appeler ?", icon: "👥" },
-    { n: 3, label: "Quand ?", icon: "🕒" },
+    { n: 1, label: t("Qui appelle ?"), icon: "🎙" },
+    { n: 2, label: t("Qui appeler ?"), icon: "👥" },
+    { n: 3, label: t("Quand ?"), icon: "🕒" },
   ];
 
   return (
@@ -1150,25 +1152,25 @@ export function CampaignWizard({
       {currentStep === 1 && (<>
       {/* 1. Identité */}
       <section className="card">
-        <h3>1. Nom de la campagne</h3>
+        <h3>1. {t("Nom de la campagne")}</h3>
         <div className="muted" style={{ fontSize: 12, marginTop: -6, marginBottom: 10 }}>
-          Un nom clair pour la retrouver dans la liste.
+          {t("Un nom clair pour la retrouver dans la liste.")}
         </div>
         <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1fr" }}>
           <div>
-            <label>Nom *</label>
+            <label>{t("Nom")} *</label>
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Relance client Q2"
+              placeholder={t("Relance client Q2")}
             />
           </div>
           <div>
-            <label>Description</label>
+            <label>{t("Description")}</label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Objectif de la campagne, message clé…"
+              placeholder={t("Objectif de la campagne, message clé…")}
             />
           </div>
         </div>
@@ -1176,14 +1178,14 @@ export function CampaignWizard({
 
       {/* 2. Qui répond ? — binary choice: single agent vs multi-agent journey */}
       <section className="card">
-        <h3>2. Qui passe les appels ?</h3>
+        <h3>2. {t("Qui passe les appels ?")}</h3>
         <div className="muted" style={{ fontSize: 12, marginTop: -6, marginBottom: 10 }}>
-          L&apos;agent IA — ou une équipe d&apos;agents qui se passent le relais — qui parlera au téléphone.
+          {t("L'agent IA — ou une équipe d'agents qui se passent le relais — qui parlera au téléphone.")}
         </div>
 
         {agents.length === 0 ? (
           <p className="muted" style={{ margin: 0 }}>
-            Aucun agent IA disponible. Créez-en un depuis la page Agents.
+            {t("Aucun agent IA disponible. Créez-en un depuis la page Agents.")}
           </p>
         ) : (
           <>
@@ -1205,9 +1207,9 @@ export function CampaignWizard({
                   style={{ width: "auto", marginTop: 2 }}
                 />
                 <div>
-                  <div style={{ fontWeight: 600 }}>Un seul agent</div>
+                  <div style={{ fontWeight: 600 }}>{t("Un seul agent")}</div>
                   <div style={{ fontSize: 12, color: "var(--muted)" }}>
-                    Le même agent gère tout l&apos;appel du début à la fin.
+                    {t("Le même agent gère tout l'appel du début à la fin.")}
                   </div>
                 </div>
               </label>
@@ -1237,7 +1239,7 @@ export function CampaignWizard({
                   style={{ width: "auto", marginTop: 2 }}
                 />
                 <div>
-                  <div style={{ fontWeight: 600 }}>Parcours multi-agents</div>
+                  <div style={{ fontWeight: 600 }}>{t("Parcours multi-agents")}</div>
                   <div style={{ fontSize: 12, color: "var(--muted)" }}>
                     Plusieurs agents se passent le relais (ex&nbsp;: Charlotte → Isabelle → Victoria).
                     {teams.length === 0 && " — créez d'abord une Team IA."}
@@ -1249,7 +1251,7 @@ export function CampaignWizard({
             {/* Single-agent picker */}
             {!teamId && (
               <div>
-                <label>Agent</label>
+                <label>{t("Agent")}</label>
                 <select value={agentHandleId} onChange={(e) => setAgentHandleId(e.target.value)}>
                   {agents.map((a) => (
                     <option key={a.id} value={a.id}>
@@ -1279,7 +1281,7 @@ export function CampaignWizard({
             {/* Multi-agent (team) picker */}
             {teamId && (
               <div>
-                <label>Parcours (Team IA)</label>
+                <label>{t("Parcours (Team IA)")}</label>
                 <select
                   value={teamId}
                   onChange={(e) => {
@@ -1320,9 +1322,9 @@ export function CampaignWizard({
 
         {/* Script — optional refinement, clearly secondary. */}
         <div style={{ marginTop: 18, paddingTop: 14, borderTop: "1px solid var(--border)" }}>
-          <label>Script de conversation (optionnel)</label>
+          <label>{t("Script de conversation (optionnel)")}</label>
           <select value={scriptId} onChange={(e) => setScriptId(e.target.value)}>
-            <option value="">— Aucun (l&apos;agent suit son prompt) —</option>
+            <option value="">— {t("Aucun (l'agent suit son prompt)")} —</option>
             {scripts.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name}{s.mission ? ` — ${s.mission}` : ""}
@@ -1341,18 +1343,18 @@ export function CampaignWizard({
 
       {/* 3. Numéro émetteur */}
       <section className="card">
-        <h3>3. Numéro affiché</h3>
+        <h3>3. {t("Numéro affiché")}</h3>
         <div className="muted" style={{ fontSize: 12, marginTop: -6, marginBottom: 10 }}>
-          Le numéro qui s&apos;affiche sur le téléphone de la personne appelée.
+          {t("Le numéro qui s'affiche sur le téléphone de la personne appelée.")}
         </div>
         <div className="wizard-row-2">
           <div>
-            <label>Numéro Twilio</label>
+            <label>{t("Numéro Twilio")}</label>
             <select
               value={phoneNumberId}
               onChange={(e) => setPhoneNumberId(e.target.value)}
             >
-              <option value="">— Aucun —</option>
+              <option value="">— {t("Aucun")} —</option>
               {numbers.map((n) => (
                 <option key={n.id} value={n.id}>
                   {n.e164} {n.label ? `(${n.label})` : ""}
@@ -1361,7 +1363,7 @@ export function CampaignWizard({
             </select>
           </div>
           <div>
-            <label>Ou caller-id (E.164)</label>
+            <label>{t("Ou caller-id (E.164)")}</label>
             <input
               value={callerIdOverride}
               onChange={(e) => setCallerIdOverride(e.target.value)}
@@ -1381,17 +1383,17 @@ export function CampaignWizard({
       {currentStep === 2 && (<>
       {/* 4. Cibles */}
       <section className="card">
-        <h3>4. Qui appeler ?</h3>
+        <h3>4. {t("Qui appeler ?")}</h3>
         <div className="muted" style={{ fontSize: 12, marginTop: -6, marginBottom: 10 }}>
-          La liste de contacts à appeler et la façon de les appeler (une fois, ou en continu avec relances).
+          {t("La liste de contacts à appeler et la façon de les appeler (une fois, ou en continu avec relances).")}
         </div>
         <div style={{ display: "grid", gap: 12 }}>
           {dataTables.length > 0 && (
             <div style={{ background: "var(--bg-2)", padding: 12, borderRadius: 8, display: "grid", gap: 10 }}>
               <div>
-                <label>Table de contacts (recommandé)</label>
+                <label>{t("Table de contacts (recommandé)")}</label>
                 <select value={dataTableId} onChange={(e) => onPickDataTable(e.target.value)}>
-                  <option value="">— Pas de table (utiliser CSV ci-dessous) —</option>
+                  <option value="">— {t("Pas de table (utiliser CSV ci-dessous)")} —</option>
                   {dataTables.map((t) => (
                     <option key={t.id} value={t.id}>
                       {t.label} ({t.physical_table}) · {t.row_count} contact{t.row_count === 1 ? "" : "s"}
@@ -1420,7 +1422,7 @@ export function CampaignWizard({
                       <input type="radio" name="campaign_type" checked={dynamicMode}
                         onChange={() => setDynamicMode(true)} style={{ width: "auto", marginTop: 2 }} />
                       <div>
-                        <div style={{ fontWeight: 600 }}>Campagne continue 🔁</div>
+                        <div style={{ fontWeight: 600 }}>{t("Campagne continue")} 🔁</div>
                         <div style={{ fontSize: 12, color: "var(--muted)" }}>
                           Re-sélectionne les contacts à chaque créneau selon vos règles :
                           statuts ciblés, relances J+X, plafond d&apos;appels/jour. (logique J1/J3/J5)
@@ -1438,9 +1440,9 @@ export function CampaignWizard({
                       <input type="radio" name="campaign_type" checked={!dynamicMode}
                         onChange={() => setDynamicMode(false)} style={{ width: "auto", marginTop: 2 }} />
                       <div>
-                        <div style={{ fontWeight: 600 }}>Appel unique 📞</div>
+                        <div style={{ fontWeight: 600 }}>{t("Appel unique")} 📞</div>
                         <div style={{ fontSize: 12, color: "var(--muted)" }}>
-                          Appelle une seule fois chaque contact de la table, sans relances automatiques.
+                          {t("Appelle une seule fois chaque contact de la table, sans relances automatiques.")}
                         </div>
                       </div>
                     </label>
@@ -1492,7 +1494,7 @@ export function CampaignWizard({
           ) : (
             <>
               <div>
-                <label>Coller un CSV (e164,nom)</label>
+                <label>{t("Coller un CSV (e164,nom)")}</label>
                 <textarea
                   value={csvText}
                   onChange={(e) => setCsvText(e.target.value)}
@@ -1504,11 +1506,11 @@ export function CampaignWizard({
                 </div>
               </div>
               <div>
-                <label>… ou importer depuis les contacts existants</label>
+                <label>{t("… ou importer depuis les contacts existants")}</label>
                 <input
                   value={contactSearch}
                   onChange={(e) => setContactSearch(e.target.value)}
-                  placeholder="Filtrer (nom ou numéro)…"
+                  placeholder={t("Filtrer (nom ou numéro)…")}
                 />
                 <div
                   style={{
@@ -1522,7 +1524,7 @@ export function CampaignWizard({
                   }}
                 >
                   {filteredContacts.length === 0 ? (
-                    <div className="muted" style={{ fontSize: 12 }}>Aucun contact</div>
+                    <div className="muted" style={{ fontSize: 12 }}>{t("Aucun contact")}</div>
                   ) : (
                     filteredContacts.map((c) => (
                       <label
