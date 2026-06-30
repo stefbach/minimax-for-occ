@@ -74,12 +74,55 @@ export async function GET(req: Request) {
     else byTarget.set(tid, [c]);
   }
 
+  // Group SMS rows by target_id so we can find, per call, which SMS immediately
+  // preceded it. rows is already sorted descending by sent_at (latest first).
+  const smsByTarget = new Map<string, string[]>(); // targetId → [smsId, ...] latest-first
+  for (const r of rows) {
+    const tid = r.target_id as string | null;
+    if (!tid) continue;
+    const arr = smsByTarget.get(tid);
+    const id = r.id as string;
+    if (arr) arr.push(id);
+    else smsByTarget.set(tid, [id]);
+  }
+
+  // Map each call to the SMS that immediately preceded it (latest sent_at ≤ call
+  // started_at). A call can only be "owned" by one SMS so the same call won't
+  // appear twice in the panel.
+  const callOwner = new Map<string, string>(); // callId → smsId
+  for (const [tid, callsForTarget] of byTarget) {
+    const smsIds = smsByTarget.get(tid) ?? [];
+    // Build a sent-time lookup for this target's SMS rows (id → ms)
+    const sentMs = new Map<string, number>();
+    for (const r of rows) {
+      if ((r.target_id as string | null) !== tid) continue;
+      const sentAt = r.sent_at as string | null;
+      if (sentAt) sentMs.set(r.id as string, new Date(sentAt).getTime());
+    }
+    for (const call of callsForTarget) {
+      if (!call.started_at) continue;
+      const callTime = new Date(call.started_at).getTime();
+      // smsIds is latest-first; find the latest SMS that was sent before this call
+      const ownerId = smsIds.find((sid) => {
+        const t = sentMs.get(sid);
+        return t != null && t <= callTime;
+      });
+      if (ownerId) callOwner.set(call.id, ownerId);
+    }
+  }
+
   const out = rows.map((r) => {
     const targetId = r.target_id as string | null;
     const sentAt = r.sent_at as string | null;
+    const smsId = r.id as string;
     const candidates = (targetId && byTarget.get(targetId)) || [];
+    // Only claim a call if THIS SMS is the one that immediately preceded it.
     const after = candidates.find(
-      (c) => c.started_at && sentAt && new Date(c.started_at).getTime() >= new Date(sentAt).getTime(),
+      (c) =>
+        c.started_at &&
+        sentAt &&
+        new Date(c.started_at).getTime() >= new Date(sentAt).getTime() &&
+        callOwner.get(c.id) === smsId,
     );
     let answered: "answered" | "no_answer" | "voicemail" | "pending" = "pending";
     let call_id: string | null = null;
