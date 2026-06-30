@@ -157,12 +157,17 @@ html[data-sidebar-collapsed="1"] .app-shell {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  overflow-y: auto;
+  overflow: hidden;
   overscroll-behavior: contain;
   width: 240px;
   min-width: 0;
   transition: width 220ms ease, padding 220ms ease;
+}
+.sidebar-scroll {
+  flex: 1;
+  overflow-y: auto;
   overflow-x: hidden;
+  min-height: 0;
 }
 html[data-sidebar-collapsed="1"] .sidebar {
   width: 52px;
@@ -595,7 +600,7 @@ table.list tr:hover td { background: var(--panel-2); }
     border-bottom: 0;
     flex-direction: column;
     overflow-x: hidden;
-    overflow-y: auto;
+    overflow: hidden;
     padding: 56px 14px 20px; /* leave room for the close button at top-left */
     z-index: 56;
     transform: translateX(-100%);

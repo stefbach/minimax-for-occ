@@ -331,71 +331,73 @@ export function ClientSidebar() {
         <ThemeLangSwitcher />
       </div>
 
-      {GROUP_ORDER.filter((g) => groups[g]?.length).map((group) => (
-        <div key={group} style={{ marginTop: 6 }}>
-          <div
-            className="sidebar-group-label"
-            style={{
-              fontSize: 10,
-              color: "var(--muted-2)",
-              textTransform: "uppercase",
-              letterSpacing: 1,
-              padding: "10px 12px 4px",
-            }}
-          >
-            {t(group)}
+      <div className="sidebar-scroll">
+        {GROUP_ORDER.filter((g) => groups[g]?.length).map((group) => (
+          <div key={group} style={{ marginTop: 6 }}>
+            <div
+              className="sidebar-group-label"
+              style={{
+                fontSize: 10,
+                color: "var(--muted-2)",
+                textTransform: "uppercase",
+                letterSpacing: 1,
+                padding: "10px 12px 4px",
+              }}
+            >
+              {t(group)}
+            </div>
+            {groups[group].map(renderLink)}
           </div>
-          {groups[group].map(renderLink)}
-        </div>
-      ))}
+        ))}
 
-      {/* ─── Avancé (collapsible) ─── */}
-      {advanced.length > 0 && (
-        <div style={{ marginTop: 10, padding: "0 10px" }}>
-          <button
-            onClick={() => setAdvancedOpen((v) => !v)}
-            style={{
-              width: "100%",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 8,
-              cursor: "pointer",
-              fontSize: 13,
-              fontWeight: 500,
-              color: "var(--fg, #e5e5e5)",
-              background: "var(--surface-2, rgba(255,255,255,0.04))",
-              border: "1px solid var(--border, #2a2a2a)",
-              borderRadius: 8,
-              padding: "9px 12px",
-              textAlign: "left",
-            }}
-            aria-expanded={advancedOpen}
-          >
-            <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span aria-hidden="true" style={{ opacity: 0.7, display: "inline-flex" }}><Settings size={16} /></span>
-              <span>Advanced</span>
-              <span
-                style={{
-                  fontSize: 11,
-                  color: "var(--muted-2)",
-                  background: "var(--surface-3, rgba(255,255,255,0.08))",
-                  borderRadius: 10,
-                  padding: "1px 7px",
-                }}
-              >
-                {advanced.length}
+        {/* ─── Avancé (collapsible) ─── */}
+        {advanced.length > 0 && (
+          <div style={{ marginTop: 10, padding: "0 10px" }}>
+            <button
+              onClick={() => setAdvancedOpen((v) => !v)}
+              style={{
+                width: "100%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 8,
+                cursor: "pointer",
+                fontSize: 13,
+                fontWeight: 500,
+                color: "var(--fg, #e5e5e5)",
+                background: "var(--surface-2, rgba(255,255,255,0.04))",
+                border: "1px solid var(--border, #2a2a2a)",
+                borderRadius: 8,
+                padding: "9px 12px",
+                textAlign: "left",
+              }}
+              aria-expanded={advancedOpen}
+            >
+              <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span aria-hidden="true" style={{ opacity: 0.7, display: "inline-flex" }}><Settings size={16} /></span>
+                <span>Advanced</span>
+                <span
+                  style={{
+                    fontSize: 11,
+                    color: "var(--muted-2)",
+                    background: "var(--surface-3, rgba(255,255,255,0.08))",
+                    borderRadius: 10,
+                    padding: "1px 7px",
+                  }}
+                >
+                  {advanced.length}
+                </span>
               </span>
-            </span>
-            <span aria-hidden="true" style={{ fontSize: 14, opacity: 0.8, transition: "transform 0.15s", transform: advancedOpen ? "rotate(90deg)" : "none" }}>
-              ›
-            </span>
-          </button>
-          {advancedOpen && <div style={{ marginTop: 4 }}>{advanced.map(renderLink)}</div>}
-        </div>
-      )}
+              <span aria-hidden="true" style={{ fontSize: 14, opacity: 0.8, transition: "transform 0.15s", transform: advancedOpen ? "rotate(90deg)" : "none" }}>
+                ›
+              </span>
+            </button>
+            {advancedOpen && <div style={{ marginTop: 4 }}>{advanced.map(renderLink)}</div>}
+          </div>
+        )}
+      </div>
 
-      {/* Collapse toggle button */}
+      {/* Collapse toggle — outside the scroll area so it's always visible */}
       <button
         type="button"
         onClick={() => setCollapsed((v) => !v)}
@@ -406,7 +408,7 @@ export function ClientSidebar() {
           alignItems: "center",
           justifyContent: collapsed ? "center" : "flex-end",
           gap: 6,
-          marginTop: "auto",
+          marginTop: 4,
           padding: "7px 10px",
           borderRadius: 8,
           background: "transparent",
@@ -417,6 +419,7 @@ export function ClientSidebar() {
           width: "100%",
           boxSizing: "border-box",
           transition: "color 0.15s",
+          flexShrink: 0,
         }}
       >
         {!collapsed && <span className="sidebar-label" style={{ fontSize: 11 }}>{t("Réduire")}</span>}
