@@ -336,7 +336,7 @@ export function PrecallSmsTab({ from, to, global }: { from: string; to: string; 
           {t("Qualifications")}
           <span style={{ fontWeight: 400, marginLeft: 8 }}>· {t("Source")} : calls.metadata.qualification + calls.disposition</span>
         </div>
-        <div className="grid-kpi" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))" }}>
+        <div className="grid-kpi" style={{ gridTemplateColumns: "repeat(9, 1fr)", gap: 8 }}>
           {QUAL_BUCKETS.map(({ key, label }) => {
             const count = kpis.qualCounts.get(key) ?? 0;
             const pct = kpis.called ? (count / kpis.called * 100).toFixed(1) : "0.0";
