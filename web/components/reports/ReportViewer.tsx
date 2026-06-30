@@ -16,6 +16,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import type { ReportPayload } from "@/lib/reports/types";
 import { REPORT_CSS } from "./report-css";
+import { useT } from "@/lib/i18n";
 
 const UI = {
   fr: {
@@ -82,6 +83,7 @@ const ANNEX_LETTER_BG: Record<string, string> = {
 };
 
 export function ReportViewer({ report, hideToolbar }: { report: ReportPayload; hideToolbar?: boolean }) {
+  const t = useT();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const u = UI[report.lang ?? "fr"];
 
@@ -114,7 +116,7 @@ export function ReportViewer({ report, hideToolbar }: { report: ReportPayload; h
       {!hideToolbar && <div className="rp-toolbar">
         <div>
           <div className="rp-toolbar-title">{report.title}</div>
-          <div className="rp-toolbar-sub">{report.subtitle} · généré le {report.generatedAt}</div>
+          <div className="rp-toolbar-sub">{report.subtitle} · {t("généré le")} {report.generatedAt}</div>
         </div>
         <button
           type="button"

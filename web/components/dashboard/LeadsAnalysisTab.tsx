@@ -5,6 +5,7 @@ import type { LeadsAnalysisResponse } from "@/app/api/dashboard/leads-analysis/r
 import type { GlobalFilters } from "@/lib/global-filters";
 import { appendGlobalFilters } from "@/lib/global-filters";
 import { DEFAULT_GLOBAL_FILTERS } from "@/lib/global-filters";
+import { useT } from "@/lib/i18n";
 
 // Colour scheme for the 4 outcome categories
 const CAT_COLORS = {
@@ -32,6 +33,7 @@ type Props = {
 };
 
 export function LeadsAnalysisTab({ from, to, direction, leadsSource = "prod", system = "all", global = DEFAULT_GLOBAL_FILTERS }: Props) {
+  const t = useT();
   const [data, setData] = useState<LeadsAnalysisResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -52,7 +54,7 @@ export function LeadsAnalysisTab({ from, to, direction, leadsSource = "prod", sy
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setData(await res.json());
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Erreur");
+      setError(e instanceof Error ? e.message : t("Erreur"));
     } finally {
       setLoading(false);
     }
@@ -63,7 +65,7 @@ export function LeadsAnalysisTab({ from, to, direction, leadsSource = "prod", sy
   if (loading) {
     return (
       <div style={{ padding: 40, textAlign: "center", color: "var(--muted)" }}>
-        Chargement de l&apos;analyse…
+        {t("Chargement de l'analyse…")}
       </div>
     );
   }
@@ -71,7 +73,7 @@ export function LeadsAnalysisTab({ from, to, direction, leadsSource = "prod", sy
   if (error || !data) {
     return (
       <div className="card" style={{ color: "var(--bad)", padding: 20 }}>
-        {error ?? "Aucune donnée"}
+        {error ?? t("Aucune donnée")}
       </div>
     );
   }
@@ -86,32 +88,32 @@ export function LeadsAnalysisTab({ from, to, direction, leadsSource = "prod", sy
 
         <div className="card" style={{ padding: "18px 20px" }}>
           <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 6 }}>
-            Appels décrochés
+            {t("Appels décrochés")}
           </div>
           <div style={{ fontSize: 34, fontWeight: 700, color: "#22c55e", lineHeight: 1 }}>
             {totalAnswered}
           </div>
           <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
-            sur la période sélectionnée
+            {t("sur la période sélectionnée")}
           </div>
         </div>
 
         <div className="card" style={{ padding: "18px 20px" }}>
           <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 6 }}>
-            Personnes uniques
+            {t("Personnes uniques")}
           </div>
           <div style={{ fontSize: 34, fontWeight: 700, color: "var(--accent)", lineHeight: 1 }}>
             {uniqueIndividuals}
           </div>
           <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
-            contacts distincts atteints
+            {t("contacts distincts atteints")}
           </div>
         </div>
 
         {/* À passer à l'humain */}
         <div className="card" style={{ padding: "18px 20px", borderColor: passerHumain.count > 0 ? CAT_COLORS.passerHumain : undefined }}>
           <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 6 }}>
-            À passer à l&apos;humain
+            {t("À passer à l'humain")}
           </div>
           <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
             <span style={{ fontSize: 34, fontWeight: 700, color: CAT_COLORS.passerHumain, lineHeight: 1 }}>
@@ -130,7 +132,7 @@ export function LeadsAnalysisTab({ from, to, direction, leadsSource = "prod", sy
         {/* Pas intéressé */}
         <div className="card" style={{ padding: "18px 20px", borderColor: pasInteresse.count > 0 ? CAT_COLORS.pasInteresse : undefined }}>
           <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 6 }}>
-            Pas intéressé
+            {t("Pas intéressé")}
           </div>
           <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
             <span style={{ fontSize: 34, fontWeight: 700, color: CAT_COLORS.pasInteresse, lineHeight: 1 }}>
@@ -142,14 +144,14 @@ export function LeadsAnalysisTab({ from, to, direction, leadsSource = "prod", sy
           </div>
           {pctBar(pasInteresse.pct, CAT_COLORS.pasInteresse)}
           <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 6 }}>
-            des décrochés
+            {t("des décrochés")}
           </div>
         </div>
 
         {/* Rappel demandé */}
         <div className="card" style={{ padding: "18px 20px", borderColor: rappel.count > 0 ? CAT_COLORS.rappel : undefined }}>
           <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 6 }}>
-            Rappel demandé
+            {t("Rappel demandé")}
           </div>
           <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
             <span style={{ fontSize: 34, fontWeight: 700, color: CAT_COLORS.rappel, lineHeight: 1 }}>
@@ -161,14 +163,14 @@ export function LeadsAnalysisTab({ from, to, direction, leadsSource = "prod", sy
           </div>
           {pctBar(rappel.pct, CAT_COLORS.rappel)}
           <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 6 }}>
-            des décrochés
+            {t("des décrochés")}
           </div>
         </div>
 
         {/* RDV confirmés */}
         <div className="card" style={{ padding: "18px 20px", borderColor: rdvConfirme.count > 0 ? CAT_COLORS.rdvConfirme : undefined }}>
           <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 6 }}>
-            RDV confirmés
+            {t("RDV confirmés")}
           </div>
           <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
             <span style={{ fontSize: 34, fontWeight: 700, color: CAT_COLORS.rdvConfirme, lineHeight: 1 }}>
@@ -180,7 +182,7 @@ export function LeadsAnalysisTab({ from, to, direction, leadsSource = "prod", sy
           </div>
           {pctBar(rdvConfirme.pct, CAT_COLORS.rdvConfirme)}
           <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 6 }}>
-            des décrochés
+            {t("des décrochés")}
           </div>
         </div>
       </div>
@@ -189,7 +191,7 @@ export function LeadsAnalysisTab({ from, to, direction, leadsSource = "prod", sy
       {qualBreakdown.length > 0 && (
         <div className="card" style={{ padding: 20 }}>
           <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 14 }}>
-            Qualifications — appels décrochés uniquement
+            {t("Qualifications — appels décrochés uniquement")}
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {qualBreakdown.map((q) => {
@@ -230,7 +232,7 @@ export function LeadsAnalysisTab({ from, to, direction, leadsSource = "prod", sy
 
       {totalAnswered === 0 && (
         <div className="card" style={{ padding: 24, textAlign: "center", color: "var(--muted)" }}>
-          Aucun appel décroché sur cette période.
+          {t("Aucun appel décroché sur cette période.")}
         </div>
       )}
     </div>
