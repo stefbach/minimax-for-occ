@@ -270,10 +270,10 @@ export function ClientSidebar() {
         href={n.href}
         className={`nav-link ${active ? "active" : ""}`}
         aria-label={n.label}
-        title={collapsed ? t(n.label) : undefined}
+        title={undefined}
         aria-current={active ? "page" : undefined}
         onClick={() => setDrawerOpen(false)}
-        style={n.indent && !collapsed ? { paddingLeft: 30 } : undefined}
+        style={n.indent ? { paddingLeft: 30 } : undefined}
       >
         <span aria-hidden="true" style={{ width: 16, opacity: 0.7, fontSize: n.indent ? 12 : undefined, flexShrink: 0 }}>{n.icon}</span>
         <span className="sidebar-label" style={{ flex: 1, fontSize: n.indent ? 13 : undefined, opacity: n.indent && !active ? 0.85 : undefined }}>{t(n.label)}</span>
