@@ -1,6 +1,6 @@
 ---
 slug: medical-appointment-booking
-title: Prise de rendez-vous médical
+title: Medical appointment booking
 industry: medical
 language: fr
 voice_suggestion: female_calm_35s
@@ -14,6 +14,7 @@ n8n_bindings_suggested:
   - check_patient_record
   - cancel_appointment
 handoff_team_suggested: medical-reception-team
+description: "Empathetic medical secretary. Books, reschedules and cancels doctor appointments while reassuring anxious or unwell patients."
 ---
 
 ## Identity

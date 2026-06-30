@@ -191,7 +191,10 @@ export async function POST(
   if (has("last_updated")) patch.last_updated = endedAt;
 
   if (shouldPropagateQualification && has("qualification")) {
-    patch.qualification = callQual;
+    // FAUX NUMERO is treated as NE PAS RAPPELER in the leads table: the lead's
+    // number is invalid so it must never be dialled again. The calls row keeps
+    // the original qualification for audit; only the lead writeback is remapped.
+    patch.qualification = callQual === "FAUX NUMERO" ? "NE PAS RAPPELER" : callQual;
   }
   if (isExplicit && has("last_qualification_update")) {
     patch.last_qualification_update = endedAt;
@@ -255,6 +258,10 @@ export async function POST(
     if (callQual === "RDV CONFIRME") patch.cycle_status = "RDV";
     else if (NEGATIVE_CLOSED.has(callQual)) patch.cycle_status = "CLOS";
     else if (callQual === "A PASSER A L'HUMAIN") patch.cycle_status = "HUMAIN";
+    // SUIVI REQUIS = reached agent 2/3 without booking → hand to the human
+    // desk and stop the AI dialer (cycle_status ≠ ACTIF excludes it from
+    // dynamic selection). A supervisor can hand it back via "Agent IA".
+    else if (callQual === "SUIVI REQUIS") patch.cycle_status = "HUMAIN";
     // RAPPEL / PAS DE REPONSE / REPONDEUR keep cycle_status = ACTIF.
   }
 
@@ -295,7 +302,7 @@ export async function POST(
     resolvedContactId = c?.id ?? null;
   }
 
-  if (callQual === "A PASSER A L'HUMAIN" && resolvedContactId) {
+  if ((callQual === "A PASSER A L'HUMAIN" || callQual === "SUIVI REQUIS") && resolvedContactId) {
     const { data: existingTasks } = await sb
       .from("human_callback_tasks")
       .select("id")
@@ -336,7 +343,7 @@ export async function POST(
         org_id: call.org_id,
         contact_id: resolvedContactId,
         original_call_id: callId,
-        qualification: "A PASSER A L'HUMAIN",
+        qualification: callQual,
         transfer_reason: "auto from sync-lead (safety net)",
         scheduled_for: new Date().toISOString(),
         status: "pending",

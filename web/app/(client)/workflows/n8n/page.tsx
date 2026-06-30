@@ -7,7 +7,7 @@ import { currentOrgIdForServer } from "@/lib/supabase-auth";
 export const dynamic = "force-dynamic";
 
 /**
- * /workflows/n8n — the full n8n flow catalogue (Actifs / Inactifs) moved off
+ * /workflows/n8n — the full n8n flow catalogue (Active / Inactive) moved off
  * the main Workflows page so the native automations stay front and centre.
  */
 export default async function N8nWorkflowsPage() {
@@ -43,16 +43,16 @@ export default async function N8nWorkflowsPage() {
     <>
       <div className="page-header">
         <div>
-          <h1>Flows n8n</h1>
+          <h1>n8n Flows</h1>
           <div className="subtitle">
             {workflows.length} workflow{workflows.length === 1 ? "" : "s"}
-            {orgTag ? <> · filtré sur le tag <span className="kbd">{orgTag}</span></> : null}
+            {orgTag ? <> · filtered on tag <span className="kbd">{orgTag}</span></> : null}
             {" · "}
-            <Link href="/workflows">← Retour aux workflows</Link>
+            <Link href="/workflows">← Back to workflows</Link>
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <Link href="/workflows/new"><button>+ Nouveau workflow</button></Link>
+          <Link href="/workflows/new"><button>+ New workflow</button></Link>
           <HelpButton contextKey="workflows" />
         </div>
       </div>
@@ -61,16 +61,16 @@ export default async function N8nWorkflowsPage() {
         <div className="card" style={{ borderColor: "var(--bad)", color: "var(--bad)" }}>
           {error}
           <div className="muted" style={{ marginTop: 6 }}>
-            Vérifiez que <span className="kbd">N8N_BASE_URL</span> et{" "}
-            <span className="kbd">N8N_API_KEY</span> sont définis sur Vercel.
+            Check that <span className="kbd">N8N_BASE_URL</span> and{" "}
+            <span className="kbd">N8N_API_KEY</span> are set on Vercel.
           </div>
         </div>
       )}
 
       {!error && (
         <>
-          <Section title="Actifs" rows={active} editorBase={editorBase} />
-          <Section title="Inactifs" rows={inactive} editorBase={editorBase} dim />
+          <Section title="Active" rows={active} editorBase={editorBase} />
+          <Section title="Inactive" rows={inactive} editorBase={editorBase} dim />
         </>
       )}
     </>
@@ -95,7 +95,7 @@ function Section({
       <div className="card" style={{ padding: 0, overflow: "hidden", opacity: dim ? 0.6 : 1 }}>
         <table className="list">
           <thead>
-            <tr><th>Nom</th><th>Webhooks</th><th>Tags</th><th></th></tr>
+            <tr><th>Name</th><th>Webhooks</th><th>Tags</th><th></th></tr>
           </thead>
           <tbody>
             {rows.map((w) => (
@@ -118,11 +118,11 @@ function Section({
                     href={`/workflows/${w.id}`}
                     style={{ marginRight: 6 }}
                   >
-                    <button className="ghost" style={{ padding: "5px 9px" }}>Éditer (intégré)</button>
+                    <button className="ghost" style={{ padding: "5px 9px" }}>Edit (embedded)</button>
                   </Link>
                   {editorBase && (
                     <a href={`${editorBase}/workflow/${w.id}`} target="_blank" rel="noopener noreferrer">
-                      <button className="subtle" style={{ padding: "5px 9px" }}>Ouvrir n8n ↗</button>
+                      <button className="subtle" style={{ padding: "5px 9px" }}>Open in n8n ↗</button>
                     </a>
                   )}
                 </td>

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useT } from "@/lib/i18n";
 
 // Inline actions on each campaign row.
 //
@@ -22,9 +23,10 @@ interface Props {
   state: string;
 }
 
-type Busy = null | "pause" | "resume" | "cancel" | "delete";
+type Busy = null | "pause" | "resume" | "cancel" | "delete" | "duplicate";
 
 export function CampaignRowActions({ id, name, state }: Props) {
+  const t = useT();
   const router = useRouter();
   const [busy, setBusy] = useState<Busy>(null);
 
@@ -44,7 +46,51 @@ export function CampaignRowActions({ id, name, state }: Props) {
       });
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
-        alert((j as { error?: string }).error ?? `Échec (HTTP ${r.status})`);
+        alert((j as { error?: string }).error ?? `Failed (HTTP ${r.status})`);
+        return;
+      }
+      router.refresh();
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function duplicate() {
+    if (busy) return;
+    setBusy("duplicate");
+    try {
+      // Fetch current campaign config.
+      const r = await fetch(`/api/campaigns/${id}`);
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        alert((j as { error?: string }).error ?? `Failed to fetch campaign (HTTP ${r.status})`);
+        return;
+      }
+      const src = await r.json() as Record<string, unknown>;
+
+      // Create a copy — same config, fresh state, no targets.
+      const body: Record<string, unknown> = {
+        name: `${src.name as string} (copy)`,
+        state: "paused",
+      };
+      const copy = [
+        "agent_handle_id", "agent_team_id", "description", "script_id",
+        "phone_number_id", "caller_id_e164", "schedule", "max_concurrency",
+        "max_attempts", "retry_delay_min", "amd_enabled", "mission",
+        "data_table_id", "contact_list_id",
+      ];
+      for (const k of copy) {
+        if (src[k] !== undefined && src[k] !== null) body[k] = src[k];
+      }
+
+      const cr = await fetch("/api/campaigns", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!cr.ok) {
+        const j = await cr.json().catch(() => ({}));
+        alert((j as { error?: string }).error ?? `Failed to duplicate (HTTP ${cr.status})`);
         return;
       }
       router.refresh();
@@ -57,9 +103,8 @@ export function CampaignRowActions({ id, name, state }: Props) {
     if (busy) return;
     if (
       !confirm(
-        `SUPPRIMER définitivement « ${name} » ?\n\n` +
-          `Cela retire la campagne ET ses cibles. ` +
-          `Les appels déjà passés restent dans le journal.`,
+        t("Supprimer définitivement") + ` "${name}" ?\n\n` +
+          t("Cela supprime la campagne ET toutes ses cibles. Les appels déjà passés restent dans le journal."),
       )
     ) {
       return;
@@ -69,7 +114,7 @@ export function CampaignRowActions({ id, name, state }: Props) {
       const r = await fetch(`/api/campaigns/${id}`, { method: "DELETE" });
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
-        alert((j as { error?: string }).error ?? `Échec suppression (HTTP ${r.status})`);
+        alert((j as { error?: string }).error ?? `Delete failed (HTTP ${r.status})`);
         return;
       }
       router.refresh();
@@ -97,12 +142,21 @@ export function CampaignRowActions({ id, name, state }: Props) {
 
   return (
     <div style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
-      {/* Éditer — links to the campaign detail page where an Edit modal
-          (EditCampaignModal) is already wired up. We don't have a dedicated
-          /edit route (was a 404). */}
+      {/* Duplicate — copies config into a new paused campaign (no targets) */}
+      <button
+        type="button"
+        title={t("Dupliquer cette campagne")}
+        onClick={duplicate}
+        disabled={busy !== null}
+        style={{ ...btn, color: "var(--info)", ...disabled(busy !== null) }}
+      >
+        {busy === "duplicate" ? "…" : "⧉"}
+      </button>
+
+      {/* Edit — links to the campaign detail page */}
       <Link
         href={`/campaigns/${id}`}
-        title="Voir / éditer la campagne"
+        title={t("Voir / modifier la campagne")}
         style={btn}
       >
         ✎
@@ -112,9 +166,9 @@ export function CampaignRowActions({ id, name, state }: Props) {
       {isPaused ? (
         <button
           type="button"
-          title="Reprendre la campagne (resume)"
+          title={t("Reprendre la campagne")}
           onClick={() =>
-            patchState("running", "resume", `Reprendre la campagne « ${name} » ?`)
+            patchState("running", "resume", t("Reprendre la campagne") + ` "${name}" ?`)
           }
           disabled={busy !== null}
           style={{ ...btn, color: "var(--good)", ...disabled(busy !== null) }}
@@ -126,14 +180,14 @@ export function CampaignRowActions({ id, name, state }: Props) {
           type="button"
           title={
             isRunning
-              ? "Mettre en pause (réversible — reprise possible)"
-              : "Disponible uniquement pour les campagnes running/scheduled"
+              ? t("Mettre en pause (réversible — peut être reprise)")
+              : t("Disponible uniquement pour les campagnes en cours ou planifiées")
           }
           onClick={() =>
             patchState(
               "paused",
               "pause",
-              `Mettre en pause « ${name} » ? Les appels en cours se terminent, les nouveaux s'arrêtent. Tu pourras reprendre.`,
+              t("Mettre en pause") + ` "${name}" ? ` + t("Les appels en cours se terminent, les nouveaux s'arrêtent. Vous pouvez reprendre à tout moment."),
             )
           }
           disabled={!isRunning || busy !== null}
@@ -143,20 +197,19 @@ export function CampaignRowActions({ id, name, state }: Props) {
         </button>
       )}
 
-      {/* Annuler (terminal) */}
+      {/* Cancel (terminal) */}
       <button
         type="button"
         title={
           isTerminal
-            ? "Déjà terminée / annulée"
-            : "Annuler définitivement (non réversible)"
+            ? t("Déjà terminée / annulée")
+            : t("Annuler définitivement (irréversible)")
         }
         onClick={() =>
           patchState(
             "cancelled",
             "cancel",
-            `ANNULER « ${name} » définitivement ? La campagne s'arrête et ne pourra plus être reprise. ` +
-              `(Pour stopper temporairement, utilise ⏸ Pause à la place.)`,
+            t("Annuler définitivement") + ` "${name}" ? ` + t("La campagne s'arrête et ne peut plus être reprise. (Pour stopper temporairement, utilisez ⏸ Pause.)"),
           )
         }
         disabled={isTerminal || busy !== null}
@@ -169,10 +222,10 @@ export function CampaignRowActions({ id, name, state }: Props) {
         {busy === "cancel" ? "…" : "🚫"}
       </button>
 
-      {/* Supprimer */}
+      {/* Delete */}
       <button
         type="button"
-        title="Supprimer définitivement (cascade les cibles)"
+        title={t("Supprimer définitivement (supprime aussi les cibles)")}
         onClick={remove}
         disabled={busy !== null}
         style={{

@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useT } from "@/lib/i18n";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { Agent, AgentInput, LlmProvider, Voice } from "@/lib/types";
 import { PromptEditor } from "@/components/agents/PromptEditor";
 import { parsePersona, serializePersona } from "@/lib/personas/parser";
+import { AgentNumbersSection } from "@/components/agent/AgentNumbersSection";
 
 type ModelOption = { id: string; label: string };
 
@@ -16,17 +18,18 @@ type ModelOption = { id: string; label: string };
 // LLM).
 const PROVIDER_MODELS: Record<LlmProvider, ModelOption[]> = {
   deepseek: [
-    { id: "deepseek-v4-flash", label: "deepseek-v4-flash ($0.001/min) — Ultra rapide, 3× moins cher (recommandé appels vocaux)" },
+    { id: "deepseek-v4-flash", label: "deepseek-v4-flash ($0.001/min) — Ultra fast, 3× cheaper (recommended for voice calls)" },
   ],
   openai: [
-    { id: "gpt-4o-mini",  label: "gpt-4o-mini ($0.002/min) — Rapide et économique (recommandé)" },
-    { id: "gpt-4.1-mini", label: "gpt-4.1-mini ($0.004/min) — Dernière génération, économique" },
-    { id: "gpt-4.1",      label: "gpt-4.1 ($0.016/min) — Dernière génération haute qualité" },
-    { id: "gpt-4o",       label: "gpt-4o ($0.020/min) — Polyvalent haute qualité" },
+    { id: "gpt-4.1-nano", label: "gpt-4.1-nano ($0.001/min) — Ultra fast, minimal latency (recommended for voice calls)" },
+    { id: "gpt-4o-mini",  label: "gpt-4o-mini ($0.002/min) — Fast and economical" },
+    { id: "gpt-4.1-mini", label: "gpt-4.1-mini ($0.004/min) — Latest generation, economical" },
+    { id: "gpt-4.1",      label: "gpt-4.1 ($0.016/min) — Latest generation, high quality" },
+    { id: "gpt-4o",       label: "gpt-4o ($0.020/min) — Versatile, high quality" },
   ],
   anthropic: [
-    { id: "claude-haiku-4-5-20251001", label: "claude-haiku-4-5 ($0.005/min) — Ultra rapide, multilingue (recommandé)" },
-    { id: "claude-sonnet-4-6",         label: "claude-sonnet-4-6 ($0.020/min) — Équilibre qualité/vitesse" },
+    { id: "claude-haiku-4-5-20251001", label: "claude-haiku-4-5 ($0.005/min) — Ultra fast, multilingual (recommended)" },
+    { id: "claude-sonnet-4-6",         label: "claude-sonnet-4-6 ($0.020/min) — Quality/speed balance" },
   ],
   minimax: [
     { id: "MiniMax-M2", label: "MiniMax-M2 — Standard" },
@@ -38,8 +41,8 @@ const PROVIDER_MODEL_IDS: Record<LlmProvider, string[]> = Object.fromEntries(
 ) as Record<LlmProvider, string[]>;
 
 const TTS_MODELS: { id: string; label: string }[] = [
-  { id: "sonic-3.5",   label: "sonic-3.5 — Dernière génération, 42 langues (recommandé)" },
-  { id: "sonic-3",     label: "sonic-3 — Génération précédente, stable" },
+  { id: "sonic-3.5",   label: "sonic-3.5 — Latest generation, 42 languages (recommended)" },
+  { id: "sonic-3",     label: "sonic-3 — Previous generation, stable" },
 ];
 
 interface CartesiaVoiceCatalog {
@@ -78,35 +81,29 @@ const REPLICATE_FAMILY_LABELS: Record<string, string> = {
 };
 
 const LANG_NAMES: Record<string, string> = {
-  // "multi" est la valeur emise par les voix Replicate multilingues
-  // (ElevenLabs Charlotte/Alice + MiniMax Wise_Woman/etc.) — sans cette
-  // entree elles s'affichaient en brut "multi" dans le dropdown.
-  multi: "Multilingue",
-  fr: "Français", en: "Anglais", es: "Espagnol", de: "Allemand",
-  it: "Italien", pt: "Portugais", zh: "Mandarin", ja: "Japonais",
-  ko: "Coréen", nl: "Néerlandais", pl: "Polonais", ar: "Arabe",
-  ru: "Russe", tr: "Turc", hi: "Hindi", id: "Indonésien",
-  vi: "Vietnamien", th: "Thaï", sv: "Suédois", no: "Norvégien",
-  da: "Danois", fi: "Finnois", cs: "Tchèque", el: "Grec",
-  he: "Hébreu", hu: "Hongrois", ro: "Roumain", uk: "Ukrainien",
-  hr: "Croate", bg: "Bulgare", sk: "Slovaque", sl: "Slovène",
-  bn: "Bengali", gu: "Gujarati", ta: "Tamoul", te: "Telugu",
-  ml: "Malayalam", kn: "Kannada", mr: "Marathi", pa: "Pendjabi",
-  ur: "Ourdou", fa: "Perse", sw: "Swahili", ms: "Malais",
-  fil: "Filipino", tl: "Tagalog", af: "Afrikaans", sq: "Albanais",
-  az: "Azéri", ka: "Géorgien", hy: "Arménien", kk: "Kazakh",
-  uz: "Ouzbek", lt: "Lituanien", lv: "Letton", et: "Estonien",
-  sr: "Serbe", mk: "Macédonien", bs: "Bosniaque", is: "Islandais",
-  ga: "Irlandais", cy: "Gallois", mt: "Maltais", eu: "Basque",
-  ca: "Catalan", gl: "Galicien",
+  multi: "Multilingual",
+  fr: "French", en: "English", es: "Spanish", de: "German",
+  it: "Italian", pt: "Portuguese", zh: "Mandarin", ja: "Japanese",
+  ko: "Korean", nl: "Dutch", pl: "Polish", ar: "Arabic",
+  ru: "Russian", tr: "Turkish", hi: "Hindi", id: "Indonesian",
+  vi: "Vietnamese", th: "Thai", sv: "Swedish", no: "Norwegian",
+  da: "Danish", fi: "Finnish", cs: "Czech", el: "Greek",
+  he: "Hebrew", hu: "Hungarian", ro: "Romanian", uk: "Ukrainian",
+  hr: "Croatian", bg: "Bulgarian", sk: "Slovak", sl: "Slovenian",
+  bn: "Bengali", gu: "Gujarati", ta: "Tamil", te: "Telugu",
+  ml: "Malayalam", kn: "Kannada", mr: "Marathi", pa: "Punjabi",
+  ur: "Urdu", fa: "Persian", sw: "Swahili", ms: "Malay",
+  fil: "Filipino", tl: "Tagalog", af: "Afrikaans", sq: "Albanian",
+  az: "Azerbaijani", ka: "Georgian", hy: "Armenian", kk: "Kazakh",
+  uz: "Uzbek", lt: "Lithuanian", lv: "Latvian", et: "Estonian",
+  sr: "Serbian", mk: "Macedonian", bs: "Bosnian", is: "Icelandic",
+  ga: "Irish", cy: "Welsh", mt: "Maltese", eu: "Basque",
+  ca: "Catalan", gl: "Galician",
 };
 const GENDER_LABELS: Record<string, string> = {
-  feminine: "Féminine", masculine: "Masculine", neutral: "Neutre",
-  // Wati 16/06 — Cartesia + ElevenLabs API renvoient parfois "female"/"male"
-  // bruts au lieu du canonique "feminine"/"masculine". On les remappe pour
-  // eviter les doublons dans le filtre genre.
-  female: "Féminine", male: "Masculine",
-  f: "Féminine", m: "Masculine", n: "Neutre",
+  feminine: "Feminine", masculine: "Masculine", neutral: "Neutral",
+  female: "Feminine", male: "Masculine",
+  f: "Feminine", m: "Masculine", n: "Neutral",
 };
 // Wati 16/06 — normalise tous les genres bruts vers le canonique 3-valeurs
 // avant de les afficher / filtrer, pour eliminer les doublons.
@@ -119,26 +116,26 @@ function normalizeGender(g: string | null | undefined): string | null {
   return g;
 }
 const COUNTRY_LABELS: Record<string, string> = {
-  AF: "Afghanistan", AL: "Albanie", AR: "Argentine", AU: "Australie",
-  AT: "Autriche", AZ: "Azerbaïdjan", BD: "Bangladesh", BE: "Belgique",
-  BG: "Bulgarie", BO: "Bolivie", BR: "Brésil", CA: "Canada",
-  CH: "Suisse", CL: "Chili", CN: "Chine", CO: "Colombie",
-  CZ: "Tchéquie", DE: "Allemagne", DK: "Danemark", DO: "Rép. Dominicaine",
-  EC: "Équateur", EG: "Égypte", ES: "Espagne", ET: "Éthiopie",
-  FI: "Finlande", FR: "France", GB: "Grande-Bretagne", GE: "Géorgie",
-  GH: "Ghana", GR: "Grèce", GT: "Guatemala", HK: "Hong Kong",
-  HR: "Croatie", HU: "Hongrie", ID: "Indonésie", IE: "Irlande",
-  IL: "Israël", IN: "Inde", IQ: "Irak", IT: "Italie",
-  JP: "Japon", KE: "Kenya", KR: "Corée du Sud", KZ: "Kazakhstan",
-  LT: "Lituanie", LV: "Lettonie", MA: "Maroc", MX: "Mexique",
-  MY: "Malaisie", NG: "Nigeria", NL: "Pays-Bas", NO: "Norvège",
-  NZ: "Nouvelle-Zélande", PA: "Panama", PE: "Pérou", PH: "Philippines",
-  PK: "Pakistan", PL: "Pologne", PT: "Portugal", PY: "Paraguay",
-  RO: "Roumanie", RS: "Serbie", RU: "Russie", SA: "Arabie Saoudite",
-  SE: "Suède", SG: "Singapour", SI: "Slovénie", SK: "Slovaquie",
-  TH: "Thaïlande", TR: "Turquie", TW: "Taïwan", TZ: "Tanzanie",
-  UA: "Ukraine", UG: "Ouganda", US: "États-Unis", UY: "Uruguay",
-  UZ: "Ouzbékistan", VE: "Venezuela", VN: "Vietnam", ZA: "Afrique du Sud",
+  AF: "Afghanistan", AL: "Albania", AR: "Argentina", AU: "Australia",
+  AT: "Austria", AZ: "Azerbaijan", BD: "Bangladesh", BE: "Belgium",
+  BG: "Bulgaria", BO: "Bolivia", BR: "Brazil", CA: "Canada",
+  CH: "Switzerland", CL: "Chile", CN: "China", CO: "Colombia",
+  CZ: "Czech Republic", DE: "Germany", DK: "Denmark", DO: "Dominican Rep.",
+  EC: "Ecuador", EG: "Egypt", ES: "Spain", ET: "Ethiopia",
+  FI: "Finland", FR: "France", GB: "United Kingdom", GE: "Georgia",
+  GH: "Ghana", GR: "Greece", GT: "Guatemala", HK: "Hong Kong",
+  HR: "Croatia", HU: "Hungary", ID: "Indonesia", IE: "Ireland",
+  IL: "Israel", IN: "India", IQ: "Iraq", IT: "Italy",
+  JP: "Japan", KE: "Kenya", KR: "South Korea", KZ: "Kazakhstan",
+  LT: "Lithuania", LV: "Latvia", MA: "Morocco", MX: "Mexico",
+  MY: "Malaysia", NG: "Nigeria", NL: "Netherlands", NO: "Norway",
+  NZ: "New Zealand", PA: "Panama", PE: "Peru", PH: "Philippines",
+  PK: "Pakistan", PL: "Poland", PT: "Portugal", PY: "Paraguay",
+  RO: "Romania", RS: "Serbia", RU: "Russia", SA: "Saudi Arabia",
+  SE: "Sweden", SG: "Singapore", SI: "Slovenia", SK: "Slovakia",
+  TH: "Thailand", TR: "Turkey", TW: "Taiwan", TZ: "Tanzania",
+  UA: "Ukraine", UG: "Uganda", US: "United States", UY: "Uruguay",
+  UZ: "Uzbekistan", VE: "Venezuela", VN: "Vietnam", ZA: "South Africa",
   ZW: "Zimbabwe",
 };
 
@@ -153,12 +150,12 @@ function slugify(s: string): string {
 }
 
 const LANGUAGES = [
-  { id: "multi", label: "Multilingue (FR/EN)" },
-  { id: "fr", label: "Français" },
-  { id: "en", label: "Anglais" },
-  { id: "es", label: "Espagnol" },
-  { id: "de", label: "Allemand" },
-  { id: "it", label: "Italien" },
+  { id: "multi", label: "Multilingual (FR/EN)" },
+  { id: "fr", label: "French" },
+  { id: "en", label: "English" },
+  { id: "es", label: "Spanish" },
+  { id: "de", label: "German" },
+  { id: "it", label: "Italian" },
 ];
 
 // Maps agent language to ISO 639-1 for Cartesia preview.
@@ -172,6 +169,7 @@ const CARTESIA_LANGUAGE: Record<string, string> = {
 };
 
 export function AgentForm({ initial }: { initial?: Agent }) {
+  const t = useT();
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -220,7 +218,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
   });
   const [voiceStyle, setVoiceStyle] = useState(initial?.voice_style ?? "");
   const [systemPrompt, setSystemPrompt] = useState(initial?.system_prompt ?? "");
-  const [greeting, setGreeting] = useState(initial?.greeting ?? "Bonjour, je vous écoute.");
+  const [greeting, setGreeting] = useState(initial?.greeting ?? "Hello, how can I help you?");
   const [rag, setRag] = useState(initial?.rag_enabled ?? false);
   const [ragK, setRagK] = useState(initial?.rag_top_k ?? 4);
   const [previewing, setPreviewing] = useState(false);
@@ -229,7 +227,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
   // self-contained aspect of the agent — who it is, how it sounds, how it
   // thinks. Technical knobs live in a collapsible "Réglages avancés" WITHIN
   // the relevant tab so nothing is split across tabs.
-  const [tab, setTab] = useState<"identite" | "voix" | "cerveau">("identite");
+  const [tab, setTab] = useState<"identity" | "voice" | "brain">("identity");
   const [showVoiceAdvanced, setShowVoiceAdvanced] = useState(false);
   const [showBrainAdvanced, setShowBrainAdvanced] = useState(false);
 
@@ -260,7 +258,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
       const r = await fetch("/api/voices", { method: "POST", body: fd, credentials: "same-origin" });
       const body = await r.json().catch(() => ({}));
       if (!r.ok) {
-        setError(body.error || `Échec du clonage (${r.status})`);
+        setError(body.error || `Cloning failed (${r.status})`);
         return;
       }
       // Refresh the catalog and auto-select the freshly cloned voice.
@@ -407,7 +405,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
         // MiniMax voice_id format.
         setError(null);
       } catch {
-        setError("Impossible de parser le fichier .md");
+        setError("Could not parse the .md file.");
       }
     };
     reader.readAsText(file);
@@ -485,12 +483,12 @@ export function AgentForm({ initial }: { initial?: Agent }) {
 
   async function onDelete() {
     if (!initial) return;
-    if (!confirm(`Supprimer l'agent « ${initial.name} » ? Cette action est irréversible.`)) return;
+    if (!confirm(`Delete agent "${initial.name}"? This action is irreversible.`)) return;
     setBusy(true);
     const res = await fetch(`/api/agents/${initial.id}`, { method: "DELETE" });
     setBusy(false);
     if (!res.ok) {
-      setError("Suppression échouée");
+      setError("Deletion failed");
       return;
     }
     router.push("/agents");
@@ -510,6 +508,12 @@ export function AgentForm({ initial }: { initial?: Agent }) {
           model: ttsModel || "sonic-3.5",
           speed: speed !== 1.0 ? speed : undefined,
           language: CARTESIA_LANGUAGE[language] ?? undefined,
+          // Send the agent's REAL ElevenLabs voice settings so the preview
+          // matches the live call (ignored by non-ElevenLabs voices).
+          stability: stability ?? undefined,
+          similarity_boost: similarityBoost ?? undefined,
+          style: styleVal ?? undefined,
+          use_speaker_boost: speakerBoost,
         }),
       });
       if (!r.ok) {
@@ -626,7 +630,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
     <form onSubmit={onSubmit} style={{ display: "grid", gap: 18 }}>
       <div className="card" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "space-between" }}>
         <div style={{ fontSize: 13, color: "var(--muted)" }}>
-          Importez un persona <span className="kbd">.md</span> pour remplir ce formulaire, ou exportez la configuration actuelle.
+          Import a persona <span className="kbd">.md</span> to fill this form, or export the current configuration.
         </div>
         <div style={{ display: "flex", gap: 6 }}>
           <input
@@ -645,14 +649,14 @@ export function AgentForm({ initial }: { initial?: Agent }) {
             className="ghost"
             onClick={() => fileInputRef.current?.click()}
           >
-            ⬆ Importer .md
+            ⬆ Import .md
           </button>
           <button type="button" className="ghost" onClick={onExportMd}>
-            ⬇ Exporter .md
+            ⬇ Export .md
           </button>
           <Link href="/agents/library">
             <button type="button" className="ghost">
-              ⊕ Bibliothèque
+              ⊕ Library
             </button>
           </Link>
         </div>
@@ -661,41 +665,41 @@ export function AgentForm({ initial }: { initial?: Agent }) {
       {/* ─── Tab bar (grouped by concept) ─── */}
       <div style={{ display: "flex", gap: 4 }}>
         {([
-          { id: "identite", label: "🪪 Identité" },
-          { id: "voix", label: "🎙️ Voix" },
-          { id: "cerveau", label: "🧠 Cerveau & comportement" },
-        ] as const).map((t) => (
+          { id: "identity", label: "🪪 Identity" },
+          { id: "voice", label: "🎙️ Voice" },
+          { id: "brain", label: "🧠 Brain & behavior" },
+        ] as const).map((tab_item) => (
           <button
-            key={t.id}
+            key={tab_item.id}
             type="button"
-            onClick={() => setTab(t.id)}
+            onClick={() => setTab(tab_item.id)}
             style={{
               padding: "8px 16px",
               fontSize: 14,
-              fontWeight: tab === t.id ? 600 : 400,
-              background: tab === t.id ? "var(--surface-2, rgba(255,255,255,0.06))" : "transparent",
-              color: tab === t.id ? "var(--fg)" : "var(--muted)",
+              fontWeight: tab === tab_item.id ? 600 : 400,
+              background: tab === tab_item.id ? "var(--surface-2, rgba(255,255,255,0.06))" : "transparent",
+              color: tab === tab_item.id ? "var(--fg)" : "var(--muted)",
               border: "none",
-              borderBottom: tab === t.id ? "2px solid var(--accent, #ff6b35)" : "2px solid transparent",
+              borderBottom: tab === tab_item.id ? "2px solid var(--accent, #ff6b35)" : "2px solid transparent",
               cursor: "pointer",
             }}
           >
-            {t.label}
+            {tab_item.label}
           </button>
         ))}
       </div>
 
       {/* ═══ IDENTITÉ : qui est l'agent ═══ */}
-      {tab === "identite" && (
+      {tab === "identity" && (
         <div className="card" style={{ display: "grid", gap: 14 }}>
-          <h3 style={{ margin: 0 }}>Identité</h3>
+          <h3 style={{ margin: 0 }}>Identity</h3>
           <div className="form-row">
             <div>
-              <label>Nom</label>
-              <input value={name} onChange={(e) => setName(e.target.value)} required placeholder="Réceptionniste Tibok" />
+              <label>Name</label>
+              <input value={name} onChange={(e) => setName(e.target.value)} required placeholder="Tibok receptionist" />
             </div>
             <div>
-              <label>Langue principale</label>
+              <label>Primary language</label>
               <select value={language} onChange={(e) => setLanguage(e.target.value)}>
                 {LANGUAGES.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
               </select>
@@ -703,29 +707,29 @@ export function AgentForm({ initial }: { initial?: Agent }) {
           </div>
           <div>
             <label>Description</label>
-            <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="À quoi sert cet agent ?" />
+            <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What does this agent do?" />
           </div>
         </div>
       )}
 
       {/* ═══ VOIX : comment l'agent sonne (tout le voice ici) ═══ */}
-      {tab === "voix" && (
+      {tab === "voice" && (
         <div className="card" style={{ display: "grid", gap: 14 }}>
-          <h3 style={{ margin: 0 }}>Voix</h3>
+          <h3 style={{ margin: 0 }}>Voice</h3>
 
           <div>
-            <label>Voix de l&apos;agent</label>
+            <label>Agent voice</label>
             <select value={voice} onChange={(e) => setVoice(e.target.value)}>
-              <option value="">— voix par défaut —</option>
+              <option value="">— default voice —</option>
               {customCloned.length > 0 && (
-                <optgroup label="Mes voix clonées">
+                <optgroup label="My cloned voices">
                   {customCloned.map((v) => (
                     <option key={v.id} value={v.voice_id}>{v.display_name}</option>
                   ))}
                 </optgroup>
               )}
               {customPresets.length > 0 && (
-                <optgroup label="Voix presets">
+                <optgroup label="Preset voices">
                   {customPresets.map((v) => (
                     <option key={v.id} value={v.voice_id}>{v.display_name}</option>
                   ))}
@@ -733,7 +737,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
               )}
               {catalogGroups.length > 0 && (
                 <optgroup label="━━━ Cartesia ━━━" disabled>
-                  <option value="" disabled>↓ Voix Cartesia (voix clonees + catalogue)</option>
+                  <option value="" disabled>↓ Cartesia voices (cloned + catalog)</option>
                 </optgroup>
               )}
               {catalogGroups.map(([lang, options]) => (
@@ -747,7 +751,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
               ))}
               {replicateGroups.length > 0 && (
                 <optgroup label="━━━ ElevenLabs / MiniMax ━━━" disabled>
-                  <option value="" disabled>↓ Voix premium streaming</option>
+                  <option value="" disabled>↓ Premium streaming voices</option>
                 </optgroup>
               )}
               {replicateGroups.map(([fam, options]) => (
@@ -760,7 +764,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                 </optgroup>
               ))}
               {cartesiaVoices.length === 0 && replicateVoices.length === 0 && (
-                <option value="" disabled>Catalogue vocal non disponible (cle API manquante)</option>
+                <option value="" disabled>Voice catalog not available (API key missing)</option>
               )}
               {voice && !knownVoiceIds.has(voice) && (
                 <option value={voice}>{voice} (ID manuel)</option>
@@ -778,10 +782,10 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                     onChange={(e) => setFilterProvider(e.target.value)}
                     style={{ width: "auto", fontSize: 13, padding: "6px 12px", borderRadius: 20, background: "var(--bg-2)", color: "var(--text)", fontWeight: filterProvider ? 600 : 400 }}
                   >
-                    <option value="" style={{ background: "var(--bg-2)", color: "var(--text)" }}>Tous les fournisseurs</option>
+                    <option value="" style={{ background: "var(--bg-2)", color: "var(--text)" }}>{t("Tous les fournisseurs")}</option>
                     <option value="cartesia" style={{ background: "var(--bg-2)", color: "var(--text)" }}>Cartesia ({cartesiaVoices.length})</option>
-                    <option value="elevenlabs-flash-direct" style={{ background: "var(--bg-2)", color: "var(--text)" }}>ElevenLabs Flash v2.5 — latence ~75ms ({replicateVoices.filter((v) => v.family === "elevenlabs-flash-direct").length})</option>
-                    <option value="elevenlabs-turbo-direct" style={{ background: "var(--bg-2)", color: "var(--text)" }}>ElevenLabs Turbo v2.5 — qualité équivalente, latence ~100ms ({replicateVoices.filter((v) => v.family === "elevenlabs-turbo-direct").length})</option>
+                    <option value="elevenlabs-flash-direct" style={{ background: "var(--bg-2)", color: "var(--text)" }}>ElevenLabs Flash v2.5 — latency ~75ms ({replicateVoices.filter((v) => v.family === "elevenlabs-flash-direct").length})</option>
+                    <option value="elevenlabs-turbo-direct" style={{ background: "var(--bg-2)", color: "var(--text)" }}>ElevenLabs Turbo v2.5 — equivalent quality, latency ~100ms ({replicateVoices.filter((v) => v.family === "elevenlabs-turbo-direct").length})</option>
                     <option value="minimax-turbo-direct" style={{ background: "var(--bg-2)", color: "var(--text)" }}>MiniMax Speech 02 Turbo ({replicateVoices.filter((v) => v.family === "minimax-turbo-direct").length})</option>
                     <option value="minimax-hd-direct" style={{ background: "var(--bg-2)", color: "var(--text)" }}>MiniMax Speech 02 HD ({replicateVoices.filter((v) => v.family === "minimax-hd-direct").length})</option>
                   </select>
@@ -791,7 +795,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                   onChange={(e) => setFilterGender(e.target.value)}
                   style={{ width: "auto", fontSize: 13, padding: "6px 12px", borderRadius: 20, background: "var(--bg-2)", color: "var(--text)" }}
                 >
-                  <option value="" style={{ background: "var(--bg-2)", color: "var(--text)" }}>Tous les genres</option>
+                  <option value="" style={{ background: "var(--bg-2)", color: "var(--text)" }}>All genders</option>
                   {catalogGenders.map((g) => (
                     <option key={g} value={g} style={{ background: "var(--bg-2)", color: "var(--text)" }}>{GENDER_LABELS[g] ?? g}</option>
                   ))}
@@ -801,7 +805,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                   onChange={(e) => setFilterLang(e.target.value)}
                   style={{ width: "auto", fontSize: 13, padding: "6px 12px", borderRadius: 20, background: "var(--bg-2)", color: "var(--text)" }}
                 >
-                  <option value="" style={{ background: "var(--bg-2)", color: "var(--text)" }}>Toutes les langues</option>
+                  <option value="" style={{ background: "var(--bg-2)", color: "var(--text)" }}>All languages</option>
                   {catalogLangs.map((l) => (
                     <option key={l} value={l} style={{ background: "var(--bg-2)", color: "var(--text)" }}>{LANG_NAMES[l] ?? l.toUpperCase()}</option>
                   ))}
@@ -811,7 +815,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                   onChange={(e) => setFilterCountry(e.target.value)}
                   style={{ width: "auto", fontSize: 13, padding: "6px 12px", borderRadius: 20, background: "var(--bg-2)", color: "var(--text)" }}
                 >
-                  <option value="" style={{ background: "var(--bg-2)", color: "var(--text)" }}>Tous les accents</option>
+                  <option value="" style={{ background: "var(--bg-2)", color: "var(--text)" }}>All accents</option>
                   {catalogCountries.map((c) => (
                     <option key={c} value={c} style={{ background: "var(--bg-2)", color: "var(--text)" }}>{COUNTRY_LABELS[c] ?? c}</option>
                   ))}
@@ -823,11 +827,11 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                     style={{ fontSize: 12, padding: "6px 12px", borderRadius: 20 }}
                     onClick={() => { setFilterLang(""); setFilterGender(""); setFilterCountry(""); setFilterProvider(""); }}
                   >
-                    ✕ Effacer
+                    ✕ Clear
                   </button>
                 )}
                 <span style={{ fontSize: 12, color: "var(--muted)", marginLeft: 4 }}>
-                  {filteredCatalog.length + filteredReplicate.length} voix
+                  {filteredCatalog.length + filteredReplicate.length} voices
                 </span>
               </div>
             )}
@@ -835,7 +839,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
 
           {/* Manual UUID entry */}
           <div>
-            <label>ID de voix manuel (UUID)</label>
+            <label>Manual voice ID (UUID)</label>
             <input
               value={voice}
               onChange={(e) => setVoice(e.target.value)}
@@ -843,15 +847,15 @@ export function AgentForm({ initial }: { initial?: Agent }) {
               style={{ fontFamily: "monospace", fontSize: 13 }}
             />
             <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
-              Collez ici l&apos;identifiant UUID d&apos;une voix spécifique.
+              Paste the UUID of a specific voice here.
             </div>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
             <button type="button" className="ghost" disabled={previewing} onClick={onPreviewVoice}>
-              {previewing ? "Synthèse en cours…" : "▶ Écouter cette voix"}
+              {previewing ? "Synthesizing…" : "▶ Listen to this voice"}
             </button>
             <button type="button" className="ghost" onClick={() => setShowClone((v) => !v)}>
-              {showClone ? "Annuler le clonage" : "+ Cloner une nouvelle voix"}
+              {showClone ? "Cancel cloning" : "+ Clone a new voice"}
             </button>
           </div>
 
@@ -859,19 +863,19 @@ export function AgentForm({ initial }: { initial?: Agent }) {
           {showClone && (
             <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12, display: "grid", gap: 10 }}>
               <div style={{ fontSize: 13, color: "var(--muted)" }}>
-                Clonage vocal instantané. Échantillon <strong>mp3 / wav / m4a</strong>,
-                voix unique, 5 s à 5 min, ≤ 20 Mo. La voix sera disponible immédiatement dans le catalogue.
+                Instant voice cloning. Sample <strong>mp3 / wav / m4a</strong>,
+                single voice, 5 s to 5 min, ≤ 20 MB. The voice will be available immediately in the catalog.
               </div>
               <div className="form-row">
                 <div>
-                  <label>Fichier audio</label>
+                  <label>Audio file</label>
                   <input
                     type="file"
                     accept=".mp3,.wav,.m4a,audio/mpeg,audio/wav,audio/x-m4a,audio/mp4"
                     onChange={(e) => {
                       const f = e.target.files?.[0] ?? null;
                       if (f && !/\.(mp3|wav|m4a)$/i.test(f.name)) {
-                        setError(`Format non supporté : "${f.name}". Utilise mp3, wav ou m4a.`);
+                        setError(`Unsupported format: "${f.name}". Use mp3, wav or m4a.`);
                         e.target.value = "";
                         setCloneFile(null);
                         return;
@@ -881,13 +885,13 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                   />
                   {cloneFile && (
                     <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
-                      {cloneFile.name} ({(cloneFile.size / 1024 / 1024).toFixed(2)} Mo)
+                      {cloneFile.name} ({(cloneFile.size / 1024 / 1024).toFixed(2)} MB)
                     </div>
                   )}
                 </div>
                 <div>
-                  <label>Nom affiché</label>
-                  <input value={cloneName} onChange={(e) => setCloneName(e.target.value)} placeholder="Voix Dr Coste" />
+                  <label>Display name</label>
+                  <input value={cloneName} onChange={(e) => setCloneName(e.target.value)} placeholder="Dr Coste voice" />
                 </div>
               </div>
               <div>
@@ -896,7 +900,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                   onClick={doClone}
                   disabled={cloning || !cloneFile || !cloneName.trim()}
                 >
-                  {cloning ? "Clonage en cours…" : "Cloner et utiliser cette voix"}
+                  {cloning ? "Cloning…" : "Clone and use this voice"}
                 </button>
               </div>
             </div>
@@ -914,7 +918,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
               aria-expanded={showVoiceAdvanced}
             >
               <span style={{ transition: "transform 0.15s", transform: showVoiceAdvanced ? "rotate(90deg)" : "none" }}>›</span>
-              ⚙ Réglages avancés (modèle TTS, vitesse, volume)
+              ⚙ Advanced settings (TTS model, speed, volume)
             </button>
             {showVoiceAdvanced && (
               <div style={{ display: "grid", gap: 14, marginTop: 12 }}>
@@ -964,17 +968,17 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                           on l'affiche en lecture seule. */}
                       {!isExternal ? (
                         <div>
-                          <label>Modèle TTS</label>
+                          <label>TTS model</label>
                           <select value={ttsModel} onChange={(e) => setTtsModel(e.target.value)}>
                             {TTS_MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
                           </select>
                         </div>
                       ) : (
                         <div>
-                          <label>Modèle TTS</label>
+                          <label>TTS model</label>
                           <div style={{ padding: "8px 12px", borderRadius: 6, background: "var(--bg-2)", color: "var(--muted)", fontSize: 13 }}>
                             <strong style={{ color: "var(--text)" }}>{familyLabel}</strong>
-                            <span> — fixé par la voix sélectionnée, non modifiable</span>
+                            <span> — fixed by the selected voice, not editable</span>
                           </div>
                         </div>
                       )}
@@ -984,7 +988,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                               MiniMax   : 0.5 - 2.0 (champ speed)
                               ElevenLabs: 0.7 - 1.2 (voice_settings.speed) */}
                         <div>
-                          <label>Vitesse ({speed.toFixed(2)}×)</label>
+                          <label>Speed ({speed.toFixed(2)}×)</label>
                           <input
                             type="range"
                             min={isMiniMax ? "0.5" : isElevenLabs ? "0.7" : "0.6"}
@@ -993,10 +997,9 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                             value={speed} onChange={(e) => setSpeed(Number(e.target.value))}
                           />
                           <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
-                            {isMiniMax ? "Plage MiniMax : 0.5×–2.0×" : isElevenLabs ? "Plage ElevenLabs : 0.7×–1.2×" : "Plage Cartesia : 0.6×–1.5×"}
+                            {isMiniMax ? "MiniMax range: 0.5×–2.0×" : isElevenLabs ? "ElevenLabs range: 0.7×–1.2×" : "Cartesia range: 0.6×–1.5×"}
                           </div>
                         </div>
-                        {/* Volume : Cartesia + MiniMax exposent. ElevenLabs non. */}
                         {!isElevenLabs ? (
                           <div>
                             <label>Volume ({volume.toFixed(1)})</label>
@@ -1008,14 +1011,14 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                               value={volume} onChange={(e) => setVolume(Number(e.target.value))}
                             />
                             <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
-                              {isMiniMax ? "Plage MiniMax : 0–10" : "Plage Cartesia : 0.1–2.0"}
+                              {isMiniMax ? "MiniMax range: 0–10" : "Cartesia range: 0.1–2.0"}
                             </div>
                           </div>
                         ) : (
                           <div>
                             <label>Volume</label>
                             <div style={{ padding: "8px 12px", borderRadius: 6, background: "var(--bg-2)", color: "var(--muted)", fontSize: 13 }}>
-                              Non exposé par ElevenLabs (utiliser stability / style à la place)
+                              Not exposed by ElevenLabs (use stability / style instead)
                             </div>
                           </div>
                         )}
@@ -1026,39 +1029,39 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                         <>
                           <div className="form-row">
                             <div>
-                              <label>Émotion (Cartesia)</label>
+                              <label>Emotion (Cartesia)</label>
                               <select
                                 value={ttsEmotion}
                                 onChange={(e) => setTtsEmotion(e.target.value)}
                               >
-                                <option value="">Aucune (neutre)</option>
-                                <option value="positivity">Positivity (chaleureux)</option>
-                                <option value="curiosity">Curiosity (intéressé)</option>
-                                <option value="sadness">Sadness (triste)</option>
-                                <option value="anger">Anger (colère)</option>
-                                <option value="surprise">Surprise (étonné)</option>
+                                <option value="">None (neutral)</option>
+                                <option value="positivity">Positivity (warm)</option>
+                                <option value="curiosity">Curiosity (interested)</option>
+                                <option value="sadness">Sadness (sad)</option>
+                                <option value="anger">Anger (angry)</option>
+                                <option value="surprise">Surprise (surprised)</option>
                               </select>
                               <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
-                                Module la tonalité affective du modèle Sonic.
+                                Modulates the affective tone of the Sonic model.
                               </div>
                             </div>
                             <div>
-                              <label>Langue forcée</label>
+                              <label>Forced language</label>
                               <select
                                 value={ttsLanguage}
                                 onChange={(e) => setTtsLanguage(e.target.value)}
                               >
-                                <option value="">Auto (depuis le texte)</option>
-                                <option value="fr">Français</option>
-                                <option value="en">Anglais</option>
-                                <option value="es">Espagnol</option>
-                                <option value="de">Allemand</option>
-                                <option value="it">Italien</option>
-                                <option value="pt">Portugais</option>
-                                <option value="nl">Néerlandais</option>
+                                <option value="">Auto (from text)</option>
+                                <option value="fr">French</option>
+                                <option value="en">English</option>
+                                <option value="es">Spanish</option>
+                                <option value="de">German</option>
+                                <option value="it">Italian</option>
+                                <option value="pt">Portuguese</option>
+                                <option value="nl">Dutch</option>
                               </select>
                               <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
-                                Force Cartesia à synthétiser dans cette langue (utile en multi-langue).
+                                Forces Cartesia to synthesize in this language (useful in multilingual mode).
                               </div>
                             </div>
                           </div>
@@ -1071,7 +1074,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                           <div className="form-row">
                             <div>
                               <label>
-                                Stability ({stability === null ? "défaut 0.5" : stability.toFixed(2)})
+                                Stability ({stability === null ? "default 0.5" : stability.toFixed(2)})
                               </label>
                               <input
                                 type="range" min="0" max="1" step="0.05"
@@ -1079,12 +1082,12 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                                 onChange={(e) => setStability(Number(e.target.value))}
                               />
                               <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
-                                Bas = expressif/variable · Haut = stable/monotone
+                                Low = expressive/variable · High = stable/monotone
                               </div>
                             </div>
                             <div>
                               <label>
-                                Similarity boost ({similarityBoost === null ? "défaut 0.75" : similarityBoost.toFixed(2)})
+                                Similarity boost ({similarityBoost === null ? "default 0.75" : similarityBoost.toFixed(2)})
                               </label>
                               <input
                                 type="range" min="0" max="1" step="0.05"
@@ -1092,14 +1095,14 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                                 onChange={(e) => setSimilarityBoost(Number(e.target.value))}
                               />
                               <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
-                                Fidélité à la voix originale (cloning).
+                                Fidelity to the original voice (cloning).
                               </div>
                             </div>
                           </div>
                           <div className="form-row">
                             <div>
                               <label>
-                                Style ({styleVal === null ? "défaut 0" : styleVal.toFixed(2)})
+                                Style ({styleVal === null ? "default 0" : styleVal.toFixed(2)})
                               </label>
                               <input
                                 type="range" min="0" max="1" step="0.05"
@@ -1107,7 +1110,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                                 onChange={(e) => setStyleVal(Number(e.target.value))}
                               />
                               <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
-                                Exagération du style (&gt;0 augmente la latence).
+                                Style exaggeration (&gt;0 increases latency).
                               </div>
                             </div>
                             <div>
@@ -1120,7 +1123,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                                 Speaker boost
                               </label>
                               <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
-                                Amplifie la similarité au coût d&apos;un léger surcoût latence.
+                                Amplifies similarity at the cost of a slight latency increase.
                               </div>
                             </div>
                           </div>
@@ -1139,24 +1142,24 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                                 onChange={(e) => setPitch(Number(e.target.value))}
                               />
                               <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
-                                Décalage en demi-tons : -12 grave · +12 aigu (MiniMax).
+                                Semitone shift: -12 low · +12 high (MiniMax).
                               </div>
                             </div>
                             <div>
-                              <label>Émotion (MiniMax)</label>
+                              <label>Emotion (MiniMax)</label>
                               <select
                                 value={ttsEmotion}
                                 onChange={(e) => setTtsEmotion(e.target.value)}
                               >
-                                <option value="">Aucune (neutre)</option>
-                                <option value="happy">Happy (joyeux)</option>
-                                <option value="sad">Sad (triste)</option>
-                                <option value="angry">Angry (colère)</option>
-                                <option value="fearful">Fearful (apeuré)</option>
-                                <option value="disgusted">Disgusted (dégoûté)</option>
-                                <option value="surprised">Surprised (surpris)</option>
-                                <option value="calm">Calm (calme)</option>
-                                <option value="neutral">Neutral (neutre)</option>
+                                <option value="">None (neutral)</option>
+                                <option value="happy">Happy</option>
+                                <option value="sad">Sad</option>
+                                <option value="angry">Angry</option>
+                                <option value="fearful">Fearful</option>
+                                <option value="disgusted">Disgusted</option>
+                                <option value="surprised">Surprised</option>
+                                <option value="calm">Calm</option>
+                                <option value="neutral">Neutral</option>
                               </select>
                             </div>
                           </div>
@@ -1170,7 +1173,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                               English normalization
                             </label>
                             <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
-                              Normalise nombres/dates/symboles en anglais (recommandé si l&apos;agent parle anglais).
+                              Normalizes numbers/dates/symbols in English (recommended if the agent speaks English).
                             </div>
                           </div>
                         </>
@@ -1179,15 +1182,15 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                   );
                 })()}
                 <div>
-                  <label>Style &amp; ton (consigne LLM)</label>
+                  <label>Style &amp; tone (LLM instruction)</label>
                   <textarea
                     rows={2}
                     value={voiceStyle}
                     onChange={(e) => setVoiceStyle(e.target.value)}
-                    placeholder="Ex: chaleureux et rassurant, débit posé, sourire dans la voix, jamais pressé."
+                    placeholder="Ex: warm and reassuring, calm pace, smile in the voice, never rushed."
                   />
                   <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
-                    Injecté dans les instructions de l&apos;agent — guide la façon de formuler (complète l&apos;émotion TTS).
+                    Injected into the agent&apos;s instructions — guides how it phrases things (complements TTS emotion).
                   </div>
                 </div>
               </div>
@@ -1197,11 +1200,11 @@ export function AgentForm({ initial }: { initial?: Agent }) {
       )}
 
       {/* ═══ CERVEAU & COMPORTEMENT : comment l'agent pense/parle ═══ */}
-      {tab === "cerveau" && (
+      {tab === "brain" && (
         <div className="card" style={{ display: "grid", gap: 14 }}>
-          <h3 style={{ margin: 0 }}>Cerveau & comportement</h3>
+          <h3 style={{ margin: 0 }}>Brain &amp; behavior</h3>
           <div>
-            <label>Salutation à l&apos;entrée en session</label>
+            <label>Session greeting</label>
             <input value={greeting} onChange={(e) => setGreeting(e.target.value)} />
           </div>
           <PromptEditor
@@ -1210,7 +1213,7 @@ export function AgentForm({ initial }: { initial?: Agent }) {
             onChange={setSystemPrompt}
             greeting={greeting}
             onRestoreGreeting={setGreeting}
-            placeholder="Tu es un assistant vocal pour la pharmacie Tibok. Tu parles en français et en anglais. Tu peux..."
+            placeholder="You are a voice assistant for Tibok pharmacy. You speak French and English. You can..."
           />
 
           {/* Réglages avancés cerveau — repliés par défaut */}
@@ -1225,29 +1228,29 @@ export function AgentForm({ initial }: { initial?: Agent }) {
               aria-expanded={showBrainAdvanced}
             >
               <span style={{ transition: "transform 0.15s", transform: showBrainAdvanced ? "rotate(90deg)" : "none" }}>›</span>
-              ⚙ Réglages avancés (modèle LLM, base de connaissances)
+              ⚙ Advanced settings (LLM model, knowledge base)
             </button>
             {showBrainAdvanced && (
               <div style={{ display: "grid", gap: 14, marginTop: 12 }}>
                 <div className="form-row">
                   <div>
-                    <label>Fournisseur LLM</label>
+                    <label>LLM Provider</label>
                     <select value={provider} onChange={(e) => {
                       const p = e.target.value as LlmProvider;
                       setProvider(p);
                       const first = PROVIDER_MODELS[p]?.[0];
                       if (first) setModel(first.id);
                     }}>
-                      <option value="deepseek">DeepSeek (recommandé)</option>
+                      <option value="deepseek">DeepSeek (recommended)</option>
                       <option value="openai">OpenAI</option>
                       <option value="anthropic">Anthropic Claude</option>
                     </select>
                   </div>
                   <div>
-                    <label>Modèle</label>
+                    <label>Model</label>
                     <select value={model} onChange={(e) => setModel(e.target.value)}>
                       {llmModels.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-                      {!llmModels.some((m) => m.id === model) && <option value={model}>{model} (personnalisé)</option>}
+                      {!llmModels.some((m) => m.id === model) && <option value={model}>{model} (custom)</option>}
                     </select>
                   </div>
                 </div>
@@ -1259,10 +1262,10 @@ export function AgentForm({ initial }: { initial?: Agent }) {
                       checked={rag}
                       onChange={(e) => setRag(e.target.checked)}
                     />
-                    Base de connaissances (RAG)
+                    Knowledge base (RAG)
                   </label>
                   <div>
-                    <label>Top-K passages à injecter</label>
+                    <label>Top-K passages to inject</label>
                     <input
                       type="number" min="1" max="12"
                       value={ragK} onChange={(e) => setRagK(Number(e.target.value))}
@@ -1278,13 +1281,15 @@ export function AgentForm({ initial }: { initial?: Agent }) {
 
       {error && <div className="card" style={{ borderColor: "var(--bad)", color: "var(--bad)" }}>{error}</div>}
 
+      {initial?.id && <AgentNumbersSection agentId={initial.id} />}
+
       <div style={{ display: "flex", gap: 10, justifyContent: "space-between" }}>
         <button type="submit" disabled={busy || !name}>
-          {busy ? "…" : initial ? "Enregistrer" : "Créer l'agent"}
+          {busy ? "…" : initial ? "Save" : "Create agent"}
         </button>
         {initial && (
           <button type="button" className="danger" onClick={onDelete} disabled={busy}>
-            Supprimer l&apos;agent
+            Delete agent
           </button>
         )}
       </div>

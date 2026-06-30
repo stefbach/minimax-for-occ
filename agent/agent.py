@@ -847,6 +847,7 @@ def _tts_for(agent: Optional[AxonAgent], sample_rate: Optional[int] = None):
                 language=(
                     (agent.tts_language if agent and agent.tts_language else None)
                 ),
+                volume=(agent.tts_volume if agent else None),
                 optimize_streaming_latency=_env_int(
                     "ELEVENLABS_STREAMING_LATENCY", 3
                 ),
@@ -1087,6 +1088,15 @@ def _tts_for(agent: Optional[AxonAgent], sample_rate: Optional[int] = None):
     return _cartesia_tts_for(agent, sample_rate)
 
 
+# Proven OCC English Cartesia voice (Charlotte-old). Used ONLY as the last-
+# resort voice when an ElevenLabs/Replicate/MiniMax agent falls back to Cartesia
+# and would otherwise hand Cartesia an unresolvable provider-prefixed voice_id
+# (→ "no audio frames" → silent call). Override with CARTESIA_VOICE_ID.
+_CARTESIA_FALLBACK_VOICE_ID = os.getenv(
+    "CARTESIA_FALLBACK_VOICE_ID", "d1d9c946-7cfc-4378-85a4-07d09827cb7e"
+)
+
+
 def _cartesia_tts_for(agent: Optional[AxonAgent], sample_rate: Optional[int] = None) -> cartesia.TTS:
     """Cartesia Sonic TTS — honors the per-agent voice/language/speed.
 
@@ -1125,6 +1135,26 @@ def _cartesia_tts_for(agent: Optional[AxonAgent], sample_rate: Optional[int] = N
         (agent.tts_voice_id if agent and agent.tts_voice_id else None)
         or os.getenv("CARTESIA_VOICE_ID")
     )
+    # Defensive (Wati 24/06) — the silent-call root cause. When an agent routed
+    # to ElevenLabs/Replicate/MiniMax FALLS BACK to Cartesia (e.g. ElevenLabs
+    # init/selection failed for this call), its tts_voice_id is a provider-
+    # prefixed id like "elevenlabs:turbo:R3I0jGceivkHLDdoBi9a" that Cartesia
+    # cannot resolve. Cartesia then pushes ZERO audio frames ("no audio frames
+    # were pushed for text: …") and the agent stays SILENT for the WHOLE call
+    # (tts_chars=0) while the LLM transcript still fills in — exactly the
+    # "agent muet / transcript faux" calls of 24/06. A colon-prefixed id is
+    # NEVER a valid Cartesia voice (Cartesia voices are bare UUIDs), so swap it
+    # for a real Cartesia voice (env override, else the proven OCC English
+    # voice) so the fallback actually SPEAKS instead of producing dead air.
+    if voice and ":" in str(voice):
+        _bad_voice = voice
+        voice = os.getenv("CARTESIA_VOICE_ID") or _CARTESIA_FALLBACK_VOICE_ID
+        logger.warning(
+            "cartesia fallback: agent voice_id %r is not a Cartesia voice "
+            "(ElevenLabs likely failed to init for this call) — using %r so the "
+            "agent isn't silent",
+            _bad_voice, voice,
+        )
 
     speed = (
         float(agent.tts_speed)
@@ -1248,6 +1278,12 @@ def _build_save_contact_tool(
         CRM record. Call this as soon as you have confirmed values — don't wait
         until the end of the call. Safe to call multiple times; fields merge.
 
+        ⚠️ For callback requests: If the patient asks to be called back at a
+        SPECIFIC DATE/TIME (e.g., "rappelle-moi le 25 juin à 14h"), use
+        transfer_to_human(reason="...", callback_date="2026-06-25",
+        callback_time="14:00") instead. Do NOT use this tool for callback requests
+        with specific times — the transfer_to_human tool handles scheduling.
+
         Args:
             fields_json: A JSON object of field→value pairs to save. Use the
                 field keys defined for this campaign, e.g.
@@ -1255,6 +1291,12 @@ def _build_save_contact_tool(
                  "nhs_wmp_status": "tier3", "patient_dob": "1985-04-12",
                  "allergies": "penicillin", "current_medications": "metformin"}.
                 Numbers as numbers, dates as YYYY-MM-DD strings.
+                Special qualification values:
+                  - "RDV CONFIRME" — appointment booked (use for confirmed bookings)
+                  - "RAPPEL" — patient wants a callback (use only for callbacks
+                    without specific times; specific-time callbacks → transfer_to_human)
+                  - "PAS INTERESSE" — patient explicitly not interested
+                  - "FAUX NUMERO" — ONLY if patient explicitly says "wrong number"
             display_name: Optional — the patient's full name if newly confirmed.
             email: Optional — the patient's email if newly confirmed.
             notes: Optional — a short free-text note to append about this call.
@@ -1733,6 +1775,24 @@ class AxonVoiceAgent(Agent):
             preroll = float(os.getenv("GREETING_PREROLL_SECONDS", "0.4"))
             if preroll > 0:
                 await asyncio.sleep(preroll)
+            # Wati 24/06 — ARM the opener-response budget BEFORE the greeting
+            # say(), not after. Root cause of the "How can I help you today?"
+            # hallucination on répondeur / early-answer calls (Rachel Brant,
+            # Christabel Probert 24/06): the canned greeting say() below is
+            # NON-interruptible and blocks ~2-3 s. On a voicemail / early-answer
+            # the callee audio ("Hi.", the répondeur's opener) reaches STT WHILE
+            # that say() is still awaiting — so on_user_turn_completed fired with
+            # _opener_replies_left STILL 0 (it used to be set only AFTER say()
+            # returned). With the budget at 0 the bare opener fell straight
+            # through to the LLM, which improvised "Hello! How can I help you
+            # today? Are you interested in exploring bariatric surgery…" — NOT
+            # Charlotte's scripted "Hello am I speaking with {{firstname}}?".
+            # Arming the budget first means an early "Hi."/"Hello?" re-fires the
+            # canned greeting (via _say_regreet) and suppresses the LLM reply,
+            # closing the race. _BARE_OPENER_RE only matches pure openers, so a
+            # real substantive "Yes, speaking" from someone who DID hear the
+            # greeting still goes to the LLM — no double-greeting for them.
+            self._opener_replies_left = 2
             _b = _t.monotonic()
             logger.info("greeting: say() begin (on-answer)")
             try:
@@ -1758,23 +1818,9 @@ class AxonVoiceAgent(Agent):
                 )
             except Exception:
                 logger.debug("LLM on-answer warmup not scheduled (non-fatal)", exc_info=True)
-            # Wati 18/06 — ARM the opener-response budget in on-answer mode too.
-            # History: it used to be 0 here, on the theory that the agent had
-            # ALREADY greeted at pickup so any "Hello?" came from someone who
-            # DID hear it. Real outbound calls disproved that: the carrier's
-            # early-answer / ringback connects the callee's audio a beat AFTER
-            # sip.callStatus flips to "active", so the greeting routinely plays
-            # into a dead leg and the patient hears NOTHING. They then say
-            # "Hello?" — and with the budget at 0 that bare opener fell straight
-            # through to the LLM, which improvised generic assistant-speak
-            # ("I just wanted to confirm the identity. How can I assist you
-            # today?") — absurd on a call WE placed. Arming the budget makes a
-            # bare opener re-fire the identity question (politely varied via
-            # _say_regreet prefixes) instead. _BARE_OPENER_RE only matches pure
-            # openers (hello/hi/hey/who's this), so a real "Yes" / substantive
-            # answer from someone who DID hear the greeting still goes to the
-            # LLM — no double-greeting for them.
-            self._opener_replies_left = 2
+            # NOTE: the opener-response budget (_opener_replies_left = 2) is now
+            # armed BEFORE the greeting say() above (Wati 24/06 race fix), so it
+            # is intentionally NOT re-set here.
             return
 
         if sp is not None:
@@ -2358,6 +2404,11 @@ def _install_call_hygiene(
     # "press hash" inside their first 10 s is implausible, so the window
     # stays safe against false REPONDEUR on humans.
     voicemail_detect_window = float(os.getenv("VOICEMAIL_DETECT_WINDOW_SECS", "10.0"))
+    # Maximum duration for a voicemail call after detection. Once voicemail
+    # is detected, we should cut the call quickly to avoid paying for long
+    # TTS on a voicemail announcement. Default 15s to handle various carrier
+    # greetings while still being much shorter than full message playback.
+    voicemail_max_duration = float(os.getenv("VOICEMAIL_MAX_DURATION_SECS", "15.0"))
 
     # Distress / safety phrases that MUST trigger immediate handoff in a
     # healthcare context. We listen across the WHOLE call (not just the first
@@ -2406,6 +2457,7 @@ def _install_call_hygiene(
         "call_started_at": _t.monotonic(),
         "goodbye_armed_at": None,  # monotonic ts when goodbye phrase was detected
         "hung_up": False,
+        "voicemail_detected_at": None,  # monotonic ts when voicemail was detected
         # The agent is considered 'active' (speaking / thinking) while
         # session.agent_state is "speaking" or "thinking". The idle watchdog
         # skips its hangup check while the agent is active so a long TTS
@@ -2746,6 +2798,7 @@ def _install_call_hygiene(
                 return
             if _voicemail_re.search(str(text)):
                 clog.info("call hygiene: voicemail detected via STT (t=%.1fs after first speech): %r", elapsed, str(text)[:120])
+                state["voicemail_detected_at"] = now_ts
                 asyncio.create_task(_hangup("voicemail detected via STT"))
                 return
             # STRUCTURAL HEURISTIC — monologue without our reply.
@@ -2776,6 +2829,7 @@ def _install_call_hygiene(
                     "(t=%.1fs, %d consecutive customer turns, %d words): %r",
                     elapsed, len(turns), total_words, " | ".join(turns)[:160],
                 )
+                state["voicemail_detected_at"] = now_ts
                 asyncio.create_task(_hangup("voicemail detected via monologue heuristic"))
         except Exception:
             clog.debug("call hygiene: voicemail STT check failed", exc_info=True)
@@ -2979,6 +3033,17 @@ def _install_call_hygiene(
                     await _hangup(
                         f"idle {effective_idle:.0f}s — likely voicemail or dropped audio"
                     )
+                    return
+                # Voicemail max-duration enforcement. Once voicemail is detected
+                # (either via STT regex or monologue heuristic), enforce a hard
+                # timeout so we don't pay for extended TTS on a voicemail greeting.
+                vm_detected_at = state.get("voicemail_detected_at")
+                if vm_detected_at is not None and (now - vm_detected_at) >= voicemail_max_duration:
+                    clog.info(
+                        "watchdog: voicemail call reached max duration (%.0fs)",
+                        voicemail_max_duration,
+                    )
+                    await _hangup(f"voicemail max duration ({voicemail_max_duration:.0f}s) exceeded")
                     return
                 # Post-greeting / pre-user-speech voicemail catcher
                 # (Wati June 10 v7 — Joanne Houston 42 s, Winifred Jonathan
@@ -3563,6 +3628,86 @@ async def entrypoint(ctx: JobContext) -> None:
         "resolved agent_id=%s (room_meta=%s, p_attrs_keys=%s, p_meta=%s)",
         agent_id, bool(ctx.room.metadata), list(p_attrs.keys()), bool(p_meta),
     )
+
+    # ── Inbound capture + human-first routing (Wati 25/06) ──────────────────
+    # Genuine inbound PSTN calls arrive via the SIP trunk: LiveKit sets the
+    # native sip.phoneNumber (caller) / sip.trunkPhoneNumber (the number dialed)
+    # and NO X-LK-* headers (those are forwarded only on desk/outbound legs). So
+    # we detect inbound from the trunk attrs + absence of campaign markers — not
+    # X-LK-Direction, which is null for genuine inbound.
+    _sip_from = p_attrs.get("sip.phoneNumber")
+    _sip_to = p_attrs.get("sip.trunkPhoneNumber")
+    _dir_hdr = str(p_attrs.get("sip.h.x-lk-direction") or p_attrs.get("axon.direction") or "").lower()
+    _has_campaign = bool(
+        p_attrs.get("sip.h.x-lk-campaign-id") or p_attrs.get("axon.campaign_id")
+        or p_attrs.get("sip.h.x-lk-target-id") or p_attrs.get("axon.target_id")
+    )
+    _is_inbound = _dir_hdr in ("in", "inbound") or (
+        bool(_sip_from or _sip_to) and _dir_hdr != "out" and not _has_campaign
+    )
+    if _is_inbound:
+        # ── Direct-SIP path: no webhook called, no calls row yet ──────────────
+        # When the Twilio SIP trunk Origination URI points straight at LiveKit
+        # (the user's telephony-platform setup), voice-inbound is never called.
+        # We create the calls row here so the rest of the pipeline has a row to
+        # write to, and so Mon poste can ring via human_first.
+        if not call_id:
+            try:
+                from human_first import (
+                    _create_inbound_call_row,
+                    _lookup_inbound_agent_id,
+                    _norm_e164,
+                )
+                _sip_from_e164 = _norm_e164(_sip_from)
+                _sip_to_e164 = _norm_e164(_sip_to)
+                new_call_id = await asyncio.to_thread(
+                    _create_inbound_call_row,
+                    _sip_from_e164,
+                    _sip_to_e164,
+                    ctx.room.name,
+                )
+                if new_call_id:
+                    call_id = new_call_id
+                    clog = _logger_for_call(call_id)
+                    clog.info(
+                        "[inbound] created call row for direct-SIP path to=%s",
+                        _sip_to_e164,
+                    )
+                # Resolve Charlotte (or whichever persona) from the phone number
+                # when no X-LK-Agent-Id was forwarded (direct-SIP path).
+                if not agent_id and _sip_to_e164:
+                    resolved = await asyncio.to_thread(
+                        _lookup_inbound_agent_id, _sip_to_e164
+                    )
+                    if resolved:
+                        agent_id = resolved
+                        clog.info(
+                            "[inbound] resolved agent_id=%s from phone number %s",
+                            agent_id, _sip_to_e164,
+                        )
+            except Exception:
+                clog.exception("[inbound] direct-SIP row creation / agent resolution failed")
+
+        # ALWAYS (ungated): backfill from/to on the call row so the dashboard
+        # Entrants tab + per-number routing have the dialed/caller numbers.
+        # Only fills NULLs, so outbound rows are never touched.
+        if call_id:
+            try:
+                from human_first import capture_inbound_numbers
+                await capture_inbound_numbers(call_id, _sip_from, _sip_to, clog)
+            except Exception:
+                clog.exception("[inbound] number capture failed")
+            # Human-first ring — STRICTLY opt-in via HUMAN_FIRST_INBOUND. If an
+            # ONLINE human is assigned to the dialed number we ring them first; the
+            # AI yields (returns) when a human picks up.
+            if os.getenv("HUMAN_FIRST_INBOUND") == "1":
+                try:
+                    from human_first import try_human_first
+                    if await try_human_first(ctx, call_id, clog):
+                        return  # a human took the call — the AI does not greet
+                except Exception:
+                    clog.exception("[human-first] routine error — AI continues normally")
+
     # Resolve campaign_id now (same sip.h.* gotcha as agent_id: the real value
     # is in the forwarded SIP header attribute; `axon.campaign_id` is the broken
     # dispatch-rule mapping that yields the literal "X-LK-Campaign-Id").
@@ -4098,6 +4243,25 @@ async def entrypoint(ctx: JobContext) -> None:
         if transfer_human_tool is not None:
             tools.append(transfer_human_tool)
             clog.info("transfer_to_human tool enabled")
+        # schedule_callback: when the patient asks the IA to call THEM back at a
+        # specific date/time (and is fine staying with the assistant), this tool
+        # stamps leads_rdv (RAPPEL + rappel_rdv) so the dialer's exact-time
+        # callback runner re-dials via Charlotte at that moment (08:00–21:00 UK).
+        # Distinct from transfer_to_human (which routes to a human). Fail-soft.
+        try:
+            from tools_schedule_callback import build_schedule_callback_tool
+            schedule_cb_tool = build_schedule_callback_tool(
+                org_id=(axon.org_id if axon else None),
+                call_id=call_id,
+                e164=None,  # endpoint resolves the patient phone from call_id
+                language=(axon.language if axon else None),
+            )
+        except Exception:
+            clog.exception("schedule_callback tool build failed")
+            schedule_cb_tool = None
+        if schedule_cb_tool is not None:
+            tools.append(schedule_cb_tool)
+            clog.info("schedule_callback tool enabled")
     else:
         # legacy path: env-only n8n tools
         if os.getenv("N8N_BASE_URL") and os.getenv("N8N_API_KEY"):

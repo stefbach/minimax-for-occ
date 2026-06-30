@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useT } from "@/lib/i18n";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +12,7 @@ type ErasePayload = {
 };
 
 export default function GdprPage() {
+  const t = useT();
   const [contactId, setContactId] = useState("");
   const [userId, setUserId] = useState("");
   const [orgId, setOrgId] = useState("");
@@ -26,15 +28,15 @@ export default function GdprPage() {
     if (userId.trim()) payload.user_id = userId.trim();
     if (orgId.trim()) payload.org_id = orgId.trim();
     if (Object.keys(payload).length === 0) {
-      setError("Renseignez au moins un identifiant (contact, utilisateur ou organisation).");
+      setError(t("Renseignez au moins un identifiant"));
       return;
     }
     const confirmMsg =
       payload.org_id
-        ? `Supprimer DÉFINITIVEMENT l'organisation ${payload.org_id} et tout son contenu ?`
+        ? `${t("Supprimer DÉFINITIVEMENT")} l'organisation ${payload.org_id} et tout son contenu ?`
         : payload.user_id
-          ? `Anonymiser l'utilisateur ${payload.user_id} (email scramble + memberships purgées) ?`
-          : `Supprimer le contact ${payload.contact_id} ?`;
+          ? `${t("Anonymiser")} l'utilisateur ${payload.user_id} (email scramble + memberships purgées) ?`
+          : `${t("Supprimer")} le contact ${payload.contact_id} ?`;
     if (!confirm(confirmMsg)) return;
 
     setBusy(true);
@@ -64,10 +66,9 @@ export default function GdprPage() {
     <>
       <div className="page-header">
         <div>
-          <h1>RGPD — Droit à l&apos;effacement</h1>
+          <h1>{t("RGPD — Droit à l'effacement")}</h1>
           <div className="subtitle">
-            Anonymise un utilisateur ou efface un contact. La suppression d&apos;organisation est
-            réservée aux super-admins. Chaque action est tracée dans le journal d&apos;audit.
+            {t("Anonymise un utilisateur ou efface un contact. La suppression d'organisation est réservée aux super-admins. Chaque action est tracée dans le journal d'audit.")}
           </div>
         </div>
       </div>
@@ -80,7 +81,7 @@ export default function GdprPage() {
             type="text"
             value={contactId}
             onChange={(e) => setContactId(e.target.value)}
-            placeholder="uuid du contact à supprimer"
+            placeholder={t("uuid du contact à supprimer")}
           />
           <p className="hint">
             Supprime le contact. Les appels associés gardent l&apos;historique avec
@@ -95,7 +96,7 @@ export default function GdprPage() {
             type="text"
             value={userId}
             onChange={(e) => setUserId(e.target.value)}
-            placeholder="uuid de l'utilisateur à anonymiser"
+            placeholder={t("uuid de l'utilisateur à anonymiser")}
           />
           <p className="hint">
             Anonymise l&apos;email (<code>deleted_&lt;id&gt;@axon.local</code>), efface le nom
@@ -110,7 +111,7 @@ export default function GdprPage() {
             type="text"
             value={orgId}
             onChange={(e) => setOrgId(e.target.value)}
-            placeholder="uuid de l'organisation (cascade)"
+            placeholder={t("uuid de l'organisation (cascade)")}
           />
           <p className="hint">
             Supprime l&apos;organisation et toutes ses tables liées en cascade. Irréversible.
@@ -119,7 +120,7 @@ export default function GdprPage() {
 
         <div style={{ display: "flex", gap: 12, marginTop: 12 }}>
           <button type="button" className="btn btn-danger" onClick={submit} disabled={busy}>
-            {busy ? "Effacement en cours…" : "Effacer"}
+            {busy ? t("Effacement en cours…") : t("Effacer")}
           </button>
         </div>
 

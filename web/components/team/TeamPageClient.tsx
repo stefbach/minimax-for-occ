@@ -1,13 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { useT } from "@/lib/i18n";
 import { TeamList } from "./TeamList";
+import { useT } from "@/lib/i18n";
 
 /**
  * Client wrapper for the /team page. Owns the "open invite modal" signal so
  * the page can keep its server-rendered header (title + role gate) while the
- * "+ Inviter" button still feels instant.
+ * "+ Invite" button still feels instant.
  */
 export function TeamPageClient() {
   const t = useT();
@@ -16,12 +16,12 @@ export function TeamPageClient() {
     <>
       <div className="page-header">
         <div>
-          <h1>{t("Équipe")}</h1>
+          <h1>Team</h1>
           <div className="subtitle">
-            {t("Gérez les utilisateurs de votre organisation, leurs rôles et leurs accès.")}
+            Manage your organisation's users, their roles and access.
           </div>
         </div>
-        <button onClick={() => setOpenSignal((n) => n + 1)}>+ {t("Inviter")}</button>
+        <button onClick={() => setOpenSignal((n) => n + 1)}>+ Invite</button>
       </div>
       <TeamList inviteOpenSignal={openSignal} />
     </>

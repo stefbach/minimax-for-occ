@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useT } from "@/lib/i18n";
+import { ArrowDownLeft, ArrowUpRight, CalendarDays } from "lucide-react";
 import { QUAL_BUCKETS } from "@/lib/qualification";
 import {
   DEFAULT_GLOBAL_FILTERS,
@@ -30,6 +31,8 @@ export type Filters = GlobalFilters & {
   //   après-midi  = 13:00-14:00 UK = 12:00-13:00 UTC
   //   soir        = 18:00-20:00 UK = 17:00-19:00 UTC
   slot: "all" | "morning" | "afternoon" | "evening";
+  // Campaign filter: "all" means no filter, otherwise a campaign UUID
+  campaignId: string;
 };
 
 export const DEFAULT_FILTERS: Filters = {
@@ -38,6 +41,7 @@ export const DEFAULT_FILTERS: Filters = {
   leadsSource: "prod",
   system: "all",
   slot: "all",
+  campaignId: "all",
 };
 
 function startOfDay(d: Date): Date {
@@ -281,6 +285,16 @@ export function PeriodBar({
       .catch(() => alive && setOptions({ agents: [], sources: [] }));
     return () => { alive = false; };
   }, [filters.leadsSource]);
+
+  const [campaigns, setCampaigns] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    let alive = true;
+    fetch(`/api/dashboard/campaigns`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : { campaigns: [] }))
+      .then((j) => alive && setCampaigns(j.campaigns ?? []))
+      .catch(() => alive && setCampaigns([]));
+    return () => { alive = false; };
+  }, []);
   // Custom date pickers stay hidden behind the 📅 Personnalisé button until
   // wanted (or a range is already active), mirroring the legacy bar.
   const [showCustom, setShowCustom] = useState(false);
@@ -378,7 +392,7 @@ export function PeriodBar({
           style={{ padding: "5px 11px", fontSize: 13 }}
           title={t("Choisir une date ou un intervalle précis")}
         >
-          📅 {t("Personnalisé")}
+          <CalendarDays size={14} style={{ verticalAlign: "middle" }} /> {t("Personnalisé")}
         </button>
       </div>
 
@@ -457,8 +471,8 @@ export function PeriodBar({
             style={{ width: "auto", padding: "5px 8px", fontSize: 13 }}
           >
             <option value="all">{t("Tous")}</option>
-            <option value="inbound">{t("↘ Entrants")}</option>
-            <option value="outbound">{t("↗ Sortants")}</option>
+            <option value="inbound">{t("Entrants")}</option>
+            <option value="outbound">{t("Sortants")}</option>
           </select>
         </div>
         <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
@@ -486,6 +500,20 @@ export function PeriodBar({
             <option value="all">{t("Tous")}</option>
             <option value="retell">Retell</option>
             <option value="axon">Axon</option>
+          </select>
+        </div>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+          <span className="muted" style={{ fontSize: 12 }}>{t("Campagne")}</span>
+          <select
+            value={filters.campaignId}
+            onChange={(e) => onFilters({ ...filters, campaignId: e.target.value })}
+            style={{ width: "auto", padding: "5px 8px", fontSize: 13, maxWidth: 180 }}
+            title={t("Filtrer par campagne")}
+          >
+            <option value="all">{t("Toutes")}</option>
+            {campaigns.map((c) => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
           </select>
         </div>
         <button

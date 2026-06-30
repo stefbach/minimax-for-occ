@@ -20,6 +20,7 @@ interface Body {
   system?: string;
   period_label?: string;
   force_refresh?: boolean;
+  campaign_id?: string;
 }
 
 // Stable signature of the request so the same period+filters+call-set reuses
@@ -60,8 +61,9 @@ export async function POST(request: Request): Promise<NextResponse> {
   const leadsSource: LeadsSource = body.leads_source === "test" ? "test" : "prod";
   const system = parseCallSystem(body.system);
   const periodLabel = body.period_label?.trim() || "Période";
+  const campaignId = body.campaign_id && body.campaign_id !== "all" ? body.campaign_id : null;
 
-  const { inputs, index } = await loadInsightsCalls({ orgId, from, to, direction, leadsSource, system });
+  const { inputs, index } = await loadInsightsCalls({ orgId, from, to, direction, leadsSource, system, campaignId });
   if (inputs.length === 0) {
     return NextResponse.json({ error: "Aucun appel à analyser pour cette sélection." }, { status: 400 });
   }

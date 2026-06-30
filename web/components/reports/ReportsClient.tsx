@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { ReportPayload, ReportType } from "@/lib/reports/types";
 import { ReportViewer } from "./ReportViewer";
+import { useT } from "@/lib/i18n";
 
 interface TemplateOption {
   id: ReportType;
@@ -78,6 +79,7 @@ function isoDaysAgoUtc(days: number): string {
 }
 
 export function ReportsClient() {
+  const t = useT();
   const [type, setType] = useState<ReportType>("pilotage_hebdo");
   const [period, setPeriod] = useState<Period>("this_week");
   const [customFrom, setCustomFrom] = useState<string>(isoDaysAgoUtc(7));

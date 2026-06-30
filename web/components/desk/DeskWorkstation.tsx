@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { DESK_SOFTPHONE_SLOT_ID } from "@/components/voice/PersistentSoftphoneShell";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 import { useT } from "@/lib/i18n";
+import { DeskCampaigns } from "./DeskCampaigns";
 
 // Roles allowed to release a task back to the pool. Mirrors the server-side
 // gate in /api/desk/tasks/:id/release — agents cannot self-unassign (Wati
@@ -353,6 +354,10 @@ export function DeskWorkstation() {
         className="desk-softphone-slot"
         style={{ display: "grid", gap: 8 }}
       />
+
+      {/* Mes campagnes — the agent's own desk campaigns with a start/pause
+          switch. Renders nothing when the agent has none assigned. */}
+      <DeskCampaigns />
 
       {/* Mobile-only toggle */}
       <div

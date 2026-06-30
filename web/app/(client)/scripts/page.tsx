@@ -37,7 +37,7 @@ export default async function ScriptsPage() {
         <div>
           <h1>Scripts</h1>
           <div className="subtitle">
-            Playbooks d&apos;appel versionnés, réutilisables par les campagnes
+            Versioned call playbooks, reusable across campaigns
           </div>
         </div>
         <HelpButton contextKey="scripts" />

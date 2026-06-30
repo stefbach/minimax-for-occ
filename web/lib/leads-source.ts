@@ -134,6 +134,42 @@ export async function leadNameMapFor(
   return map;
 }
 
+// Load phone numbers for every patient in a campaign, using the join:
+// campaign_leads.patient_id → leads_rdv.id → leads_rdv.numero_telephone
+// Returns a LeadsScope so callInLeadsScope() works directly.
+// Returns null (no filter) on unexpected errors so the dashboard doesn't
+// go blank — the caller already passed a campaign selection so an empty
+// result would be misleading.
+export async function campaignScopeFor(
+  campaignId: string,
+): Promise<LeadsScope> {
+  const sb = supabaseServer();
+  try {
+    const { data: cl } = await (sb
+      .from("campaign_leads" as never)
+      .select("patient_id")
+      .eq("campaign_id" as never, campaignId) as unknown as Promise<{ data: { patient_id: string }[] | null }>);
+
+    const patientIds = (cl ?? []).map((r) => r.patient_id).filter(Boolean);
+    if (patientIds.length === 0) return { mode: "include", phones: new Set() };
+
+    const { data: lr } = await (sb
+      .from("leads_rdv" as never)
+      .select("numero_telephone")
+      .in("id" as never, patientIds)
+      .not("numero_telephone" as never, "is", null) as unknown as Promise<{ data: { numero_telephone: string | null }[] | null }>);
+
+    const phones = new Set<string>();
+    for (const row of lr ?? []) {
+      const p = normalisePhone(row.numero_telephone);
+      if (p) phones.add(p);
+    }
+    return { mode: "include", phones };
+  } catch {
+    return null;
+  }
+}
+
 /** Look up a single phone in a lead-name map, normalising the same way. */
 export function leadNameForPhone(
   phone: string | null | undefined,

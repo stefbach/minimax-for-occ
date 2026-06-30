@@ -38,21 +38,21 @@ const STEP_LABELS: Record<string, string> = {
   send_email_smtp: "✉️ Email",
   send_wati_template: "💬 WhatsApp",
   send_whatsapp_session: "💬 WA session",
-  update_row: "✎ MAJ ligne",
-  ai_brain: "🧠 IA",
+  update_row: "✎ Update row",
+  ai_brain: "🧠 AI",
   telegram_notify: "📣 Telegram",
   http_request: "🌐 HTTP",
-  call_automation: "🔗 Sous-agent",
+  call_automation: "🔗 Sub-agent",
   gmail_search: "📥 Gmail",
-  classify_document_ai: "🧠 Classer doc",
-  storage_upload: "📤 Stockage",
+  classify_document_ai: "🧠 Classify doc",
+  storage_upload: "📤 Storage",
   upsert_nhs_document: "🗂 Document",
   screen_dossier: "📊 Screening",
-  ai_agent_tools: "🧠 Agent+outils",
-  generate_document_ai: "🧠 Génération doc",
+  ai_agent_tools: "🧠 Agent+tools",
+  generate_document_ai: "🧠 Generate doc",
   render_pdf: "📄 PDF",
-  extract_clinical_ai: "🧠 Extraction",
-  draft_gmail: "✉️ Brouillon",
+  extract_clinical_ai: "🧠 Extract",
+  draft_gmail: "✉️ Draft",
   send_gmail: "✉️ Gmail",
 };
 
@@ -119,7 +119,7 @@ export function NativeAutomationsPanel() {
         setErr(j.error ?? `HTTP ${r.status}`);
       } else {
         setRunResult(
-          `${wf.name}: ${j.matched ?? 0} ${t("lignes trouvées")} · ${j.actions ?? 0} ${t("actions")} · ${j.skipped ?? 0} ${t("ignorées")} · ${j.errors ?? 0} ${t("erreurs")}`,
+          `${wf.name}: ${j.matched ?? 0} ` + t("lignes trouvées") + ` · ${j.actions ?? 0} ` + t("actions") + ` · ${j.skipped ?? 0} ` + t("ignorées") + ` · ${j.errors ?? 0} ` + t("erreurs"),
         );
       }
       await refresh();
@@ -173,7 +173,7 @@ export function NativeAutomationsPanel() {
             {wf.trigger?.type === "table_scan"
               ? `⏱ ${wf.trigger.every_minutes ?? 5} min · ${wf.trigger.table}`
               : wf.trigger?.type === "callable"
-                ? "🔗 sous-agent"
+                ? "🔗 sub-agent"
                 : wf.trigger?.type}
           </span>
           {wf.steps.map((s, i) => (
@@ -191,11 +191,11 @@ export function NativeAutomationsPanel() {
             {busy === wf.id ? "…" : t("Exécuter maintenant")}
           </button>
           <a href={`/workflows/automations/${wf.id}`}>
-            <button className="ghost" style={{ padding: "6px 12px" }}>{t("Ouvrir / Éditer")}</button>
+            <button className="ghost" style={{ padding: "6px 12px" }}>{t("Ouvrir / Modifier")}</button>
           </a>
           <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>
             {wf.last_run_at
-              ? `${t("Dernier run")}: ${new Date(wf.last_run_at).toLocaleString("fr-FR")} (${wf.last_status ?? "—"})`
+              ? t("Dernière exécution :") + ` ${new Date(wf.last_run_at).toLocaleString()} (${wf.last_status ?? "—"})`
               : t("Jamais exécuté")}
           </span>
         </div>
@@ -205,7 +205,7 @@ export function NativeAutomationsPanel() {
               <div key={r.id}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", color: "var(--muted)" }}>
                   <span style={{ fontVariantNumeric: "tabular-nums" }}>
-                    {new Date(r.started_at).toLocaleTimeString("fr-FR")}
+                    {new Date(r.started_at).toLocaleTimeString()}
                   </span>
                   <span
                     style={{
@@ -216,8 +216,7 @@ export function NativeAutomationsPanel() {
                     {r.status}
                   </span>
                   <span>
-                    {r.matched} {t("lignes")} · {r.actions} {t("actions")} · {r.skipped} {t("ignorées")} · {r.errors}{" "}
-                    {t("erreurs")}
+                    {r.matched} {t("lignes")} · {r.actions} {t("actions")} · {r.skipped} {t("ignorées")} · {r.errors} {t("erreurs")}
                   </span>
                   <button
                     className="ghost"
@@ -259,7 +258,7 @@ export function NativeAutomationsPanel() {
                           }}
                         >
                           <span style={{ opacity: 0.5 }}>
-                            {new Date(entry.ts).toLocaleTimeString("fr-FR", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                            {new Date(entry.ts).toLocaleTimeString(undefined, { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" })}
                           </span>{" "}
                           <span style={{ opacity: 0.7 }}>[{entry.level}]</span> {entry.msg}
                         </div>
@@ -275,18 +274,29 @@ export function NativeAutomationsPanel() {
     );
   }
 
+  function normalizeGroupLabel(raw: string): string {
+    const map: Record<string, string> = {
+      "DÉCLENCHEURS AUTOMATIQUES (CRON)": "Automatic triggers (CRON)",
+      "Déclencheurs automatiques (CRON)": "Automatic triggers (CRON)",
+      "Sous-agents pipeline": "Pipeline sub-agents (called by the orchestrator)",
+      "SOUS-AGENTS PIPELINE": "Pipeline sub-agents (called by the orchestrator)",
+      "Automations": "Automations",
+    };
+    return map[raw] ?? raw;
+  }
+
   // Group by group_label (preserving the API's sort order); number the
   // sub-agents so their execution order (2,3,5,7,6,4) is explicit.
   const groups: Array<{ label: string; items: Wf[] }> = [];
   const groupIndex = new Map<string, number>();
   for (const wf of wfs) {
     const label =
-      wf.group_label ||
+      (wf.group_label ? normalizeGroupLabel(wf.group_label) : null) ||
       (wf.trigger?.type === "table_scan"
-        ? t("Déclencheurs automatiques (CRON)")
+        ? "Automatic triggers (CRON)"
         : wf.trigger?.type === "callable"
-          ? t("Sous-agents du pipeline (appelés par l'orchestrateur)")
-          : t("Automations"));
+          ? "Pipeline sub-agents (called by the orchestrator)"
+          : "Automations");
     let i = groupIndex.get(label);
     if (i === undefined) {
       i = groups.length;
@@ -299,9 +309,9 @@ export function NativeAutomationsPanel() {
   return (
     <div className="card" style={{ display: "grid", gap: 12, padding: 14 }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
-        <h3 style={{ margin: 0 }}>{t("Automations natives")}</h3>
+        <h3 style={{ margin: 0 }}>{t("Automatisations natives")}</h3>
         <span className="muted" style={{ fontSize: 12 }}>
-          {t("Cron toutes les 5 min · credentials gérés côté serveur")}
+          {t("Cron toutes les 5 min · identifiants gérés côté serveur")}
         </span>
       </div>
 
@@ -310,7 +320,7 @@ export function NativeAutomationsPanel() {
 
       {wfs.length === 0 ? (
         <div className="muted" style={{ fontSize: 13 }}>
-          {t("Aucune automation. Le workflow seedé apparaîtra ici après le déploiement.")}
+          {t("Aucune automatisation. Le workflow initialisé apparaîtra ici après déploiement.")}
         </div>
       ) : (
         groups.map((group) => {

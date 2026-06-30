@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useT } from "@/lib/i18n";
 
 interface Member {
   id: string;
@@ -38,6 +39,7 @@ export function AdminClient({
   orgName: string;
   orgSlug: string;
 }) {
+  const t = useT();
   const [tab, setTab] = useState<Tab>("users");
   const [members, setMembers] = useState<Member[]>([]);
   const [invites, setInvites] = useState<Invitation[]>([]);
@@ -84,7 +86,7 @@ export function AdminClient({
     });
     if (!r.ok) {
       const j = await r.json().catch(() => ({}));
-      setError(j.error ?? "Erreur lors du changement de rôle");
+      setError(j.error ?? "Error changing role");
       return;
     }
     setError(null);
@@ -92,14 +94,14 @@ export function AdminClient({
   }
 
   async function removeMember(userId: string) {
-    if (!confirm("Retirer cet utilisateur de l'organisation ?")) return;
+    if (!confirm(t("Retirer cet utilisateur de l'organisation ?"))) return;
     const r = await fetch(
       `/api/admin/users?user_id=${encodeURIComponent(userId)}&org_id=${encodeURIComponent(orgId)}`,
       { method: "DELETE" },
     );
     if (!r.ok) {
       const j = await r.json().catch(() => ({}));
-      setError(j.error ?? "Erreur lors de la suppression");
+      setError(j.error ?? "Error removing user");
       return;
     }
     setError(null);
@@ -125,10 +127,10 @@ export function AdminClient({
     setCreateBusy(false);
     if (!r.ok) {
       const j = await r.json().catch(() => ({}));
-      setError(j.error ?? "Erreur lors de la création");
+      setError(j.error ?? "Error creating user");
       return;
     }
-    setCreateOk(`${newEmail} créé. Mot de passe à transmettre à l'utilisateur.`);
+    setCreateOk(`${newEmail} ` + t("créé. Partagez le mot de passe avec l'utilisateur."));
     setNewEmail(""); setNewPassword(""); setNewDisplayName(""); setNewRole("agent");
     refreshUsers();
   }
@@ -145,7 +147,7 @@ export function AdminClient({
     setInviteBusy(false);
     if (!r.ok) {
       const j = await r.json().catch(() => ({}));
-      setError(j.error ?? "Erreur lors de la création de l'invitation");
+      setError(j.error ?? "Error creating invitation");
       return;
     }
     setInviteEmail("");
@@ -154,13 +156,13 @@ export function AdminClient({
   }
 
   async function revokeInvite(id: string) {
-    if (!confirm("Révoquer cette invitation ?")) return;
+    if (!confirm(t("Révoquer cette invitation ?"))) return;
     const r = await fetch(`/api/admin/invitations?id=${encodeURIComponent(id)}`, {
       method: "DELETE",
     });
     if (!r.ok) {
       const j = await r.json().catch(() => ({}));
-      setError(j.error ?? "Erreur lors de la révocation");
+      setError(j.error ?? "Error revoking invitation");
       return;
     }
     refreshInvites();
@@ -172,14 +174,14 @@ export function AdminClient({
       setCopied(id);
       setTimeout(() => setCopied(null), 1500);
     } catch {
-      setError("Copie impossible");
+      setError(t("Copie échouée"));
     }
   }
 
   function fmt(dt: string | null): string {
     if (!dt) return "—";
     try {
-      return new Date(dt).toLocaleString("fr-FR");
+      return new Date(dt).toLocaleString();
     } catch {
       return dt;
     }
@@ -189,14 +191,14 @@ export function AdminClient({
     <div style={{ display: "grid", gap: 16 }}>
       <div className="card" style={{ padding: 8 }}>
         <nav style={{ display: "flex", gap: 6 }}>
-          {(["users", "invitations", "settings"] as Tab[]).map((t) => (
+          {(["users", "invitations", "settings"] as Tab[]).map((tabKey) => (
             <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={tab === t ? "" : "ghost"}
+              key={tabKey}
+              onClick={() => setTab(tabKey)}
+              className={tab === tabKey ? "" : "ghost"}
               style={{ textTransform: "capitalize" }}
             >
-              {t === "users" ? "Utilisateurs" : t === "invitations" ? "Invitations" : "Paramètres"}
+              {tabKey === "users" ? t("Utilisateurs") : tabKey === "invitations" ? t("Invitations") : t("Paramètres")}
             </button>
           ))}
         </nav>
@@ -211,7 +213,7 @@ export function AdminClient({
       {tab === "users" && (
         <>
           <div className="card">
-            <h3 style={{ marginTop: 0 }}>Créer un utilisateur (email + mot de passe)</h3>
+            <h3 style={{ marginTop: 0 }}>{t("Créer un utilisateur (email + mot de passe)")}</h3>
             <form onSubmit={createUser} style={{ display: "grid", gap: 10 }}>
               <div className="form-row">
                 <div>
@@ -221,32 +223,32 @@ export function AdminClient({
                     required
                     value={newEmail}
                     onChange={(e) => setNewEmail(e.target.value)}
-                    placeholder="utilisateur@example.com"
+                    placeholder="user@example.com"
                   />
                 </div>
                 <div>
-                  <label>Nom complet (optionnel)</label>
+                  <label>{t("Nom complet (optionnel)")}</label>
                   <input
                     value={newDisplayName}
                     onChange={(e) => setNewDisplayName(e.target.value)}
-                    placeholder="Jean Dupont"
+                    placeholder="John Smith"
                   />
                 </div>
               </div>
               <div className="form-row">
                 <div>
-                  <label>Mot de passe (8 caractères min.)</label>
+                  <label>{t("Mot de passe (min. 8 caractères)")}</label>
                   <input
                     type="password"
                     required
                     minLength={8}
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
-                    placeholder="Mot de passe initial"
+                    placeholder={t("Mot de passe initial")}
                   />
                 </div>
                 <div>
-                  <label>Rôle</label>
+                  <label>{t("Rôle")}</label>
                   <select value={newRole} onChange={(e) => setNewRole(e.target.value)}>
                     {ROLES.map((r) => (
                       <option key={r} value={r}>{r}</option>
@@ -259,31 +261,29 @@ export function AdminClient({
               )}
               <div>
                 <button type="submit" disabled={createBusy || !newEmail || newPassword.length < 8}>
-                  {createBusy ? "…" : "Créer l'utilisateur"}
+                  {createBusy ? "…" : t("Créer l'utilisateur")}
                 </button>
               </div>
               <div style={{ fontSize: 12, color: "var(--muted)" }}>
-                L&apos;utilisateur est créé avec son email validé. Il peut se connecter
-                immédiatement avec le mot de passe que vous lui transmettez. Pour un flux
-                par lien magique, utilisez l&apos;onglet Invitations à la place.
+                {t("L'utilisateur est créé avec un email vérifié et peut se connecter immédiatement avec le mot de passe que vous lui communiquez. Pour un flux magic-link, utilisez l'onglet Invitations.")}
               </div>
             </form>
           </div>
           <div className="card" style={{ padding: 0, overflow: "hidden" }}>
           {loading ? (
-            <div style={{ padding: 16, color: "var(--muted)" }}>Chargement…</div>
+            <div style={{ padding: 16, color: "var(--muted)" }}>{t("Chargement…")}</div>
           ) : members.length === 0 ? (
             <div style={{ padding: 16, color: "var(--muted)" }}>
-              Aucun membre dans cette organisation.
+              {t("Aucun membre dans cette organisation.")}
             </div>
           ) : (
             <table className="list">
               <thead>
                 <tr>
-                  <th>Nom</th>
+                  <th>{t("Nom")}</th>
                   <th>Email</th>
-                  <th>Rôle</th>
-                  <th>Dernière connexion</th>
+                  <th>{t("Rôle")}</th>
+                  <th>{t("Dernière connexion")}</th>
                   <th></th>
                 </tr>
               </thead>
@@ -323,7 +323,7 @@ export function AdminClient({
                         style={{ padding: "5px 9px" }}
                         onClick={() => removeMember(m.user_id)}
                       >
-                        Retirer
+                        {t("Retirer")}
                       </button>
                     </td>
                   </tr>
@@ -338,7 +338,7 @@ export function AdminClient({
       {tab === "invitations" && (
         <>
           <div className="card">
-            <h3 style={{ marginTop: 0 }}>Inviter un utilisateur</h3>
+            <h3 style={{ marginTop: 0 }}>{t("Inviter un utilisateur")}</h3>
             <form onSubmit={createInvite} style={{ display: "grid", gap: 10 }}>
               <div className="form-row">
                 <div>
@@ -348,11 +348,11 @@ export function AdminClient({
                     required
                     value={inviteEmail}
                     onChange={(e) => setInviteEmail(e.target.value)}
-                    placeholder="utilisateur@example.com"
+                    placeholder="user@example.com"
                   />
                 </div>
                 <div>
-                  <label>Rôle</label>
+                  <label>{t("Rôle")}</label>
                   <select value={inviteRole} onChange={(e) => setInviteRole(e.target.value)}>
                     {ROLES.map((r) => (
                       <option key={r} value={r}>
@@ -364,12 +364,11 @@ export function AdminClient({
               </div>
               <div>
                 <button type="submit" disabled={inviteBusy || !inviteEmail}>
-                  {inviteBusy ? "…" : "Créer l'invitation"}
+                  {inviteBusy ? "…" : t("Créer l'invitation")}
                 </button>
               </div>
               <div style={{ fontSize: 12, color: "var(--muted)" }}>
-                L&apos;envoi par email n&apos;est pas encore configuré : copiez le lien généré et
-                transmettez-le manuellement.
+                {t("L'envoi d'email n'est pas encore configuré : copiez le lien généré et partagez-le manuellement.")}
               </div>
             </form>
           </div>
@@ -377,16 +376,16 @@ export function AdminClient({
           <div className="card" style={{ padding: 0, overflow: "hidden" }}>
             {invites.length === 0 ? (
               <div style={{ padding: 16, color: "var(--muted)" }}>
-                Aucune invitation en attente.
+                {t("Aucune invitation en attente.")}
               </div>
             ) : (
               <table className="list">
                 <thead>
                   <tr>
                     <th>Email</th>
-                    <th>Rôle</th>
-                    <th>Créée</th>
-                    <th>Expire</th>
+                    <th>{t("Rôle")}</th>
+                    <th>{t("Créée le")}</th>
+                    <th>{t("Expire le")}</th>
                     <th></th>
                   </tr>
                 </thead>
@@ -409,14 +408,14 @@ export function AdminClient({
                           style={{ padding: "5px 9px", marginRight: 6 }}
                           onClick={() => copyLink(i.accept_url, i.id)}
                         >
-                          {copied === i.id ? "Copié !" : "Copier le lien"}
+                          {copied === i.id ? t("Copié !") : t("Copier le lien")}
                         </button>
                         <button
                           className="danger"
                           style={{ padding: "5px 9px" }}
                           onClick={() => revokeInvite(i.id)}
                         >
-                          Révoquer
+                          {t("Révoquer")}
                         </button>
                       </td>
                     </tr>
@@ -430,10 +429,10 @@ export function AdminClient({
 
       {tab === "settings" && (
         <div className="card">
-          <h3 style={{ marginTop: 0 }}>Paramètres de l&apos;organisation</h3>
+          <h3 style={{ marginTop: 0 }}>{t("Paramètres de l'organisation")}</h3>
           <div style={{ display: "grid", gap: 10 }}>
             <div>
-              <label>Nom</label>
+              <label>{t("Nom")}</label>
               <input value={orgName} readOnly />
             </div>
             <div>
@@ -441,7 +440,7 @@ export function AdminClient({
               <input value={orgSlug} readOnly />
             </div>
             <div style={{ fontSize: 12, color: "var(--muted)" }}>
-              L&apos;édition de ces champs sera disponible prochainement.
+              {t("La modification de ces champs sera disponible prochainement.")}
             </div>
           </div>
         </div>

@@ -1,6 +1,6 @@
 ---
 slug: realestate-viewing-scheduler
-title: Planificateur de visites immobilières
+title: Real estate viewing scheduler
 industry: realestate
 language: fr
 voice_suggestion: female_friendly_28s
@@ -14,6 +14,7 @@ n8n_bindings_suggested:
   - reschedule_viewing
   - cancel_viewing
 handoff_team_suggested: realestate-agents
+description: "Efficient outbound scheduler for property viewings. Checks agent calendars, books visits, sends confirmations and handles reschedules."
 ---
 
 ## Identity

@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useT } from "@/lib/i18n";
 
 interface Contact {
   id: string;
@@ -14,6 +15,7 @@ interface Contact {
 }
 
 export function ContactsClient({ initial }: { initial: Contact[] }) {
+  const t = useT();
   const router = useRouter();
   const [rows, setRows] = useState<Contact[]>(initial);
   const [busy, setBusy] = useState(false);
@@ -72,7 +74,7 @@ export function ContactsClient({ initial }: { initial: Contact[] }) {
   }
 
   async function del(id: string) {
-    if (!confirm("Supprimer ce contact ?")) return;
+    if (!confirm(t("Supprimer ce contact ?"))) return;
     await fetch(`/api/contacts?id=${id}`, { method: "DELETE" });
     refresh();
   }
@@ -122,15 +124,15 @@ export function ContactsClient({ initial }: { initial: Contact[] }) {
   return (
     <div style={{ display: "grid", gap: 16 }}>
       <div className="card">
-        <h3 style={{ marginTop: 0 }}>Ajouter un contact manuellement</h3>
+        <h3 style={{ marginTop: 0 }}>{t("Ajouter un contact manuellement")}</h3>
         <form onSubmit={onSubmit} style={{ display: "grid", gap: 10 }}>
           <div className="form-row">
             <div>
-              <label>Numéro (E.164)</label>
+              <label>{t("Numéro (E.164)")}</label>
               <input value={e164} onChange={(e) => setE164(e.target.value)} placeholder="+33600000000" required pattern="\+?[0-9]{6,15}" />
             </div>
             <div>
-              <label>Nom</label>
+              <label>{t("Nom")}</label>
               <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Stéphane Dupond" />
             </div>
           </div>
@@ -140,18 +142,18 @@ export function ContactsClient({ initial }: { initial: Contact[] }) {
               <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="contact@example.com" />
             </div>
             <div>
-              <label>Tags (séparés par virgule)</label>
+              <label>{t("Tags (séparés par virgule)")}</label>
               <input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="vip, jamais-rappeler, fr" />
             </div>
           </div>
           <div>
-            <label>Notes</label>
+            <label>{t("Notes")}</label>
             <textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
           </div>
           {error && <div style={{ color: "var(--bad)", fontSize: 13 }}>{error}</div>}
           <div>
             <button type="submit" disabled={busy || !e164}>
-              {busy ? "…" : "Ajouter / mettre à jour"}
+              {busy ? "…" : t("Ajouter / mettre à jour")}
             </button>
           </div>
         </form>
@@ -159,7 +161,7 @@ export function ContactsClient({ initial }: { initial: Contact[] }) {
 
       {/* Bulk Excel import — for clients who'd rather not type 500 rows. */}
       <div className="card">
-        <h3 style={{ marginTop: 0 }}>Import en masse (fichier Excel)</h3>
+        <h3 style={{ marginTop: 0 }}>{t("Import en masse (fichier Excel)")}</h3>
         <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
           Pour ajouter beaucoup de contacts d&apos;un coup, télécharge le modèle
           Excel ci-dessous, remplis-le avec les colonnes exactes
@@ -174,7 +176,7 @@ export function ContactsClient({ initial }: { initial: Contact[] }) {
             className="button ghost"
             style={{ textDecoration: "none", padding: "8px 12px" }}
           >
-            📥 Télécharger le modèle Excel
+            📥 {t("Télécharger le modèle Excel")}
           </a>
           <label
             className="button"
@@ -184,7 +186,7 @@ export function ContactsClient({ initial }: { initial: Contact[] }) {
               opacity: importing ? 0.6 : 1,
             }}
           >
-            {importing ? "Import en cours…" : "📤 Importer un fichier Excel"}
+            {importing ? t("Import en cours…") : `📤 ${t("Importer un fichier Excel")}`}
             <input
               type="file"
               accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
@@ -231,7 +233,7 @@ export function ContactsClient({ initial }: { initial: Contact[] }) {
               type="search"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Rechercher un contact (nom, numéro, email, tag…)"
+              placeholder={t("Rechercher un contact (nom, numéro, email, tag…)")}
               style={{ width: "100%", padding: "8px 12px", fontSize: 14 }}
             />
           </div>
@@ -245,18 +247,18 @@ export function ContactsClient({ initial }: { initial: Contact[] }) {
         {filtered.length === 0 ? (
           <div style={{ padding: 16, color: "var(--muted)" }}>
             {rows.length === 0
-              ? "Aucun contact pour l'instant. Ajoute-en un manuellement ci-dessus."
-              : "Aucun contact ne correspond à ta recherche."}
+              ? t("Aucun contact pour l'instant. Ajoute-en un manuellement ci-dessus.")
+              : t("Aucun contact ne correspond à ta recherche.")}
           </div>
         ) : (
           <table className="list">
             <thead>
               <tr>
-                <th>Nom</th>
-                <th>Téléphone</th>
+                <th>{t("Nom")}</th>
+                <th>{t("Téléphone")}</th>
                 <th>Email</th>
                 <th>Tags</th>
-                <th style={{ textAlign: "right" }}>Actions</th>
+                <th style={{ textAlign: "right" }}>{t("Actions")}</th>
               </tr>
             </thead>
             <tbody>
@@ -266,20 +268,20 @@ export function ContactsClient({ initial }: { initial: Contact[] }) {
                   <td><span className="kbd">{c.e164}</span></td>
                   <td>{c.email ?? <em style={{ color: "var(--muted)" }}>—</em>}</td>
                   <td>
-                    {(c.tags ?? []).map((t) => (
-                      <span key={t} className="tag" style={{ marginRight: 4 }}>{t}</span>
+                    {(c.tags ?? []).map((tag) => (
+                      <span key={tag} className="tag" style={{ marginRight: 4 }}>{tag}</span>
                     ))}
                   </td>
                   <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                     <button
                       onClick={() => callContact(c)}
                       style={{ padding: "5px 10px", marginRight: 6 }}
-                      title="Appeler ce contact depuis le softphone"
+                      title={t("Appeler ce contact depuis le softphone")}
                     >
-                      ☎ Appeler
+                      ☎ {t("Appeler")}
                     </button>
                     <button className="danger" style={{ padding: "5px 9px" }} onClick={() => del(c.id)}>
-                      Supprimer
+                      {t("Supprimer")}
                     </button>
                   </td>
                 </tr>

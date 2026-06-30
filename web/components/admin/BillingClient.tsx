@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useT } from "@/lib/i18n";
 
 interface Plan {
   slug: string;
@@ -30,18 +31,6 @@ interface UsageResponse {
   };
 }
 
-const COUNTERS: Array<{
-  key: keyof UsageResponse["usage"];
-  label: string;
-  unit: string;
-  fmt: (n: number) => string;
-}> = [
-  { key: "call_minutes", label: "Minutes d'appel (Twilio)", unit: "min",   fmt: (n) => n.toLocaleString("fr-FR") },
-  { key: "llm_tokens",   label: "Tokens LLM (OpenAI)",       unit: "tok",   fmt: (n) => n.toLocaleString("fr-FR") },
-  { key: "tts_chars",    label: "Caractères TTS (MiniMax)",  unit: "chars", fmt: (n) => n.toLocaleString("fr-FR") },
-  { key: "stt_minutes",  label: "Minutes STT (Deepgram)",    unit: "min",   fmt: (n) => n.toLocaleString("fr-FR") },
-];
-
 function formatPrice(cents: number): string {
   return `${(cents / 100).toFixed(2)} €`;
 }
@@ -52,6 +41,20 @@ function percent(used: number, limit: number): number {
 }
 
 export function BillingClient() {
+  const t = useT();
+
+  const COUNTERS: Array<{
+    key: keyof UsageResponse["usage"];
+    label: string;
+    unit: string;
+    fmt: (n: number) => string;
+  }> = [
+    { key: "call_minutes", label: t("Minutes d'appel (Twilio)"), unit: "min",   fmt: (n) => n.toLocaleString("fr-FR") },
+    { key: "llm_tokens",   label: t("Tokens LLM (OpenAI)"),       unit: "tok",   fmt: (n) => n.toLocaleString("fr-FR") },
+    { key: "tts_chars",    label: t("Caractères TTS (MiniMax)"),  unit: "chars", fmt: (n) => n.toLocaleString("fr-FR") },
+    { key: "stt_minutes",  label: t("Minutes STT (Deepgram)"),    unit: "min",   fmt: (n) => n.toLocaleString("fr-FR") },
+  ];
+
   const [usage, setUsage] = useState<UsageResponse | null>(null);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [loading, setLoading] = useState(true);
@@ -95,11 +98,11 @@ export function BillingClient() {
       });
       const j = (await res.json()) as { url?: string; mock?: boolean; warning?: string; error?: string };
       if (!res.ok) {
-        setUpgradeMsg(j.error ?? `Erreur ${res.status}`);
+        setUpgradeMsg(j.error ?? t("Erreur") + ` ${res.status}`);
         return;
       }
       if (j.mock) {
-        setUpgradeMsg(j.warning ?? "Mode démo — plan mis à jour localement, aucun paiement effectué.");
+        setUpgradeMsg(j.warning ?? t("Mode démo — plan mis à jour localement, aucun paiement effectué."));
         await refresh();
       } else if (j.url) {
         window.location.href = j.url;
@@ -112,13 +115,13 @@ export function BillingClient() {
   }
 
   if (loading) {
-    return <div className="card" style={{ color: "var(--muted)" }}>Chargement…</div>;
+    return <div className="card" style={{ color: "var(--muted)" }}>{t("Chargement…")}</div>;
   }
   if (error) {
     return <div className="card" style={{ color: "var(--bad)" }}>{error}</div>;
   }
   if (!usage) {
-    return <div className="card" style={{ color: "var(--muted)" }}>Aucune donnée.</div>;
+    return <div className="card" style={{ color: "var(--muted)" }}>{t("Aucune donnée.")}</div>;
   }
 
   const currentPlan = usage.plan;
@@ -130,11 +133,11 @@ export function BillingClient() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <div>
             <div style={{ fontSize: 11, color: "var(--muted-2)", textTransform: "uppercase", letterSpacing: 1 }}>
-              Plan actuel · {usage.month}
+              {t("Plan actuel")} · {usage.month}
             </div>
             <h2 style={{ margin: "6px 0 0" }}>{currentPlan.name}</h2>
             <div style={{ color: "var(--muted)", fontSize: 13 }}>
-              {formatPrice(currentPlan.monthly_price_cents)} / mois
+              {formatPrice(currentPlan.monthly_price_cents)} / {t("mois")}
             </div>
           </div>
           <div style={{ fontSize: 12, color: "var(--muted-2)" }}>
@@ -145,7 +148,7 @@ export function BillingClient() {
 
       {/* ── Compteurs du mois ────────────────────────────────────────── */}
       <div className="card">
-        <h3 style={{ marginTop: 0 }}>Consommation du mois</h3>
+        <h3 style={{ marginTop: 0 }}>{t("Consommation du mois")}</h3>
         <div style={{ display: "grid", gap: 12 }}>
           {COUNTERS.map((c) => {
             const bucket = usage.usage[c.key];
@@ -186,7 +189,7 @@ export function BillingClient() {
 
       {/* ── Plans disponibles + upgrade ───────────────────────────────── */}
       <div className="card">
-        <h3 style={{ marginTop: 0 }}>Plans disponibles</h3>
+        <h3 style={{ marginTop: 0 }}>{t("Plans disponibles")}</h3>
         {upgradeMsg && (
           <div style={{ padding: "8px 12px", borderRadius: 6, background: "rgba(74, 222, 128, 0.08)", border: "1px solid rgba(74, 222, 128, 0.3)", marginBottom: 12, fontSize: 13 }}>
             {upgradeMsg}
@@ -209,15 +212,15 @@ export function BillingClient() {
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <strong>{p.name}</strong>
                   {isCurrent && (
-                    <span className="kbd" style={{ fontSize: 10 }}>actuel</span>
+                    <span className="kbd" style={{ fontSize: 10 }}>{t("actuel")}</span>
                   )}
                 </div>
-                <div style={{ fontSize: 20, fontWeight: 600 }}>{formatPrice(p.monthly_price_cents)}<span style={{ fontSize: 12, color: "var(--muted)", fontWeight: 400 }}> /mois</span></div>
+                <div style={{ fontSize: 20, fontWeight: 600 }}>{formatPrice(p.monthly_price_cents)}<span style={{ fontSize: 12, color: "var(--muted)", fontWeight: 400 }}> /{t("mois")}</span></div>
                 <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12, color: "var(--muted)", lineHeight: 1.7 }}>
-                  <li>{p.included_minutes.toLocaleString("fr-FR")} min d&apos;appel</li>
-                  <li>{p.included_llm_tokens.toLocaleString("fr-FR")} tokens LLM</li>
-                  <li>{p.included_tts_chars.toLocaleString("fr-FR")} caractères TTS</li>
-                  <li>{p.included_stt_minutes.toLocaleString("fr-FR")} min STT</li>
+                  <li>{p.included_minutes.toLocaleString("fr-FR")} {t("min d'appel")}</li>
+                  <li>{p.included_llm_tokens.toLocaleString("fr-FR")} {t("tokens LLM")}</li>
+                  <li>{p.included_tts_chars.toLocaleString("fr-FR")} {t("caractères TTS")}</li>
+                  <li>{p.included_stt_minutes.toLocaleString("fr-FR")} {t("min STT")}</li>
                 </ul>
                 <button
                   onClick={() => upgrade(p.slug)}
@@ -227,8 +230,8 @@ export function BillingClient() {
                   {upgradeBusy === p.slug
                     ? "…"
                     : isCurrent
-                    ? "Plan actif"
-                    : "Choisir ce plan"}
+                    ? t("Plan actif")
+                    : t("Choisir ce plan")}
                 </button>
               </div>
             );
@@ -238,11 +241,9 @@ export function BillingClient() {
 
       {/* ── Historique factures (placeholder) ─────────────────────────── */}
       <div className="card">
-        <h3 style={{ marginTop: 0 }}>Historique des factures</h3>
+        <h3 style={{ marginTop: 0 }}>{t("Historique des factures")}</h3>
         <div style={{ color: "var(--muted)", fontSize: 13 }}>
-          L&apos;historique des factures Stripe sera affiché ici une fois
-          l&apos;intégration complète activée. Pour le moment vous pouvez
-          retrouver vos reçus directement dans le portail Stripe.
+          {t("L'historique des factures Stripe sera affiché ici une fois l'intégration complète activée. Pour le moment vous pouvez retrouver vos reçus directement dans le portail Stripe.")}
         </div>
       </div>
     </div>

@@ -388,6 +388,8 @@ const QUALIFY_BUCKET_GUIDE: Record<Exclude<QualBucket, "autre">, string> = {
     "Un rendez-vous / une consultation a été pris ou confirmé pendant l'appel.",
   passer_humain:
     "Le contact a une question complexe ou demande explicitement un humain ; à escalader.",
+  suivi_requis:
+    "Le patient a été transféré à un agent spécialiste (Isabelle/Victoria) mais l'appel s'est terminé SANS confirmation de RDV — lead chaud à suivre par un humain.",
   rappel:
     "Le contact a demandé à être rappelé plus tard, OU l'échange est trop court / confus pour conclure (seulement bonjour, pas de vraie discussion). En cas de doute entre rappel et pas_interesse, choisis rappel : on rappellera pour clarifier.",
   pas_interesse:
@@ -480,10 +482,25 @@ export async function qualifyCall(
 
   const meta = (call.metadata ?? {}) as Record<string, unknown>;
   const current = bucketForCall(call);
+  const qSrc = typeof meta.qualification_source === "string" ? meta.qualification_source : "";
+  // reached_specialist is authoritative — never overwrite it (set by Python agent or DB fix).
+  // Also treat any call already confirmed at agent_stage >= 2 as explicitly SUIVI REQUIS
+  // so a late LLM re-run cannot downgrade it to "rappel" or anything else.
+  const alreadyAtSpecialist =
+    qSrc === "reached_specialist" ||
+    (typeof meta.agent_stage === "number" && meta.agent_stage >= 2 &&
+     current !== "autre" && current !== "rdv_confirme");
+  const isExplicitQual =
+    alreadyAtSpecialist ||
+    (!!meta.qualification && !!qSrc && qSrc !== "ai_auto" && !qSrc.startsWith("auto_inferred"));
   // We do two jobs in one LLM pass: (a) qualify the call IF it has no real
   // qualification yet, and (b) detect the agent-chain stage (1/2/3) IF it's a
   // long-enough call missing one. Either job alone is enough to run the pass.
-  const needQual = current === "autre";
+  // Also correct auto_inferred "passer_humain" when we have ground-truth evidence
+  // (handoff event) that the lead reached a specialist — those should be SUIVI REQUIS.
+  const needQualCorrection =
+    current === "passer_humain" && qSrc === "auto_inferred";
+  const needQual = (current === "autre" || needQualCorrection) && !isExplicitQual;
   const needStage = meta.agent_stage == null && (call.duration_secs ?? 0) >= AGENT_STAGE_MIN_SECS;
   if (!needQual && !needStage) {
     return { call_id: callId, status: "skipped_existing", bucket: current };
@@ -572,18 +589,58 @@ export async function qualifyCall(
   const stageNum = Number(parsed.agent_stage);
   const agentStage = Number.isFinite(stageNum) ? Math.min(3, Math.max(1, Math.round(stageNum))) : 1;
 
-  const mergedMeta: Record<string, unknown> = { ...meta };
-  // (a) Qualification — only when the call had none; never override agent/human/Retell.
-  if (needQual) {
-    mergedMeta.qualification = bucket;
-    mergedMeta.qualification_source = "ai_auto";
-    mergedMeta.qualification_ai = {
-      confidence: coerced ? 0 : confidence,
-      reason: coerced ? "Indécidable par l'IA — escaladé à un humain." : reason,
-      model: "deepseek-v4-flash",
-      at: new Date().toISOString(),
-    };
+  // Ground truth: did the call actually hand off to an internal specialist
+  // (agent 2/3)? The LLM's agent_stage under-rates a handoff the patient
+  // dropped on (D Davies hung up on Isabelle's greeting → LLM scored stage 1),
+  // so we ALSO check the real handoff_initiated event the worker writes.
+  let handedOffToSpecialist = false;
+  try {
+    const { data: hoEvents } = await sb
+      .from("call_events")
+      .select("kind")
+      .eq("call_id", callId)
+      .eq("kind", "handoff_initiated")
+      .limit(1);
+    handedOffToSpecialist = !!hoEvents && hoEvents.length > 0;
+  } catch {
+    /* best-effort — fall back to the LLM's agent_stage */
   }
+
+  // Wati 25/06 — deterministic alignment with the worker's handoff→SUIVI REQUIS
+  // rule (agent/db_writes.auto_qualify_call): a call that REACHED agent 2/3 (a
+  // specialist) but didn't book is SUIVI REQUIS, not "à passer à l'humain".
+  // Without this, the DeepSeek classifier (and its undecidable→passer_humain
+  // fallback at coerceBucket) keeps flooding the human desk with warm leads
+  // that merely reached Isabelle/Victoria without confirming an appointment.
+  let finalBucket: Exclude<QualBucket, "autre"> = bucket;
+  if ((agentStage >= 2 || handedOffToSpecialist) && finalBucket !== "rdv_confirme") {
+    finalBucket = "suivi_requis";
+  }
+
+  const aiReason = finalBucket !== bucket
+    ? "A atteint un agent spécialiste sans confirmation de RDV — suivi requis."
+    : coerced ? "Indécidable par l'IA — à vérifier par un humain." : reason;
+  const needsReview = coerced || (typeof confidence === "number" && confidence < 0.5);
+
+  const mergedMeta: Record<string, unknown> = { ...meta };
+  // (a) Qualification — when the call had none, OR when correcting auto_inferred
+  // passer_humain calls that provably reached a specialist (ground-truth handoff event).
+  const shouldWriteQual =
+    needQual && (current !== "passer_humain" || handedOffToSpecialist);
+  if (shouldWriteQual) {
+    mergedMeta.qualification = finalBucket;
+    mergedMeta.qualification_source = "ai_auto";
+  }
+  // Always write the full AI result so the dashboard can surface it and
+  // flag low-confidence calls for human review, even for already-classified calls.
+  mergedMeta.qualification_ai = {
+    bucket: finalBucket,
+    confidence: coerced ? 0 : confidence,
+    needs_review: needsReview,
+    reason: aiReason,
+    model: "deepseek-v4-flash",
+    at: new Date().toISOString(),
+  };
   // (b) Agent-chain stage — always stamped (we have it from this pass).
   mergedMeta.agent_stage = agentStage;
   mergedMeta.agent_stage_source = "ai_auto";
@@ -594,12 +651,10 @@ export async function qualifyCall(
     .eq("id", callId);
   if (upErr) throw new Error(upErr.message);
 
-  // "qualified" status only when we actually wrote a qualification, so the
-  // backlog-drain's progress check stays meaningful.
   return {
     call_id: callId,
-    status: needQual ? "qualified" : "skipped_existing",
-    bucket: needQual ? bucket : current,
+    status: shouldWriteQual ? "qualified" : "skipped_existing",
+    bucket: needQual ? finalBucket : current,
     confidence: needQual ? (coerced ? 0 : confidence ?? undefined) : undefined,
     reason: needQual && typeof reason === "string" ? reason : undefined,
   };

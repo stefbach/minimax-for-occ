@@ -1,6 +1,6 @@
 ---
 slug: recruitment-candidate-scheduler
-title: Planification d'entretiens candidat
+title: Candidate interview scheduler
 industry: recruitment
 language: fr
 voice_suggestion: female_friendly_28s
@@ -13,6 +13,7 @@ n8n_bindings_suggested:
   - send_interview_invite
   - reschedule_interview
 handoff_team_suggested: recruiter-team
+description: "Friendly planning coordinator who quickly books interview slots with candidates, sends invites and minimises no-shows."
 ---
 
 ## Identity

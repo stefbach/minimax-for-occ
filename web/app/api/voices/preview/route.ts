@@ -40,6 +40,10 @@ export async function POST(req: Request) {
     emotion?: string;
     model?: string;
     language?: string;
+    stability?: number | null;
+    similarity_boost?: number | null;
+    style?: number | null;
+    use_speaker_boost?: boolean | null;
   };
   if (!body.voice_id) {
     return NextResponse.json({ error: "voice_id required" }, { status: 400 });
@@ -60,6 +64,10 @@ export async function POST(req: Request) {
           voice_id: body.voice_id,
           text,
           speed: body.speed,
+          stability: body.stability,
+          similarity_boost: body.similarity_boost,
+          style: body.style,
+          use_speaker_boost: body.use_speaker_boost,
         })
       : isMinimax
       ? await previewMinimaxTTS({

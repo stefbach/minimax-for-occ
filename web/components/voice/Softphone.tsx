@@ -136,6 +136,11 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
   const [dialNumber, setDialNumber] = useState("+44");
   const [dialing, setDialing] = useState(false);
   const [dialError, setDialError] = useState<string | null>(null);
+  // Caller-ID(s) this agent may dial from (/api/desk/caller-id). When the agent
+  // has several assigned outbound numbers they pick one here; otherwise it's a
+  // single org default. `selectedFrom` is the chosen From for outbound calls.
+  const [callerIds, setCallerIds] = useState<{ e164: string; label: string | null; is_primary: boolean }[]>([]);
+  const [selectedFrom, setSelectedFrom] = useState<string>("");
   // "idle" | "ringing" | "in-progress" — Twilio call state shown to the user.
   const [twilioCallState, setTwilioCallState] = useState<
     "idle" | "ringing" | "in-progress"
@@ -196,7 +201,7 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
         return;
       }
       const ok = window.confirm(
-        "Un appel est en cours. Si tu changes de page, l'appel sera coupé. Continuer quand même ?",
+        "A call is in progress. If you navigate away, the call will be dropped. Continue anyway?",
       );
       if (!ok) {
         e.preventDefault();
@@ -240,6 +245,33 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
     return device;
   }
 
+  // Load the agent's allowed caller-ID(s) once the desk handle is up. When the
+  // server returns an assigned set (numbers[]), the agent picks among them;
+  // `e164` is the default. Falls back to a single org caller-ID otherwise.
+  useEffect(() => {
+    if (!handle) return;
+    let alive = true;
+    (async () => {
+      try {
+        const r = await fetch("/api/desk/caller-id", { cache: "no-store" });
+        if (!r.ok) return;
+        const j = (await r.json()) as {
+          e164: string | null;
+          numbers?: { e164: string; label: string | null; is_primary: boolean }[];
+        };
+        if (!alive) return;
+        const list = j.numbers ?? [];
+        setCallerIds(list);
+        setSelectedFrom(j.e164 ?? list.find((n) => n.is_primary)?.e164 ?? list[0]?.e164 ?? "");
+      } catch {
+        /* best-effort — server resolves a default at dial time anyway */
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [handle]);
+
   const dial = useCallback(async (overrideNumber?: string) => {
     // Never start a second call while one is already live. twilioCallRef is a
     // ref (always current, unlike the twilioCallState closure), so this also
@@ -263,7 +295,7 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
         const reg = await fetch("/api/desk/sdk-call", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ to_e164: numberToDial }),
+          body: JSON.stringify({ to_e164: numberToDial, from_e164: selectedFrom || undefined }),
         });
         if (reg.ok) {
           const j = await reg.json();
@@ -285,19 +317,23 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
       };
 
       // Twilio's TwiML app receives every param we set here as form fields.
-      // OrgId lets the backend geo-route the From caller-ID against
-      // phone_numbers for this org. HumanFrom takes precedence — it's the
-      // org's "Humain" number (see /api/desk/caller-id) so human agents
-      // don't borrow the IA's campaign caller-ID for personal callbacks.
-      let humanFrom = "";
-      try {
-        const r = await fetch("/api/desk/caller-id", { cache: "no-store" });
-        if (r.ok) {
-          const j = (await r.json()) as { e164: string | null };
-          if (j.e164) humanFrom = j.e164;
+      // OrgId lets the server resolve the From caller-ID. HumanFrom is the
+      // agent's chosen caller-ID (from the picker / their assigned set) — the
+      // server validates it against the agent's assignment and overrides it if
+      // it isn't theirs, so this is a hint, not a trusted value.
+      let humanFrom = selectedFrom;
+      if (!humanFrom) {
+        // No value loaded yet (e.g. dialled before the caller-id fetch
+        // resolved) — fetch on demand so the call still carries a caller-ID.
+        try {
+          const r = await fetch("/api/desk/caller-id", { cache: "no-store" });
+          if (r.ok) {
+            const j = (await r.json()) as { e164: string | null };
+            if (j.e164) humanFrom = j.e164;
+          }
+        } catch {
+          /* best-effort — server falls back to geo-routing */
         }
-      } catch {
-        /* best-effort — leave empty and let the server fall back to geo-routing */
       }
 
       const params: Record<string, string> = {
@@ -356,7 +392,7 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
     } finally {
       setDialing(false);
     }
-  }, [dialNumber, handle]);
+  }, [dialNumber, handle, selectedFrom]);
 
   function hangupTwilio() {
     const call = twilioCallRef.current as { disconnect: () => void } | null;
@@ -435,7 +471,7 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
   //
   // ?prefill=<e164>[&name=…] also fills the dial pad but does NOT auto-dial
   // — used by /desk's queue panes so the agent reviews context before
-  // clicking ☎ Appeler explicitly.
+  // clicking ☎ Call explicitly.
   const autoDialedRef = useRef(false);
   useEffect(() => {
     const callParam = searchParams?.get("call");
@@ -674,7 +710,7 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
 
   // Incoming-call ringtone. Ring while a call assigned to this agent is in
   // "ringing" state and we're online but not yet joined to its room. The
-  // confirmed gap Wati flagged: the desk only ever showed a silent "Sonne…"
+  // confirmed gap Wati flagged: the desk only ever showed a silent "Ringing…"
   // chip, so an agent on another browser tab would miss the call. Stops as
   // soon as the call is answered/ends, the agent joins, or goes offline.
   const ringingCall = useMemo(
@@ -691,7 +727,7 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
       ring.start();
       // Also nudge the browser tab title so an agent on another tab notices.
       const prevTitle = document.title;
-      document.title = "📞 Appel entrant…";
+      document.title = "📞 Incoming call…";
       return () => {
         ring.stop();
         document.title = prevTitle;
@@ -742,11 +778,11 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
     if (compact) {
       return (
         <div style={{ padding: "8px 14px", fontSize: 12, color: "var(--muted)", borderBottom: "1px solid var(--border)", background: "var(--panel)" }}>
-          Chargement du poste…
+          {"Loading desk…"}
         </div>
       );
     }
-    return <div className="card"><p className="muted">Chargement du poste…</p></div>;
+    return <div className="card"><p className="muted">{"Loading desk…"}</p></div>;
   }
 
   if (!handle) {
@@ -757,14 +793,12 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
     if (compact) return null;
     return (
       <div className="card" style={{ maxWidth: 560 }}>
-        <h3>Votre poste n&apos;est pas encore configuré</h3>
+        <h3>{"Your desk is not configured yet"}</h3>
         <p className="muted" style={{ marginTop: 6 }}>
-          Pour recevoir et émettre des appels, un <em>agent_handle</em> (poste agent)
-          doit être lié à votre compte.
+          {"To receive and make calls, an"} <em>agent_handle</em> {"(agent desk) must be linked to your account."}
         </p>
         <p className="muted" style={{ marginTop: 4 }}>
-          Vous pouvez l&apos;activer vous-même ci-dessous, ou demander à un
-          administrateur d&apos;aller dans <strong>Admin → Utilisateurs → vous → « Activer le poste agent »</strong>.
+          {"You can activate it yourself below, or ask an administrator."}
         </p>
         {bootstrapError && (
           <div style={{ color: "var(--bad)", fontSize: 13, marginTop: 8 }}>
@@ -773,7 +807,7 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
         )}
         <div style={{ marginTop: 14 }}>
           <button onClick={register} disabled={registering}>
-            {registering ? "Activation…" : "Activer mon poste"}
+            {registering ? "Activating…" : "Activate my desk"}
           </button>
         </div>
       </div>
@@ -783,7 +817,7 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
   // ── Compact bar (layout-level persistent shell) ──────────────────────
   // Renders a single slim row with status + active-call summary + the
   // controls an agent needs without opening the full panel: mute, hangup,
-  // and an "Étendre" button that toggles the full UI.
+  // and an "Expand" button that toggles the full UI.
   if (compact) {
     const inTwilioCall = twilioCallState !== "idle";
     return (
@@ -800,7 +834,7 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
           minHeight: 48,
         }}
         role="region"
-        aria-label="Softphone — barre persistante"
+        aria-label="Softphone — persistent bar"
       >
         <span
           aria-hidden
@@ -818,7 +852,7 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
           value={status}
           onChange={(e) => setStatus(e.target.value as PresenceStatus)}
           style={{ fontSize: 12, padding: "3px 6px" }}
-          aria-label="Statut de présence"
+          aria-label="Presence status"
         >
           {STATUSES.map((s) => (
             <option key={s} value={s}>{s}</option>
@@ -838,8 +872,8 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
             />
             <span style={{ fontSize: 13, fontWeight: 600 }}>
               {inTwilioCall
-                ? twilioCallState === "ringing" ? "Sonne…" : "En appel"
-                : "Appel actif"}
+                ? twilioCallState === "ringing" ? "Ringing…" : "In call"
+                : "Active call"}
             </span>
             <span className="muted" style={{ fontSize: 12 }}>
               {inTwilioCall
@@ -852,7 +886,7 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
                   className="ghost"
                   onClick={toggleTwilioMute}
                   style={{ padding: "4px 9px", fontSize: 12 }}
-                  aria-label={twilioMuted ? "Démute" : "Mute"}
+                  aria-label={twilioMuted ? "🔈 Unmute" : "🔇 Mute"}
                 >
                   {twilioMuted ? "🔈" : "🔇"}
                 </button>
@@ -867,7 +901,7 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
                     borderRadius: 5,
                   }}
                 >
-                  ☎ Raccrocher
+                  {"Hang up"}
                 </button>
               </>
             )}
@@ -879,9 +913,9 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
           className="ghost"
           onClick={onExpand}
           style={{ marginLeft: "auto", padding: "5px 11px", fontSize: 12 }}
-          aria-label="Ouvrir le softphone complet"
+          aria-label="Open full softphone"
         >
-          ⤢ Étendre
+          {"⤢ Expand"}
         </button>
         <style>{`
           @keyframes pulse {
@@ -926,16 +960,46 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
         </div>
       </div>
 
-      <div className="softphone-grid">
-        <CallsList
-          calls={calls}
-          activeId={activeCall?.id ?? null}
-          onSelect={(c) => setActiveCall(c)}
-        />
+      <div className="softphone-grid" style={
+        activeCall
+          ? undefined
+          : calls.length === 0
+            ? { gridTemplateColumns: "1fr" }
+            : { gridTemplateColumns: "200px 1fr" }
+      }>
+        {(calls.length > 0 || activeCall) && (
+          <CallsList
+            calls={calls}
+            activeId={activeCall?.id ?? null}
+            onSelect={(c) => setActiveCall(c)}
+          />
+        )}
 
         <div className="softphone-center softphone-center-cols">
           <div className="card" style={{ padding: 12 }}>
-          <h3 style={{ marginTop: 0 }}>Composer un numéro</h3>
+          <h3 style={{ marginTop: 0 }}>{"Dial a number"}</h3>
+          {/* Caller-ID — which of the agent's assigned numbers the call goes
+              out on. Picker when several are assigned, else a read-only line. */}
+          {callerIds.length > 1 ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 12, color: "var(--muted)" }}>Call from:</span>
+              <select
+                value={selectedFrom}
+                onChange={(e) => setSelectedFrom(e.target.value)}
+                style={{ fontSize: 13, padding: "6px 8px", border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg)", color: "var(--text)" }}
+              >
+                {callerIds.map((n) => (
+                  <option key={n.e164} value={n.e164}>
+                    {n.e164}{n.label ? ` — ${n.label}` : ""}{n.is_primary ? " ★" : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : selectedFrom ? (
+            <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 10 }}>
+              Call from: <span className="kbd">{selectedFrom}</span>
+            </div>
+          ) : null}
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
             <CountryPrefix
               value={dialNumber}
@@ -962,7 +1026,7 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
               disabled={dialing || !/^\+\d{6,15}$/.test(dialNumber)}
               style={{ padding: "10px 16px", whiteSpace: "nowrap" }}
             >
-              {dialing ? "Appel…" : "☎ Appeler"}
+              {dialing ? "Calling…" : "☎ Call"}
             </button>
           </div>
           <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
@@ -992,7 +1056,7 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
               onClick={() => setDialNumber((n) => n.slice(0, -1) || "+")}
               style={{ padding: "6px 10px", fontSize: 13 }}
             >
-              ⌫ Effacer
+              {"⌫ Delete"}
             </button>
             <button
               className="ghost"
@@ -1010,7 +1074,7 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <div>
                   <div style={{ fontWeight: 600 }}>
-                    {twilioCallState === "ringing" ? "📞 Sonne…" : "🔊 En conversation"}
+                    {twilioCallState === "ringing" ? "📞 Ringing…" : "🔊 In conversation"}
                   </div>
                   <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
                     {dialContactName ? `${dialContactName} · ${dialNumber}` : dialNumber}
@@ -1022,14 +1086,14 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
                     onClick={toggleTwilioMute}
                     style={{ padding: "6px 10px", fontSize: 13 }}
                   >
-                    {twilioMuted ? "🔈 Démute" : "🔇 Mute"}
+                    {twilioMuted ? "🔈 Unmute" : "🔇 Mute"}
                   </button>
                   <button
                     className="danger"
                     onClick={hangupTwilio}
                     style={{ padding: "6px 10px", fontSize: 13 }}
                   >
-                    Raccrocher
+                    {"Hang up"}
                   </button>
                 </div>
               </div>
@@ -1041,16 +1105,15 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
             </div>
           )}
 
-          <h3 style={{ marginTop: 24 }}>Session vocale</h3>
+          <h3 style={{ marginTop: 16 }}>{"Voice session"}</h3>
           {!conn ? (
             <>
               <p className="muted" style={{ margin: 0 }}>
-                Connectez-vous à votre salle LiveKit pour recevoir les appels routés
-                vers ce poste.
+                {"Connect to your LiveKit room to receive calls routed to this desk."}
               </p>
               <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
                 <button onClick={() => void connect()} disabled={connecting}>
-                  {connecting ? "Connexion…" : "Se connecter à la salle"}
+                  {connecting ? "Connecting…" : "Join room"}
                 </button>
               </div>
               {connError && (
@@ -1069,9 +1132,9 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
               onDisconnected={disconnect}
             >
               <RoomAudioRenderer />
-              <StartAudio label="Activer l'audio" />
+              <StartAudio label="Enable audio" />
               <p className="muted" style={{ margin: 0, fontSize: 12 }}>
-                Salle : <span className="kbd">{conn.room}</span>
+                Room: <span className="kbd">{conn.room}</span>
               </p>
               <VoiceAssistantControlBar />
               <CallActions
@@ -1096,9 +1159,6 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
           <ScriptPanel callId={activeCall?.id ?? null} />
           </div>{/* close left card of softphone-center grid */}
 
-          {/* Notes pendant l'appel + qualification dialog at hangup
-              (Wati June 10). Sits to the RIGHT of the dialer so the agent
-              can take notes while the call rings/connects. */}
           <CallNotePanel
             e164={dialNumber}
             callActive={twilioCallState !== "idle"}
@@ -1174,17 +1234,17 @@ function CallsList({
 
   return (
     <div className="card softphone-left">
-      <h3>Appels</h3>
+      <h3>{"Calls"}</h3>
       {calls.length === 0 && (
         <p className="muted" style={{ margin: 0 }}>
-          Aucun appel récent. Passez en « available » pour recevoir les appels.
+          {"No recent calls. Set status to 'available' to receive calls."}
         </p>
       )}
 
       {live.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>
-            En cours
+            {"Active"}
           </div>
           {live.map((c) => (
             <CallRowView
@@ -1200,7 +1260,7 @@ function CallsList({
       {others.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 12 }}>
           <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>
-            Récents
+            {"Recent"}
           </div>
           {others.map((c) => (
             <CallRowView
@@ -1247,7 +1307,7 @@ function CallRowView({
         </span>
       </div>
       <div className="muted" style={{ fontSize: 11 }}>
-        {call.direction === "in" ? "← entrant" : "→ sortant"} · il y a {formatRelative(call.started_at)}
+        {call.direction === "in" ? "← inbound" : "→ outbound"} · {formatRelative(call.started_at)} ago
       </div>
     </button>
   );
@@ -1273,7 +1333,7 @@ function CallActions({
   return (
     <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
       <button className="ghost" onClick={onToggleMute}>
-        {muted ? "Réactiver micro" : "Mute"}
+        {muted ? "Unmute mic" : "Mute"}
       </button>
       <button
         className="ghost"
@@ -1281,24 +1341,23 @@ function CallActions({
         disabled={!onHold || onHold_busy}
         title={
           onHold_active
-            ? "Reprendre la conversation"
-            : "Mettre l'appel en attente avec musique"
+            ? "Resume conversation"
+            : "Put call on hold with music"
         }
       >
-        {onHold_busy ? "…" : onHold_active ? "Reprendre" : "Hold"}
+        {onHold_busy ? "…" : onHold_active ? "Resume" : "Hold"}
       </button>
       <button
         className="ghost"
         onClick={onTransfer}
         disabled={!onTransfer}
-        title="Transférer cet appel vers un autre agent"
+        title={"Transfer this call to another agent"}
       >
-        Transférer
+        {"Transfer"}
       </button>
       <button className="danger" onClick={onHangup}>
-        Raccrocher
+        {"Hang up"}
       </button>
     </div>
   );
 }
-

@@ -3,11 +3,13 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import { Brand } from "./brand/Brand";
 import { OrgSwitcher } from "./OrgSwitcher";
 import { ThemeLangSwitcher } from "./ThemeLangSwitcher";
 import { useT } from "@/lib/i18n";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+import { Heart, Menu, Music, Pencil, Settings, X, Zap } from "lucide-react";
 import { effectiveModules, isModuleId, type ModuleId } from "@/lib/permissions";
 
 // Width below which the sidebar morphs into a slide-in drawer. Kept in sync
@@ -28,7 +30,7 @@ type Role =
 interface NavItem {
   href: string;
   label: string;
-  icon: string;
+  icon: ReactNode;
   group: string;
   /** Which module this entry belongs to. Items without a module are visible
    *  to every authenticated user (e.g. /start, /help). Visibility is now
@@ -42,6 +44,9 @@ interface NavItem {
   /** True = lives under the collapsible "Avancé" section (not yet folded into
    *  its parent page). Removed from there as later phases relocate it. */
   advanced?: boolean;
+  /** True = render as a visually-nested sub-item under the entry above it
+   *  (indented, lighter). Used for "Calendrier IA" under "Mon calendrier". */
+  indent?: boolean;
 }
 
 // Roles allowed to see the supervisor-only entries. Mirrors the
@@ -64,25 +69,26 @@ const NON_AGENT_PAGES_FOR_AGENT_ROLE = new Set([
 const RETIRED_PAGES = new Set(["/calls"]);
 
 const NAV: NavItem[] = [
-  // ─── OVERVIEW ───
-  { href: "/start",     label: "Démarrage guidé",  icon: "✦", group: "Overview" },
-  { href: "/dashboard", label: "Tableau d'analyse", icon: "▣", group: "Overview", module: "dashboard" },
-  { href: "/copilot",   label: "Co-pilot manager", icon: "✸", group: "Overview", module: "copilot" },
-  { href: "/rapports",  label: "Rapports pilotage", icon: "▤", group: "Overview", requiredRoles: MANAGER_REPORT_ROLES },
-  { href: "/desk",            label: "Mon poste",       icon: "⌂", group: "Overview", module: "desk" },
-  { href: "/mon-calendrier",  label: "Mon calendrier",  icon: "▦", group: "Overview", module: "desk" },
-  { href: "/desk/supervise",  label: "Supervision",     icon: "◷", group: "Overview", module: "desk", requiredRoles: SUPERVISOR_ROLES },
-  { href: "/supervise/live",  label: "Supervision live", icon: "◉", group: "Overview", module: "desk", requiredRoles: SUPERVISOR_ROLES },
-  { href: "/mes-patients",    label: "Mes patients",    icon: "☰", group: "Overview", module: "desk" },
-  { href: "/alerts",    label: "Alertes",          icon: "!", group: "Overview", module: "alerts" },
+  // ─── APERÇU ───
+  { href: "/start",     label: "Démarrage guidé",   icon: "✦", group: "Vue d'ensemble" },
+  { href: "/dashboard", label: "Tableau d'analyse", icon: "▣", group: "Vue d'ensemble", module: "dashboard" },
+  { href: "/copilot",   label: "Co-pilot manager",  icon: "✸", group: "Vue d'ensemble", module: "copilot" },
+  { href: "/rapports",  label: "Rapports pilotage",  icon: "▤", group: "Vue d'ensemble", requiredRoles: MANAGER_REPORT_ROLES },
+  { href: "/desk",            label: "Mon espace",      icon: "⌂", group: "Vue d'ensemble", module: "desk" },
+  { href: "/mon-calendrier",  label: "Mon calendrier",  icon: "▦", group: "Vue d'ensemble", module: "desk" },
+  { href: "/mon-calendrier/ia", label: "Calendrier IA", icon: "🤖", group: "Vue d'ensemble", module: "desk", indent: true },
+  { href: "/desk/supervise",  label: "Supervision",     icon: "◷", group: "Vue d'ensemble", module: "desk", requiredRoles: SUPERVISOR_ROLES },
+  { href: "/supervise/live",  label: "Supervision live", icon: "◉", group: "Vue d'ensemble", module: "desk", requiredRoles: SUPERVISOR_ROLES },
+  { href: "/mes-patients",    label: "Mes patients",    icon: <Menu size={16} />, group: "Vue d'ensemble", module: "desk" },
+  { href: "/alerts",    label: "Alertes",           icon: "!", group: "Vue d'ensemble", module: "alerts" },
 
   // ─── CONFIGURATION ───
   { href: "/agents",         label: "Agents",                icon: "◇", group: "Configuration", module: "agents" },
   { href: "/outbound-call",  label: "Appel sortant",         icon: "☎", group: "Configuration", module: "agents" },
   { href: "/teams",          label: "Teams IA",              icon: "⌬", group: "Configuration", module: "agents" },
-  { href: "/scripts",        label: "Scripts",               icon: "✎", group: "Configuration", module: "agents" },
-  { href: "/agents/library", label: "Bibliothèque persona", icon: "⊕", group: "Configuration", module: "agents" },
-  { href: "/voices",         label: "Voice Studio",          icon: "♪", group: "Configuration", module: "agents" },
+  { href: "/scripts",        label: "Scripts",               icon: <Pencil size={16} />, group: "Configuration", module: "agents" },
+  { href: "/agents/library", label: "Bibliothèque persona",  icon: "⊕", group: "Configuration", module: "agents" },
+  { href: "/voices",         label: "Voice Studio",          icon: <Music size={16} />, group: "Configuration", module: "agents" },
 
   // ─── OPÉRATIONS ───
   { href: "/campaigns", label: "Campagnes",      icon: "⇈", group: "Opérations", module: "campaigns" },
@@ -95,19 +101,19 @@ const NAV: NavItem[] = [
   { href: "/queues",    label: "Files d'attente", icon: "≡", group: "Opérations", module: "queues" },
 
   // ─── DONNÉES ───
-  { href: "/contacts",       label: "CRM / Contacts",      icon: "◐", group: "Données", module: "contacts" },
+  { href: "/contacts",       label: "CRM / Contacts",       icon: "◐", group: "Données", module: "contacts" },
   { href: "/numbers",        label: "Numéros de téléphone", icon: "✆", group: "Données", module: "numbers" },
-  { href: "/numbers/health", label: "Santé des numéros",   icon: "♥", group: "Données", module: "numbers" },
+  { href: "/numbers/health", label: "Santé des numéros",    icon: <Heart size={16} />, group: "Données", module: "numbers" },
 
   // ─── COMPTE ───
   { href: "/team",      label: "Équipe",          icon: "◉", group: "Compte", module: "team" },
-  { href: "/settings",  label: "Paramètres",      icon: "⚙", group: "Compte", module: "settings" },
-  { href: "/help",      label: "Guide",           icon: "?", group: "Compte" },
+  { href: "/settings",  label: "Paramètres",      icon: <Settings size={16} />, group: "Compte", module: "settings" },
+  { href: "/help",      label: "Guide",            icon: "?", group: "Compte" },
 ];
 
 // Render order for the primary groups. The "Avancé" collapsible section is
 // fully retired — every advanced page now lives in its proper functional group.
-const GROUP_ORDER = ["Overview", "Configuration", "Opérations", "Données", "Compte"];
+const GROUP_ORDER = ["Vue d'ensemble", "Configuration", "Opérations", "Données", "Compte"];
 
 export function ClientSidebar() {
   const t = useT();
@@ -230,7 +236,16 @@ export function ClientSidebar() {
     const active =
       n.href === "/"
         ? pathname === "/"
-        : pathname === n.href || pathname.startsWith(n.href + "/");
+        : pathname === n.href ||
+          // "most specific wins": a parent (e.g. /mon-calendrier) is NOT
+          // highlighted when a longer child route (/mon-calendrier/ia) matches.
+          (pathname.startsWith(n.href + "/") &&
+            !visible.some(
+              (o) =>
+                o.href !== n.href &&
+                o.href.length > n.href.length &&
+                (pathname === o.href || pathname.startsWith(o.href + "/")),
+            ));
     return (
       <Link
         key={n.href}
@@ -239,12 +254,13 @@ export function ClientSidebar() {
         aria-label={n.label}
         aria-current={active ? "page" : undefined}
         onClick={() => setDrawerOpen(false)}
+        style={n.indent ? { paddingLeft: 30 } : undefined}
       >
-        <span aria-hidden="true" style={{ width: 16, opacity: 0.7 }}>{n.icon}</span>
-        <span style={{ flex: 1 }}>{t(n.label)}</span>
+        <span aria-hidden="true" style={{ width: 16, opacity: 0.7, fontSize: n.indent ? 12 : undefined }}>{n.icon}</span>
+        <span style={{ flex: 1, fontSize: n.indent ? 13 : undefined, opacity: n.indent && !active ? 0.85 : undefined }}>{t(n.label)}</span>
         {n.href === "/desk" && deskBadge > 0 ? (
           <span
-            aria-label={`${deskBadge} tâche${deskBadge > 1 ? "s" : ""} en attente`}
+            aria-label={`${deskBadge} pending task${deskBadge > 1 ? "s" : ""}`}
             style={{
               minWidth: 20,
               padding: "0 6px",
@@ -278,7 +294,7 @@ export function ClientSidebar() {
         aria-controls="client-sidebar"
         onClick={() => setDrawerOpen((v) => !v)}
       >
-        {drawerOpen ? "✕" : "☰"}
+        {drawerOpen ? <X size={16} /> : <Menu size={16} />}
       </button>
 
       {/* Backdrop — tap-to-close. `display: none` by default; the media
@@ -343,8 +359,8 @@ export function ClientSidebar() {
             aria-expanded={advancedOpen}
           >
             <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span aria-hidden="true" style={{ fontSize: 12, opacity: 0.7 }}>⚙</span>
-              <span>Avancé</span>
+              <span aria-hidden="true" style={{ opacity: 0.7, display: "inline-flex" }}><Settings size={16} /></span>
+              <span>Advanced</span>
               <span
                 style={{
                   fontSize: 11,
@@ -371,7 +387,7 @@ export function ClientSidebar() {
           <div style={{ padding: "8px 10px 4px" }}>
             <Link
               href="/admin"
-              aria-label="Basculer en mode admin Axon"
+              aria-label="Switch to Axon admin mode"
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -386,8 +402,8 @@ export function ClientSidebar() {
                 justifyContent: "center",
               }}
             >
-              <span aria-hidden="true">⚡</span>
-              <span>Mode admin Axon</span>
+              <Zap size={16} aria-hidden="true" />
+              <span>Axon admin mode</span>
             </Link>
           </div>
         )}

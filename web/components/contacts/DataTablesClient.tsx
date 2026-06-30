@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { useT } from "@/lib/i18n";
 import { CreateDataTableModal } from "./CreateDataTableModal";
 import { ConnectTableModal } from "./ConnectTableModal";
 
@@ -19,6 +20,7 @@ export interface DataTableRow {
 }
 
 export function DataTablesClient({ initialTables }: { initialTables: DataTableRow[] }) {
+  const t = useT();
   const router = useRouter();
   const [tables] = useState<DataTableRow[]>(initialTables);
   const [showCreate, setShowCreate] = useState(false);
@@ -33,50 +35,49 @@ export function DataTablesClient({ initialTables }: { initialTables: DataTableRo
   return (
     <>
       <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
-        <button onClick={() => setShowCreate(true)}>+ Créer une table</button>
+        <button onClick={() => setShowCreate(true)}>{t("+ Créer une table")}</button>
         <button className="ghost" onClick={() => setShowConnect(true)}>
-          🔌 Connecter une table existante
+          🔌 {t("Connecter une table existante")}
         </button>
       </div>
 
       {tables.length === 0 ? (
         <div className="card">
-          <h3>Aucune table de contacts</h3>
+          <h3>{t("Aucune table de contacts")}</h3>
           <p className="muted">
-            Une « table » contient les contacts à appeler, avec vos propres colonnes
-            (téléphone, nom, IMC, qualification…). Vous pouvez&nbsp;:
+            {t("Une « table » contient les contacts à appeler, avec vos propres colonnes (téléphone, nom, IMC, qualification…). Vous pouvez :")}
           </p>
           <ul className="muted" style={{ marginTop: 0 }}>
-            <li><strong>Créer une table</strong> directement ici (ex&nbsp;: <em>leads_rdv_test_axon</em> pour tester).</li>
-            <li><strong>Connecter une table existante</strong> que vous avez importée dans Supabase (ex&nbsp;: <em>leads_rdv</em>).</li>
+            <li><strong>{t("Créer une table")}</strong> {t("directement ici (ex : leads_rdv_test_axon pour tester).")}</li>
+            <li><strong>{t("Connecter une table existante")}</strong> {t("que vous avez importée dans Supabase (ex : leads_rdv).")}</li>
           </ul>
           <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
-            <button onClick={() => setShowCreate(true)}>+ Créer une table</button>
-            <button className="ghost" onClick={() => setShowConnect(true)}>🔌 Connecter une table existante</button>
+            <button onClick={() => setShowCreate(true)}>{t("+ Créer une table")}</button>
+            <button className="ghost" onClick={() => setShowConnect(true)}>🔌 {t("Connecter une table existante")}</button>
           </div>
         </div>
       ) : (
         <div className="grid cols-3">
-          {tables.map((t) => (
+          {tables.map((tbl) => (
             <Link
-              key={t.id}
-              href={`/contacts/${t.id}`}
+              key={tbl.id}
+              href={`/contacts/${tbl.id}`}
               className="card"
               style={{ textDecoration: "none", display: "grid", gap: 6 }}
             >
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
-                <h3 style={{ margin: 0 }}>{t.label}</h3>
-                <span className="tag">{t.row_count} contact{t.row_count === 1 ? "" : "s"}</span>
+                <h3 style={{ margin: 0 }}>{tbl.label}</h3>
+                <span className="tag">{tbl.row_count} {t("contact")}{tbl.row_count === 1 ? "" : "s"}</span>
               </div>
               <div style={{ fontSize: 12, color: "var(--muted)", fontFamily: "monospace" }}>
-                {t.physical_table}
-                {!t.is_managed && <span className="tag" style={{ marginLeft: 6 }}>connectée</span>}
+                {tbl.physical_table}
+                {!tbl.is_managed && <span className="tag" style={{ marginLeft: 6 }}>{t("connectée")}</span>}
               </div>
               <div className="row" style={{ flexWrap: "wrap", marginTop: 6 }}>
-                {(t.columns ?? []).slice(0, 6).map((c) => (
+                {(tbl.columns ?? []).slice(0, 6).map((c) => (
                   <span key={c.key} className="tag">{c.label}</span>
                 ))}
-                {(t.columns ?? []).length > 6 && <span className="tag">+{t.columns.length - 6}</span>}
+                {(tbl.columns ?? []).length > 6 && <span className="tag">+{tbl.columns.length - 6}</span>}
               </div>
             </Link>
           ))}

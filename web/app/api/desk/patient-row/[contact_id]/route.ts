@@ -66,13 +66,22 @@ export async function GET(req: Request, ctx: { params: Promise<{ contact_id: str
   if (!contact_id) return NextResponse.json({ error: "contact_id required" }, { status: 400 });
 
   const admin = supabaseServer();
-  const { data: contact } = await admin
-    .from("contacts")
-    .select("e164")
-    .eq("id", contact_id)
-    .eq("org_id", orgId)
-    .maybeSingle();
-  if (!contact?.e164) {
+  // Resolve the patient's phone. Tasks created by the auto-qualifier carry an
+  // e164 but no contact_id, so accept ?e164= and prefer it; otherwise map the
+  // contact_id -> contacts.e164. lookupRow only ever reads THIS org's own
+  // leads table below, so an arbitrary e164 cannot leak another org's rows.
+  const e164Param = new URL(req.url).searchParams.get("e164");
+  let phone = e164Param ?? null;
+  if (!phone && contact_id) {
+    const { data: contact } = await admin
+      .from("contacts")
+      .select("e164")
+      .eq("id", contact_id)
+      .eq("org_id", orgId)
+      .maybeSingle();
+    phone = contact?.e164 ?? null;
+  }
+  if (!phone) {
     return NextResponse.json({ row: null, columns: [], table_label: null, physical_table: null, row_id: null });
   }
 
@@ -80,7 +89,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ contact_id: str
   if (!table) {
     return NextResponse.json({ row: null, columns: [], table_label: null, physical_table: null, row_id: null });
   }
-  const row = await lookupRow(admin, table.physical_table, contact.e164);
+  const row = await lookupRow(admin, table.physical_table, phone);
 
   return NextResponse.json({
     table_label: table.label,
@@ -108,13 +117,19 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ contact_id: s
   }
 
   const admin = supabaseServer();
-  const { data: contact } = await admin
-    .from("contacts")
-    .select("e164")
-    .eq("id", contact_id)
-    .eq("org_id", orgId)
-    .maybeSingle();
-  if (!contact?.e164) {
+  // Same phone resolution as GET: prefer ?e164=, else contact_id -> contacts.
+  const e164Param = new URL(req.url).searchParams.get("e164");
+  let phone = e164Param ?? null;
+  if (!phone && contact_id) {
+    const { data: contact } = await admin
+      .from("contacts")
+      .select("e164")
+      .eq("id", contact_id)
+      .eq("org_id", orgId)
+      .maybeSingle();
+    phone = contact?.e164 ?? null;
+  }
+  if (!phone) {
     return NextResponse.json({ error: "contact_not_found_or_no_phone" }, { status: 404 });
   }
 
@@ -139,14 +154,14 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ contact_id: s
     const { data: row, error } = await admin
       .from(table.physical_table)
       .update(patch)
-      .eq(col, contact.e164)
+      .eq(col, phone)
       .select("*")
       .maybeSingle();
     if (!error && row) return NextResponse.json({ ok: true, row });
     const { data: row2 } = await admin
       .from(table.physical_table)
       .update(patch)
-      .eq(col, contact.e164.replace(/^\+/, ""))
+      .eq(col, phone.replace(/^\+/, ""))
       .select("*")
       .maybeSingle();
     if (row2) return NextResponse.json({ ok: true, row: row2 });

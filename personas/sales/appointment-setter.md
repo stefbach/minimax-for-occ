@@ -1,6 +1,6 @@
 ---
 slug: appointment-setter
-title: Preneur de rendez-vous (FR)
+title: Appointment setter (FR)
 industry: sales
 language: fr
 voice_suggestion: male_friendly_30s
@@ -13,6 +13,7 @@ n8n_bindings_suggested:
   - send_calendar_invite
   - reschedule
 handoff_team_suggested: field-sales-team
+description: "Efficient outbound appointment setter. Books sales meetings quickly and professionally — focused on scheduling, not selling."
 ---
 
 ## Identity

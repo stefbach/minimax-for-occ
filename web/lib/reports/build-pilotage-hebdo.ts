@@ -11,8 +11,10 @@ import {
   loadCallAggregates,
   loadLeadsDueForCallback,
   loadOverDialedLeads,
+  loadPatientDataForExport,
   type CallAggregates,
 } from "./data";
+import { normalizeQualification } from "@/lib/qualification";
 import { generateNarrative } from "./ai-narrative";
 import type {
   ActionTier,
@@ -265,6 +267,18 @@ export async function buildPilotageHebdo(args: {
   });
   const actions = await buildActionTiers(args.orgId, t);
 
+  // Load patients active in the period and split by key qualifications
+  const allPatients = await loadPatientDataForExport(args.orgId, {
+    fromIso: args.period.from,
+    toIso: args.period.to,
+  });
+  const rdvPatients = allPatients.filter(
+    (p) => normalizeQualification(p.qualification) === "rdv_confirme",
+  );
+  const humainPatients = allPatients.filter(
+    (p) => normalizeQualification(p.qualification) === "passer_humain",
+  );
+
   const narrative = await generateNarrative({
     reportTitle: t.narrativeTitle,
     periodLabel: args.period.label,
@@ -295,7 +309,57 @@ export async function buildPilotageHebdo(args: {
     kpis: buildKpis(agg, t),
     actionTiers: actions.tiers,
     vigilance: narrative.vigilance,
-    annexes: buildAnnexes(agg, t),
+    annexes: [
+      ...buildAnnexes(agg, t),
+      ...(rdvPatients.length > 0 ? [{
+        tone: "good" as const,
+        letter: "B",
+        heading: lang === "en" ? "Patients — Confirmed appointments" : "Patients — RDV confirmés",
+        subheading: lang === "en"
+          ? `${rdvPatients.length} patient(s) with a confirmed appointment in the period`
+          : `${rdvPatients.length} patient(s) avec RDV confirmé sur la période`,
+        columns: [
+          { key: "nom", label: lang === "en" ? "Name" : "Nom" },
+          { key: "tel", label: lang === "en" ? "Phone" : "Téléphone" },
+          { key: "email", label: "Email" },
+          { key: "qualif", label: lang === "en" ? "Qualification" : "Qualification" },
+          { key: "last", label: lang === "en" ? "Last call" : "Dernier appel" },
+        ],
+        rows: rdvPatients.map((p) => ({
+          nom: p.nom ?? "—",
+          tel: p.numero_telephone ?? "—",
+          email: p.email ?? "—",
+          qualif: p.qualification ?? "—",
+          last: p.last_call_datetime
+            ? new Date(p.last_call_datetime).toLocaleDateString("fr-FR")
+            : "—",
+        })),
+      }] : []),
+      ...(humainPatients.length > 0 ? [{
+        tone: "warn" as const,
+        letter: "C",
+        heading: lang === "en" ? "Patients — To transfer to human" : "Patients — À passer à l'humain",
+        subheading: lang === "en"
+          ? `${humainPatients.length} patient(s) flagged for human follow-up`
+          : `${humainPatients.length} patient(s) à transférer à un conseiller humain`,
+        columns: [
+          { key: "nom", label: lang === "en" ? "Name" : "Nom" },
+          { key: "tel", label: lang === "en" ? "Phone" : "Téléphone" },
+          { key: "email", label: "Email" },
+          { key: "qualif", label: "Qualification" },
+          { key: "last", label: lang === "en" ? "Last call" : "Dernier appel" },
+        ],
+        rows: humainPatients.map((p) => ({
+          nom: p.nom ?? "—",
+          tel: p.numero_telephone ?? "—",
+          email: p.email ?? "—",
+          qualif: p.qualification ?? "—",
+          last: p.last_call_datetime
+            ? new Date(p.last_call_datetime).toLocaleDateString("fr-FR")
+            : "—",
+        })),
+      }] : []),
+    ],
     methodNote: narrative.methodNote,
   };
 }

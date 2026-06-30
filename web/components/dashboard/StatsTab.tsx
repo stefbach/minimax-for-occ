@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { AnalyticsResponse } from "@/app/api/dashboard/analytics/route";
-import { useT } from "@/lib/i18n";
+import { AlertTriangle, CalendarCheck, Clock, DollarSign, Flame, Lightbulb, Phone, Sparkles, Target } from "lucide-react";
 import { appendGlobalFilters, globalFiltersKey, DEFAULT_GLOBAL_FILTERS, type GlobalFilters } from "@/lib/global-filters";
 
 function fmtDuration(secs: number): string {
@@ -17,7 +17,7 @@ function fmtMoney(n: number, unit = "$"): string {
   return `${unit}${n.toFixed(2)}`;
 }
 
-const DAY_LABELS = ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"];
+const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 // "vs prev" delta — percentage change, and whether it's a "good" move (callers
 // can invert for cost, where down is good).
@@ -35,8 +35,7 @@ function heatCellStyle(rate: number, total: number): { background: string; color
   return { background: `rgb(${lerp(40, 6)}, ${lerp(60, 145)}, ${lerp(55, 90)})`, color: tt > 0.45 ? "#fff" : "var(--muted)" };
 }
 
-export function StatsTab({ from, to, direction, leadsSource = "prod", system = "all", global = DEFAULT_GLOBAL_FILTERS }: { from: string; to: string; direction: string; leadsSource?: "prod" | "test"; system?: "all" | "retell" | "axon"; global?: GlobalFilters }) {
-  const t = useT();
+export function StatsTab({ from, to, direction, leadsSource = "prod", system = "all", global = DEFAULT_GLOBAL_FILTERS, campaignId }: { from: string; to: string; direction: string; leadsSource?: "prod" | "test"; system?: "all" | "retell" | "axon"; global?: GlobalFilters; campaignId?: string }) {
   const [data, setData] = useState<AnalyticsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -49,6 +48,7 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
     const qs = new URLSearchParams({ from, to, leads_source: leadsSource });
     if (direction !== "all") qs.set("direction", direction);
     if (system !== "all") qs.set("system", system);
+    if (campaignId && campaignId !== "all") qs.set("campaign_id", campaignId);
     appendGlobalFilters(qs, global);
     fetch(`/api/dashboard/analytics?${qs.toString()}`, { cache: "no-store" })
       .then(async (r) => {
@@ -59,9 +59,9 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
       .catch((e) => alive && setError(e instanceof Error ? e.message : "error"))
       .finally(() => alive && setLoading(false));
     return () => { alive = false; };
-  }, [from, to, direction, leadsSource, system, gfKey]);
+  }, [from, to, direction, leadsSource, system, gfKey, campaignId]);
 
-  if (loading && !data) return <div className="card"><p className="muted" style={{ margin: 0 }}>{t("Chargement…")}</p></div>;
+  if (loading && !data) return <div className="card"><p className="muted" style={{ margin: 0 }}>Loading…</p></div>;
   if (error) return <div className="card" style={{ borderColor: "var(--bad)", color: "var(--bad)" }}>{error}</div>;
   if (!data) return null;
 
@@ -80,14 +80,14 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
     delta?: { show: boolean; pct: number }; invertDelta?: boolean; pulse?: boolean;
   };
   const tiles: Tile[] = [
-    { label: t("RDV obtenus"), value: totalRdv.toLocaleString(), sub: `${pct(k.conversion_rate)} ${t("des appels")}`, tone: "var(--good)", highlight: true, delta: makeDelta(totalRdv, prev.rdv) },
-    { label: t("Taux de décroché"), value: pct(k.answer_rate), sub: `${k.answered.toLocaleString()} / ${k.total.toLocaleString()} ${t("appels")}`, tone: "var(--info)", delta: makeDelta(k.answered, prev.answered) },
-    { label: t("Coût période"), value: fmtMoney(cost), sub: `${data.cost_per_rdv > 0 ? fmtMoney(data.cost_per_rdv) : "—"} ${t("par RDV")}`, tone: "var(--warn)", delta: makeDelta(cost, prev.cost), invertDelta: true },
-    { label: t("Appels totaux"), value: k.total.toLocaleString(), sub: biz.total_leads > 0 ? `${biz.total_leads.toLocaleString()} ${t("leads en base")}` : undefined, tone: "var(--accent-2)", delta: makeDelta(k.total, prev.total) },
-    { label: t("Éligibles dans le pipeline"), value: biz.eligible_in_pipeline.toLocaleString(), sub: t("BMI ≥ 40 & pas encore RDV"), tone: "var(--accent)" },
-    { label: t("Appels moy. avant RDV"), value: biz.avg_calls_before_rdv > 0 ? biz.avg_calls_before_rdv.toFixed(1) : "—", sub: t("plus bas = mieux"), tone: "var(--accent)" },
-    { label: t("Faux n° / sans réponse"), value: biz.wrong_num.toLocaleString(), sub: t("qualité de la liste"), tone: "var(--bad)" },
-    { label: t("Actifs maintenant"), value: biz.active_calls.toLocaleString(), sub: biz.active_calls > 0 ? t("appels en direct") : t("au repos"), tone: "var(--good)", pulse: biz.active_calls > 0 },
+    { label: "Appointments booked", value: totalRdv.toLocaleString(), sub: `${pct(k.conversion_rate)} of calls`, tone: "var(--good)", highlight: true, delta: makeDelta(totalRdv, prev.rdv) },
+    { label: "Answer rate", value: pct(k.answer_rate), sub: `${k.answered.toLocaleString()} / ${k.total.toLocaleString()} calls`, tone: "var(--info)", delta: makeDelta(k.answered, prev.answered) },
+    { label: "Period cost", value: fmtMoney(cost), sub: `${data.cost_per_rdv > 0 ? fmtMoney(data.cost_per_rdv) : "—"} per appointment`, tone: "var(--warn)", delta: makeDelta(cost, prev.cost), invertDelta: true },
+    { label: "Total calls", value: k.total.toLocaleString(), sub: biz.total_leads > 0 ? `${biz.total_leads.toLocaleString()} leads in database` : undefined, tone: "var(--accent-2)", delta: makeDelta(k.total, prev.total) },
+    { label: "Eligible in pipeline", value: biz.eligible_in_pipeline.toLocaleString(), sub: "BMI ≥ 40 & not yet booked", tone: "var(--accent)" },
+    { label: "Avg calls before appointment", value: biz.avg_calls_before_rdv > 0 ? biz.avg_calls_before_rdv.toFixed(1) : "—", sub: "lower = better", tone: "var(--accent)" },
+    { label: "Wrong number / no answer", value: biz.wrong_num.toLocaleString(), sub: "list quality", tone: "var(--bad)" },
+    { label: "Active now", value: biz.active_calls.toLocaleString(), sub: biz.active_calls > 0 ? "live calls" : "idle", tone: "var(--good)", pulse: biz.active_calls > 0 },
   ];
 
   return (
@@ -107,7 +107,7 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
               </div>
               {tile.delta?.show ? (
                 <div style={{ fontSize: 11, marginTop: 4, fontFamily: "ui-monospace, monospace", color: good ? "var(--good)" : "var(--bad)" }}>
-                  {tile.delta.pct >= 0 ? "↑ +" : "↓ "}{tile.delta.pct.toFixed(0)}% {t("vs préc.")}
+                  {tile.delta.pct >= 0 ? "↑ +" : "↓ "}{tile.delta.pct.toFixed(0)}% vs prev.
                 </div>
               ) : tile.sub ? (
                 <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>{tile.sub}</div>
@@ -133,7 +133,7 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
         return (
           <div className="card">
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap", marginBottom: 2 }}>
-              <h3 style={{ marginTop: 0, marginBottom: 0 }}>💸 {t("Coûts des appels")}</h3>
+              <h3 style={{ marginTop: 0, marginBottom: 0, display: "flex", alignItems: "center", gap: 6 }}><DollarSign size={15} /> {t("Coûts des appels")}</h3>
               <span className="muted" style={{ fontSize: 12 }}>
                 {fmtMoney(cp.total)} {t("dépensés")} · {fmtMoney(data.previous.cost)} {t("période précédente")}
               </span>
@@ -233,7 +233,7 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
               {/* Cost by hour */}
               <div>
                 <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 8 }}>{t("Coût par heure")}</div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(24, 1fr)", gap: 2, alignItems: "end", height: 70 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(24, 1fr)", gap: 2, alignItems: "end", height: 90 }}>
                   {cp.by_hour.map((h) => (
                     <div key={h.hour} title={`${h.hour}h — ${fmtMoney(h.cost)}`} style={{ background: h.cost > 0 ? "var(--warn)" : "var(--bg-2)", height: `${Math.max(2, (h.cost / maxHour) * 100)}%`, borderRadius: 2, minHeight: 2 }} />
                   ))}
@@ -243,9 +243,9 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
 
               {/* Cost by outcome */}
               <div>
-                <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 8 }}>{t("Coût par issue")}</div>
+                <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 8 }}>Cost by outcome</div>
                 {cp.by_outcome.length === 0 ? (
-                  <p className="muted" style={{ fontSize: 12 }}>{t("Aucun coût attribué.")}</p>
+                  <p className="muted" style={{ fontSize: 12 }}>No cost attributed.</p>
                 ) : cp.by_outcome.map((o) => (
                   <div key={o.key} style={{ display: "grid", gridTemplateColumns: "100px 1fr 52px", gap: 6, alignItems: "center", marginBottom: 4 }}>
                     <span style={{ fontSize: 11 }}>{o.label}</span>
@@ -263,9 +263,9 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
 
       {/* ─── CONVERSION FUNNEL ─── */}
       <div className="card">
-        <h3 style={{ marginTop: 0 }}>{t("Entonnoir de conversion")}</h3>
+        <h3 style={{ marginTop: 0 }}>Conversion funnel</h3>
         <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>
-          {t("Où tombent tes leads — chaque étape comparée au total initial")}
+          Where leads drop off — each step compared to the initial total
         </p>
         <div style={{ display: "grid", gap: 8 }}>
           {data.funnel.map((step, i) => {
@@ -290,19 +290,19 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
       {/* ─── TWO COLUMNS: Qualifications + Lead Source ─── */}
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 16 }}>
         <div className="card">
-          <h3 style={{ marginTop: 0 }}>{t("Qualifications")}</h3>
+          <h3 style={{ marginTop: 0 }}>Qualifications</h3>
           <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>
-            {t("Résultat de chaque appel, normalisé en 9 catégories")}
+            Outcome of each call, normalised into 9 categories
           </p>
           {data.qualifications.every((q) => q.count === 0) ? (
-            <p className="muted" style={{ fontSize: 13 }}>{t("Aucune qualification dans la période.")}</p>
+            <p className="muted" style={{ fontSize: 13 }}>No qualifications in this period.</p>
           ) : (
             <div style={{ display: "grid", gap: 4 }}>
               {data.qualifications.map((q) => {
                 const max = Math.max(1, ...data.qualifications.map((x) => x.count));
                 return (
                   <div key={q.key} style={{ display: "grid", gridTemplateColumns: "160px 1fr 40px", gap: 8, alignItems: "center" }}>
-                    <span style={{ fontSize: 12 }}>{t(q.label)}</span>
+                    <span style={{ fontSize: 12 }}>{q.label}</span>
                     <div style={{ background: "var(--bg-2)", borderRadius: 4, overflow: "hidden", height: 14 }}>
                       <div style={{ width: `${(q.count / max) * 100}%`, height: "100%", background: q.count > 0 ? "var(--accent)" : "transparent" }} />
                     </div>
@@ -315,22 +315,22 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
         </div>
 
         <div className="card">
-          <h3 style={{ marginTop: 0 }}>{t("Attribution par source de lead")}</h3>
+          <h3 style={{ marginTop: 0 }}>Attribution by lead source</h3>
           <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>
-            {t("Conversion par origine du lead (Facebook, Google, etc.)")}
+            Conversion by lead origin (Facebook, Google, etc.)
           </p>
           {data.sources.length === 0 ? (
             <p className="muted" style={{ fontSize: 13 }}>
-              {t("Aucune table de leads avec colonne source_lead configurée.")}
+              No leads table with source_lead column configured.
             </p>
           ) : (
             <table className="list" style={{ width: "100%", fontSize: 12 }}>
               <thead>
                 <tr>
-                  <th style={{ textAlign: "left" }}>{t("Source")}</th>
-                  <th style={{ textAlign: "right" }}>{t("Appels")}</th>
-                  <th style={{ textAlign: "right" }}>{t("RDV")}</th>
-                  <th style={{ textAlign: "right" }}>{t("Conv %")}</th>
+                  <th style={{ textAlign: "left" }}>Source</th>
+                  <th style={{ textAlign: "right" }}>Calls</th>
+                  <th style={{ textAlign: "right" }}>Appointments</th>
+                  <th style={{ textAlign: "right" }}>Conv %</th>
                 </tr>
               </thead>
               <tbody>
@@ -350,7 +350,7 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
         </div>
       </div>
 
-      {/* ─── QUAND APPELER — Jour × Heure (taux décroché / RDV) ─── */}
+      {/* ─── WHEN TO CALL — Day × Hour (answer rate / appointment rate) ─── */}
       {(() => {
         const rateOf = (c: { count: number; answered: number; rdv: number }) =>
           c.count === 0 ? 0 : ((heatMode === "rdv" ? c.rdv : c.answered) / c.count) * 100;
@@ -363,9 +363,9 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
           <div className="card">
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
               <div>
-                <h3 style={{ marginTop: 0, marginBottom: 2 }}>🔥 {t("Quand appeler — Jour × Heure")}</h3>
+                <h3 style={{ marginTop: 0, marginBottom: 2, display: "flex", alignItems: "center", gap: 6 }}><Flame size={15} /> When to call — Day × Hour</h3>
                 <p className="muted" style={{ fontSize: 12, margin: 0 }}>
-                  {heatMode === "rdv" ? t("Taux de RDV par créneau (≥3 appels)") : t("Taux de décroché par créneau (>15s, disconnect valide)")}
+                  {heatMode === "rdv" ? "Appointment rate by slot (≥3 calls)" : "Answer rate by slot (>15s, valid disconnect)"}
                 </p>
               </div>
               <div style={{ display: "inline-flex", border: "1px solid var(--border)", borderRadius: 6, overflow: "hidden" }}>
@@ -374,7 +374,7 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
                     className={heatMode === m ? "" : "ghost"}
                     style={{ padding: "4px 10px", fontSize: 12, border: "none", borderRadius: 0,
                       background: heatMode === m ? "var(--accent)" : "transparent", color: heatMode === m ? "#fff" : "var(--text)" }}>
-                    {m === "answer" ? `📞 ${t("Décroché")}` : `📅 ${t("RDV")}`}
+                    {m === "answer" ? <><Phone size={14} style={{ verticalAlign: "middle" }} /> Answered</> : <><CalendarCheck size={14} style={{ verticalAlign: "middle" }} /> Booked</>}
                   </button>
                 ))}
               </div>
@@ -400,7 +400,7 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
                         const isTop = topSet.has(`${dayIdx}-${h}`);
                         return (
                           <td key={h}
-                            title={`${day} ${h}h · ${cell.count} appels · ${heatMode === "rdv" ? `${cell.rdv} RDV` : `${cell.answered} décrochés`} (${rate.toFixed(0)}%)`}
+                            title={`${day} ${h}h · ${cell.count} calls · ${heatMode === "rdv" ? `${cell.rdv} booked` : `${cell.answered} answered`} (${rate.toFixed(0)}%)`}
                             style={{ minWidth: 30, height: 24, textAlign: "center", borderRadius: 4, fontWeight: 600,
                               background: st.background, color: st.color,
                               outline: isTop ? "2px solid var(--warn)" : undefined }}>
@@ -416,16 +416,16 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
             {/* Legend + top slots */}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--muted)" }}>
-                <span>{t("Faible")}</span>
+                <span>Low</span>
                 {[0, 15, 30, 45, 60].map((r) => {
                   const s = heatCellStyle(r, 1);
                   return <span key={r} style={{ background: s.background, color: s.color, padding: "1px 6px", borderRadius: 4, fontSize: 10 }}>{r}%</span>;
                 })}
-                <span>{t("Élevé")}</span>
+                <span>High</span>
               </div>
               {topSlots.length > 0 && (
                 <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                  <span className="muted" style={{ fontSize: 12 }}>{t("Top créneaux")} :</span>
+                  <span className="muted" style={{ fontSize: 12 }}>Top slots:</span>
                   {topSlots.map((c) => (
                     <span key={`${c.weekday}-${c.hour}`} style={{ fontSize: 11, padding: "2px 8px", borderRadius: 99, border: "1px solid color-mix(in srgb, var(--warn) 50%, transparent)", fontFamily: "ui-monospace, monospace" }}>
                       {DAY_LABELS[c.weekday]} {c.hour}h · <strong style={{ color: "var(--good)" }}>{rateOf(c).toFixed(0)}%</strong> <span className="muted">({c.count})</span>
@@ -438,17 +438,17 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
         );
       })()}
 
-      {/* ─── TWO COLUMNS: Performance agent + Distribution durées ─── */}
+      {/* ─── TWO COLUMNS: Agent performance + Duration distribution ─── */}
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 16 }}>
         <div className="card">
-          <h3 style={{ marginTop: 0 }}>{t("Performance par agent")}</h3>
+          <h3 style={{ marginTop: 0 }}>Performance by agent</h3>
           <table className="list" style={{ width: "100%", fontSize: 12 }}>
             <thead>
               <tr>
-                <th style={{ textAlign: "left" }}>{t("Agent")}</th>
-                <th style={{ textAlign: "right" }}>{t("Appels")}</th>
-                <th style={{ textAlign: "right" }}>{t("Décrochés")}</th>
-                <th style={{ textAlign: "right" }}>{t("Durée moy.")}</th>
+                <th style={{ textAlign: "left" }}>Agent</th>
+                <th style={{ textAlign: "right" }}>Calls</th>
+                <th style={{ textAlign: "right" }}>Answered</th>
+                <th style={{ textAlign: "right" }}>Avg duration</th>
               </tr>
             </thead>
             <tbody>
@@ -465,7 +465,7 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
         </div>
 
         <div className="card">
-          <h3 style={{ marginTop: 0 }}>{t("Distribution des durées")}</h3>
+          <h3 style={{ marginTop: 0 }}>Duration distribution</h3>
           {data.duration_histogram.map((b) => (
             <div key={b.key} style={{ display: "grid", gridTemplateColumns: "80px 1fr 36px", gap: 8, alignItems: "center", marginBottom: 4 }}>
               <span style={{ fontSize: 12 }}>{b.key}</span>
@@ -480,22 +480,22 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
 
       {/* ─── ATTEMPT FUNNEL ─── */}
       <div className="card">
-        <h3 style={{ marginTop: 0 }}>{t("Tentatives → décroché")}</h3>
+        <h3 style={{ marginTop: 0 }}>Attempts → answered</h3>
         <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>
-          {t("Combien d'essais avant qu'un patient décroche, et taux de réussite à chaque tentative")}
+          How many attempts before a patient answers, and success rate per attempt
         </p>
         {data.attempt_funnel.length === 0 ? (
-          <p className="muted" style={{ fontSize: 13 }}>{t("Pas assez de données.")}</p>
+          <p className="muted" style={{ fontSize: 13 }}>Not enough data.</p>
         ) : (
           <div style={{ display: "grid", gridTemplateColumns: `repeat(${data.attempt_funnel.length}, 1fr)`, gap: 10 }}>
             {data.attempt_funnel.map((a) => {
               const rate = a.total > 0 ? a.answered / a.total : 0;
               return (
                 <div key={a.attempt} className="card" style={{ padding: 10 }}>
-                  <div className="muted" style={{ fontSize: 11 }}>{a.attempt === 5 ? "5+ " : `${a.attempt}ᵉ`} {t("tentative")}</div>
+                  <div className="muted" style={{ fontSize: 11 }}>{a.attempt === 5 ? "5+ " : `${a.attempt}th`} attempt</div>
                   <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4 }}>{a.total}</div>
                   <div className="muted" style={{ fontSize: 11 }}>
-                    {a.answered} {t("décrochés")} ({pct(rate)})
+                    {a.answered} answered ({pct(rate)})
                   </div>
                   <div style={{ background: "var(--bg-2)", borderRadius: 4, height: 6, marginTop: 6, overflow: "hidden" }}>
                     <div style={{ width: `${(a.total / maxAttempt) * 100}%`, height: "100%", background: "var(--accent)" }} />
@@ -507,14 +507,14 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
         )}
       </div>
 
-      {/* ─── VOLUME PAR PÉRIODE (en bas, moins critique) ─── */}
+      {/* ─── CALL VOLUME (bottom, less critical) ─── */}
       <div className="card">
-        <h3 style={{ marginTop: 0 }}>{t("Volume d'appels")}</h3>
+        <h3 style={{ marginTop: 0 }}>Call volume</h3>
         <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>
-          {data.granularity === "hour" ? t("Par heure") : t("Par jour")}
+          {data.granularity === "hour" ? "By hour" : "By day"}
         </p>
         {data.volume.length === 0 ? (
-          <p className="muted" style={{ fontSize: 13 }}>{t("Aucun appel sur la période.")}</p>
+          <p className="muted" style={{ fontSize: 13 }}>No calls in this period.</p>
         ) : (
           <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(data.volume.length, 30)}, 1fr)`, gap: 2, alignItems: "end", height: 80 }}>
             {data.volume.slice(-30).map((b) => (
@@ -531,27 +531,27 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
         )}
         {data.truncated && (
           <p className="muted" style={{ fontSize: 11, marginTop: 6 }}>
-            {t("Résultat tronqué à 8 000 appels — affine la période pour des stats exactes.")}
+            Results truncated to 8,000 calls — narrow the period for exact stats.
           </p>
         )}
       </div>
 
-      {/* ─── VOLUME PAR CRÉNEAU (Matin / Midi / Soir / Hors) ─── */}
+      {/* ─── VOLUME BY SLOT (Morning / Noon / Evening / Off-hours) ─── */}
       {(() => {
         const maxSlot = Math.max(1, ...data.slots.map((s) => s.total));
         const best = [...data.slots].filter((s) => s.total >= 3).sort((a, b) => (b.answered / b.total) - (a.answered / a.total))[0];
         return (
           <div className="card">
-            <h3 style={{ marginTop: 0, marginBottom: 2 }}>🕑 {t("Volume par créneau")}</h3>
-            <p className="muted" style={{ fontSize: 12, margin: "0 0 12px" }}>{t("Appels et taux de décroché · heure UK")}</p>
+            <h3 style={{ marginTop: 0, marginBottom: 2, display: "flex", alignItems: "center", gap: 6 }}><Clock size={15} /> Volume by slot</h3>
+            <p className="muted" style={{ fontSize: 12, margin: "0 0 12px" }}>Calls and answer rate · UK time</p>
             <div style={{ display: "grid", gridTemplateColumns: `repeat(${data.slots.length}, 1fr)`, gap: 12 }}>
               {data.slots.map((s) => {
                 const ar = s.total > 0 ? s.answered / s.total : 0;
                 return (
                   <div key={s.key} style={{ display: "grid", gap: 6 }}>
                     <div style={{ height: 80, display: "flex", alignItems: "end", gap: 4 }}>
-                      <div title={`${s.total} appels`} style={{ flex: 1, background: "var(--info)", height: `${(s.total / maxSlot) * 100}%`, minHeight: 2, borderRadius: 3 }} />
-                      <div title={`${s.answered} décrochés`} style={{ flex: 1, background: "var(--good)", height: `${(s.answered / maxSlot) * 100}%`, minHeight: 2, borderRadius: 3 }} />
+                      <div title={`${s.total} calls`} style={{ flex: 1, background: "var(--info)", height: `${(s.total / maxSlot) * 100}%`, minHeight: 2, borderRadius: 3 }} />
+                      <div title={`${s.answered} answered`} style={{ flex: 1, background: "var(--good)", height: `${(s.answered / maxSlot) * 100}%`, minHeight: 2, borderRadius: 3 }} />
                     </div>
                     <div style={{ fontSize: 12, fontWeight: 600 }}>{s.label}</div>
                     <div className="muted" style={{ fontSize: 11 }}><strong>{s.total}</strong> · <span style={{ color: "var(--good)" }}>{pct(ar)}</span></div>
@@ -561,7 +561,7 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
             </div>
             {best && (
               <p style={{ fontSize: 12, marginTop: 12, marginBottom: 0 }}>
-                💡 <strong style={{ color: "var(--accent)" }}>{t("Recommandation")} :</strong> {t("Meilleur taux de réponse sur")} <strong>{best.label}</strong> ({pct(best.answered / best.total)}). {t("Concentrer les prochains appels sur ce créneau.")}
+                <Lightbulb size={15} style={{ verticalAlign: "middle" }} /> <strong style={{ color: "var(--accent)" }}>Recommendation:</strong> Best answer rate on <strong>{best.label}</strong> ({pct(best.answered / best.total)}). Focus next calls on this slot.
               </p>
             )}
           </div>
@@ -573,36 +573,36 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
         <div className="card">
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
             <div>
-              <h3 style={{ marginTop: 0, marginBottom: 2 }}>✨ {t("Pipeline d'éligibilité (S2 UK NHS WMP)")}</h3>
-              <p className="muted" style={{ fontSize: 12, margin: 0 }}>{t("BMI ≥ 40 (ou ≥ 35 avec comorbidité)")}</p>
+              <h3 style={{ marginTop: 0, marginBottom: 2, display: "flex", alignItems: "center", gap: 6 }}><Sparkles size={15} /> Eligibility pipeline (S2 UK NHS WMP)</h3>
+              <p className="muted" style={{ fontSize: 12, margin: 0 }}>BMI ≥ 40 (or ≥ 35 with comorbidity)</p>
             </div>
             <span style={{ fontSize: 12, padding: "3px 10px", borderRadius: 99, border: "1px solid color-mix(in srgb, var(--good) 50%, transparent)", color: "var(--good)" }}>
-              {data.eligibility.eligible_total.toLocaleString()} {t("éligibles")} · {data.eligibility.total_leads.toLocaleString()} {t("total")}
+              {data.eligibility.eligible_total.toLocaleString()} eligible · {data.eligibility.total_leads.toLocaleString()} total
             </span>
           </div>
 
           <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.3, color: "var(--good)", margin: "12px 0 6px" }}>
-            🎯 {t("Éligibles & encore dans le pipeline")} ({data.eligibility.pipeline_count})
+            <Target size={15} style={{ verticalAlign: "middle" }} /> Eligible & still in pipeline ({data.eligibility.pipeline_count})
           </div>
           {data.eligibility.in_pipeline.length === 0 ? (
-            <p className="muted" style={{ fontSize: 13 }}>{t("Aucun éligible en attente.")}</p>
+            <p className="muted" style={{ fontSize: 13 }}>No eligible patients waiting.</p>
           ) : (
             <div style={{ overflowX: "auto" }}>
               <table className="list" style={{ width: "100%", fontSize: 12 }}>
                 <thead>
                   <tr>
-                    <th style={{ textAlign: "left" }}>{t("Patient")}</th>
+                    <th style={{ textAlign: "left" }}>Patient</th>
                     <th style={{ textAlign: "right" }}>BMI</th>
-                    <th style={{ textAlign: "left" }}>{t("Statut")}</th>
-                    <th style={{ textAlign: "right" }}>{t("Appels")}</th>
-                    <th style={{ textAlign: "left" }}>{t("Source")}</th>
+                    <th style={{ textAlign: "left" }}>Status</th>
+                    <th style={{ textAlign: "right" }}>Calls</th>
+                    <th style={{ textAlign: "left" }}>Source</th>
                   </tr>
                 </thead>
                 <tbody>
                   {data.eligibility.in_pipeline.map((p, i) => (
                     <tr key={`${p.phone}-${i}`}>
                       <td>
-                        <div style={{ fontWeight: 600 }}>{p.name ?? t("Inconnu")}</div>
+                        <div style={{ fontWeight: 600 }}>{p.name ?? "Unknown"}</div>
                         <div className="muted" style={{ fontSize: 11, fontFamily: "ui-monospace, monospace" }}>{p.phone ?? "—"}</div>
                       </td>
                       <td style={{ textAlign: "right", color: "var(--good)", fontWeight: 600 }}>{p.bmi.toFixed(1)}</td>
@@ -617,23 +617,23 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
           )}
           {data.eligibility.pipeline_count > data.eligibility.in_pipeline.length && (
             <p className="muted" style={{ fontSize: 11, marginTop: 6 }}>
-              + {(data.eligibility.pipeline_count - data.eligibility.in_pipeline.length).toLocaleString()} {t("de plus — affine les filtres pour les voir.")}
+              + {(data.eligibility.pipeline_count - data.eligibility.in_pipeline.length).toLocaleString()} more — refine the filters to see them.
             </p>
           )}
 
           {data.eligibility.lost_count > 0 && (
             <>
               <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.3, color: "var(--warn)", margin: "14px 0 6px" }}>
-                ⚠️ {t("Éligibles mais perdus")} ({data.eligibility.lost_count.toLocaleString()}) — {t("revoir les raisons")}
+                <AlertTriangle size={15} style={{ verticalAlign: "middle" }} /> Eligible but lost ({data.eligibility.lost_count.toLocaleString()}) — review the reasons
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                 {data.eligibility.lost_sample.map((l, i) => (
                   <span key={i} style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, border: "1px solid var(--border)" }}>
-                    {l.name ?? t("Inconnu")} · BMI {l.bmi.toFixed(1)} · <span style={{ color: "var(--warn)" }}>{l.reason}</span>
+                    {l.name ?? "Unknown"} · BMI {l.bmi.toFixed(1)} · <span style={{ color: "var(--warn)" }}>{l.reason}</span>
                   </span>
                 ))}
                 {data.eligibility.lost_count > data.eligibility.lost_sample.length && (
-                  <span className="muted" style={{ fontSize: 11, alignSelf: "center" }}>+{(data.eligibility.lost_count - data.eligibility.lost_sample.length).toLocaleString()} {t("de plus")}</span>
+                  <span className="muted" style={{ fontSize: 11, alignSelf: "center" }}>+{(data.eligibility.lost_count - data.eligibility.lost_sample.length).toLocaleString()} more</span>
                 )}
               </div>
             </>

@@ -38,7 +38,7 @@ async function fetchWithTimeout(url: string, init: RequestInit = {}): Promise<Re
 
 async function checkCartesia(apiKey: string | undefined): Promise<CheckResult> {
   if (!apiKey) {
-    return { service: "Cartesia TTS", status: "fail", message: "CARTESIA_API_KEY manquante côté serveur" };
+    return { service: "Cartesia TTS", status: "fail", message: "CARTESIA_API_KEY missing on server" };
   }
   try {
     const r = await fetchWithTimeout("https://api.cartesia.ai/voices", {
@@ -47,13 +47,13 @@ async function checkCartesia(apiKey: string | undefined): Promise<CheckResult> {
         "Cartesia-Version": "2026-03-01",
       },
     });
-    if (r.ok) return { service: "Cartesia TTS", status: "ok", message: "API joignable, clé valide" };
+    if (r.ok) return { service: "Cartesia TTS", status: "ok", message: "API reachable, key valid" };
     if (r.status === 401 || r.status === 403) {
-      return { service: "Cartesia TTS", status: "fail", message: "Clé API Cartesia invalide" };
+      return { service: "Cartesia TTS", status: "fail", message: "Invalid Cartesia API key" };
     }
     return { service: "Cartesia TTS", status: "fail", message: `HTTP ${r.status}`, detail: await r.text().catch(() => "") };
   } catch (e) {
-    return { service: "Cartesia TTS", status: "fail", message: "Service injoignable", detail: String(e) };
+    return { service: "Cartesia TTS", status: "fail", message: "Service unreachable", detail: String(e) };
   }
 }
 
@@ -64,41 +64,41 @@ async function checkAssemblyAI(apiKey: string | undefined): Promise<CheckResult>
     return {
       service: "AssemblyAI STT",
       status: "skipped",
-      message: "Clé gérée côté agent (LiveKit/Fly) — non vérifiable depuis le web.",
+      message: "Key managed on agent host (LiveKit/Fly) — not verifiable from the web.",
     };
   }
   try {
     const r = await fetchWithTimeout("https://api.assemblyai.com/v2/account", {
       headers: { Authorization: apiKey },
     });
-    if (r.ok) return { service: "AssemblyAI STT", status: "ok", message: "API joignable, clé valide" };
+    if (r.ok) return { service: "AssemblyAI STT", status: "ok", message: "API reachable, key valid" };
     if (r.status === 401 || r.status === 403) {
-      return { service: "AssemblyAI STT", status: "fail", message: "Clé API AssemblyAI invalide" };
+      return { service: "AssemblyAI STT", status: "fail", message: "Invalid AssemblyAI API key" };
     }
     return { service: "AssemblyAI STT", status: "fail", message: `HTTP ${r.status}` };
   } catch (e) {
-    return { service: "AssemblyAI STT", status: "fail", message: "Service injoignable", detail: String(e) };
+    return { service: "AssemblyAI STT", status: "fail", message: "Service unreachable", detail: String(e) };
   }
 }
 
 async function checkDeepseek(apiKey: string | undefined): Promise<CheckResult> {
   if (!apiKey) {
-    return { service: "DeepSeek", status: "fail", message: "DEEPSEEK_API_KEY manquante côté serveur" };
+    return { service: "DeepSeek", status: "fail", message: "DEEPSEEK_API_KEY missing on server" };
   }
   try {
     const r = await fetchWithTimeout("https://api.deepseek.com/v1/models", {
       headers: { Authorization: `Bearer ${apiKey}` },
     });
-    if (r.ok) return { service: "DeepSeek", status: "ok", message: "API joignable, clé valide" };
+    if (r.ok) return { service: "DeepSeek", status: "ok", message: "API reachable, key valid" };
     if (r.status === 401 || r.status === 403) {
-      return { service: "DeepSeek", status: "fail", message: "Clé API DeepSeek invalide ou révoquée" };
+      return { service: "DeepSeek", status: "fail", message: "Invalid or revoked DeepSeek API key" };
     }
     if (r.status === 402) {
-      return { service: "DeepSeek", status: "fail", message: "Crédit DeepSeek épuisé" };
+      return { service: "DeepSeek", status: "fail", message: "DeepSeek credit exhausted" };
     }
     return { service: "DeepSeek", status: "fail", message: `HTTP ${r.status}`, detail: await r.text() };
   } catch (e) {
-    return { service: "DeepSeek", status: "fail", message: "Service injoignable", detail: String(e) };
+    return { service: "DeepSeek", status: "fail", message: "Service unreachable", detail: String(e) };
   }
 }
 
@@ -110,16 +110,16 @@ async function checkLivekit(): Promise<CheckResult> {
     return {
       service: "LiveKit",
       status: "fail",
-      message: "Variables d'environnement LiveKit manquantes",
+      message: "LiveKit environment variables missing",
     };
   }
   try {
     const httpsUrl = url.replace(/^wss?:/, "https:");
     const r = await fetchWithTimeout(httpsUrl, { method: "HEAD" });
-    if (r.status < 500) return { service: "LiveKit", status: "ok", message: "Endpoint joignable" };
-    return { service: "LiveKit", status: "fail", message: `LiveKit Cloud en erreur (HTTP ${r.status})` };
+    if (r.status < 500) return { service: "LiveKit", status: "ok", message: "Endpoint reachable" };
+    return { service: "LiveKit", status: "fail", message: `LiveKit Cloud error (HTTP ${r.status})` };
   } catch (e) {
-    return { service: "LiveKit", status: "fail", message: "LiveKit Cloud injoignable", detail: String(e) };
+    return { service: "LiveKit", status: "fail", message: "LiveKit Cloud unreachable", detail: String(e) };
   }
 }
 
@@ -135,11 +135,11 @@ interface AgentConfig {
 
 function checkAgentConfig(agent: AgentConfig): CheckResult {
   const issues: string[] = [];
-  if (!agent.tts_voice_id) issues.push("aucune voix Cartesia définie (UUID requis)");
-  if (!agent.llm_provider) issues.push("aucun fournisseur LLM");
-  if (!agent.llm_model) issues.push("aucun modèle LLM");
+  if (!agent.tts_voice_id) issues.push("no Cartesia voice defined (UUID required)");
+  if (!agent.llm_provider) issues.push("no LLM provider");
+  if (!agent.llm_model) issues.push("no LLM model");
   if (issues.length === 0) {
-    return { service: "Config agent", status: "ok", message: "Configuration complète" };
+    return { service: "Config agent", status: "ok", message: "Configuration complete" };
   }
   return { service: "Config agent", status: "fail", message: issues.join(", ") };
 }

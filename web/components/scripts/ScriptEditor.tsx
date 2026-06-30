@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback } from "react";
+import { useT } from "@/lib/i18n";
 
 // ─── Graph data model (shared by the simple list editor AND the upcoming
 //     visual React-Flow editor) ──────────────────────────────────────────
@@ -108,6 +109,7 @@ export function ScriptEditor({
   onChange: (next: ScriptGraph) => void;
   handles?: AgentHandleLite[];
 }) {
+  const t = useT();
   const { nodes, edges } = value;
   const handleById = new Map(handles.map((h) => [h.id, h]));
   const aiHandles = handles.filter((h) => h.kind === "ai");
@@ -166,13 +168,13 @@ export function ScriptEditor({
     [value, edges, onChange],
   );
 
-  const titleOf = (id: string) => nodes.find((n) => n.id === id)?.title || "(étape supprimée)";
+  const titleOf = (id: string) => nodes.find((n) => n.id === id)?.title || t("(étape supprimée)");
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       {nodes.length === 0 && (
         <p className="muted" style={{ margin: 0 }}>
-          Aucune étape. Ajoutez la première étape de votre script.
+          {t("Aucune étape. Ajoutez la première étape de votre script.")}
         </p>
       )}
       {nodes.map((node, i) => {
@@ -191,20 +193,20 @@ export function ScriptEditor({
           >
             <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <strong style={{ fontSize: 13 }}>Étape {i + 1}</strong>
+                <strong style={{ fontSize: 13 }}>{t("Étape")} {i + 1}</strong>
                 {node.agent_handle_id && (() => {
                   const c = agentColor(node.agent_handle_id);
                   const h = handleById.get(node.agent_handle_id);
                   return (
                     <span
-                      title={`${h?.kind === "human" ? "Humain" : "IA"} — ${h?.display_name ?? node.agent_handle_id}`}
+                      title={`${h?.kind === "human" ? t("Humain") : "IA"} — ${h?.display_name ?? node.agent_handle_id}`}
                       style={{
                         display: "inline-flex", alignItems: "center", gap: 4,
                         padding: "2px 8px", borderRadius: 999, fontSize: 11, fontWeight: 600,
                         background: c.bg, color: c.fg, border: `1px solid ${c.border}`,
                       }}
                     >
-                      {h?.kind === "human" ? "👤" : "🤖"} {h?.display_name ?? "Agent supprimé"}
+                      {h?.kind === "human" ? "👤" : "🤖"} {h?.display_name ?? t("Agent supprimé")}
                     </span>
                   );
                 })()}
@@ -213,7 +215,7 @@ export function ScriptEditor({
                 className="ghost"
                 onClick={() => removeNode(node.id)}
                 style={{ padding: "2px 8px", fontSize: 12, color: "var(--bad)" }}
-                title="Supprimer l'étape"
+                title={t("Supprimer l'étape")}
               >
                 ✕
               </button>
@@ -221,18 +223,18 @@ export function ScriptEditor({
             <input
               value={node.title}
               onChange={(e) => updateNode(node.id, { title: e.target.value })}
-              placeholder="Titre de l'étape (ex: Accroche)"
+              placeholder={t("Titre de l'étape (ex: Accroche)")}
               style={{ fontSize: 13 }}
             />
             <textarea
               rows={3}
               value={node.content}
               onChange={(e) => updateNode(node.id, { content: e.target.value })}
-              placeholder="Ce que l'agent doit dire / faire à cette étape…"
+              placeholder={t("Ce que l'agent doit dire / faire à cette étape…")}
               style={{ fontSize: 13 }}
             />
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span className="muted" style={{ fontSize: 11 }}>Agent à cette étape :</span>
+              <span className="muted" style={{ fontSize: 11 }}>{t("Agent à cette étape :")}</span>
               <select
                 value={node.agent_handle_id ?? ""}
                 onChange={(e) =>
@@ -240,7 +242,7 @@ export function ScriptEditor({
                 }
                 style={{ fontSize: 12, flex: 1 }}
               >
-                <option value="">Hériter (agent de la campagne)</option>
+                <option value="">{t("Hériter (agent de la campagne)")}</option>
                 {aiHandles.length > 0 && (
                   <optgroup label="🤖 Agents IA">
                     {aiHandles.map((h) => (
@@ -249,7 +251,7 @@ export function ScriptEditor({
                   </optgroup>
                 )}
                 {humanHandles.length > 0 && (
-                  <optgroup label="👤 Agents humains">
+                  <optgroup label={t("👤 Agents humains")}>
                     {humanHandles.map((h) => (
                       <option key={h.id} value={h.id}>{h.display_name}</option>
                     ))}
@@ -261,14 +263,14 @@ export function ScriptEditor({
             {outgoing.length > 0 && (
               <div style={{ display: "grid", gap: 6, marginTop: 4 }}>
                 <div className="muted" style={{ fontSize: 11 }}>
-                  Branches — selon la réponse, l&apos;agent enchaîne sur :
+                  {t("Branches — selon la réponse, l'agent enchaîne sur :")}
                 </div>
                 {outgoing.map((edge) => (
                   <div key={edge.id} style={{ display: "flex", gap: 6, alignItems: "center" }}>
                     <input
                       value={edge.condition}
                       onChange={(e) => updateEdge(edge.id, { condition: e.target.value })}
-                      placeholder="Si… (ex: Si le patient accepte)"
+                      placeholder={t("Si… (ex: Si le patient accepte)")}
                       style={{ flex: 1, fontSize: 12 }}
                     />
                     <span className="muted" style={{ fontSize: 12 }}>→</span>
@@ -299,9 +301,9 @@ export function ScriptEditor({
                 onClick={() => addEdge(node.id)}
                 disabled={nodes.length < 2}
                 style={{ padding: "4px 10px", fontSize: 12 }}
-                title={nodes.length < 2 ? "Ajoutez une 2e étape pour pouvoir brancher" : undefined}
+                title={nodes.length < 2 ? t("Ajoutez une 2e étape pour pouvoir brancher") : undefined}
               >
-                + Branche conditionnelle
+                + {t("Branche conditionnelle")}
               </button>
             </div>
           </div>
@@ -309,7 +311,7 @@ export function ScriptEditor({
       })}
       <div>
         <button onClick={addNode} style={{ padding: "8px 14px" }}>
-          + Ajouter une étape
+          + {t("Ajouter une étape")}
         </button>
       </div>
     </div>

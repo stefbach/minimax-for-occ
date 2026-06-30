@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useT } from "@/lib/i18n";
 
 type ScriptStep = {
   step?: number;
@@ -37,6 +38,7 @@ type CallContext = {
  * the existing softphone layout is unchanged for non-campaign calls).
  */
 export function ScriptPanel({ callId }: { callId: string | null }) {
+  const t = useT();
   const [ctx, setCtx] = useState<CallContext | null>(null);
   const [stepIdx, setStepIdx] = useState(0);
   const [note, setNote] = useState("");
@@ -65,8 +67,8 @@ export function ScriptPanel({ callId }: { callId: string | null }) {
     setStepIdx(0);
     void load();
     if (!callId) return;
-    const t = setInterval(load, 15_000);
-    return () => clearInterval(t);
+    const timer = setInterval(load, 15_000);
+    return () => clearInterval(timer);
   }, [callId, load]);
 
   const addInteraction = useCallback(async () => {
@@ -121,14 +123,14 @@ export function ScriptPanel({ callId }: { callId: string | null }) {
     >
       <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
         <div>
-          <h3 style={{ margin: 0 }}>Script en cours · {ctx.script.name}</h3>
+          <h3 style={{ margin: 0 }}>{t("Script en cours")} · {ctx.script.name}</h3>
           <div className="muted" style={{ fontSize: 12 }}>
-            v{ctx.script.version} · mission {ctx.script.mission ?? "—"}
-            {ctx.campaign && <> · campagne {ctx.campaign.name}</>}
+            v{ctx.script.version} · {t("mission")} {ctx.script.mission ?? "—"}
+            {ctx.campaign && <> · {t("campagne")} {ctx.campaign.name}</>}
           </div>
         </div>
         <span className="tag" style={{ fontSize: 11 }}>
-          étape {stepIdx + 1} / {steps.length}
+          {t("étape")} {stepIdx + 1} / {steps.length}
         </span>
       </div>
 
@@ -142,7 +144,7 @@ export function ScriptPanel({ callId }: { callId: string | null }) {
         }}
       >
         <strong style={{ fontSize: 14 }}>
-          {step.title ?? `Étape ${stepIdx + 1}`}
+          {step.title ?? t("Étape") + " " + (stepIdx + 1)}
         </strong>
         <div style={{ marginTop: 6, whiteSpace: "pre-wrap", fontSize: 13 }}>
           {step.content ?? ""}
@@ -173,7 +175,7 @@ export function ScriptPanel({ callId }: { callId: string | null }) {
                   }}
                   style={{ padding: "4px 10px", fontSize: 12 }}
                 >
-                  {b.label ?? "→"} · vers {b.goto}
+                  {b.label ?? "→"} · {t("vers")} {b.goto}
                 </button>
               );
             })}
@@ -187,7 +189,7 @@ export function ScriptPanel({ callId }: { callId: string | null }) {
           onClick={() => setStepIdx((i) => Math.max(0, i - 1))}
           disabled={stepIdx === 0}
         >
-          ← Précédent
+          ← {t("Précédent")}
         </button>
         <button
           onClick={() =>
@@ -195,7 +197,7 @@ export function ScriptPanel({ callId }: { callId: string | null }) {
           }
           disabled={stepIdx >= steps.length - 1}
         >
-          Étape suivante →
+          {t("Étape suivante")} →
         </button>
       </div>
 
@@ -205,7 +207,7 @@ export function ScriptPanel({ callId }: { callId: string | null }) {
             rows={2}
             value={note}
             onChange={(e) => setNote(e.target.value)}
-            placeholder="Note liée à cette étape…"
+            placeholder={t("Note liée à cette étape…")}
             style={{ fontSize: 12 }}
           />
           <div style={{ display: "flex", justifyContent: "flex-end" }}>
@@ -214,7 +216,7 @@ export function ScriptPanel({ callId }: { callId: string | null }) {
               disabled={posting || !note.trim()}
               style={{ padding: "6px 12px", fontSize: 12 }}
             >
-              {posting ? "…" : "+ Ajouter note interaction"}
+              {posting ? "…" : "+ " + t("Ajouter note interaction")}
             </button>
           </div>
           {error && (

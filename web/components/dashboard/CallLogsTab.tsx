@@ -3,6 +3,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useT } from "@/lib/i18n";
+import { ArrowDownLeft, ArrowUpRight, Download, Eye, Headphones } from "lucide-react";
 import { bucketForCall, QUAL_BUCKETS, type QualBucket } from "@/lib/qualification";
 import { fixAudioDuration } from "@/lib/fix-audio-duration";
 import { matchesGlobalFilters, hasLeadScopedFilters, DEFAULT_GLOBAL_FILTERS, type GlobalFilters } from "@/lib/global-filters";
@@ -69,6 +70,7 @@ const QUAL_TONE: Record<QualBucket, string> = {
   faux_numero: "var(--bad)",
   non_eligible: "var(--bad)",
   ne_pas_rappeler: "var(--bad)",
+  suivi_requis: "var(--warn)",
   autre: "var(--muted)",
 };
 
@@ -118,7 +120,7 @@ function counterpartyNumber(c: CallRow): string | null {
   return (c.direction === "inbound" || c.direction === "in") ? c.from_e164 : c.to_e164;
 }
 
-export function CallLogsTab({ from, to, direction, leadsSource = "prod", system = "all", global = DEFAULT_GLOBAL_FILTERS }: { from: string; to: string; direction: string; leadsSource?: "prod" | "test"; system?: "all" | "retell" | "axon"; global?: GlobalFilters }) {
+export function CallLogsTab({ from, to, direction, leadsSource = "prod", system = "all", global = DEFAULT_GLOBAL_FILTERS, campaignId }: { from: string; to: string; direction: string; leadsSource?: "prod" | "test"; system?: "all" | "retell" | "axon"; global?: GlobalFilters; campaignId?: string }) {
   const t = useT();
   const [rows, setRows] = useState<CallRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -144,6 +146,7 @@ export function CallLogsTab({ from, to, direction, leadsSource = "prod", system 
       const qs = new URLSearchParams({ state: stateFilter, limit: "2000", from, to, leads_source: leadsSource, enrich: "lead" });
       if (direction !== "all") qs.set("direction", direction);
       if (system !== "all") qs.set("system", system);
+      if (campaignId && campaignId !== "all") qs.set("campaign_id", campaignId);
       const r = await fetch(`/api/calls?${qs.toString()}`, { cache: "no-store" });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
@@ -154,7 +157,7 @@ export function CallLogsTab({ from, to, direction, leadsSource = "prod", system 
     } finally {
       setLoading(false);
     }
-  }, [stateFilter, from, to, direction, leadsSource, system]);
+  }, [stateFilter, from, to, direction, leadsSource, system, campaignId]);
 
   useEffect(() => {
     fetchData();
@@ -406,7 +409,7 @@ export function CallLogsTab({ from, to, direction, leadsSource = "prod", system 
                       </td>
                       <td>
                         <span style={{ color: (c.direction === "inbound" || c.direction === "in") ? "var(--info)" : "var(--muted)", marginRight: 4 }}>
-                          {(c.direction === "inbound" || c.direction === "in") ? "↘" : "↗"}
+                          {(c.direction === "inbound" || c.direction === "in") ? <ArrowDownLeft size={14} /> : <ArrowUpRight size={14} />}
                         </span>
                         {counterpartyName(c)}
                       </td>
@@ -467,7 +470,7 @@ export function CallLogsTab({ from, to, direction, leadsSource = "prod", system 
                               opacity: c.recording_url ? 1 : 0.35,
                             }}
                           >
-                            🎧
+                            <Headphones size={14} />
                           </button>
                           <Link
                             href={`/calls/${c.id}`}
@@ -478,7 +481,7 @@ export function CallLogsTab({ from, to, direction, leadsSource = "prod", system 
                               textDecoration: "none", color: "var(--text)",
                             }}
                           >
-                            👁
+                            <Eye size={14} />
                           </Link>
                         </div>
                       </td>
@@ -502,7 +505,7 @@ export function CallLogsTab({ from, to, direction, leadsSource = "prod", system 
                               className="ghost"
                               style={{ padding: "4px 10px", fontSize: 12, textDecoration: "none", color: "var(--text)" }}
                             >
-                              ⬇ {t("Télécharger")}
+                              <Download size={14} style={{ verticalAlign: "middle" }} /> {t("Télécharger")}
                             </a>
                           </div>
                         </td>

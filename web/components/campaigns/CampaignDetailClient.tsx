@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { HelpButton } from "@/components/help/HelpButton";
 import { EditCampaignModal } from "./EditCampaignModal";
+import { useT } from "@/lib/i18n";
 
 export interface EngineSummary {
   timezone: string;
@@ -73,7 +74,7 @@ function fmtDate(s: string | null): string {
   return d.toLocaleString();
 }
 
-const DAY_LABELS = ["D", "L", "M", "M", "J", "V", "S"];
+const DAY_LABELS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 
 export function CampaignDetailClient({
   campaign,
@@ -84,6 +85,7 @@ export function CampaignDetailClient({
   targets: TargetRow[];
   runs?: CampaignRunRow[];
 }) {
+  const t = useT();
   const router = useRouter();
   const [state, setState] = useState(campaign.state);
   const [busy, setBusy] = useState<string | null>(null);
@@ -113,7 +115,7 @@ export function CampaignDetailClient({
       setState(next);
       router.refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Erreur");
+      setError(e instanceof Error ? e.message : "Error");
     } finally {
       setBusy(null);
     }
@@ -129,7 +131,7 @@ export function CampaignDetailClient({
       setState("running");
       router.refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Erreur");
+      setError(e instanceof Error ? e.message : "Error");
     } finally {
       setBusy(null);
     }
@@ -149,7 +151,7 @@ export function CampaignDetailClient({
       .filter((r) => r.e164);
     if (contacts.length === 0) {
       setBusy(null);
-      setError("Aucune cible valide.");
+      setError("No valid targets.");
       return;
     }
     try {
@@ -164,7 +166,7 @@ export function CampaignDetailClient({
       setShowImport(false);
       router.refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Erreur");
+      setError(e instanceof Error ? e.message : "Error");
     } finally {
       setBusy(null);
     }
@@ -172,10 +174,10 @@ export function CampaignDetailClient({
 
   const kpis: Array<{ label: string; key: string; tone?: string }> = [
     { label: "Total", key: "_total" },
-    { label: "En cours", key: "dialing" },
-    { label: "Répondus", key: "answered" },
-    { label: "Terminés", key: "done" },
-    { label: "Échecs", key: "failed", tone: "bad" },
+    { label: "Dialing", key: "dialing" },
+    { label: "Answered", key: "answered" },
+    { label: "Done", key: "done" },
+    { label: "Failed", key: "failed", tone: "bad" },
   ];
   const total = targets.length;
 
@@ -184,7 +186,7 @@ export function CampaignDetailClient({
       <div className="page-header">
         <div>
           <Link href="/campaigns" style={{ fontSize: 13, color: "var(--muted)" }}>
-            ← Toutes les campagnes
+            {t("← Toutes les campagnes")}
           </Link>
           <h1 style={{ display: "flex", alignItems: "center", gap: 12 }}>
             {campaign.name}
@@ -200,14 +202,14 @@ export function CampaignDetailClient({
               className="ghost"
               onClick={() => setEditOpen(true)}
               disabled={busy !== null}
-              title="Modifier le nom, les jours, les plages horaires et la cadence"
+              title={t("Modifier le nom, les jours, les créneaux et le débit")}
             >
-              ✎ Éditer
+              ✎ {t("Modifier")}
             </button>
           )}
           {state !== "running" && state !== "completed" && state !== "cancelled" && (
             <button onClick={start} disabled={busy !== null}>
-              {busy === "start" ? "…" : "Démarrer"}
+              {busy === "start" ? "…" : t("Démarrer")}
             </button>
           )}
           {state === "running" && (
@@ -216,12 +218,12 @@ export function CampaignDetailClient({
               onClick={() => patchState("paused")}
               disabled={busy !== null}
             >
-              Mettre en pause
+              {t("Mettre en pause")}
             </button>
           )}
           {state === "paused" && (
             <button onClick={() => patchState("running")} disabled={busy !== null}>
-              Reprendre
+              {t("Reprendre")}
             </button>
           )}
           {/* Reopen: a finished or cancelled campaign can be reactivated at any
@@ -229,7 +231,7 @@ export function CampaignDetailClient({
               static ones re-dial any remaining/failed targets. */}
           {(state === "completed" || state === "cancelled") && (
             <button onClick={() => patchState("running")} disabled={busy !== null}>
-              {busy === "running" ? "…" : "Rouvrir la campagne"}
+              {busy === "running" ? "…" : t("Rouvrir la campagne")}
             </button>
           )}
           {state !== "completed" && state !== "cancelled" && (
@@ -238,7 +240,7 @@ export function CampaignDetailClient({
               onClick={() => patchState("cancelled")}
               disabled={busy !== null}
             >
-              Annuler
+              {t("Annuler")}
             </button>
           )}
           <HelpButton contextKey="campaigns" />
@@ -281,22 +283,22 @@ export function CampaignDetailClient({
       <div className="card" style={{ marginBottom: 16 }}>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
           <div>
-            <div className="muted" style={{ fontSize: 12 }}>Agent</div>
+            <div className="muted" style={{ fontSize: 12 }}>{t("Agent")}</div>
             <div>{campaign.agent_handle_name ?? "—"}</div>
           </div>
           <div>
-            <div className="muted" style={{ fontSize: 12 }}>Numéro émetteur</div>
+            <div className="muted" style={{ fontSize: 12 }}>{t("Numéro affiché")}</div>
             <div>{campaign.phone_e164 ?? "—"}</div>
           </div>
           <div>
-            <div className="muted" style={{ fontSize: 12 }}>Concurrence / tentatives</div>
+            <div className="muted" style={{ fontSize: 12 }}>{t("Concurrence / tentatives")}</div>
             <div>
               {campaign.max_concurrency} · {campaign.max_attempts} (retry {campaign.retry_delay_min}min)
             </div>
           </div>
           <div>
             <div className="muted" style={{ fontSize: 12 }}>AMD</div>
-            <div>{campaign.amd_enabled ? "Activé" : "Désactivé"}</div>
+            <div>{campaign.amd_enabled ? t("Activé") : t("Désactivé")}</div>
           </div>
         </div>
       </div>
@@ -304,12 +306,12 @@ export function CampaignDetailClient({
       {campaign.mode === "dynamic" && campaign.engine && (
         <div className="card" style={{ marginBottom: 16 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-            <h2 style={{ fontSize: 18, margin: 0 }}>Campagne continue</h2>
-            <span className="tag accent">re-sélection automatique</span>
+            <h2 style={{ fontSize: 18, margin: 0 }}>{t("Campagne continue")}</h2>
+            <span className="tag accent">{t("sélection auto")}</span>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 8 }}>
             <div>
-              <div className="muted" style={{ fontSize: 12 }}>Jours</div>
+              <div className="muted" style={{ fontSize: 12 }}>{t("Jours")}</div>
               <div style={{ display: "flex", gap: 4 }}>
                 {[1, 2, 3, 4, 5, 6, 0].map((d) => (
                   <span
@@ -326,21 +328,21 @@ export function CampaignDetailClient({
               </div>
             </div>
             <div>
-              <div className="muted" style={{ fontSize: 12 }}>Créneaux ({campaign.engine.timezone})</div>
+              <div className="muted" style={{ fontSize: 12 }}>{t("Créneaux")} ({campaign.engine.timezone})</div>
               <div>{campaign.engine.hours.length > 0 ? campaign.engine.hours.join(" · ") : "—"}</div>
             </div>
             <div>
-              <div className="muted" style={{ fontSize: 12 }}>Nouveaux / créneau max</div>
+              <div className="muted" style={{ fontSize: 12 }}>{t("Max nouveaux / créneau")}</div>
               <div>{campaign.engine.max_new_per_day ?? "∞"}</div>
             </div>
             <div>
-              <div className="muted" style={{ fontSize: 12 }}>Phases de relance</div>
+              <div className="muted" style={{ fontSize: 12 }}>{t("Phases de relance")}</div>
               <div>{campaign.engine.phases.length > 0 ? campaign.engine.phases.join(" → ") : "—"}</div>
             </div>
           </div>
           {campaign.engine.include_statuses.length > 0 && (
             <div>
-              <div className="muted" style={{ fontSize: 12 }}>Statuts ciblés</div>
+              <div className="muted" style={{ fontSize: 12 }}>{t("Statuts ciblés")}</div>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
                 {campaign.engine.include_statuses.map((s) => (
                   <span key={s} className="tag">{s}</span>
@@ -350,23 +352,23 @@ export function CampaignDetailClient({
           )}
 
           <div className="muted" style={{ fontSize: 12, marginTop: 16, marginBottom: 6 }}>
-            Historique des passages (60 derniers)
+            {t("Historique des runs (60 derniers)")}
           </div>
           {runs.length === 0 ? (
             <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-              Aucun passage encore. Le moteur sélectionnera des contacts au prochain créneau.
+              {t("Aucun run pour l'instant. Le moteur sélectionnera des contacts au prochain créneau.")}
             </p>
           ) : (
             <div style={{ overflowX: "auto" }}>
               <table className="list" style={{ fontSize: 13 }}>
                 <thead>
                   <tr>
-                    <th>Date</th>
-                    <th>Créneau</th>
-                    <th>Sélectionnés</th>
-                    <th>Lancés</th>
-                    <th>Par phase</th>
-                    <th>État</th>
+                    <th>{t("Date")}</th>
+                    <th>{t("Créneau")}</th>
+                    <th>{t("Sélectionnés")}</th>
+                    <th>{t("Lancés")}</th>
+                    <th>{t("Par phase")}</th>
+                    <th>{t("Statut")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -386,12 +388,12 @@ export function CampaignDetailClient({
                       <td>
                         {r.error ? (
                           <span className="tag" style={{ color: "var(--bad)" }} title={r.error}>
-                            erreur
+                            {t("erreur")}
                           </span>
                         ) : r.finished_at ? (
                           <span className="tag good">ok</span>
                         ) : (
-                          <span className="tag">en cours</span>
+                          <span className="tag">{t("en cours")}</span>
                         )}
                       </td>
                     </tr>
@@ -405,16 +407,16 @@ export function CampaignDetailClient({
 
       <div className="page-header" style={{ marginTop: 0 }}>
         <h2 style={{ fontSize: 18, margin: 0 }}>
-          {campaign.mode === "dynamic" ? "File d'appel actuelle" : "Cibles"}
+          {campaign.mode === "dynamic" ? t("File d'appels actuelle") : t("Cibles")}
         </h2>
         <button className="subtle" onClick={() => setShowImport((v) => !v)}>
-          {showImport ? "Annuler" : "Ajouter des cibles"}
+          {showImport ? t("Annuler") : t("Ajouter des cibles")}
         </button>
       </div>
 
       {showImport && (
         <div className="card" style={{ marginBottom: 12 }}>
-          <label>Coller un CSV (e164,nom)</label>
+          <label>{t("Coller un CSV (e164,nom)")}</label>
           <textarea
             value={csvText}
             onChange={(e) => setCsvText(e.target.value)}
@@ -423,7 +425,7 @@ export function CampaignDetailClient({
           />
           <div style={{ marginTop: 8 }}>
             <button onClick={importTargets} disabled={busy !== null}>
-              {busy === "import" ? "Import…" : "Importer"}
+              {busy === "import" ? t("Importation…") : t("Importer")}
             </button>
           </div>
         </div>
@@ -434,23 +436,18 @@ export function CampaignDetailClient({
           {campaign.mode === "dynamic" ? (
             <>
               <p style={{ margin: 0, fontWeight: 600 }}>
-                ⟳ Sélection automatique à chaque créneau
+                ⟳ {t("Sélection automatique à chaque créneau")}
               </p>
               <p className="muted" style={{ margin: "6px 0 0 0", fontSize: 13, lineHeight: 1.5 }}>
-                Cette campagne est en mode <strong>continu</strong> : le moteur tire les contacts
-                directement depuis ta table à chaque créneau horaire, selon les règles que tu as
-                définies (statuts ciblés, relances J+X, plafond par jour). La file n&apos;est
-                jamais figée à l&apos;avance — elle se renouvelle automatiquement.
+                {t("Cette campagne est en mode")} <strong>{t("continu")}</strong> : {t("le moteur pioche les contacts directement dans votre table à chaque créneau, selon les règles définies (statuts ciblés, relances J+X, plafond journalier). La file n'est jamais fixe — elle se rafraîchit automatiquement.")}
               </p>
               <p className="muted" style={{ margin: "8px 0 0 0", fontSize: 12 }}>
-                Une fois la campagne <strong>démarrée</strong>, l&apos;historique des passages
-                ci-dessus se remplira au fur et à mesure (créneau, nombre tiré, lancés).
+                {t("Une fois la campagne")} <strong>{t("démarrée")}</strong>, {t("l'historique des runs ci-dessus se remplira progressivement (créneau, sélectionnés, lancés).")}
               </p>
             </>
           ) : (
             <p className="muted" style={{ margin: 0 }}>
-              Aucune cible pour cette campagne. Utilise « Ajouter des cibles » pour importer
-              un CSV ou sélectionner des contacts.
+              {t("Aucune cible pour cette campagne. Utilisez")} &ldquo;{t("Ajouter des cibles")}&rdquo; {t("pour importer un CSV ou sélectionner des contacts.")}
             </p>
           )}
         </div>
@@ -459,36 +456,36 @@ export function CampaignDetailClient({
           <table className="list">
             <thead>
               <tr>
-                <th>Contact</th>
-                <th>Statut</th>
-                <th>Tentatives</th>
-                <th>Dernier essai</th>
-                <th>Prochain essai</th>
-                <th>Appel</th>
+                <th>{t("Contact")}</th>
+                <th>{t("Statut")}</th>
+                <th>{t("Tentatives")}</th>
+                <th>{t("Dernière tentative")}</th>
+                <th>{t("Prochaine tentative")}</th>
+                <th>{t("Appel")}</th>
               </tr>
             </thead>
             <tbody>
-              {targets.map((t) => (
-                <tr key={t.id}>
+              {targets.map((tgt) => (
+                <tr key={tgt.id}>
                   <td>
-                    <div>{t.contact_name ?? t.contact_e164 ?? "—"}</div>
-                    {t.contact_name && (
-                      <div className="muted" style={{ fontSize: 12 }}>{t.contact_e164}</div>
+                    <div>{tgt.contact_name ?? tgt.contact_e164 ?? "—"}</div>
+                    {tgt.contact_name && (
+                      <div className="muted" style={{ fontSize: 12 }}>{tgt.contact_e164}</div>
                     )}
                   </td>
                   <td>
-                    <span className="tag">{t.status}</span>
+                    <span className="tag">{tgt.status}</span>
                   </td>
-                  <td>{t.attempts}</td>
+                  <td>{tgt.attempts}</td>
                   <td className="muted" style={{ fontSize: 12 }}>
-                    {fmtDate(t.last_attempt_at)}
+                    {fmtDate(tgt.last_attempt_at)}
                   </td>
                   <td className="muted" style={{ fontSize: 12 }}>
-                    {fmtDate(t.next_attempt_at)}
+                    {fmtDate(tgt.next_attempt_at)}
                   </td>
                   <td>
-                    {t.last_call_id ? (
-                      <Link href={`/calls/${t.last_call_id}`}>Voir</Link>
+                    {tgt.last_call_id ? (
+                      <Link href={`/calls/${tgt.last_call_id}`}>{t("Voir")}</Link>
                     ) : (
                       <span className="muted">—</span>
                     )}

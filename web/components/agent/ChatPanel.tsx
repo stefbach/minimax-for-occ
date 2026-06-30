@@ -3,8 +3,10 @@
 import { useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
+import { useT } from "@/lib/i18n";
 
 export function ChatPanel({ agentId }: { agentId: string }) {
+  const t = useT();
   const [input, setInput] = useState("");
   const { messages, sendMessage, status, error } = useChat({
     transport: new DefaultChatTransport({
@@ -28,7 +30,7 @@ export function ChatPanel({ agentId }: { agentId: string }) {
       <div className="chat-log">
         {messages.length === 0 && (
           <div style={{ color: "var(--muted)", padding: 8 }}>
-            Tapez un message pour démarrer la conversation textuelle avec cet agent.
+            {t("Tapez un message pour démarrer la conversation textuelle avec cet agent.")}
           </div>
         )}
         {messages.map((m) => (
@@ -48,11 +50,11 @@ export function ChatPanel({ agentId }: { agentId: string }) {
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Votre message…"
+          placeholder={t("Votre message…")}
           disabled={isLoading}
         />
         <button type="submit" disabled={isLoading || !input.trim()}>
-          Envoyer
+          {t("Envoyer")}
         </button>
       </form>
     </>

@@ -50,23 +50,29 @@ export async function GET(req: Request) {
 
   const physicalTable = (dt as { physical_table: string }).physical_table;
 
-  // Low-cardinality column → bounded scan + JS dedupe is enough (PostgREST has
-  // no DISTINCT). Cap the distinct set so a misconfigured column can't flood
-  // the prompt.
-  const { data: rows, error } = await sb
-    .from(physicalTable)
-    .select(statusColumn)
-    .not(statusColumn, "is", null)
-    .limit(5000);
-  if (error) return NextResponse.json({ column: statusColumn, values: [] });
-
+  // Low-cardinality column → page through it (PostgREST caps a single response
+  // at ~1000 rows, and reading one page would miss most statuses on a big
+  // table). Cap the distinct set so a misconfigured column can't flood the
+  // prompt, and bound the scan so a huge table can't run unbounded.
   const seen = new Set<string>();
-  for (const row of rows ?? []) {
-    const raw = (row as unknown as Record<string, unknown>)[statusColumn];
-    if (raw == null) continue;
-    const v = String(raw).trim();
-    if (v) seen.add(v);
-    if (seen.size >= 50) break;
+  const PAGE = 1000;
+  for (let from = 0; from < 50000 && seen.size < 50; from += PAGE) {
+    const { data: rows, error } = await sb
+      .from(physicalTable)
+      .select(statusColumn)
+      .not(statusColumn, "is", null)
+      .order(statusColumn, { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) break;
+    const batch = (rows ?? []) as unknown as Array<Record<string, unknown>>;
+    for (const row of batch) {
+      const raw = row[statusColumn];
+      if (raw == null) continue;
+      const v = String(raw).trim();
+      if (v) seen.add(v);
+      if (seen.size >= 50) break;
+    }
+    if (batch.length < PAGE) break;
   }
 
   return NextResponse.json({ column: statusColumn, values: Array.from(seen).sort() });

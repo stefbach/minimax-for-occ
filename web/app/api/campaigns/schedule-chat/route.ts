@@ -24,6 +24,8 @@ interface ChatContext {
   detected_relance_phases?: number | null;
   concurrency_limit?: number | null;
   org_category?: string | null;
+  is_human_campaign?: boolean;
+  human_agent_name?: string | null;
 }
 
 function buildSystem(ctx: ChatContext): string {
@@ -32,13 +34,20 @@ function buildSystem(ctx: ChatContext): string {
   const sectorLine = ctx.org_category
     ? `\nSecteur du client : ${ctx.org_category}. Adapte ton vocabulaire à ce métier (ex. « réservations » pour un restaurant/hôtel, « relances » pour un recouvrement, « rappels » pour une clinique), mais ne change RIEN à la mécanique de planification.`
     : "";
-  return `Tu es l'assistant de planification de campagnes d'appels d'Axon. L'opérateur a déjà choisi QUI appelle (le numéro émetteur) et QUI appeler (la base de contacts). Ton SEUL rôle est de définir le « QUAND » : jours, fuseau horaire, plages horaires, et — pour les campagnes continues — la cadence de relances, les statuts ciblés et le volume.${sectorLine}
+  const humanLine = ctx.is_human_campaign
+    ? `\n\nCAMPAGNE AGENT HUMAIN${ctx.human_agent_name ? ` (${ctx.human_agent_name})` : ""} : ce n'est PAS une campagne IA et le système n'appelle JAMAIS tout seul. L'agent active la campagne depuis « Mon poste » ; le système lui présente le prochain lead (et envoie le SMS/WhatsApp si activé), puis c'est l'AGENT qui clique pour appeler, qualifie, et le lead suivant s'affiche. Conséquences pour ta planification :
+- Les jours et plages horaires que tu définis correspondent aux heures où l'agent travaille à son poste (pas 24h/24).
+- C'est l'agent qui démarre/arrête la campagne depuis « Mon poste » : rien ne part tant qu'il ne l'a pas activée. Rappelle-le si utile.
+- Pas de notion de concurrence ni de « waves » : l'agent traite les leads un par un, à son rythme.
+IMPORTANT — pour cette campagne humaine, ne demande QUE les jours, les heures et le fuseau. N'aborde PAS les statuts ciblés, le volume, la taille des waves ni les relances : ils ne s'appliquent pas ici (les leads à appeler ont déjà été choisis à l'étape précédente « Qui appeler »). Appelle propose_schedule avec uniquement days, timezone et hour_ranges.`
+    : "";
+  return `Tu es l'assistant de planification de campagnes d'appels d'Axon. L'opérateur a déjà choisi QUI appelle (le numéro émetteur) et QUI appeler (la base de contacts). Ton SEUL rôle est de définir le « QUAND » : jours, fuseau horaire, plages horaires, et — pour les campagnes continues — la cadence de relances, les statuts ciblés et le volume.${sectorLine}${humanLine}
 
 Déroulé attendu :
 1. Discute avec l'opérateur en français, naturel et concis. Pose des questions seulement si une information indispensable manque (jours, heures, fuseau).
-2. Dès que l'opérateur donne ou modifie un élément de planning, appelle l'outil \`propose_schedule\` avec la planification COMPLÈTE et à jour (jamais un fragment). Reformule ensuite en clair ce que ça produit et demande une confirmation explicite.
+2. Dès que l'opérateur donne ou modifie un élément de planning, appelle l'outil \`propose_schedule\` avec la planification COMPLÈTE et à jour (jamais un fragment). Reformule ensuite en clair ce que ça produit, PRÉCISE EXPLICITEMENT que tu vas créer la campagne EN BROUILLON (rien ne part tant qu'elle n'est pas lancée${ctx.is_human_campaign ? "/activée depuis « Mon poste »" : ""}), et demande une confirmation explicite.
 3. N'appelle \`finalize_campaign\` QUE lorsque l'opérateur valide explicitement (« go », « valide », « crée la campagne »). Ne finalise jamais dans le même tour qu'une nouvelle proposition : propose d'abord, attends le feu vert.
-4. Ne prétends jamais que la campagne est créée tant que \`finalize_campaign\` n'a pas réussi.
+4. Ne prétends jamais que la campagne est créée tant que \`finalize_campaign\` n'a pas réussi. Quand elle a réussi, dis bien qu'elle est créée EN BROUILLON${ctx.is_human_campaign ? " et qu'il faut l'activer depuis « Mon poste » pour démarrer les appels" : ""}.
 
 Règles de planification :
 - Le fuseau doit être un identifiant IANA valide (ex. « Maurice » → Indian/Mauritius, « UK »/« Royaume-Uni » → Europe/London, « France » → Europe/Paris). En cas de doute, demande.

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useT } from "@/lib/i18n";
 
 interface Secret {
   id: string;
@@ -19,6 +20,7 @@ export function InboundConnectorsClient({
   orgId: string;
   campaigns: Array<{ id: string; name: string }>;
 }) {
+  const t = useT();
   const [rows, setRows] = useState<Secret[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -78,7 +80,7 @@ export function InboundConnectorsClient({
   }
 
   async function removeSecret(id: string) {
-    if (!confirm("Supprimer ce connecteur ? Les webhooks n8n cesseront de fonctionner.")) return;
+    if (!confirm(t("Supprimer ce connecteur ? Les webhooks n8n cesseront de fonctionner."))) return;
     setError(null);
     try {
       const r = await fetch(`/api/admin/inbound-secrets?id=${id}`, { method: "DELETE" });
@@ -100,7 +102,7 @@ export function InboundConnectorsClient({
   }
 
   function campaignName(id: string | null): string {
-    if (!id) return "(par défaut : 1ère campagne active de l'org)";
+    if (!id) return t("(défaut : première campagne active de l'org)");
     return campaigns.find((c) => c.id === id)?.name ?? id;
   }
 
@@ -113,31 +115,31 @@ export function InboundConnectorsClient({
       )}
 
       <section className="card">
-        <h2 style={{ marginTop: 0 }}>URL du webhook</h2>
+        <h2 style={{ marginTop: 0 }}>Webhook URL</h2>
         <p className="subtitle" style={{ marginTop: 4 }}>
-          Toutes les intégrations n8n appellent cette URL en POST avec le secret du connecteur dans le body.
+          {t("Toutes les intégrations n8n appellent cette URL via POST avec le secret du connecteur dans le corps.")}
         </p>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <code style={{ flex: 1, padding: "8px 10px", background: "var(--surface-2, #111)", borderRadius: 6 }}>
             {webhookUrl}
           </code>
           <button onClick={() => copy(webhookUrl, "url")} className="btn">
-            {copied === "url" ? "Copié !" : "Copier l'URL"}
+            {copied === "url" ? t("Copié !") : t("Copier l'URL")}
           </button>
         </div>
       </section>
 
       <section className="card">
-        <h2 style={{ marginTop: 0 }}>Créer un connecteur</h2>
+        <h2 style={{ marginTop: 0 }}>{t("Créer un connecteur")}</h2>
         <div style={{ display: "grid", gap: 8, gridTemplateColumns: "2fr 2fr auto" }}>
           <input
             type="text"
-            placeholder="Nom (ex: Google Ads – Septembre)"
+            placeholder={t("Nom (ex. Google Ads – Septembre)")}
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
           />
           <select value={newCampaign} onChange={(e) => setNewCampaign(e.target.value)}>
-            <option value="">Campagne par défaut (auto)</option>
+            <option value="">{t("Campagne par défaut (auto)")}</option>
             {campaigns.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
@@ -145,24 +147,22 @@ export function InboundConnectorsClient({
             ))}
           </select>
           <button onClick={createSecret} disabled={busy || !newName.trim()} className="btn primary">
-            {busy ? "…" : "Générer secret"}
+            {busy ? "…" : t("Générer le secret")}
           </button>
         </div>
       </section>
 
       <section className="card">
-        <h2 style={{ marginTop: 0 }}>Connecteurs ({rows.length})</h2>
+        <h2 style={{ marginTop: 0 }}>{t("Connecteurs")} ({rows.length})</h2>
         {loading ? (
-          <div className="subtitle">Chargement…</div>
+          <div className="subtitle">{t("Chargement…")}</div>
         ) : rows.length === 0 ? (
           <div style={{ display: "grid", gap: 10 }}>
             <div className="subtitle" style={{ margin: 0 }}>
-              Aucun connecteur pour l&apos;instant.
+              {t("Aucun connecteur pour l'instant.")}
             </div>
             <div className="subtitle" style={{ margin: 0, maxWidth: 560 }}>
-              Un connecteur génère un secret unique pour qu&apos;un workflow n8n
-              (Google Ads, Facebook Lead Ads, Google Sheets…) puisse pousser des
-              leads dans cette org.
+              {t("Un connecteur génère un secret unique pour qu'un workflow n8n (Google Ads, Facebook Lead Ads, Google Sheets…) puisse pousser des leads dans cette org.")}
             </div>
             <div>
               <button
@@ -174,7 +174,7 @@ export function InboundConnectorsClient({
                   el?.scrollIntoView({ behavior: "smooth", block: "center" });
                 }}
               >
-                + Créer un connecteur
+                + {t("Créer un connecteur")}
               </button>
             </div>
           </div>
@@ -182,10 +182,10 @@ export function InboundConnectorsClient({
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr style={{ textAlign: "left", color: "var(--muted-2)", fontSize: 12 }}>
-                <th style={{ padding: 8 }}>Nom</th>
-                <th style={{ padding: 8 }}>Campagne</th>
-                <th style={{ padding: 8 }}>Secret</th>
-                <th style={{ padding: 8 }}>Créé le</th>
+                <th style={{ padding: 8 }}>{t("Nom")}</th>
+                <th style={{ padding: 8 }}>{t("Campagne")}</th>
+                <th style={{ padding: 8 }}>{t("Secret")}</th>
+                <th style={{ padding: 8 }}>{t("Créé le")}</th>
                 <th style={{ padding: 8 }}></th>
               </tr>
             </thead>
@@ -202,7 +202,7 @@ export function InboundConnectorsClient({
                   </td>
                   <td style={{ padding: 8, display: "flex", gap: 6, justifyContent: "flex-end" }}>
                     <button onClick={() => copy(s.secret, `s-${s.id}`)} className="btn">
-                      {copied === `s-${s.id}` ? "Copié !" : "Copier secret"}
+                      {copied === `s-${s.id}` ? t("Copié !") : t("Copier le secret")}
                     </button>
                     <button
                       onClick={() => copy(
@@ -211,10 +211,10 @@ export function InboundConnectorsClient({
                       )}
                       className="btn"
                     >
-                      {copied === `j-${s.id}` ? "Copié !" : "Copier (URL+secret JSON)"}
+                      {copied === `j-${s.id}` ? t("Copié !") : t("Copier (URL+secret JSON)")}
                     </button>
                     <button onClick={() => removeSecret(s.id)} className="btn danger">
-                      Supprimer
+                      {t("Supprimer")}
                     </button>
                   </td>
                 </tr>
@@ -225,20 +225,20 @@ export function InboundConnectorsClient({
       </section>
 
       <section className="card">
-        <h2 style={{ marginTop: 0 }}>Templates n8n disponibles</h2>
+        <h2 style={{ marginTop: 0 }}>{t("Templates n8n disponibles")}</h2>
         <ul style={{ lineHeight: 1.8 }}>
           <li>
             <code>n8n/templates/google-ads-lead-to-axon.json</code> — Google Ads Lead Form Extensions
           </li>
           <li>
-            <code>n8n/templates/facebook-lead-ads-to-axon.json</code> — Facebook Lead Ads (avec verify token)
+            <code>n8n/templates/facebook-lead-ads-to-axon.json</code> — Facebook Lead Ads (with verify token)
           </li>
           <li>
-            <code>n8n/templates/google-sheets-to-axon.json</code> — nouvelle ligne dans Google Sheets (CSV)
+            <code>n8n/templates/google-sheets-to-axon.json</code> — new row in Google Sheets (CSV)
           </li>
         </ul>
         <p className="subtitle">
-          Voir <code>docs/CONNECTORS.md</code> pour l&apos;import et les variables à renseigner dans n8n.
+          {t("Voir")} <code>docs/CONNECTORS.md</code> {t("pour les instructions d'import et la configuration des variables n8n.")}
         </p>
       </section>
     </div>

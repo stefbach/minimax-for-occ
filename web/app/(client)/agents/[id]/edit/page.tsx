@@ -13,8 +13,8 @@ export default async function EditAgentPage({ params }: { params: Promise<{ id: 
   if (!hasSupabase()) {
     return (
       <div className="card">
-        <h3>Supabase non configuré</h3>
-        <p className="muted">Définissez les env vars Supabase pour éditer.</p>
+        <h3>Supabase not configured</h3>
+        <p className="muted">Set the Supabase env vars to edit.</p>
       </div>
     );
   }
@@ -33,10 +33,10 @@ export default async function EditAgentPage({ params }: { params: Promise<{ id: 
     <>
       <div className="page-header">
         <div>
-          <h1>Éditer · {agent.name}</h1>
+          <h1>Edit · {agent.name}</h1>
           <div className="subtitle">
             <Link href={`/agents/${agent.id}`} style={{ color: "var(--muted)" }}>
-              ← retour à la session
+              ← back to session
             </Link>
           </div>
         </div>

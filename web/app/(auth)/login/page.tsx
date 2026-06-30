@@ -5,8 +5,10 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 import { Brand } from "@/components/brand/Brand";
+import { useT } from "@/lib/i18n";
 
 function LoginForm() {
+  const t = useT();
   const router = useRouter();
   const sp = useSearchParams();
   const next = sp.get("next") ?? "/";
@@ -34,7 +36,7 @@ function LoginForm() {
     <div className="card" style={{ display: "grid", gap: 14 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <Brand size={22} />
-        <span style={{ color: "var(--muted)", marginLeft: 6 }}>· Connexion</span>
+        <span style={{ color: "var(--muted)", marginLeft: 6 }}>· {t("Connexion")}</span>
       </div>
       <form onSubmit={onSubmit} style={{ display: "grid", gap: 12 }}>
         <div>
@@ -42,16 +44,16 @@ function LoginForm() {
           <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
         </div>
         <div>
-          <label>Mot de passe</label>
+          <label>{t("Mot de passe")}</label>
           <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} />
         </div>
         {error && <div style={{ color: "var(--bad)", fontSize: 13 }}>{error}</div>}
         <button type="submit" disabled={busy || !email || !password}>
-          {busy ? "Connexion…" : "Se connecter"}
+          {busy ? t("Connexion…") : t("Se connecter")}
         </button>
       </form>
       <div style={{ fontSize: 13, color: "var(--muted)" }}>
-        Pas de compte ? <Link href={`/signup${next ? `?next=${next}` : ""}`} style={{ color: "var(--accent-2)" }}>Créer un compte</Link>
+        {t("Pas de compte ?")} <Link href={`/signup${next ? `?next=${next}` : ""}`} style={{ color: "var(--accent-2)" }}>{t("Créer un compte")}</Link>
       </div>
     </div>
   );

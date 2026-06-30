@@ -159,7 +159,13 @@ export interface PatientExportRow {
   bmi: number | null;
   qualification: string | null;
   last_call_datetime: string | null;
+  call_count: number | null;
+  patient_dob: string | null;
+  other_chronic_conditions: string | null;
+  current_phase: string | null;
 }
+
+const PATIENT_EXPORT_COLS = "nom, email, numero_telephone, poids, taille, bmi, qualification, last_call_datetime, call_count, patient_dob, other_chronic_conditions, current_phase";
 
 /** Load patients active in the period (last_call_datetime within window, or created_at). */
 export async function loadPatientDataForExport(
@@ -181,7 +187,7 @@ export async function loadPatientDataForExport(
   // Query the table, filtering by last_call_datetime in period (fallback: all rows up to limit)
   const { data } = await sb
     .from(table.physical_table)
-    .select("nom, email, numero_telephone, poids, taille, bmi, qualification, last_call_datetime")
+    .select(PATIENT_EXPORT_COLS)
     .gte("last_call_datetime", period.fromIso)
     .lt("last_call_datetime", period.toIso)
     .limit(limit);
@@ -191,7 +197,7 @@ export async function loadPatientDataForExport(
   // If no results for the filtered period, return all rows (so export is always useful)
   const { data: allData } = await sb
     .from(table.physical_table)
-    .select("nom, email, numero_telephone, poids, taille, bmi, qualification, last_call_datetime")
+    .select(PATIENT_EXPORT_COLS)
     .order("last_call_datetime", { ascending: false })
     .limit(limit);
   return (allData ?? []) as PatientExportRow[];

@@ -77,6 +77,12 @@ export interface PreflightInput {
   agent?: PreflightAgent | null;
   /** Resolved phone-number row referenced by `phone_number_id`. */
   phoneNumber?: PreflightPhoneNumber | null;
+  /**
+   * True when the campaign runs on a HUMAN desk agent (not an AI agent). The
+   * prompt + TTS-voice checks are AI-only, so they're skipped for human
+   * campaigns (a human has neither — the human IS the voice).
+   */
+  is_human_agent?: boolean | null;
 }
 
 export interface PreflightResult {
@@ -125,36 +131,45 @@ export function preflightCampaign(input: PreflightInput): PreflightResult {
   // ── 2. agent_has_prompt ─────────────────────────────────────────────
   // Only check when an agent reference exists — otherwise it's redundant with
   // #1. The check still reports `passed=false` so the UI shows the issue.
+  // AI-only: a human desk agent has no prompt (the human speaks), so skip it.
+  const isHuman = Boolean(input.is_human_agent);
   const prompt = agentPrompt(input.agent);
-  const promptOk = hasAgentRef ? prompt.length > 0 : false;
+  const promptOk = isHuman ? true : hasAgentRef ? prompt.length > 0 : false;
   checks.push({
     id: "agent_has_prompt",
     label: "L'agent a un prompt (instructions)",
     severity: "blocker",
     passed: promptOk,
-    detail: promptOk
-      ? "L'agent dispose d'instructions de conversation."
-      : hasAgentRef
-        ? "L'agent référencé n'a pas de prompt/instructions configuré."
-        : "Impossible de vérifier le prompt tant qu'aucun agent n'est sélectionné.",
+    detail: isHuman
+      ? "Campagne agent humain — aucun prompt IA requis."
+      : promptOk
+        ? "L'agent dispose d'instructions de conversation."
+        : hasAgentRef
+          ? "L'agent référencé n'a pas de prompt/instructions configuré."
+          : "Impossible de vérifier le prompt tant qu'aucun agent n'est sélectionné.",
     remediation:
       "Ouvre l'agent, ajoute une instruction (page Agents).",
   });
 
   // ── 3. agent_has_voice ──────────────────────────────────────────────
-  const voiceOk = hasAgentRef
-    ? Boolean(input.agent?.tts_voice_id && String(input.agent.tts_voice_id).trim())
-    : false;
+  // AI-only: a human desk agent is the voice, so skip the TTS check.
+  const voiceOk = isHuman
+    ? true
+    : hasAgentRef
+      ? Boolean(input.agent?.tts_voice_id && String(input.agent.tts_voice_id).trim())
+      : false;
   checks.push({
     id: "agent_has_voice",
     label: "L'agent a une voix TTS",
     severity: "blocker",
     passed: voiceOk,
-    detail: voiceOk
-      ? "L'agent a une voix TTS associée."
-      : hasAgentRef
-        ? "L'agent référencé n'a pas de `tts_voice_id`."
-        : "Impossible de vérifier la voix tant qu'aucun agent n'est sélectionné.",
+    detail: isHuman
+      ? "Campagne agent humain — aucune voix TTS requise."
+      : voiceOk
+        ? "L'agent a une voix TTS associée."
+        : hasAgentRef
+          ? "L'agent référencé n'a pas de `tts_voice_id`."
+          : "Impossible de vérifier la voix tant qu'aucun agent n'est sélectionné.",
     remediation:
       "Sélectionne ou clone une voix sur la fiche agent (page Agents → Voix).",
   });

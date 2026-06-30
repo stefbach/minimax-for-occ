@@ -3,6 +3,7 @@ import { dialTarget, type DialJob } from "./dial.js";
 import { ensureOutboundTrunkAuth } from "./livekit-trunk.js";
 import { ensureInboundDispatchRuleAgent, ensureInboundTrunkKrisp } from "./livekit-dispatch.js";
 import { runDynamicSelection } from "./dynamic-selection.js";
+import { collectExactTimeCallbacks } from "./callbacks.js";
 
 const POLL_INTERVAL_MS = Number(process.env.POLL_INTERVAL_MS ?? 30_000);
 const WORKER_CONCURRENCY = Number(process.env.WORKER_CONCURRENCY ?? 10);
@@ -46,7 +47,7 @@ async function scheduleTick() {
 
   const { data: campaigns, error } = await sb
     .from("campaigns")
-    .select("id,state,max_concurrency,schedule,mode,metadata,data_table_id,org_id")
+    .select("id,state,max_concurrency,schedule,mode,metadata,data_table_id,org_id,agent_handle_id")
     .eq("state", "running");
   if (error) {
     console.error("[scheduler] failed to list running campaigns:", error.message);
@@ -54,8 +55,66 @@ async function scheduleTick() {
   }
   if (!campaigns || campaigns.length === 0) return;
 
+  // Human desk campaigns are dialled MANUALLY by the agent from "Mon poste"
+  // (the system presents the next lead, the human clicks to call) — the dialer
+  // must NOT auto-dial them. Resolve which campaigns point at a human handle
+  // and skip those entirely.
+  const humanCampaignIds = new Set<string>();
+  try {
+    const handleIds = Array.from(
+      new Set(campaigns.map((c) => (c as any).agent_handle_id).filter(Boolean)),
+    ) as string[];
+    if (handleIds.length > 0) {
+      const { data: handles } = await sb
+        .from("agent_handles")
+        .select("id,kind")
+        .in("id", handleIds);
+      const humanHandleIds = new Set(
+        (handles ?? []).filter((h) => (h as any).kind === "human").map((h) => h.id as string),
+      );
+      for (const c of campaigns) {
+        if (humanHandleIds.has((c as any).agent_handle_id)) humanCampaignIds.add(c.id as string);
+      }
+    }
+  } catch (e) {
+    console.error("[scheduler] human-campaign resolve failed:", (e as Error)?.message);
+  }
+
   const now = new Date();
+
+  // ── Exact-time AI callbacks (opt-in: CALLBACK_EXACT_TIME=1) ──────────────
+  // A patient-requested callback at 15:00 must fire at 15:00, not the next
+  // campaign slot. collectExactTimeCallbacks runs INDEPENDENT of the schedule
+  // window (it self-clamps to 08–21 UK) and returns ready-to-dial jobs. We dial
+  // them here with the same concurrency + stagger pacing as the normal loop.
+  // No-op unless the env flag is set, so a deploy doesn't change behaviour.
+  try {
+    const cbBudget = Math.max(0, WORKER_CONCURRENCY - activeDials);
+    const cbJobs = cbBudget > 0 ? await collectExactTimeCallbacks(sb, now, cbBudget) : [];
+    let firstCb = true;
+    for (const job of cbJobs) {
+      if (!firstCb) {
+        const staggerMs = Math.max(0, Number(process.env.DIAL_STAGGER_MS ?? 1300));
+        if (staggerMs > 0) await new Promise((r) => setTimeout(r, staggerMs));
+      }
+      firstCb = false;
+      activeDials++;
+      dialTarget(job)
+        .catch((err) => console.error(`[callbacks] dial ${job.target_id} failed:`, err?.message))
+        .finally(() => { activeDials--; });
+    }
+    if (cbJobs.length > 0) {
+      console.log(`[scheduler] exact-time callbacks dialed=${cbJobs.length} active=${activeDials}`);
+    }
+  } catch (e) {
+    console.error("[scheduler] exact-time callbacks failed:", (e as Error)?.message);
+  }
+
   for (const c of campaigns) {
+    // Human desk campaigns are agent-driven (manual dial from "Mon poste") —
+    // never auto-dialled here.
+    if (humanCampaignIds.has(c.id as string)) continue;
+
     // ALL campaigns honour the schedule gate, dynamic and static both —
     // Wati saw a call leak out at 10:04 UK while the slot ended at 10:00
     // UK because the dynamic branch bypassed withinSchedule() entirely.
@@ -87,14 +146,32 @@ async function scheduleTick() {
     const slots = Math.max(0, maxConcurrency - (dialingCount ?? 0) - activeDials);
     if (slots === 0) continue;
 
-    const { data: due } = await sb
+    // Prioritise targets whose pre-call message is ALREADY sent for the
+    // upcoming attempt (ready to DIAL) over those still awaiting a message.
+    // Otherwise a large pre-call batch gets fully messaged before any call
+    // goes out — the SMS-deferred targets carry a LATER next_attempt_at
+    // (send + lead_minutes) than freshly-seeded "needs SMS" rows, so a plain
+    // oldest-first pick keeps choosing "needs SMS" and the calls never start
+    // (Wati 26/06: 32 messaged leads, 0 dialing). Over-fetch newest-first so
+    // the ready ones are in the window, then rank them first. Campaigns
+    // without pre-call carry no marker → every row ranks equal, order kept.
+    const { data: dueRaw } = await sb
       .from("campaign_targets")
-      .select("id,campaign_id")
+      .select("id,campaign_id,attempts,sms_marker:payload->>precall_sms_attempt")
       .eq("campaign_id", c.id)
       .eq("status", "pending")
       .not("next_attempt_at", "is", null)
       .lte("next_attempt_at", now.toISOString())
-      .limit(slots);
+      .order("next_attempt_at", { ascending: false })
+      .limit(Math.max(slots * 5, 25));
+    const due = (dueRaw ?? [])
+      .map((t) => {
+        const attempts = typeof t.attempts === "number" ? t.attempts : 0;
+        const marker = Number((t as { sms_marker?: string | null }).sms_marker ?? -1);
+        return { id: t.id as string, campaign_id: t.campaign_id as string, rank: marker === attempts + 1 ? 0 : 1 };
+      })
+      .sort((a, b) => a.rank - b.rank)
+      .slice(0, slots);
 
     let first = true;
     for (const t of due ?? []) {

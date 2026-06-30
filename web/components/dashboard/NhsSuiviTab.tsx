@@ -22,18 +22,34 @@ import AssignMenu from "./AssignMenu";
 // Clones the OCC demo's "Suivi patient NHS S2" panel in Axon's theme.
 // Visible only for orgs where the feature flag is on (see DashboardClient).
 
-export function NhsSuiviTab() {
+export function NhsSuiviTab({
+  openPatientId,
+  openContactId,
+  onOpened,
+}: {
+  openPatientId?: string | null;
+  openContactId?: string | null;
+  onOpened?: () => void;
+} = {}) {
   // One AssignmentsProvider wraps the whole tab (and all its sub-views) so the
   // reusable <AssignMenu> can sit next to any patient name and share a single
   // load of the coordinator roster + current assignments.
   return (
     <AssignmentsProvider>
-      <NhsSuiviTabInner />
+      <NhsSuiviTabInner openPatientId={openPatientId} openContactId={openContactId} onOpened={onOpened} />
     </AssignmentsProvider>
   );
 }
 
-function NhsSuiviTabInner() {
+function NhsSuiviTabInner({
+  openPatientId,
+  openContactId,
+  onOpened,
+}: {
+  openPatientId?: string | null;
+  openContactId?: string | null;
+  onOpened?: () => void;
+} = {}) {
   const t = useT();
   const [data, setData] = useState<NhsSuiviResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -44,6 +60,19 @@ function NhsSuiviTabInner() {
   // patient LIST pre-filtered on the matching status; clicking a patient opens
   // the full dossier (checklist 11 docs, timeline, statut NHS, actions).
   const [view, setView] = useState<NhsView>({ name: "dashboard" });
+  // Deep-link: when the dashboard patient search picks a result, jump straight
+  // to that patient's dossier (or contact detail). onOpened clears the parent
+  // state so re-selecting the same patient later still fires.
+  useEffect(() => {
+    if (openPatientId) {
+      setView({ name: "detail", id: openPatientId, from: "all" });
+      onOpened?.();
+    } else if (openContactId) {
+      setView({ name: "contact-detail", contactId: openContactId, displayName: "" });
+      onOpened?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openPatientId, openContactId]);
   // Maps each card to the same list filter the legacy dashboard uses.
   const METRIC_FILTER: Record<string, PatientFilter> = {
     email_j0: "all", email_j2: "all", whatsapp_j2: "all", responses: "has-response",
@@ -54,6 +83,18 @@ function NhsSuiviTabInner() {
   };
   const openDrill = (metric: string, _title?: string) =>
     setView({ name: "list", filter: METRIC_FILTER[metric] ?? "all" });
+  // Open a patient or contact passed from the Overview search bar.
+  useEffect(() => {
+    if (openPatientId) {
+      setView({ name: "detail", id: openPatientId, from: "all" });
+      onOpened?.();
+    } else if (openContactId) {
+      setView({ name: "contact-detail", contactId: openContactId, displayName: "" });
+      onOpened?.();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openPatientId, openContactId]);
+
   // Retire un patient d'une file coordinateur (ferme l'assignation ouverte
   // dans la table partagée), puis rafraîchit les files.
   const [unassigning, setUnassigning] = useState<string | null>(null);

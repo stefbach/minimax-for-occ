@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
+import { useT } from "@/lib/i18n";
 import { ScriptEditor, type ScriptGraph, type AgentHandleLite, emptyGraph, toGraph } from "./ScriptEditor";
 
 // VoicePanel pulls in the LiveKit browser SDK — load it client-only.
 const VoicePanel = dynamic(
   () => import("@/components/voice/VoicePanel").then((m) => m.VoicePanel),
-  { ssr: false, loading: () => <p className="muted">Chargement du simulateur…</p> },
+  { ssr: false, loading: () => <p className="muted">Loading simulator…</p> },
 );
 
 // Public type re-export so the page can import it from one place.
@@ -19,7 +20,7 @@ const VisualScriptEditor = dynamic(
   () => import("./VisualScriptEditor").then((m) => m.VisualScriptEditor),
   {
     ssr: false,
-    loading: () => <p className="muted">Chargement de l&apos;éditeur visuel…</p>,
+    loading: () => <p className="muted">Loading visual editor…</p>,
   },
 );
 
@@ -50,6 +51,7 @@ type ScriptDetail = ScriptRow & {
 const MISSIONS = ["qualification", "closing", "rappel", "sav", "autre"];
 
 export function ScriptsClient({ handles = [] }: { handles?: AgentHandleLite[] }) {
+  const t = useT();
   const [scripts, setScripts] = useState<ScriptRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -109,7 +111,7 @@ export function ScriptsClient({ handles = [] }: { handles?: AgentHandleLite[] })
 
   const remove = useCallback(
     async (id: string) => {
-      if (!confirm("Supprimer ce script ?")) return;
+      if (!confirm("Delete this script?")) return;
       const r = await fetch(`/api/scripts/${id}`, { method: "DELETE" });
       if (!r.ok) {
         const d = await r.json().catch(() => ({}));
@@ -125,9 +127,9 @@ export function ScriptsClient({ handles = [] }: { handles?: AgentHandleLite[] })
   return (
     <div style={{ display: "grid", gridTemplateColumns: "minmax(280px, 340px) 1fr", gap: 16, alignItems: "start" }}>
       <div className="card">
-        <h3>Nouveau script</h3>
+        <h3>New script</h3>
         <div style={{ display: "grid", gap: 8 }}>
-          <label className="muted" style={{ fontSize: 12 }}>Nom</label>
+          <label className="muted" style={{ fontSize: 12 }}>Name</label>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -144,11 +146,11 @@ export function ScriptsClient({ handles = [] }: { handles?: AgentHandleLite[] })
             rows={3}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="À quoi sert ce script ?"
+            placeholder="What is this script for?"
           />
           <div>
             <button onClick={create} disabled={creating || !name.trim()}>
-              {creating ? "Création…" : "Créer le script"}
+              {creating ? "Creating…" : "Create script"}
             </button>
           </div>
           {error && (
@@ -165,18 +167,18 @@ export function ScriptsClient({ handles = [] }: { handles?: AgentHandleLite[] })
           }}
         />
 
-        <h3 style={{ marginTop: 24 }}>Scripts existants</h3>
+        <h3 style={{ marginTop: 24 }}>Existing scripts</h3>
         {loading ? (
-          <p className="muted">Chargement…</p>
+          <p className="muted">Loading…</p>
         ) : scripts.length === 0 ? (
           <div style={{ display: "grid", gap: 10 }}>
             <p className="muted" style={{ margin: 0 }}>
-              Aucun script pour le moment.
+              No scripts yet.
             </p>
             <div className="muted" style={{ fontSize: 12, lineHeight: 1.5 }}>
-              Un script définit la trame conversationnelle pour vos agents
-              (qualification, closing, SAV…). Remplissez le formulaire ci-dessus
-              pour créer votre premier script.
+              A script defines the conversation flow for your agents
+              (qualification, closing, support…). Fill in the form above
+              to create your first script.
             </div>
           </div>
         ) : (
@@ -219,7 +221,7 @@ export function ScriptsClient({ handles = [] }: { handles?: AgentHandleLite[] })
                 </div>
                 <div className="muted" style={{ fontSize: 11 }}>
                   v{s.latest_version ?? "?"} ·{" "}
-                  {s.description ?? "Sans description"}
+                  {s.description ?? "No description"}
                 </div>
                 <div style={{ display: "flex", justifyContent: "flex-end" }}>
                   <button
@@ -234,7 +236,7 @@ export function ScriptsClient({ handles = [] }: { handles?: AgentHandleLite[] })
                       padding: "2px 8px",
                     }}
                   >
-                    Supprimer
+                    Delete
                   </button>
                 </div>
               </div>
@@ -248,9 +250,9 @@ export function ScriptsClient({ handles = [] }: { handles?: AgentHandleLite[] })
           <ScriptDetailView id={selectedId} handles={handles} onSaved={() => void refresh()} />
         ) : (
           <>
-            <h3>Éditer un script</h3>
+            <h3>Edit a script</h3>
             <p className="muted">
-              Sélectionnez un script à gauche pour modifier ses étapes.
+              Select a script on the left to edit its steps.
             </p>
           </>
         )}
@@ -331,18 +333,18 @@ function MergePanel({
   return (
     <div style={{ marginTop: 18, paddingTop: 14, borderTop: "1px solid var(--border)" }}>
       <button className="ghost" onClick={() => setOpen((v) => !v)} style={{ fontSize: 13 }}>
-        🔗 {open ? "Fermer" : "Fusionner des scripts"}
+        {open ? "🔗 Close" : "🔗 Merge scripts"}
       </button>
       {open && (
         <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
           <div className="muted" style={{ fontSize: 12, lineHeight: 1.5 }}>
-            Combine plusieurs scripts en UN parcours continu. Chaque bloc est
-            assigné à son agent ; le relais (handoff) se fait automatiquement
-            entre les agents pendant l&apos;appel.
+            Combine multiple scripts into ONE continuous journey. Each block is
+            assigned to its agent; the handoff happens automatically between
+            agents during the call.
           </div>
 
-          <label className="muted" style={{ fontSize: 12 }}>Nom du script fusionné</label>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex: Parcours OCC complet" />
+          <label className="muted" style={{ fontSize: 12 }}>Merged script name</label>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex: Full OCC journey" />
 
           {parts.length > 0 && (
             <div style={{ display: "grid", gap: 6 }}>
@@ -357,9 +359,9 @@ function MergePanel({
                     </div>
                   </div>
                   <select value={p.agent_handle_id} onChange={(e) => setAgent(i, e.target.value)} style={{ fontSize: 12 }}>
-                    <option value="">Agent : garder celui des étapes</option>
+                    <option value="">Agent: keep the one from the steps</option>
                     {aiHandles.map((h) => (
-                      <option key={h.id} value={h.id}>Agent : {h.display_name}</option>
+                      <option key={h.id} value={h.id}>Agent: {h.display_name}</option>
                     ))}
                   </select>
                 </div>
@@ -369,7 +371,7 @@ function MergePanel({
 
           {available.length > 0 && (
             <select value="" onChange={(e) => addPart(e.target.value)} style={{ fontSize: 13 }}>
-              <option value="">+ Ajouter un script à la suite…</option>
+              <option value="">+ Add a script to the sequence…</option>
               {available.map((s) => (
                 <option key={s.id} value={s.id}>{s.name}</option>
               ))}
@@ -378,11 +380,11 @@ function MergePanel({
 
           <div>
             <button onClick={submit} disabled={busy || !name.trim() || parts.length < 2}>
-              {busy ? "Fusion…" : `Fusionner ${parts.length || ""} script${parts.length > 1 ? "s" : ""}`}
+              {busy ? "Merging…" : `Merge ${parts.length || ""} script${parts.length > 1 ? "s" : ""}`}
             </button>
           </div>
           {parts.length < 2 && (
-            <div className="muted" style={{ fontSize: 11 }}>Sélectionnez au moins 2 scripts.</div>
+            <div className="muted" style={{ fontSize: 11 }}>Select at least 2 scripts.</div>
           )}
           {error && <div style={{ color: "var(--bad)", fontSize: 13 }}>{error}</div>}
         </div>
@@ -453,8 +455,8 @@ function ScriptDetailView({
     }
   }, [id, graph, note, load, onSaved]);
 
-  if (loading) return <p className="muted">Chargement…</p>;
-  if (!detail) return <p className="muted">Script introuvable.</p>;
+  if (loading) return <p className="muted">Loading…</p>;
+  if (!detail) return <p className="muted">Script not found.</p>;
 
   return (
     <div>
@@ -505,7 +507,7 @@ function ScriptDetailView({
                 fontWeight: mode === m ? 600 : 400,
               }}
             >
-              {m === "list" ? "Liste + branches" : "Schéma visuel"}
+              {m === "list" ? "List + branches" : "Visual diagram"}
             </button>
           ))}
         </div>
@@ -521,16 +523,16 @@ function ScriptDetailView({
 
       <div style={{ marginTop: 16, display: "grid", gap: 8 }}>
         <label className="muted" style={{ fontSize: 12 }}>
-          Note de version (facultatif)
+          Version note (optional)
         </label>
         <input
           value={note}
           onChange={(e) => setNote(e.target.value)}
-          placeholder="Ex: ajout objection prix"
+          placeholder="Ex: added price objection"
         />
         <div>
           <button onClick={saveVersion} disabled={saving}>
-            {saving ? "Enregistrement…" : "Enregistrer comme nouvelle version"}
+            {saving ? "Saving…" : "Save as new version"}
           </button>
         </div>
         {error && (
@@ -575,27 +577,27 @@ function ScriptSimulationPanel({
 
   return (
     <div style={{ marginTop: 18, paddingTop: 16, borderTop: "1px solid var(--border)" }}>
-      <h3 style={{ margin: 0 }}>🎧 Tester ce script (simulation)</h3>
+      <h3 style={{ margin: 0 }}>🎧 Test this script (simulation)</h3>
       <p className="muted" style={{ fontSize: 13, marginTop: 4, lineHeight: 1.5 }}>
-        Lance un appel navigateur qui déroule CE script — y compris les bascules
-        entre agents (handoff). Aucun appel réel n&apos;est passé.
+        Launches a browser call that runs THIS script — including agent handoffs.
+        No real call is placed.
       </p>
       <div style={{ margin: "10px 0", maxWidth: 360 }}>
-        <label className="muted" style={{ fontSize: 12 }}>Démarrer en tant que</label>
+        <label className="muted" style={{ fontSize: 12 }}>Start as</label>
         <select value={startAgentId} onChange={(e) => setStartAgentId(e.target.value)}>
           {aiHandles.map((h) => (
             <option key={h.id} value={h.ai_agent_id as string}>{h.display_name}</option>
           ))}
         </select>
         <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
-          Par défaut, l&apos;agent de la 1ʳᵉ étape du script.
+          Defaults to the agent of the 1st script step.
         </div>
       </div>
       {startAgentId ? (
         <VoicePanel agentId={startAgentId} scriptId={scriptId} systemPrompt={stepsText} />
       ) : (
         <p className="muted" style={{ fontSize: 13 }}>
-          Aucun agent IA disponible pour la simulation.
+          No AI agent available for simulation.
         </p>
       )}
     </div>
