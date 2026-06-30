@@ -90,7 +90,23 @@ export async function GET(req: Request) {
     presMap.set(p.user_id, p);
   }
 
-  // 4) Pull every "in-flight" call referenced by a presence row.
+  // 4) Agent handles for the users (needed for call stats lookup).
+  const { data: handles } = await admin
+    .from("agent_handles")
+    .select("id, user_id")
+    .eq("org_id", orgId)
+    .eq("kind", "human")
+    .in("user_id", userIds);
+  const handleToUser = new Map<string, string>();
+  const userToHandles = new Map<string, string[]>();
+  for (const h of (handles ?? []) as Array<{ id: string; user_id: string }>) {
+    handleToUser.set(h.id, h.user_id);
+    const list = userToHandles.get(h.user_id) ?? [];
+    list.push(h.id);
+    userToHandles.set(h.user_id, list);
+  }
+
+  // 5) Pull every "in-flight" call referenced by a presence row.
   const callIds = Array.from(
     new Set(
       Array.from(presMap.values())
@@ -98,18 +114,20 @@ export async function GET(req: Request) {
         .filter((id): id is string => !!id),
     ),
   );
-  let callMap = new Map<string, { id: string; started_at: string | null; answered_at: string | null; duration_secs: number | null; to_e164: string | null; contact_name: string | null }>();
+  let callMap = new Map<string, { id: string; direction: string | null; started_at: string | null; answered_at: string | null; duration_secs: number | null; from_e164: string | null; to_e164: string | null; contact_name: string | null }>();
   if (callIds.length > 0) {
     const { data: calls } = await admin
       .from("calls")
-      .select("id, started_at, answered_at, duration_secs, to_e164, contacts(display_name)")
+      .select("id, direction, started_at, answered_at, duration_secs, from_e164, to_e164, contacts(display_name)")
       .in("id", callIds);
     callMap = new Map(
       ((calls ?? []) as unknown as Array<{
         id: string;
+        direction: string | null;
         started_at: string | null;
         answered_at: string | null;
         duration_secs: number | null;
+        from_e164: string | null;
         to_e164: string | null;
         contacts: { display_name: string | null }[] | { display_name: string | null } | null;
       }>).map((c) => {
@@ -118,15 +136,57 @@ export async function GET(req: Request) {
           c.id,
           {
             id: c.id,
+            direction: c.direction,
             started_at: c.started_at,
             answered_at: c.answered_at,
             duration_secs: c.duration_secs,
+            from_e164: c.from_e164,
             to_e164: c.to_e164,
             contact_name: contact?.display_name ?? null,
           },
         ];
       }),
     );
+  }
+
+  // 6) Today's call stats per agent handle (calls answered today).
+  const todayStart = new Date();
+  todayStart.setUTCHours(0, 0, 0, 0);
+  const allHandleIds = Array.from(handleToUser.keys());
+  const statsByUser = new Map<string, { calls_today: number; avg_duration_secs: number | null }>();
+  if (allHandleIds.length > 0) {
+    const { data: todayCalls } = await admin
+      .from("calls")
+      .select("agent_handle_id, duration_secs, answered_at")
+      .eq("org_id", orgId)
+      .in("agent_handle_id", allHandleIds)
+      .gte("started_at", todayStart.toISOString())
+      .in("state", ["ended", "in_progress", "wrap_up"]);
+    const aggByHandle = new Map<string, { count: number; total_dur: number; dur_count: number }>();
+    for (const c of (todayCalls ?? []) as Array<{ agent_handle_id: string | null; duration_secs: number | null; answered_at: string | null }>) {
+      if (!c.agent_handle_id) continue;
+      const agg = aggByHandle.get(c.agent_handle_id) ?? { count: 0, total_dur: 0, dur_count: 0 };
+      agg.count++;
+      if (c.answered_at && c.duration_secs != null) {
+        agg.total_dur += c.duration_secs;
+        agg.dur_count++;
+      }
+      aggByHandle.set(c.agent_handle_id, agg);
+    }
+    // Roll up per user (a user may have multiple handles).
+    for (const [hid, agg] of aggByHandle) {
+      const uid = handleToUser.get(hid);
+      if (!uid) continue;
+      const prev = statsByUser.get(uid) ?? { calls_today: 0, avg_duration_secs: null };
+      const newCount = prev.calls_today + agg.count;
+      const prevDurTotal = (prev.avg_duration_secs ?? 0) * (prev.calls_today > 0 ? prev.calls_today : 0);
+      const newDurTotal = prevDurTotal + agg.total_dur;
+      const newDurCount = (prev.avg_duration_secs != null ? prev.calls_today : 0) + agg.dur_count;
+      statsByUser.set(uid, {
+        calls_today: newCount,
+        avg_duration_secs: newDurCount > 0 ? Math.round(newDurTotal / newDurCount) : null,
+      });
+    }
   }
 
   const now = Date.now();
@@ -142,6 +202,7 @@ export async function GET(req: Request) {
         ? "offline"
         : (stored as AgentStatus);
     const call = p?.current_call_id ? callMap.get(p.current_call_id) ?? null : null;
+    const stats = statsByUser.get(uid) ?? null;
     return {
       user_id: uid,
       display_name: prof?.display_name ?? null,
@@ -150,6 +211,7 @@ export async function GET(req: Request) {
       last_seen: p?.last_seen ?? null,
       stale_secs: Number.isFinite(staleSecs) ? staleSecs : null,
       current_call: call,
+      stats_today: stats,
     };
   });
 
