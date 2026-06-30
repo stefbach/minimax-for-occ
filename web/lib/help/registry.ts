@@ -360,6 +360,459 @@ Twilio announces maintenance in 4h → you filter **orgs > 100 minutes/day** →
   },
 
   // ──────────────────────────────────────────────────────────────────────
+  // DASHBOARD — per-tab entries
+  // ──────────────────────────────────────────────────────────────────────
+  "dashboard.overview": {
+    title: "Overview tab",
+    title_fr: "Vue d'ensemble",
+    learnMoreHref: docHref("dashboard"),
+    fr: `## Vue d'ensemble
+Résumé en temps réel des KPI essentiels, des campagnes actives et des leads du jour.
+
+## À quoi sert cet onglet
+- Suivre d'un coup d'œil les **KPI clés** : appels, taux de décrochage, durée moyenne.
+- Voir la progression des **campagnes sortantes** actives.
+- Consulter les **leads** en cours et leur statut.
+- Repérer rapidement les **anomalies** par rapport à la veille.
+
+## Comment l'utiliser
+1. Survolez les **cartes KPI** pour voir la tendance vs hier.
+2. Cliquez sur une campagne pour voir son détail.
+3. Ajustez la **période** (Aujourd'hui / 7j / 30j) en haut à droite.
+
+## Liens utiles
+- [Analytics](/analytics) pour approfondir
+- [Alertes](/alerts) pour les incidents`,
+
+    default: `## Overview tab
+Real-time summary of essential KPIs, active campaigns, and today's leads.
+
+## What this tab is for
+- See **key KPIs** at a glance: calls, answer rate, average duration.
+- View the progress of active **outbound campaigns**.
+- Check **leads** in progress and their status.
+- Quickly spot **anomalies** compared to yesterday.
+
+## How to use it
+1. Hover over **KPI cards** to see the trend vs yesterday.
+2. Click a campaign to see its detail.
+3. Adjust the **period** (Today / 7d / 30d) at the top right.
+
+## Useful links
+- [Analytics](/analytics) to drill down
+- [Alerts](/alerts) for incidents`,
+  },
+
+  "dashboard.stats": {
+    title: "Statistics tab",
+    title_fr: "Onglet Statistiques",
+    learnMoreHref: docHref("dashboard"),
+    fr: `## Statistiques
+Analyse détaillée des volumes, qualifications et performance sur la période sélectionnée.
+
+## À quoi sert cet onglet
+- Visualiser les **qualifications d'appels** (intéressé, pas intéressé, passer à l'humain, etc.).
+- Suivre le **taux d'efficacité** global et par agent.
+- Comparer la performance des **campagnes** et **agents**.
+- Identifier les tendances sur la durée.
+
+## Comment l'utiliser
+1. Sélectionnez la **période** en haut du tableau de bord.
+2. Filtrez par **campagne** ou **agent** pour affiner.
+3. Survolez les barres pour voir les compteurs exacts.
+4. Utilisez la section "Coûts" pour le suivi budgétaire.
+
+## Liens utiles
+- [Analytics](/analytics) pour les exports`,
+
+    default: `## Statistics tab
+Detailed analysis of volumes, call qualifications, and performance for the selected period.
+
+## What this tab is for
+- Visualise **call qualifications** (interested, not interested, pass to human, etc.).
+- Track overall and per-agent **efficacy rate**.
+- Compare **campaign** and **agent** performance.
+- Identify trends over time.
+
+## How to use it
+1. Select the **period** at the top of the dashboard.
+2. Filter by **campaign** or **agent** to narrow down.
+3. Hover over bars to see exact counts.
+4. Use the "Costs" section for budget tracking.
+
+## Useful links
+- [Analytics](/analytics) for exports`,
+  },
+
+  "dashboard.leads": {
+    title: "Leads tab",
+    title_fr: "Onglet Leads",
+    learnMoreHref: docHref("dashboard"),
+    fr: `## Leads
+Vue consolidée des leads collectés, leur source et leur état d'avancement dans le pipeline.
+
+## À quoi sert cet onglet
+- Voir tous les **leads entrants** du jour avec leur source (formulaire, appel, SMS...).
+- Filtrer par **campagne**, **statut** ou **agent assigné**.
+- Suivre le **taux de conversion** lead → appel → qualification.
+- Identifier les leads **non traités** qui risquent de devenir froids.
+
+## Comment l'utiliser
+1. Filtrez par **statut** (Nouveau / En cours / Qualifié / Non joignable).
+2. Cliquez sur un lead pour ouvrir sa fiche et son historique d'appels.
+3. Exportez la liste en CSV pour votre CRM.
+
+## Conseils
+- Rappelez les leads marqués "Non joignable" dans les **24h** — la 2e tentative convertit nettement mieux.
+
+## Liens utiles
+- [Contacts](/contacts)
+- [Campagnes](/campaigns)`,
+
+    default: `## Leads tab
+Consolidated view of collected leads, their source, and pipeline progress.
+
+## What this tab is for
+- See all **incoming leads** for the day with their source (form, call, SMS...).
+- Filter by **campaign**, **status**, or **assigned agent**.
+- Track the **conversion rate** lead → call → qualification.
+- Identify **unhandled leads** that risk going cold.
+
+## How to use it
+1. Filter by **status** (New / In progress / Qualified / Unreachable).
+2. Click a lead to open its record and call history.
+3. Export the list as CSV for your CRM.
+
+## Tips
+- Call back "Unreachable" leads within **24 hours** — the 2nd attempt converts significantly better.
+
+## Useful links
+- [Contacts](/contacts)
+- [Campaigns](/campaigns)`,
+  },
+
+  "dashboard.logs": {
+    title: "Call Logs tab",
+    title_fr: "Onglet Call Logs",
+    learnMoreHref: docHref("dashboard"),
+    fr: `## Call Logs
+Historique complet et filtrable de tous les appels de la période.
+
+## À quoi sert cet onglet
+- Retrouver un appel spécifique par numéro, agent ou campagne.
+- Vérifier la **durée**, la **qualification** et le **sentiment** de chaque appel.
+- Écouter les **enregistrements** et lire les **transcriptions** IA.
+- Identifier les appels nécessitant un suivi ou une escalade.
+
+## Comment l'utiliser
+1. Utilisez les **filtres** (direction, agent, campagne, statut, date).
+2. Cliquez sur une ligne pour ouvrir le détail : enregistrement, transcript, qualification.
+3. Cliquez sur l'icône IA pour voir l'**analyse LLM** de l'appel.
+4. Exportez en CSV pour vos rapports.
+
+## Liens utiles
+- [Analyses LLM](/analyses)
+- [Contacts](/contacts)`,
+
+    default: `## Call Logs tab
+Complete, filterable history of all calls for the period.
+
+## What this tab is for
+- Find a specific call by number, agent, or campaign.
+- Check each call's **duration**, **qualification**, and **sentiment**.
+- Listen to **recordings** and read AI **transcriptions**.
+- Identify calls that need follow-up or escalation.
+
+## How to use it
+1. Use the **filters** (direction, agent, campaign, status, date).
+2. Click a row to open the detail: recording, transcript, qualification.
+3. Click the AI icon to see the call's **LLM analysis**.
+4. Export as CSV for your reports.
+
+## Useful links
+- [LLM Analyses](/analyses)
+- [Contacts](/contacts)`,
+  },
+
+  "dashboard.entrants": {
+    title: "Inbound tab",
+    title_fr: "Onglet Entrants",
+    learnMoreHref: docHref("dashboard"),
+    fr: `## Entrants
+Suivi des appels entrants : volume, temps d'attente, décrochage et distribution par file.
+
+## À quoi sert cet onglet
+- Mesurer le **taux de décrochage** et le temps d'attente moyen sur les lignes entrantes.
+- Suivre la distribution par **file d'attente** et par **agent**.
+- Détecter les pics de volume pour ajuster les ressources.
+- Analyser les motifs d'appel (classification IA).
+
+## Comment l'utiliser
+1. Filtrez par **file d'attente** pour isoler un service.
+2. Comparez les courbes de volume entrant par heure pour repérer les pics.
+3. Vérifiez le taux d'**abandon** : si > 5%, la file est sous-dimensionnée.
+
+## Liens utiles
+- [Files d'attente](/queues)
+- [Live](/calls)`,
+
+    default: `## Inbound tab
+Inbound call tracking: volume, wait time, answer rate, and queue distribution.
+
+## What this tab is for
+- Measure the **answer rate** and average wait time on inbound lines.
+- Track distribution by **queue** and by **agent**.
+- Detect volume spikes to adjust resources.
+- Analyse call reasons (AI classification).
+
+## How to use it
+1. Filter by **queue** to isolate a service.
+2. Compare hourly inbound volume curves to spot peaks.
+3. Check the **abandon rate**: above 5%, the queue is under-staffed.
+
+## Useful links
+- [Queues](/queues)
+- [Live](/calls)`,
+  },
+
+  "dashboard.sms": {
+    title: "SMS tab",
+    title_fr: "Onglet SMS",
+    learnMoreHref: docHref("dashboard"),
+    fr: `## SMS
+Suivi des SMS pré-appel envoyés et leur impact sur les taux de décrochage.
+
+## À quoi sert cet onglet
+- Voir le **volume de SMS** envoyés par campagne.
+- Mesurer le **taux d'appels passés après SMS** (leads SMS qui ont décroché).
+- Identifier les campagnes où le SMS améliore la conversion.
+- Consulter les **statuts de livraison** (envoyé, délivré, échoué).
+
+## Comment l'utiliser
+1. Filtrez par **campagne** pour comparer l'impact SMS d'une campagne à l'autre.
+2. Vérifiez les SMS en **erreur** (numéro invalide, opérateur bloquant) et corrigez-les dans Contacts.
+3. Comparez le taux de décrochage avec/sans SMS pour valider la stratégie.
+
+## Liens utiles
+- [Campagnes](/campaigns)
+- [Contacts](/contacts)`,
+
+    default: `## SMS tab
+Pre-call SMS tracking and their impact on answer rates.
+
+## What this tab is for
+- See the **SMS volume** sent per campaign.
+- Measure the **post-SMS call rate** (SMS leads who answered).
+- Identify campaigns where SMS improves conversion.
+- Check **delivery statuses** (sent, delivered, failed).
+
+## How to use it
+1. Filter by **campaign** to compare SMS impact across campaigns.
+2. Check **failed** SMS (invalid number, operator blocking) and correct them in Contacts.
+3. Compare the answer rate with/without SMS to validate the strategy.
+
+## Useful links
+- [Campaigns](/campaigns)
+- [Contacts](/contacts)`,
+  },
+
+  "dashboard.live": {
+    title: "Live tab",
+    title_fr: "Onglet Live",
+    learnMoreHref: docHref("dashboard"),
+    fr: `## Live
+Vue en temps réel des appels actifs, agents connectés et état des files d'attente.
+
+## À quoi sert cet onglet
+- Voir tous les **appels en cours** et leur durée en temps réel.
+- Connaître l'état (disponible / en appel / en pause) de chaque **agent**.
+- Surveiller la **file d'attente** live et anticiper la saturation.
+- Intervenir en **écoute**, **chuchotement** ou **prise en main** sur un appel.
+
+## Comment l'utiliser
+1. Repérez les appels en **rouge** (dépassant le seuil de durée critique).
+2. Cliquez sur un appel pour ouvrir le panneau de supervision.
+3. Utilisez **"Chuchoter"** pour guider discrètement l'agent sans que le client entende.
+4. La page se rafraîchit automatiquement toutes les 10 secondes.
+
+## Bonnes pratiques
+- Restez sur cet onglet pendant les **heures de pointe** pour réagir immédiatement.
+- Configurez des **alertes de durée** (Alertes → Règles) pour être notifié automatiquement.
+
+## Liens utiles
+- [Appels live](/calls)
+- [Alertes](/alerts)`,
+
+    default: `## Live tab
+Real-time view of active calls, connected agents, and queue status.
+
+## What this tab is for
+- See all **calls in progress** and their duration in real time.
+- Know each **agent**'s status (available / on call / on break).
+- Monitor the **live queue** and anticipate saturation.
+- Step in to **listen**, **whisper**, or **barge** on a call.
+
+## How to use it
+1. Spot calls highlighted in **red** (exceeding the critical duration threshold).
+2. Click a call to open the supervision panel.
+3. Use **"Whisper"** to guide the agent discreetly without the customer hearing.
+4. The page auto-refreshes every 10 seconds.
+
+## Best practices
+- Stay on this tab during **peak hours** to react immediately.
+- Configure **duration alerts** (Alerts → Rules) to be notified automatically.
+
+## Useful links
+- [Live calls](/calls)
+- [Alerts](/alerts)`,
+  },
+
+  "dashboard.errors": {
+    title: "Errors & Alerts tab",
+    title_fr: "Onglet Erreurs & Alertes",
+    learnMoreHref: docHref("dashboard"),
+    fr: `## Erreurs & Alertes
+Centralise toutes les erreurs techniques et alertes opérationnelles qui nécessitent votre attention.
+
+## À quoi sert cet onglet
+- Voir les **erreurs Twilio** (numéros invalides, erreurs d'appel, codes d'erreur).
+- Suivre les **alertes de qualité** déclenchées par l'IA (sentiment négatif, durée anormale).
+- Consulter les **échecs de webhook** ou de connecteur n8n.
+- Prioriser les incidents à traiter.
+
+## Comment l'utiliser
+1. Triez par **sévérité** (Critique → Haute → Normale) pour traiter les urgences en premier.
+2. Cliquez sur une erreur pour voir le **contexte complet** (appel, agent, heure).
+3. Cliquez **"Acquitter"** une fois l'incident traité pour le sortir de la file.
+4. Utilisez **"Ignorer"** pour les faux positifs récurrents.
+
+## Bonnes pratiques
+- Vérifiez cet onglet **matin et soir** minimum.
+- Les erreurs Twilio 3xxxx indiquent généralement un problème de numérotation.
+
+## Liens utiles
+- [Alertes](/alerts)
+- [Santé des numéros](/numbers/health)`,
+
+    default: `## Errors & Alerts tab
+Centralises all technical errors and operational alerts that need your attention.
+
+## What this tab is for
+- See **Twilio errors** (invalid numbers, call errors, error codes).
+- Track **quality alerts** triggered by AI (negative sentiment, abnormal duration).
+- Check **webhook or n8n connector failures**.
+- Prioritise incidents to handle.
+
+## How to use it
+1. Sort by **severity** (Critical → High → Normal) to handle urgent issues first.
+2. Click an error to see the **full context** (call, agent, time).
+3. Click **"Acknowledge"** once the incident is handled to remove it from the queue.
+4. Use **"Ignore"** for recurring false positives.
+
+## Best practices
+- Check this tab **morning and evening** at minimum.
+- Twilio errors starting with 3xxxx generally indicate a dialling issue.
+
+## Useful links
+- [Alerts](/alerts)
+- [Number health](/numbers/health)`,
+  },
+
+  "dashboard.ai": {
+    title: "AI Insights tab",
+    title_fr: "Onglet AI Insights",
+    learnMoreHref: docHref("dashboard"),
+    fr: `## AI Insights
+Analyse automatique par IA de vos données d'appels pour faire émerger des insights actionnables.
+
+## À quoi sert cet onglet
+- Obtenir des **résumés IA** des tendances d'appels sur la période.
+- Identifier les **objections récurrentes** et les points de friction clients.
+- Recevoir des **recommandations** automatiques (script, formation, horaires).
+- Comparer les **thèmes** abordés entre campagnes ou agents.
+
+## Comment l'utiliser
+1. Sélectionnez la **période** d'analyse (les insights se régénèrent).
+2. Cliquez sur un insight pour voir les **appels sources** qui l'ont généré.
+3. Utilisez le bouton **"Régénérer"** si vous venez de modifier des données.
+4. Exportez les insights en PDF pour votre rapport de direction.
+
+## Liens utiles
+- [Analyses LLM](/analyses)
+- [Analytics](/analytics)`,
+
+    default: `## AI Insights tab
+Automatic AI analysis of your call data to surface actionable insights.
+
+## What this tab is for
+- Get **AI summaries** of call trends for the period.
+- Identify **recurring objections** and customer friction points.
+- Receive **automatic recommendations** (script, training, timing).
+- Compare **topics** discussed across campaigns or agents.
+
+## How to use it
+1. Select the **analysis period** (insights regenerate accordingly).
+2. Click an insight to see the **source calls** that generated it.
+3. Use the **"Regenerate"** button if you've just updated data.
+4. Export insights as PDF for your management report.
+
+## Useful links
+- [LLM Analyses](/analyses)
+- [Analytics](/analytics)`,
+  },
+
+  "dashboard.nhs": {
+    title: "NHS S2 Tracking tab",
+    title_fr: "Onglet Suivi NHS S2",
+    learnMoreHref: docHref("dashboard"),
+    fr: `## Suivi NHS S2
+Tableau de suivi des patients orientés par le NHS en parcours S2 (soins secondaires).
+
+## À quoi sert cet onglet
+- Suivre l'**état d'avancement** de chaque patient dans le parcours S2.
+- Identifier les patients **en retard** sur les jalons de prise en charge.
+- Enregistrer les **tentatives de contact** et les résultats.
+- Générer les **rapports de conformité** NHS.
+
+## Comment l'utiliser
+1. Filtrez par **statut** (En attente / En cours / Complété / Alerte).
+2. Cliquez sur un patient pour ouvrir son dossier de suivi.
+3. Enregistrez chaque **tentative d'appel** avec son résultat.
+4. Les patients en **rouge** ont dépassé le délai NHS — traitez-les en priorité.
+
+## Bonnes pratiques
+- Vérifiez les délais NHS chaque matin : **18 semaines** pour S2 est le seuil réglementaire.
+- Documentez toujours le motif de non-contact pour les rapports d'audit.
+
+## Liens utiles
+- [Contacts](/contacts)
+- [Rapports](/analytics)`,
+
+    default: `## NHS S2 Tracking tab
+Tracking dashboard for patients referred by the NHS on an S2 (secondary care) pathway.
+
+## What this tab is for
+- Track each patient's **progress** through the S2 pathway.
+- Identify patients **behind schedule** on care milestones.
+- Record **contact attempts** and outcomes.
+- Generate NHS **compliance reports**.
+
+## How to use it
+1. Filter by **status** (Waiting / In progress / Completed / Alert).
+2. Click a patient to open their tracking record.
+3. Log each **call attempt** with its outcome.
+4. Patients highlighted in **red** have exceeded the NHS deadline — handle them first.
+
+## Best practices
+- Check NHS deadlines every morning: **18 weeks** for S2 is the regulatory threshold.
+- Always document the reason for non-contact for audit reports.
+
+## Useful links
+- [Contacts](/contacts)
+- [Reports](/analytics)`,
+  },
+
+  // ──────────────────────────────────────────────────────────────────────
   // ANALYTICS
   // ──────────────────────────────────────────────────────────────────────
   analytics: {
