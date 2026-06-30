@@ -204,7 +204,7 @@ export function DataTableDetail({
       });
       const body = await r.json();
       if (!r.ok) {
-        setImportError(body.error ?? t("Échec import (HTTP {{status}})", { status: r.status }));
+        setImportError(body.error ?? t("Échec import") + ` (HTTP ${r.status})`);
         return;
       }
       setImportReport(body as ImportReport);
