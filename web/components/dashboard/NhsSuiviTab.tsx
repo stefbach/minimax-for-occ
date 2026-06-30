@@ -232,6 +232,7 @@ function NhsSuiviTabInner({
   if (view.name === "report-list") {
     return (
       <NhsReportListView
+        data={data}
         reportKey={view.key}
         onBack={() => setView({ name: "dashboard" })}
         onChangeKey={(key) => setView({ name: "report-list", key })}
@@ -887,11 +888,13 @@ function NhsReportSection({
 // per patient. Per-patient document view will be wired once the Google Drive
 // → Supabase storage migration completes.
 function NhsReportListView({
+  data,
   reportKey,
   onBack,
   onChangeKey,
   onOpenPatient,
 }: {
+  data: NhsSuiviResponse;
   reportKey: NhsReportFilter;
   onBack: () => void;
   onChangeKey: (key: NhsReportFilter) => void;
@@ -899,7 +902,7 @@ function NhsReportListView({
 }) {
   const t = useT();
   const [search, setSearch] = useState("");
-  const cards = useNhsReportCards();
+  const cards = useNhsReportCards(data);
   const active = cards.find((c) => c.key === reportKey) ?? cards[0];
 
   const q = search.trim().toLowerCase();
