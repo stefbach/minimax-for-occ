@@ -132,6 +132,8 @@ export async function GET(req: Request) {
         contacts: { display_name: string | null }[] | { display_name: string | null } | null;
       }>).map((c) => {
         const contact = Array.isArray(c.contacts) ? c.contacts[0] : c.contacts;
+        // Filter out LiveKit participant identities.
+        const fromE164 = c.from_e164?.startsWith("client:") ? null : c.from_e164;
         return [
           c.id,
           {
@@ -140,13 +142,49 @@ export async function GET(req: Request) {
             started_at: c.started_at,
             answered_at: c.answered_at,
             duration_secs: c.duration_secs,
-            from_e164: c.from_e164,
+            from_e164: fromE164,
             to_e164: c.to_e164,
             contact_name: contact?.display_name ?? null,
           },
         ];
       }),
     );
+
+    // Secondary phone lookup for calls that have no contact name yet.
+    const noName = Array.from(callMap.values()).filter((c) => !c.contact_name && (c.from_e164 || c.to_e164));
+    if (noName.length > 0) {
+      const phones = [...new Set(noName.flatMap((c) => [c.from_e164, c.to_e164]).filter((p): p is string => !!p))];
+      const nameByPhone = new Map<string, string | null>();
+
+      const { data: ctsRows } = await admin
+        .from("contacts")
+        .select("e164, display_name")
+        .eq("org_id", orgId)
+        .in("e164", phones);
+      for (const ct of (ctsRows ?? []) as Array<{ e164: string; display_name: string | null }>) {
+        if (ct.e164) nameByPhone.set(ct.e164, ct.display_name);
+      }
+
+      const missingPhones = phones.filter((p) => !nameByPhone.has(p));
+      if (missingPhones.length > 0) {
+        const { data: leadRows } = await admin
+          .from("leads_rdv")
+          .select("numero_telephone, nom")
+          .in("numero_telephone", missingPhones);
+        for (const l of (leadRows ?? []) as Array<{ numero_telephone: string | null; nom: string | null }>) {
+          if (l.numero_telephone) nameByPhone.set(l.numero_telephone, l.nom);
+        }
+      }
+
+      for (const call of callMap.values()) {
+        if (!call.contact_name) {
+          const phone = call.direction === "in" ? call.from_e164 : call.to_e164;
+          if (phone && nameByPhone.has(phone)) {
+            call.contact_name = nameByPhone.get(phone) ?? null;
+          }
+        }
+      }
+    }
   }
 
   // 6) Today's call stats per agent handle (calls answered today).

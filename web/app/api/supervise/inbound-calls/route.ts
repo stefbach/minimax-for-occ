@@ -53,7 +53,7 @@ export async function GET(req: Request) {
   let q = admin
     .from("calls")
     .select(
-      "id, state, from_e164, to_e164, started_at, answered_at, ended_at, duration_secs, disposition, metadata, agent_handle_id, contact_id, contacts(id, display_name, e164), agent_handles(id, display_name, kind)",
+      "id, state, from_e164, to_e164, started_at, answered_at, ended_at, duration_secs, disposition, metadata, agent_handle_id, contact_id, recording_url, transcript_url, contacts(id, display_name, e164), agent_handles(id, display_name, kind)",
     )
     .eq("org_id", orgId)
     .eq("direction", "in")
@@ -83,6 +83,8 @@ export async function GET(req: Request) {
     metadata: { qualification?: string } | null;
     agent_handle_id: string | null;
     contact_id: string | null;
+    recording_url: string | null;
+    transcript_url: string | null;
     contacts: { id: string; display_name: string | null; e164: string | null } | Array<{ id: string; display_name: string | null; e164: string | null }> | null;
     agent_handles: { id: string; display_name: string | null; kind: string } | Array<{ id: string; display_name: string | null; kind: string }> | null;
   };
@@ -90,10 +92,12 @@ export async function GET(req: Request) {
   const calls = ((data ?? []) as RawCall[]).map((c) => {
     const contact = Array.isArray(c.contacts) ? c.contacts[0] : c.contacts;
     const handle = Array.isArray(c.agent_handles) ? c.agent_handles[0] : c.agent_handles;
+    // Filter out LiveKit participant identities (not real phone numbers).
+    const fromE164 = c.from_e164?.startsWith("client:") ? null : c.from_e164;
     return {
       id: c.id,
       state: c.state,
-      from_e164: c.from_e164,
+      from_e164: fromE164,
       to_e164: c.to_e164,
       started_at: c.started_at,
       answered_at: c.answered_at,
@@ -105,8 +109,50 @@ export async function GET(req: Request) {
       contact_name: contact?.display_name ?? null,
       contact_e164: contact?.e164 ?? null,
       agent_name: handle?.display_name ?? null,
+      agent_kind: handle?.kind ?? null,
+      recording_url: c.recording_url ?? null,
+      transcript_url: c.transcript_url ?? null,
     };
   });
+
+  // Secondary phone-based contact lookup for calls that still have no contact name.
+  const needsLookup = calls.filter((c) => !c.contact_name && c.from_e164);
+  if (needsLookup.length > 0) {
+    const phones = [...new Set(needsLookup.map((c) => c.from_e164!))];
+    const nameByPhone = new Map<string, { id: string | null; name: string | null }>();
+
+    // Try contacts table first.
+    const { data: ctsRows } = await admin
+      .from("contacts")
+      .select("id, e164, display_name")
+      .eq("org_id", orgId)
+      .in("e164", phones);
+    for (const ct of (ctsRows ?? []) as Array<{ id: string; e164: string; display_name: string | null }>) {
+      if (ct.e164) nameByPhone.set(ct.e164, { id: ct.id, name: ct.display_name });
+    }
+
+    // Fall back to leads_rdv for any still-missing numbers.
+    const missingPhones = phones.filter((p) => !nameByPhone.has(p));
+    if (missingPhones.length > 0) {
+      const { data: leadRows } = await admin
+        .from("leads_rdv")
+        .select("numero_telephone, nom")
+        .in("numero_telephone", missingPhones);
+      for (const l of (leadRows ?? []) as Array<{ numero_telephone: string | null; nom: string | null }>) {
+        if (l.numero_telephone) nameByPhone.set(l.numero_telephone, { id: null, name: l.nom });
+      }
+    }
+
+    for (const c of calls) {
+      if (!c.contact_name && c.from_e164) {
+        const found = nameByPhone.get(c.from_e164);
+        if (found) {
+          c.contact_name = found.name;
+          if (found.id && !c.contact_id) c.contact_id = found.id;
+        }
+      }
+    }
+  }
 
   // KPIs computed server-side to avoid shipping all rows twice.
   const total = calls.length;

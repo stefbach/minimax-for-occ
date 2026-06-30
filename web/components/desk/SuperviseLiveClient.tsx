@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { useT } from "@/lib/i18n";
 
 type AgentStatus = "available" | "busy" | "away" | "offline" | "unknown";
@@ -279,26 +280,52 @@ function AgentCard({ agent, now }: { agent: AgentLive; now: number }) {
             borderTop: "1px solid var(--border)",
             paddingTop: 10,
             display: "grid",
-            gap: 4,
+            gap: 6,
           }}
         >
           <div
             style={{
               display: "flex",
               alignItems: "center",
+              justifyContent: "space-between",
               gap: 6,
-              fontSize: 11,
-              color: "var(--muted)",
-              fontWeight: 600,
-              textTransform: "uppercase",
-              letterSpacing: 0.4,
             }}
           >
-            <span>{isInbound ? "← " + t("Appel entrant") : "→ " + t("Appel sortant")}</span>
+            <div
+              style={{
+                fontSize: 11,
+                color: "var(--muted)",
+                fontWeight: 600,
+                textTransform: "uppercase",
+                letterSpacing: 0.4,
+              }}
+            >
+              {isInbound ? "← " + t("Appel entrant") : "→ " + t("Appel sortant")}
+            </div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <Link
+                href={`/calls/${call.id}`}
+                style={{ fontSize: 11, color: "var(--muted)", textDecoration: "none", padding: "3px 8px", border: "1px solid var(--border)", borderRadius: 4 }}
+              >
+                {t("Détails")}
+              </Link>
+              <Link
+                href={`/calls/${call.id}/supervise`}
+                style={{ fontSize: 11, color: isInbound ? "#22c55e" : "var(--accent)", textDecoration: "none", padding: "3px 8px", border: `1px solid ${isInbound ? "#22c55e" : "var(--accent)"}`, borderRadius: 4 }}
+              >
+                ◎ {t("Écouter")}
+              </Link>
+            </div>
           </div>
-          <div style={{ fontSize: 14, fontWeight: 600 }}>{callParty}</div>
-          {callSubline && (
-            <div className="muted" style={{ fontSize: 12 }}>{callSubline}</div>
+          {call.contact_name ? (
+            <div style={{ fontSize: 14, fontWeight: 600 }}>
+              {call.contact_name}
+              {callSubline && (
+                <div className="muted" style={{ fontSize: 12, fontWeight: 400, marginTop: 1 }}>{callSubline}</div>
+              )}
+            </div>
+          ) : (
+            <div style={{ fontSize: 14, fontWeight: 600 }}>{callParty}</div>
           )}
           <div
             style={{
@@ -306,7 +333,7 @@ function AgentCard({ agent, now }: { agent: AgentLive; now: number }) {
               fontWeight: 700,
               fontVariantNumeric: "tabular-nums",
               color: isInbound ? "#22c55e" : "var(--accent)",
-              marginTop: 4,
+              marginTop: 2,
             }}
           >
             {callElapsedSecs != null ? formatMMSS(callElapsedSecs) : "—"}
