@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useT } from "@/lib/i18n";
 
 /**
  * TeamFlowEditor — the visual handoff editor a non-technical operator
@@ -52,6 +53,7 @@ export function TeamFlowEditor({
   initialMembers,
   availableAgents,
 }: Props) {
+  const t = useT();
   const [members, setMembers] = useState<TeamMemberRow[]>(initialMembers);
   const [busyMember, setBusyMember] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);

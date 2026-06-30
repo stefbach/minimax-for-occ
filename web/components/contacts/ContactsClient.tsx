@@ -111,7 +111,7 @@ export function ContactsClient({ initial }: { initial: Contact[] }) {
       const r = await fetch("/api/contacts/import", { method: "POST", body: fd });
       const j = await r.json();
       if (!r.ok) {
-        setError(j.error ?? "Import en échec");
+        setError(j.error ?? t("Import en échec"));
       } else {
         setImportResult(j);
         refresh();

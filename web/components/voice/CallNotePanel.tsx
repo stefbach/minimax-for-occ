@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useT } from "@/lib/i18n";
 
 interface Props {
   /** E.164 number being called (e.g. "+447700123456"). */
@@ -30,6 +31,7 @@ type LeadLookup =
  *    human can post-tag the call (AI does this automatically for AI calls).
  */
 export function CallNotePanel({ e164, callActive, lastCallEndedAt, lastCallId }: Props) {
+  const t = useT();
   const [lookup, setLookup] = useState<LeadLookup>({ state: "idle" });
   const [noteDraft, setNoteDraft] = useState("");
   const [savingNote, setSavingNote] = useState(false);
@@ -76,8 +78,8 @@ export function CallNotePanel({ e164, callActive, lastCallEndedAt, lastCallId }:
   useEffect(() => {
     if (lastCallEndedAt && lastCallEndedAt !== lastShownEndRef.current && lastCallId) {
       lastShownEndRef.current = lastCallEndedAt;
-      const t = setTimeout(() => setShowQualDialog(true), 800);
-      return () => clearTimeout(t);
+      const timer = setTimeout(() => setShowQualDialog(true), 800);
+      return () => clearTimeout(timer);
     }
   }, [lastCallEndedAt, lastCallId]);
 
@@ -123,14 +125,14 @@ export function CallNotePanel({ e164, callActive, lastCallEndedAt, lastCallId }:
   }
 
   const QUAL_OPTIONS = [
-    { value: "PAS DE REPONSE", label: "No answer" },
-    { value: "REPONDEUR", label: "Voicemail" },
-    { value: "RAPPEL", label: "Callback" },
-    { value: "RDV CONFIRME", label: "Appointment confirmed" },
-    { value: "PAS INTERESSE", label: "Not interested" },
-    { value: "A PASSER A L'HUMAIN", label: "Pass to human agent" },
-    { value: "FAUX NUMERO", label: "Wrong number" },
-    { value: "NE PAS RAPPELER", label: "Do not call back" },
+    { value: "PAS DE REPONSE", label: t("Pas de réponse") },
+    { value: "REPONDEUR", label: t("Répondeur") },
+    { value: "RAPPEL", label: t("Rappel") },
+    { value: "RDV CONFIRME", label: t("RDV confirmé") },
+    { value: "PAS INTERESSE", label: t("Pas intéressé") },
+    { value: "A PASSER A L'HUMAIN", label: t("Passer à l'humain") },
+    { value: "FAUX NUMERO", label: t("Faux numéro") },
+    { value: "NE PAS RAPPELER", label: t("Ne pas rappeler") },
   ];
 
   async function saveQualification(qual: string) {
@@ -176,7 +178,7 @@ export function CallNotePanel({ e164, callActive, lastCallEndedAt, lastCallId }:
             style={{ width: "min(420px, 100%)", padding: 18, display: "flex", flexDirection: "column", gap: 10 }}
           >
             <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
-              <h3 style={{ margin: 0 }}>How do you qualify this call?</h3>
+              <h3 style={{ margin: 0 }}>{t("Comment qualifiez-vous cet appel ?")}</h3>
               <button className="ghost" onClick={() => setShowQualDialog(false)} disabled={qualSaving}>×</button>
             </div>
             <div className="muted" style={{ fontSize: 12 }}>{lookup.state === "found" ? lookup.display_name : e164}</div>
@@ -193,7 +195,7 @@ export function CallNotePanel({ e164, callActive, lastCallEndedAt, lastCallId }:
               ))}
             </div>
             {qualSavedAt && Date.now() - qualSavedAt < 3000 && (
-              <div style={{ color: "var(--good)", fontSize: 12, textAlign: "center" }}>✓ Qualification saved</div>
+              <div style={{ color: "var(--good)", fontSize: 12, textAlign: "center" }}>✓ {t("Qualification enregistrée")}</div>
             )}
           </div>
         </div>

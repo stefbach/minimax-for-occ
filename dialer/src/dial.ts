@@ -666,7 +666,10 @@ export async function dialTarget(job: DialJob): Promise<void> {
     const upcoming = (target.attempts ?? 0) + 1;
     const payload = target.payload ?? {};
     const lastSmsAttempt = Number((payload as Record<string, unknown>).precall_sms_attempt ?? 0);
-    if (lastSmsAttempt !== upcoming) {
+    // If a previous SMS attempt failed (e.g. STOP / unsubscribed / invalid number),
+    // don't retry on future dial attempts — go straight to dialing.
+    const prevSmsFailed = Boolean((payload as Record<string, unknown>).precall_sms_error);
+    if (lastSmsAttempt !== upcoming && !prevSmsFailed) {
       const leadMin = Math.max(1, Math.min(15, Number(precall?.lead_minutes ?? 2)));
       const nextAt = new Date(Date.now() + leadMin * 60_000).toISOString();
       // Atomic claim: mark this attempt's message(s) as sent AND push

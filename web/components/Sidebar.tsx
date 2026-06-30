@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { Brand } from "./brand/Brand";
 import { OrgSwitcher } from "./OrgSwitcher";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+import { useT } from "@/lib/i18n";
 
 type Role = "super_admin" | "admin" | "manager" | "supervisor" | "agent";
 
@@ -60,6 +61,7 @@ const NAV: NavItem[] = [
 ];
 
 export function Sidebar() {
+  const t = useT();
   const pathname = usePathname() ?? "/";
   const [role, setRole] = useState<Role | null>(null);
   const [loadedRole, setLoadedRole] = useState(false);
@@ -111,7 +113,7 @@ export function Sidebar() {
               padding: "10px 12px 4px",
             }}
           >
-            {group}
+            {t(group)}
           </div>
           {items.map((n) => {
             const active =
@@ -127,7 +129,7 @@ export function Sidebar() {
                 aria-current={active ? "page" : undefined}
               >
                 <span aria-hidden="true" style={{ width: 16, opacity: 0.7 }}>{n.icon}</span>
-                <span>{n.label}</span>
+                <span>{t(n.label)}</span>
               </Link>
             );
           })}
@@ -137,7 +139,7 @@ export function Sidebar() {
       <div style={{ marginTop: "auto" }}>
         {loadedRole && role && (
           <div style={{ padding: "6px 12px", fontSize: 10, color: "var(--muted-2)" }}>
-            role: <span className="kbd" style={{ fontSize: 10 }}>{role}</span>
+            {t("rôle :")} <span className="kbd" style={{ fontSize: 10 }}>{role}</span>
           </div>
         )}
         <OrgSwitcher />

@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useState } from "react";
+import { useT } from "@/lib/i18n";
 
 export interface TeamRow {
   id: string;
@@ -26,6 +27,7 @@ interface TeamMember {
 }
 
 export function TeamsClient({ initial, agents }: { initial: TeamRow[]; agents: AgentOption[] }) {
+  const t = useT();
   const [teams, setTeams] = useState<TeamRow[]>(initial);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [members, setMembers] = useState<Record<string, TeamMember[]>>({});

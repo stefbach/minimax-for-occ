@@ -9,6 +9,7 @@
  */
 
 import { useMemo } from "react";
+import { useT } from "@/lib/i18n";
 import {
   ToastContext,
   useToastState,
@@ -63,6 +64,7 @@ function ToastViewport({
   toasts: ToastItem[];
   onDismiss: (id: string) => void;
 }) {
+  const t = useT();
   const portalStyle = useMemo<React.CSSProperties>(
     () => ({
       position: "fixed",
@@ -80,12 +82,12 @@ function ToastViewport({
 
   return (
     <div style={portalStyle} aria-live="polite" aria-atomic="false">
-      {toasts.map((t) => {
-        const s = variantStyle(t.variant);
+      {toasts.map((toast) => {
+        const s = variantStyle(toast.variant);
         return (
           <div
-            key={t.id}
-            role={t.variant === "error" ? "alert" : "status"}
+            key={toast.id}
+            role={toast.variant === "error" ? "alert" : "status"}
             style={{
               pointerEvents: "auto",
               background: "var(--panel)",
@@ -120,12 +122,12 @@ function ToastViewport({
               {s.icon}
             </span>
             <div style={{ flex: 1, fontSize: 13, lineHeight: 1.4 }}>
-              {t.message}
+              {toast.message}
             </div>
             <button
               type="button"
-              onClick={() => onDismiss(t.id)}
-              aria-label="Fermer la notification"
+              onClick={() => onDismiss(toast.id)}
+              aria-label={t("Fermer la notification")}
               className="ghost"
               style={{
                 padding: "2px 8px",

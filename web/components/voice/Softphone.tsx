@@ -16,6 +16,7 @@ import { useToast } from "@/lib/use-toast";
 import { COUNTRIES, countryFor, countryFromE164 } from "@/lib/country-prefixes";
 import { CallNotePanel } from "./CallNotePanel";
 import { getRingtone } from "@/lib/ringtone";
+import { useT } from "@/lib/i18n";
 
 type PresenceStatus = "offline" | "available" | "busy" | "away";
 
@@ -83,6 +84,7 @@ export interface SoftphoneProps {
 }
 
 export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
+  const t = useT();
   const toast = useToast();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -423,7 +425,7 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
       const { data: userRes } = await sb.auth.getUser();
       const user = userRes.user;
       if (!user) {
-        setBootstrapError("Vous devez être connecté.");
+        setBootstrapError(t("Vous devez être connecté."));
         return;
       }
       setUserId(user.id);
@@ -531,14 +533,14 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
   // Heartbeat presence every 25s while not offline.
   useEffect(() => {
     if (!handle || status === "offline") return;
-    const t = setInterval(() => {
+    const timer = setInterval(() => {
       void fetch("/api/desk/presence", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ status }),
       }).catch(() => {});
     }, 25_000);
-    return () => clearInterval(t);
+    return () => clearInterval(timer);
   }, [handle, status]);
 
   // Mark offline on unmount.
@@ -646,8 +648,8 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
   useEffect(() => {
     if (!handle) return;
     void refreshCalls();
-    const t = setInterval(refreshCalls, 5_000);
-    return () => clearInterval(t);
+    const timer = setInterval(refreshCalls, 5_000);
+    return () => clearInterval(timer);
   }, [handle, refreshCalls]);
 
   // Realtime subscription on calls for this agent_handle_id.
@@ -755,7 +757,7 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
       const data = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(data.error ?? `HTTP ${r.status}`);
       setOnHold(Boolean(data.on_hold));
-      toast.success(data.on_hold ? "Appel mis en attente." : "Appel repris.");
+      toast.success(data.on_hold ? t("Appel mis en attente.") : t("Appel repris."));
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setHoldError(msg);
@@ -943,7 +945,7 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
           />
           <strong>{handle.display_name}</strong>
           <span className="muted" style={{ fontSize: 12 }}>
-            · poste {handle.id.slice(0, 8)}
+            · {t("poste")} {handle.id.slice(0, 8)}
           </span>
         </div>
         <div style={{ display: "flex", gap: 6 }}>
@@ -1193,6 +1195,7 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
  * input keeps showing the flag as they keep typing.
  */
 function CountryPrefix({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const t = useT();
   const current = countryFor(value);
   return (
     <select
@@ -1202,7 +1205,7 @@ function CountryPrefix({ value, onChange }: { value: string; onChange: (v: strin
         if (c) onChange(c.prefix);
       }}
       style={{ fontSize: 13, padding: "10px 4px", width: 90, flex: "0 0 90px" }}
-      title="Indicatif pays"
+      title={t("Indicatif pays")}
     >
       {current === null && <option value="">🏳</option>}
       {COUNTRIES.map((c) => (

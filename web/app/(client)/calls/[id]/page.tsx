@@ -169,10 +169,10 @@ export default function CallDetailPage() {
       const r = await fetch(`/api/calls/${id}/summary`, { method: "POST" });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error ?? `HTTP ${r.status}`);
-      setActionMsg("Résumé généré.");
+      setActionMsg(t("Résumé généré."));
       await refresh();
     } catch (e) {
-      setActionMsg(`Erreur résumé : ${e instanceof Error ? e.message : String(e)}`);
+      setActionMsg(`${t("Erreur résumé :")} ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setSummaryBusy(false);
     }
@@ -190,10 +190,10 @@ export default function CallDetailPage() {
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error ?? `HTTP ${r.status}`);
       const okCount = (d.results ?? []).filter((x: { ok: boolean }) => x.ok).length;
-      setActionMsg(`Analyses lancées : ${okCount}/${(d.results ?? []).length} OK.`);
+      setActionMsg(`${t("Analyses lancées :")} ${okCount}/${(d.results ?? []).length} OK.`);
       await refresh();
     } catch (e) {
-      setActionMsg(`Erreur analyse : ${e instanceof Error ? e.message : String(e)}`);
+      setActionMsg(`${t("Erreur analyse :")} ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setAnalyzeBusy(false);
     }
@@ -288,7 +288,7 @@ export default function CallDetailPage() {
     return (
       <div>
         <div className="page-header">
-          <h1>Appel</h1>
+          <h1>{t("Appel")}</h1>
           <HelpButton contextKey="calls" />
         </div>
         <div className="card">
@@ -302,7 +302,7 @@ export default function CallDetailPage() {
     return (
       <div>
         <div className="page-header">
-          <h1>Appel</h1>
+          <h1>{t("Appel")}</h1>
           <HelpButton contextKey="calls" />
         </div>
         <div className="card">
@@ -380,7 +380,7 @@ export default function CallDetailPage() {
         <div className="panel">
           <header>
             <h2>Timeline</h2>
-            <div className="meta">{events.length} évènement(s)</div>
+            <div className="meta">{events.length} {events.length === 1 ? t("évènement") : t("évènements")}</div>
           </header>
           <div className="chat-log" style={{ minHeight: 240 }}>
             {events.length === 0 ? (
@@ -408,22 +408,22 @@ export default function CallDetailPage() {
         <div className="panel">
           <header>
             <h2>Transcript</h2>
-            <div className="meta">{transcripts.length} tour(s)</div>
+            <div className="meta">{transcripts.length} {transcripts.length === 1 ? t("tour") : t("tours")}</div>
           </header>
           <div className="chat-log" style={{ minHeight: 240, maxHeight: 480, overflowY: "auto" }}>
             {transcripts.length === 0 ? (
               <p className="muted" style={{ margin: 0 }}>{t("Transcript en attente.")}</p>
             ) : (
-              transcripts.map((t) => (
-                <div key={t.id} className={`chat-msg ${t.speaker === "customer" ? "user" : "assistant"}`}>
+              transcripts.map((tr) => (
+                <div key={tr.id} className={`chat-msg ${tr.speaker === "customer" ? "user" : "assistant"}`}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                    <strong style={{ fontSize: 12 }}>{t.speaker}</strong>
+                    <strong style={{ fontSize: 12 }}>{tr.speaker}</strong>
                     <span className="muted" style={{ fontSize: 11 }}>
-                      {new Date(t.started_at).toLocaleTimeString()}
-                      {t.language ? ` · ${t.language}` : ""}
+                      {new Date(tr.started_at).toLocaleTimeString()}
+                      {tr.language ? ` · ${tr.language}` : ""}
                     </span>
                   </div>
-                  <div style={{ marginTop: 4 }}>{t.text}</div>
+                  <div style={{ marginTop: 4 }}>{tr.text}</div>
                 </div>
               ))
             )}
