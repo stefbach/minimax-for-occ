@@ -643,20 +643,20 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
         {/* ─── Callbacks ─────────────────────────────────────────────── */}
         <section>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-            <h4 style={{ margin: "0 0 8px 0", fontSize: 14 }}>Callbacks</h4>
-            {!isUnlocked("callback") && unlockBtn("callback", "Callbacks")}
+            <h4 style={{ margin: "0 0 8px 0", fontSize: 14 }}>{t("Rappels programmés")}</h4>
+            {!isUnlocked("callback") && unlockBtn("callback", t("Rappels programmés"))}
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "auto 1fr 1fr", gap: 8, alignItems: "end" }}>
             <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, paddingBottom: 6 }}>
               <input type="checkbox" checked={callbackEnabled} onChange={(e) => setCallbackEnabled(e.target.checked)} disabled={!isUnlocked("callback")} style={{ width: "auto" }} />
-              Enabled
+              {t("Activé")}
             </label>
             <div>
-              <label style={{ fontSize: 12 }}>Trigger status</label>
+              <label style={{ fontSize: 12 }}>{t("Statut déclencheur")}</label>
               <input value={callbackStatus} onChange={(e) => setCallbackStatus(e.target.value)} disabled={!isUnlocked("callback")} />
             </div>
             <div>
-              <label style={{ fontSize: 12 }}>Datetime column</label>
+              <label style={{ fontSize: 12 }}>{t("Colonne datetime")}</label>
               <input value={callbackCol} onChange={(e) => setCallbackCol(e.target.value)} disabled={!isUnlocked("callback")} />
             </div>
           </div>
@@ -665,11 +665,11 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
 
         {/* ─── Advanced ─────────────────────────────────────────────── */}
         <details>
-          <summary style={{ cursor: "pointer", fontSize: 13, fontWeight: 600 }}>▸ Advanced settings</summary>
+          <summary style={{ cursor: "pointer", fontSize: 13, fontWeight: 600 }}>▸ {t("Réglages avancés")}</summary>
           <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
               <div>
-                <label style={{ fontSize: 12 }}>Concurrent dials</label>
+                <label style={{ fontSize: 12 }}>{t("Appels simultanés")}</label>
                 <input type="number" min={1} max={50} value={maxConcurrency} onChange={(e) => setMaxConcurrency(Number(e.target.value) || 1)} />
               </div>
               <div>
