@@ -123,7 +123,7 @@ export async function GET(request: Request) {
       matchesGlobalFilters(gf, {
         durationSecs: r.duration_secs ?? 0,
         bucket: bucketForCall(r),
-        agent: null,
+        agent: r.agent_handle_id ?? null,
         answered: !!r.answered_at,
         attempt: r.to_e164 ? attemptIdx.get(r.id) ?? null : null,
         eligibility: eligibilityForPhone(r.to_e164, leadIdx),
