@@ -810,21 +810,26 @@ export function Softphone({ compact = false, onExpand, deskSlotEl }: SoftphonePr
   );
 
   const disconnect = useCallback(() => {
-    // Mark the call ended in Supabase so it stops re-ringing after the WebRTC
-    // session drops. Without this the DB row stays "ringing" / "in_progress"
-    // and the banner reappears on the next 5-second poll.
     if (conn) {
       const callId =
         calls.find((c) => c.room_id === conn.room)?.id ?? activeCall?.id;
       if (callId) {
+        // Tell the server to: (1) mark call ended in Supabase, (2) delete the
+        // LiveKit room so the SIP bridge hangs up the PSTN caller's phone.
         void fetch(`/api/desk/calls/${callId}/end`, { method: "POST" }).catch(() => {});
-        // Optimistically drop it so the banner / ringtone stop immediately,
-        // before the DB roundtrip completes.
+        // Optimistically drop from calls list so banner/ringtone stop immediately.
         setCalls((prev) => prev.filter((c) => c.id !== callId));
       }
     }
     setConn(null);
     setMuted(false);
+    // Null out room_id on activeCall so the auto-join useEffect can't
+    // immediately reconnect us to the same room after we intentionally
+    // disconnected. Keeps the rest of activeCall intact so the ContactPanel
+    // can still display the "ended" call summary.
+    setActiveCall((prev) =>
+      prev ? { ...prev, room_id: null, state: "ended", ended_at: new Date().toISOString() } : null,
+    );
   }, [conn, calls, activeCall]);
 
   const toggleHold = useCallback(async () => {
@@ -1055,6 +1060,7 @@ export function Softphone({ compact = false, onExpand, deskSlotEl }: SoftphonePr
           <CallsList
             calls={calls}
             activeId={activeCall?.id ?? null}
+            connectedRoom={conn?.room ?? null}
             onSelect={(c) => setActiveCall(c)}
             onAccept={(c) => void acceptCall(c)}
             onDismiss={(id) => void dismissCall(id)}
@@ -1381,12 +1387,14 @@ function CountryPrefix({ value, onChange }: { value: string; onChange: (v: strin
 function CallsList({
   calls,
   activeId,
+  connectedRoom,
   onSelect,
   onAccept,
   onDismiss,
 }: {
   calls: CallRow[];
   activeId: string | null;
+  connectedRoom: string | null;
   onSelect: (c: CallRow) => void;
   onAccept: (c: CallRow) => void;
   onDismiss: (id: string) => void;
@@ -1414,16 +1422,19 @@ function CallsList({
           <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>
             {"Active"}
           </div>
-          {live.map((c) => (
+          {live.map((c) => {
+            const alreadyJoined = !!connectedRoom && c.room_id === connectedRoom;
+            return (
             <CallRowView
               key={c.id}
               call={c}
               active={c.id === activeId}
               onClick={() => onSelect(c)}
-              onAccept={c.direction === "in" && c.state === "ringing" ? () => onAccept(c) : undefined}
-              onDismiss={c.direction === "in" && c.state === "ringing" ? () => onDismiss(c.id) : undefined}
+              onAccept={c.direction === "in" && c.state === "ringing" && !alreadyJoined ? () => onAccept(c) : undefined}
+              onDismiss={c.direction === "in" && c.state === "ringing" && !alreadyJoined ? () => onDismiss(c.id) : undefined}
             />
-          ))}
+            );
+          })}
         </div>
       )}
 
