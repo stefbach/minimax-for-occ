@@ -37,9 +37,9 @@ interface CallRow {
 }
 
 const STATE_FILTERS: { id: string; label: string }[] = [
-  { id: "ended,failed", label: "Terminés" },
-  { id: "ended", label: "Réussis" },
-  { id: "failed", label: "Échecs" },
+  { id: "ended", label: "Terminés" },
+  { id: "failed", label: "Échecs techniques" },
+  { id: "ended,failed", label: "Tous terminés" },
   { id: "ringing,ivr,in_progress,wrap_up", label: "En cours" },
 ];
 
@@ -125,7 +125,7 @@ export function CallLogsTab({ from, to, direction, leadsSource = "prod", system 
   const [rows, setRows] = useState<CallRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [stateFilter, setStateFilter] = useState<string>("ended,failed");
+  const [stateFilter, setStateFilter] = useState<string>("ended");
   const [answeredFilter, setAnsweredFilter] = useState<string>("all");
   const [durationFilter, setDurationFilter] = useState<string>("all");
   // Custom duration range (in minutes, decimals allowed e.g. 0.5 = 30s). Active

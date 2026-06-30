@@ -34,11 +34,13 @@ interface Props {
 // Page size choices offered to the user. "all" sends per_page=all to the
 // API, which falls back to the server's hard cap (10k). Wati 2026-06-15:
 // default 20, with 50/100/all as opt-ins.
-const PAGE_SIZE_OPTIONS: Array<{ value: number | "all"; label: string }> = [
-  { value: 20, label: "20" },
-  { value: 50, label: "50" },
-  { value: 100, label: "100" },
-  { value: "all", label: "Tout" },
+// Note: the "Tout" label is translated at render time via the PAGE_SIZE_ALL_KEY sentinel.
+const PAGE_SIZE_ALL_KEY = "__all__";
+const PAGE_SIZE_OPTIONS: Array<{ value: number | "all"; labelKey: string }> = [
+  { value: 20, labelKey: "20" },
+  { value: 50, labelKey: "50" },
+  { value: 100, labelKey: "100" },
+  { value: "all", labelKey: PAGE_SIZE_ALL_KEY },
 ];
 
 type ImportReport = {
@@ -170,10 +172,10 @@ export function DataTableDetail({
       const buf = await file.arrayBuffer();
       const wb = XLSX.read(buf, { type: "array" });
       const sheetName = wb.SheetNames[0];
-      if (!sheetName) throw new Error("Fichier vide.");
+      if (!sheetName) throw new Error(t("Fichier vide."));
       const ws = wb.Sheets[sheetName];
       const json = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: "" });
-      if (json.length === 0) throw new Error("Aucune ligne trouvée dans le fichier.");
+      if (json.length === 0) throw new Error(t("Aucune ligne trouvée dans le fichier."));
 
       // Re-map labels → column keys. Skip the example row (any row whose
       // phone cell is the template placeholder).
@@ -186,13 +188,13 @@ export function DataTableDetail({
           }
           return out;
         })
-        .filter((r) => {
-          const phone = String(r[phoneColumn] ?? "").trim();
+        .filter((row) => {
+          const phone = String(row[phoneColumn] ?? "").trim();
           return phone && !phone.includes("XXXX");
         });
 
       if (mapped.length === 0) {
-        throw new Error("Aucune ligne valide à importer (téléphone manquant ?).");
+        throw new Error(t("Aucune ligne valide à importer (téléphone manquant ?)."));
       }
 
       const r = await fetch(`/api/data-tables/${registryId}/rows/bulk`, {
@@ -202,7 +204,7 @@ export function DataTableDetail({
       });
       const body = await r.json();
       if (!r.ok) {
-        setImportError(body.error ?? `Échec import (HTTP ${r.status})`);
+        setImportError(body.error ?? t("Échec import") + ` (HTTP ${r.status})`);
         return;
       }
       setImportReport(body as ImportReport);
@@ -217,14 +219,14 @@ export function DataTableDetail({
 
   // Full column list (used by the detail drawer + import + add form).
   const allCols: ColumnSpec[] = [
-    { key: phoneColumn, label: "Téléphone", type: "phone" },
+    { key: phoneColumn, label: t("Téléphone"), type: "phone" },
     ...columns.filter((c) => c.key !== phoneColumn),
   ];
   // Inline-table columns: phone + curated summary set. Any column that's
   // declared and matches SUMMARY_COL_KEYS shows up; the rest stay in the
   // drawer.
   const displayCols: ColumnSpec[] = [
-    { key: phoneColumn, label: "Téléphone", type: "phone" },
+    { key: phoneColumn, label: t("Téléphone"), type: "phone" },
     ...columns.filter((c) => c.key !== phoneColumn && SUMMARY_COL_KEYS.has(c.key)),
   ];
 
@@ -274,7 +276,7 @@ export function DataTableDetail({
     e.preventDefault();
     setError(null);
     if (!draft[phoneColumn]?.trim()) {
-      setError("Le téléphone est requis.");
+      setError(t("Le téléphone est requis."));
       return;
     }
     setBusy(true);
@@ -285,7 +287,7 @@ export function DataTableDetail({
         body: JSON.stringify({ values: draft }),
       });
       const body = await r.json();
-      if (!r.ok) { setError(body.error ?? `Échec (${r.status})`); return; }
+      if (!r.ok) { setError(body.error ?? t("Échec") + ` (${r.status})`); return; }
       setRows((prev) => [body, ...prev]);
       setTotal((prev) => prev + 1);
       setDraft({});
@@ -323,10 +325,10 @@ export function DataTableDetail({
       });
       const body = await r.json();
       if (!r.ok) {
-        setEditError(body.error ?? `Échec (${r.status})`);
+        setEditError(body.error ?? t("Échec") + ` (${r.status})`);
         return;
       }
-      setRows((prev) => prev.map((r) => ((r.id as string) === editingId ? body : r)));
+      setRows((prev) => prev.map((row) => ((row.id as string) === editingId ? body : row)));
       setEditingId(null);
       router.refresh();
     } finally {
@@ -346,10 +348,10 @@ export function DataTableDetail({
       });
       if (!r.ok) {
         const body = await r.json().catch(() => ({}));
-        alert((body as { error?: string }).error ?? `Échec suppression (${r.status})`);
+        alert((body as { error?: string }).error ?? t("Échec suppression") + ` (${r.status})`);
         return;
       }
-      setRows((prev) => prev.filter((r) => (r.id as string) !== id));
+      setRows((prev) => prev.filter((row) => (row.id as string) !== id));
       setTotal((prev) => Math.max(0, prev - 1));
       router.refresh();
     } finally {
@@ -357,12 +359,12 @@ export function DataTableDetail({
     }
   }
 
-  function inputType(t: string): string {
-    if (t === "number") return "number";
-    if (t === "date") return "date";
-    if (t === "datetime") return "datetime-local";
-    if (t === "email") return "email";
-    if (t === "phone") return "tel";
+  function inputType(typ: string): string {
+    if (typ === "number") return "number";
+    if (typ === "date") return "date";
+    if (typ === "datetime") return "datetime-local";
+    if (typ === "email") return "email";
+    if (typ === "phone") return "tel";
     return "text";
   }
 
@@ -384,7 +386,7 @@ export function DataTableDetail({
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Rechercher…"
+          placeholder={t("Rechercher…")}
           style={{ flex: "1 1 200px", minWidth: 160 }}
         />
         {distinctQuals.length > 0 && (
@@ -410,9 +412,9 @@ export function DataTableDetail({
         )}
         <span className="muted" style={{ fontSize: 12, marginLeft: 4 }}>
           {fetching
-            ? "Chargement…"
+            ? t("Chargement…")
             : search.trim()
-              ? `${filtered.length} affiché${filtered.length > 1 ? "s" : ""} · ${total} trouvé${total > 1 ? "s" : ""}`
+              ? `${filtered.length} ${t("affiché")}${filtered.length > 1 ? "s" : ""} · ${total} ${t("trouvé")}${total > 1 ? "s" : ""}`
               : `${filtered.length} / ${total}`}
         </span>
         {/* Pagination (Wati 2026-06-15): prev / next + page-size selector.
@@ -439,7 +441,7 @@ export function DataTableDetail({
           >
             {PAGE_SIZE_OPTIONS.map((o) => (
               <option key={String(o.value)} value={String(o.value)}>
-                {o.label}
+                {o.labelKey === PAGE_SIZE_ALL_KEY ? t("Tout") : o.labelKey}
               </option>
             ))}
           </select>
@@ -448,21 +450,21 @@ export function DataTableDetail({
             onClick={() => setPage((p) => Math.max(1, p - 1))}
             disabled={!canPrev || fetching}
             style={{ padding: "2px 8px", fontSize: 12 }}
-            aria-label="Page précédente"
+            aria-label={t("Page précédente")}
           >
-            ‹ Précédent
+            ‹ {t("Précédent")}
           </button>
           <span style={{ color: "var(--muted)", whiteSpace: "nowrap" }}>
-            Page {page} / {totalPages}
+            {t("Page")} {page} / {totalPages}
           </span>
           <button
             className="ghost"
             onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
             disabled={!canNext || fetching}
             style={{ padding: "2px 8px", fontSize: 12 }}
-            aria-label="Page suivante"
+            aria-label={t("Page suivante")}
           >
-            Suivant ›
+            {t("Suivant")} ›
           </button>
         </div>
         <div style={{ flex: 1 }} />
@@ -471,7 +473,7 @@ export function DataTableDetail({
           className="ghost"
           onClick={() => fileInputRef.current?.click()}
           disabled={importBusy}
-          title="Importer un fichier CSV ou Excel"
+          title={t("Importer un fichier CSV ou Excel")}
         >
           {importBusy ? t("Import…") : `📥 ${t("Importer CSV/Excel")}`}
         </button>
@@ -491,7 +493,7 @@ export function DataTableDetail({
             borderRadius: 6, textDecoration: "none", color: "var(--text)",
             fontSize: 13,
           }}
-          title="Télécharger un modèle Excel pré-rempli avec les bonnes colonnes"
+          title={t("Télécharger un modèle Excel pré-rempli avec les bonnes colonnes")}
         >
           📤 {t("Modèle Excel")}
         </a>
@@ -516,9 +518,9 @@ export function DataTableDetail({
             ) : importReport ? (
               <>
                 <div style={{ fontWeight: 600 }}>
-                  ✅ {importReport.inserted} ligne{importReport.inserted > 1 ? "s" : ""} importée{importReport.inserted > 1 ? "s" : ""}
+                  ✅ {importReport.inserted} {t("ligne")}{importReport.inserted > 1 ? "s" : ""} {t("importée")}{importReport.inserted > 1 ? "s" : ""}
                   {importReport.total !== importReport.inserted && (
-                    <span style={{ color: "var(--warn)" }}> · {importReport.total - importReport.inserted} ignorée(s)</span>
+                    <span style={{ color: "var(--warn)" }}> · {importReport.total - importReport.inserted} {t("ignorée(s)")}</span>
                   )}
                 </div>
                 {importReport.errors.length > 0 && (
@@ -528,9 +530,9 @@ export function DataTableDetail({
                     </summary>
                     <ul style={{ margin: "6px 0 0 0", paddingLeft: 18, fontSize: 12 }}>
                       {importReport.errors.slice(0, 50).map((er, i) => (
-                        <li key={i}>Ligne {er.row} : {er.reason}</li>
+                        <li key={i}>{t("Ligne")} {er.row} : {er.reason}</li>
                       ))}
-                      {importReport.errors.length > 50 && <li>…et {importReport.errors.length - 50} de plus</li>}
+                      {importReport.errors.length > 50 && <li>…{t("et")} {importReport.errors.length - 50} {t("de plus")}</li>}
                     </ul>
                   </details>
                 )}
@@ -617,7 +619,7 @@ export function DataTableDetail({
                     zIndex: 2,
                   }}
                 >
-                  Actions
+                  {t("Actions")}
                 </th>
               </tr>
             </thead>
@@ -717,7 +719,7 @@ export function DataTableDetail({
                         onClick={() => deleteRow(r)}
                         disabled={!rowId || isDeleting}
                         style={{ padding: "3px 8px", fontSize: 12, color: "var(--bad)" }}
-                        title="Supprimer"
+                        title={t("Supprimer")}
                       >
                         🗑
                       </button>

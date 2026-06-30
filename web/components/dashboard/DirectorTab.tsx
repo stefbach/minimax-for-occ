@@ -364,7 +364,14 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
           {t("Source")} : <code>calls.metadata.qualification</code> + <code>calls.disposition</code>
         </p>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10 }}>
-          {data.qualifications.map((q) => (
+          {(() => {
+            // Merge RAPPEL into PAS DE REPONSE: a quick hang-up is a non-answer,
+            // not a genuine callback intent — Wati 30/06.
+            const rappelCount = data.qualifications.find((q) => q.key === "rappel")?.count ?? 0;
+            return data.qualifications
+              .filter((q) => q.key !== "rappel")
+              .map((q) => q.key === "pas_de_reponse" ? { ...q, count: q.count + rappelCount } : q);
+          })().map((q) => (
             <ClickCard
               key={q.key}
               ariaLabel={`${t(q.label)} — ${t("voir les appels")}`}

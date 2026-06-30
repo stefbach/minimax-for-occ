@@ -54,21 +54,21 @@ interface AvailableNumber {
   capabilities: { voice: boolean; sms: boolean; mms: boolean; fax: boolean };
 }
 
-const COUNTRY_OPTIONS = [
-  { code: "FR", name: "France" },
-  { code: "US", name: "États-Unis" },
-  { code: "CA", name: "Canada" },
-  { code: "GB", name: "Royaume-Uni" },
-  { code: "BE", name: "Belgique" },
-  { code: "CH", name: "Suisse" },
-  { code: "DE", name: "Allemagne" },
-  { code: "ES", name: "Espagne" },
-  { code: "IT", name: "Italie" },
-  { code: "NL", name: "Pays-Bas" },
-  { code: "MU", name: "Maurice" },
+const COUNTRY_OPTION_KEYS = [
+  { code: "FR", label: "France" },
+  { code: "US", label: "États-Unis" },
+  { code: "CA", label: "Canada" },
+  { code: "GB", label: "Royaume-Uni" },
+  { code: "BE", label: "Belgique" },
+  { code: "CH", label: "Suisse" },
+  { code: "DE", label: "Allemagne" },
+  { code: "ES", label: "Espagne" },
+  { code: "IT", label: "Italie" },
+  { code: "NL", label: "Pays-Bas" },
+  { code: "MU", label: "Maurice" },
 ];
 
-const JURISDICTION_OPTIONS = [
+const JURISDICTION_OPTION_KEYS = [
   { value: "",         label: "—" },
   { value: "US_TCPA",  label: "US TCPA" },
   { value: "EU_GDPR",  label: "EU GDPR" },
@@ -111,6 +111,17 @@ export function NumbersClient({
   twilioReady: boolean;
 }) {
   const t = useT();
+
+  const COUNTRY_OPTIONS = useMemo(
+    () => COUNTRY_OPTION_KEYS.map((c) => ({ code: c.code, name: t(c.label) })),
+    [t],
+  );
+
+  const JURISDICTION_OPTIONS = useMemo(
+    () => JURISDICTION_OPTION_KEYS.map((j) => ({ value: j.value, label: t(j.label) })),
+    [t],
+  );
+
   const [rows, setRows] = useState<PhoneNumberRow[]>(initial);
 
   // ─── Twilio search/purchase state ────────────────────────────────────────
@@ -207,7 +218,7 @@ export function NumbersClient({
     setSearching(false);
     if (!r.ok) {
       const j = await r.json().catch(() => ({}));
-      setSearchError(j.error ?? "Recherche Twilio en échec");
+      setSearchError(j.error ?? t("Recherche Twilio en échec"));
       return;
     }
     setResults((await r.json()) as AvailableNumber[]);
@@ -225,14 +236,14 @@ export function NumbersClient({
     setPurchasing(null);
     if (!r.ok) {
       const j = await r.json().catch(() => ({}));
-      setActionError(j.error ?? "Achat en échec");
+      setActionError(j.error ?? t("Achat en échec"));
       return;
     }
     const j = await r.json().catch(() => ({} as { webhook_warning?: string }));
     setActionNote(
       j?.webhook_warning
-        ? `Numéro ${phoneNumber} acheté mais webhook non configuré: ${j.webhook_warning}`
-        : `Numéro ${phoneNumber} acheté et webhook Twilio configuré automatiquement.`,
+        ? `${t("Numéro")} ${phoneNumber} ${t("acheté mais webhook non configuré")}: ${j.webhook_warning}`
+        : `${t("Numéro")} ${phoneNumber} ${t("acheté et webhook Twilio configuré automatiquement.")}`,
     );
     setResults((cur) => (cur ? cur.filter((n) => n.phoneNumber !== phoneNumber) : cur));
     refresh();
@@ -242,7 +253,7 @@ export function NumbersClient({
     e.preventDefault();
     const e164 = importE164.trim();
     if (!/^\+\d{6,15}$/.test(e164)) {
-      setActionError("Numéro invalide : format E.164 attendu (ex: +447700162160).");
+      setActionError(t("Numéro invalide : format E.164 attendu (ex: +447700162160)."));
       return;
     }
     setImporting(true);
@@ -259,14 +270,14 @@ export function NumbersClient({
     setImporting(false);
     if (!r.ok) {
       const j = await r.json().catch(() => ({}));
-      setActionError(j.error ?? "Import en échec");
+      setActionError(j.error ?? t("Import en échec"));
       return;
     }
     const j = await r.json().catch(() => ({} as { webhook_warning?: string }));
     setActionNote(
       j?.webhook_warning
-        ? `Numéro ${e164} importé mais webhook non reconfiguré: ${j.webhook_warning}`
-        : `Numéro ${e164} importé et webhook Twilio reconfiguré automatiquement.`,
+        ? `${t("Numéro")} ${e164} ${t("importé mais webhook non reconfiguré")}: ${j.webhook_warning}`
+        : `${t("Numéro")} ${e164} ${t("importé et webhook Twilio reconfiguré automatiquement.")}`,
     );
     setImportE164("");
     setImportLabel("");
@@ -274,13 +285,13 @@ export function NumbersClient({
   }
 
   async function release(row: PhoneNumberRow) {
-    if (!confirm(`Libérer ${row.e164} ? Le numéro sera supprimé de Twilio et de la base.`)) return;
+    if (!confirm(`${t("Libérer")} ${row.e164} ? ${t("Le numéro sera supprimé de Twilio et de la base.")}`)) return;
     setActionError(null);
     setActionNote(null);
     const r = await fetch(`/api/numbers?id=${row.id}`, { method: "DELETE" });
     if (!r.ok) {
       const j = await r.json().catch(() => ({}));
-      setActionError(j.error ?? "Suppression en échec");
+      setActionError(j.error ?? t("Suppression en échec"));
       return;
     }
     const j = await r.json().catch(() => ({}));
@@ -297,7 +308,7 @@ export function NumbersClient({
     });
     if (!r.ok) {
       const j = await r.json().catch(() => ({}));
-      setActionError(j.error ?? "Mise à jour en échec");
+      setActionError(j.error ?? t("Mise à jour en échec"));
       return;
     }
     const updated = (await r.json()) as PhoneNumberRow;
@@ -310,10 +321,10 @@ export function NumbersClient({
     const r = await fetch(`/api/numbers/${row.id}/configure-webhook`, { method: "POST" });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) {
-      setActionError(j.error ?? "Configuration webhook en échec");
+      setActionError(j.error ?? t("Configuration webhook en échec"));
       return;
     }
-    setActionNote(`Webhook reconfiguré pour ${row.e164}.`);
+    setActionNote(`${t("Webhook reconfiguré pour")} ${row.e164}.`);
     if (j?.row) {
       setRows((cur) => cur.map((n) => (n.id === row.id ? (j.row as PhoneNumberRow) : n)));
     } else {
@@ -328,7 +339,7 @@ export function NumbersClient({
   ) {
     if (selected.size === 0) return;
     const ids = Array.from(selected);
-    if (action === "delete" && !confirm(`Supprimer ${ids.length} numéro(s) ? Ils seront aussi libérés chez Twilio.`)) {
+    if (action === "delete" && !confirm(`${t("Supprimer")} ${ids.length} ${t("numéro(s) ? Ils seront aussi libérés chez Twilio.")}`)) {
       return;
     }
     setBulkBusy(true);
@@ -342,14 +353,12 @@ export function NumbersClient({
     setBulkBusy(false);
     if (!r.ok) {
       const j = await r.json().catch(() => ({}));
-      setActionError(j.error ?? "Bulk action en échec");
+      setActionError(j.error ?? t("Bulk action en échec"));
       return;
     }
     const j = await r.json().catch(() => ({}));
     setActionNote(
-      `Action « ${action} » appliquée à ${j.affected ?? ids.length} numéro(s).${
-        j.warnings?.length ? ` (${j.warnings.length} avertissement(s))` : ""
-      }`,
+      `${t("Action")} « ${action} » ${t("appliquée à")} ${j.affected ?? ids.length} ${t("numéro(s).")}${j.warnings?.length ? ` (${j.warnings.length} ${t("avertissement(s)")})` : ""}`,
     );
     clearSelection();
     refresh();
@@ -391,7 +400,7 @@ export function NumbersClient({
               >
                 <option value="local">Local</option>
                 <option value="mobile">Mobile</option>
-                <option value="tollfree">Numéro vert (toll-free)</option>
+                <option value="tollfree">{t("Numéro vert (toll-free)")}</option>
               </select>
             </div>
           </div>
@@ -679,7 +688,7 @@ export function NumbersClient({
                   el?.querySelector<HTMLInputElement>("input")?.focus();
                 }}
                 disabled={!twilioReady}
-                title={!twilioReady ? "Twilio non configuré (variables d'env manquantes)" : ""}
+                title={!twilioReady ? t("Twilio non configuré (variables d'env manquantes)") : ""}
               >
                 {t("Acheter un numéro")}
               </button>
@@ -839,7 +848,7 @@ export function NumbersClient({
                         <button
                           type="button"
                           onClick={() => patch(n.id, { inbound_enabled: !n.inbound_enabled })}
-                          title="Quand ON, ce numéro décroche les appels ENTRANTS. OFF = aucun décrochage (sécurité)."
+                          title={t("Quand ON, ce numéro décroche les appels ENTRANTS. OFF = aucun décrochage (sécurité).")}
                           style={{
                             display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
                             padding: "5px 10px", fontSize: 12, fontWeight: 600, borderRadius: 6, cursor: "pointer",
@@ -848,11 +857,11 @@ export function NumbersClient({
                             color: n.inbound_enabled ? "var(--good)" : "var(--muted)",
                           }}
                         >
-                          {n.inbound_enabled ? "🟢 Entrant ON" : "⚪ Entrant OFF"}
+                          {n.inbound_enabled ? t("🟢 Entrant ON") : t("⚪ Entrant OFF")}
                         </button>
                         {/* Mode — toujours sélectionnable (s'applique dès qu'Entrant est ON). */}
                         <div
-                          title="Humain d'abord : faire sonner les agents humains assignés (en ligne) AVANT Charlotte. IA seulement : Charlotte (IA) répond directement."
+                          title={t("Humain d'abord : faire sonner les agents humains assignés (en ligne) AVANT Charlotte. IA seulement : Charlotte (IA) répond directement.")}
                           style={{
                             display: "grid", gridTemplateColumns: "1fr 1fr",
                             border: "1px solid var(--border)", borderRadius: 6, overflow: "hidden",
@@ -869,7 +878,7 @@ export function NumbersClient({
                               fontWeight: n.human_first_enabled ? 600 : 400,
                             }}
                           >
-                            👤 Humain
+                            {t("👤 Humain")}
                           </button>
                           <button
                             type="button"
@@ -881,11 +890,11 @@ export function NumbersClient({
                               fontWeight: !n.human_first_enabled ? 600 : 400,
                             }}
                           >
-                            🤖 IA seule
+                            {t("🤖 IA seule")}
                           </button>
                         </div>
                         {!n.inbound_enabled && (
-                          <span className="muted" style={{ fontSize: 10 }}>mode appliqué quand Entrant est ON</span>
+                          <span className="muted" style={{ fontSize: 10 }}>{t("mode appliqué quand Entrant est ON")}</span>
                         )}
                       </div>
                     </td>

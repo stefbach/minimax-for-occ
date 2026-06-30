@@ -218,6 +218,18 @@ def save_to_data_table(
                 k: v for k, v in (fields or {}).items()
                 if v is not None and k in valid_cols and k not in ("id", "created_at")
             }
+            # Canonical qualification remapping at write time. The AI label is
+            # kept verbatim on calls.metadata for audit; leads_rdv carries the
+            # normalised label so the cadence engine sees the right value.
+            _QUAL_REMAP = {
+                "FAUX NUMERO": "NE PAS RAPPELER",  # invalid → permanent DNC
+                "RAPPEL":      "PAS DE REPONSE",   # no answer → cadence retries
+                "A RAPPELER":  "PAS DE REPONSE",
+            }
+            q = clean.get("qualification")
+            if q:
+                q_upper = str(q).strip().upper()
+                clean["qualification"] = _QUAL_REMAP.get(q_upper, q_upper)
             # Always bump updated_at if the column exists.
             if "updated_at" in valid_cols:
                 from datetime import datetime, timezone
@@ -642,8 +654,8 @@ _CALLBACK_QUAL_PATTERNS = (
     # Soft positives (the AI's prompts actually emit these)
     "interested", "interess", "hot_lead", "hot lead", "warm_lead", "warm lead",
     "nouveau dossier", "new case", "nouveau_dossier",
-    # Explicit callback / human transfer signals
-    "rappel", "callback", "call_back", "call back", "follow_up", "follow up",
+    # Human transfer signals (RAPPEL/callback excluded — they now map to
+    # PAS DE REPONSE and do not need a human task; the cadence retries).
     "humain", "human", "to_human", "passer", "transferred_to_human",
     # Warm lead that reached a specialist (agent 2/3) but didn't book →
     # needs human follow-up (SUIVI REQUIS).
@@ -814,7 +826,9 @@ def _qualification_needs_callback(raw: Optional[str]) -> bool:
     negative = ("pas_interess", "pas interess", "not interest", "decline",
                 "do_not_call", "do not call", "dnc", "ne pas rappel",
                 "wrong number", "faux num", "non eligib", "non éligib",
-                "ineligib", "not eligib")
+                "ineligib", "not eligib",
+                # RAPPEL / PAS DE REPONSE = no answer, cadence retries — no human task.
+                "rappel", "pas de reponse", "pas_de_reponse", "repondeur")
     if any(n in s for n in negative):
         return False
     return any(p in s for p in _CALLBACK_QUAL_PATTERNS)
@@ -1065,7 +1079,7 @@ def auto_qualify_call(call_id: Optional[str]) -> None:
                     r"|mauvais\s+num[ée]ro",
                     joined_full,
                 ):
-                    intent_qual = "FAUX NUMERO"
+                    intent_qual = "NE PAS RAPPELER"
                     intent_source = "transcript_wrong_number"
                 elif re.search(
                     r"(real|actual|live)\s+(person|human|being)"
@@ -1159,18 +1173,17 @@ def auto_qualify_call(call_id: Optional[str]) -> None:
                 qual = "PAS DE REPONSE"
                 qualification_source = "no_speech_heuristic"
             elif duration <= 5:
-                qual = "REPONDEUR"
-                qualification_source = "auto_inferred"
+                # Very short call with speech — patient picked up and
+                # immediately hung up. Treat as PAS DE REPONSE (no real
+                # engagement) rather than REPONDEUR (which implies voicemail).
+                qual = "PAS DE REPONSE"
+                qualification_source = "immediate_hangup"
             elif duration <= 15:
-                # We reach this branch only when any_user_speech=True (the
-                # `not any_user_speech` branch above caught the silent
-                # ones). The patient DID say something — even just "Hello?"
-                # — before hanging up. Calling that PAS DE REPONSE is wrong:
-                # Wati flagged Kerrianne Griffiths (0:13, "Hello.") on
-                # June 11 — she clearly picked up. Treat as RAPPEL so the
-                # campaign retries instead of permanently writing her off.
-                qual = "RAPPEL"
-                qualification_source = "short_pickup_with_speech"
+                # Patient answered and immediately hung up (≤15 s, any speech).
+                # Treat as PAS DE REPONSE — a quick hangup is not a real
+                # conversation; the campaign should not retry as RAPPEL.
+                qual = "PAS DE REPONSE"
+                qualification_source = "immediate_hangup"
             elif duration < 30:
                 # Short engagement: don't lock the patient out unless
                 # they've already been bothered N_GIVEUP times.

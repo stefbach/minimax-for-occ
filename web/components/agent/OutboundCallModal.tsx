@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useT } from "@/lib/i18n";
 
 type ScriptOption = { id: string; name: string; mission: string | null };
 
@@ -20,6 +21,7 @@ export function OutboundCallModal({
   agentName: string;
   onClose: () => void;
 }) {
+  const t = useT();
   const [to, setTo] = useState("");
   const [firstname, setFirstname] = useState("");
   const [lastname, setLastname] = useState("");
@@ -85,7 +87,7 @@ export function OutboundCallModal({
 
     const trimmed = to.trim();
     if (!/^\+\d{6,15}$/.test(trimmed)) {
-      setError("Le numéro doit être au format E.164 (ex. +33756123456).");
+      setError(t("Le numéro doit être au format E.164 (ex. +33756123456)."));
       return;
     }
 
@@ -111,7 +113,7 @@ export function OutboundCallModal({
         setError(data.error ?? `HTTP ${r.status}`);
         return;
       }
-      setSuccess(`Appel lancé. ID : ${data.call_id ?? "—"}`);
+      setSuccess(t("Appel lancé. ID :") + ` ${data.call_id ?? "—"}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -140,20 +142,19 @@ export function OutboundCallModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <h3 style={{ margin: 0 }}>☎ Appel sortant via {agentName}</h3>
-          <button className="ghost" onClick={onClose} aria-label="Fermer">
+          <h3 style={{ margin: 0 }}>☎ {t("Appel sortant via")} {agentName}</h3>
+          <button className="ghost" onClick={onClose} aria-label={t("Fermer")}>
             ✕
           </button>
         </div>
         <p className="muted" style={{ marginTop: 6, fontSize: 13 }}>
-          L&apos;agent appelle ce numéro immédiatement. Pas besoin de créer une
-          campagne ni un target.
+          {t("L'agent appelle ce numéro immédiatement. Pas besoin de créer une campagne ni un target.")}
         </p>
 
         <form onSubmit={submit} style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
           <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             <span style={{ fontSize: 12, color: "var(--muted)" }}>
-              Numéro à appeler (E.164) <span style={{ color: "var(--bad)" }}>*</span>
+              {t("Numéro à appeler (E.164)")} <span style={{ color: "var(--bad)" }}>*</span>
             </span>
             <input
               type="tel"
@@ -169,36 +170,36 @@ export function OutboundCallModal({
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
             <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <span style={{ fontSize: 12, color: "var(--muted)" }}>Prénom</span>
+              <span style={{ fontSize: 12, color: "var(--muted)" }}>{t("Prénom")}</span>
               <input
                 type="text"
                 value={firstname}
                 onChange={(e) => setFirstname(e.target.value)}
-                placeholder="(optionnel)"
+                placeholder={t("(optionnel)")}
                 disabled={busy}
                 style={{ padding: "8px 10px", borderRadius: 6, border: "1px solid var(--border)" }}
               />
             </label>
             <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <span style={{ fontSize: 12, color: "var(--muted)" }}>Nom</span>
+              <span style={{ fontSize: 12, color: "var(--muted)" }}>{t("Nom")}</span>
               <input
                 type="text"
                 value={lastname}
                 onChange={(e) => setLastname(e.target.value)}
-                placeholder="(optionnel)"
+                placeholder={t("(optionnel)")}
                 disabled={busy}
                 style={{ padding: "8px 10px", borderRadius: 6, border: "1px solid var(--border)" }}
               />
             </label>
           </div>
           <p className="muted" style={{ fontSize: 11, margin: 0 }}>
-            Utilisés pour remplacer <code>{"{{firstname}}"}</code> /{" "}
-            <code>{"{{lastname}}"}</code> dans le greeting et le system prompt.
+            {t("Utilisés pour remplacer")} <code>{"{{firstname}}"}</code> /{" "}
+            <code>{"{{lastname}}"}</code> {t("dans le greeting et le system prompt.")}
           </p>
 
           <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             <span style={{ fontSize: 12, color: "var(--muted)" }}>
-              Script à suivre (optionnel)
+              {t("Script à suivre (optionnel)")}
             </span>
             <select
               value={scriptId}
@@ -206,7 +207,7 @@ export function OutboundCallModal({
               disabled={busy}
               style={{ padding: "8px 10px", borderRadius: 6, border: "1px solid var(--border)" }}
             >
-              <option value="">— Aucun script (l&apos;agent improvise) —</option>
+              <option value="">{t("— Aucun script (l'agent improvise) —")}</option>
               {scripts.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}
@@ -214,9 +215,7 @@ export function OutboundCallModal({
               ))}
             </select>
             <span style={{ fontSize: 11, color: "var(--muted)" }}>
-              Sans script, l&apos;agent suit uniquement son system prompt et peut
-              improviser l&apos;ouverture. Avec script, il suit le déroulé étape
-              par étape (présentation, qualification, transfert).
+              {t("Sans script, l'agent suit uniquement son system prompt et peut improviser l'ouverture. Avec script, il suit le déroulé étape par étape (présentation, qualification, transfert).")}
             </span>
           </label>
 
@@ -233,10 +232,10 @@ export function OutboundCallModal({
 
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 6 }}>
             <button type="button" className="ghost" onClick={onClose} disabled={busy}>
-              Annuler
+              {t("Annuler")}
             </button>
             <button type="submit" disabled={busy || !to.trim()}>
-              {busy ? "Lancement…" : "Lancer l'appel"}
+              {busy ? t("Lancement…") : t("Lancer l'appel")}
             </button>
           </div>
         </form>

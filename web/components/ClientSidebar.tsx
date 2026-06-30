@@ -9,7 +9,7 @@ import { OrgSwitcher } from "./OrgSwitcher";
 import { ThemeLangSwitcher } from "./ThemeLangSwitcher";
 import { useT } from "@/lib/i18n";
 import { supabaseBrowser } from "@/lib/supabase-browser";
-import { Heart, Menu, Music, Pencil, Settings, X, Zap } from "lucide-react";
+import { ChevronLeft, ChevronRight, Heart, Menu, Music, Pencil, Settings, X, Zap } from "lucide-react";
 import { effectiveModules, isModuleId, type ModuleId } from "@/lib/permissions";
 
 // Width below which the sidebar morphs into a slide-in drawer. Kept in sync
@@ -69,51 +69,51 @@ const NON_AGENT_PAGES_FOR_AGENT_ROLE = new Set([
 const RETIRED_PAGES = new Set(["/calls"]);
 
 const NAV: NavItem[] = [
-  // ─── OVERVIEW ───
-  { href: "/start",     label: "Guided start",     icon: "✦", group: "Overview" },
-  { href: "/dashboard", label: "Analytics",        icon: "▣", group: "Overview", module: "dashboard" },
-  { href: "/copilot",   label: "Co-pilot manager", icon: "✸", group: "Overview", module: "copilot" },
-  { href: "/rapports",  label: "Management reports", icon: "▤", group: "Overview", requiredRoles: MANAGER_REPORT_ROLES },
-  { href: "/desk",            label: "My workspace",    icon: "⌂", group: "Overview", module: "desk" },
-  { href: "/mon-calendrier",  label: "My calendar",     icon: "▦", group: "Overview", module: "desk" },
-  { href: "/mon-calendrier/ia", label: "AI calendar", icon: "🤖", group: "Overview", module: "desk", indent: true },
-  { href: "/desk/supervise",  label: "Supervision",     icon: "◷", group: "Overview", module: "desk", requiredRoles: SUPERVISOR_ROLES },
-  { href: "/supervise/live",  label: "Live supervision", icon: "◉", group: "Overview", module: "desk", requiredRoles: SUPERVISOR_ROLES },
-  { href: "/mes-patients",    label: "My patients",     icon: <Menu size={16} />, group: "Overview", module: "desk" },
-  { href: "/alerts",    label: "Alerts",           icon: "!", group: "Overview", module: "alerts" },
+  // ─── APERÇU ───
+  { href: "/start",     label: "Démarrage guidé",   icon: "✦", group: "Vue d'ensemble" },
+  { href: "/dashboard", label: "Tableau d'analyse", icon: "▣", group: "Vue d'ensemble", module: "dashboard" },
+  { href: "/copilot",   label: "Co-pilot manager",  icon: "✸", group: "Vue d'ensemble", module: "copilot" },
+  { href: "/rapports",  label: "Rapports pilotage",  icon: "▤", group: "Vue d'ensemble", requiredRoles: MANAGER_REPORT_ROLES },
+  { href: "/desk",            label: "Mon espace",      icon: "⌂", group: "Vue d'ensemble", module: "desk" },
+  { href: "/mon-calendrier",  label: "Mon calendrier",  icon: "▦", group: "Vue d'ensemble", module: "desk" },
+  { href: "/mon-calendrier/ia", label: "Calendrier IA", icon: "🤖", group: "Vue d'ensemble", module: "desk", indent: true },
+  { href: "/desk/supervise",  label: "Supervision",     icon: "◷", group: "Vue d'ensemble", module: "desk", requiredRoles: SUPERVISOR_ROLES },
+  { href: "/supervise/live",  label: "Supervision live", icon: "◉", group: "Vue d'ensemble", module: "desk", requiredRoles: SUPERVISOR_ROLES },
+  { href: "/mes-patients",    label: "Mes patients",    icon: <Menu size={16} />, group: "Vue d'ensemble", module: "desk" },
+  { href: "/alerts",    label: "Alertes",           icon: "!", group: "Vue d'ensemble", module: "alerts" },
 
   // ─── CONFIGURATION ───
   { href: "/agents",         label: "Agents",                icon: "◇", group: "Configuration", module: "agents" },
-  { href: "/outbound-call",  label: "Outbound call",         icon: "☎", group: "Configuration", module: "agents" },
-  { href: "/teams",          label: "AI Teams",              icon: "⌬", group: "Configuration", module: "agents" },
+  { href: "/outbound-call",  label: "Appel sortant",         icon: "☎", group: "Configuration", module: "agents" },
+  { href: "/teams",          label: "Teams IA",              icon: "⌬", group: "Configuration", module: "agents" },
   { href: "/scripts",        label: "Scripts",               icon: <Pencil size={16} />, group: "Configuration", module: "agents" },
-  { href: "/agents/library", label: "Persona library",       icon: "⊕", group: "Configuration", module: "agents" },
+  { href: "/agents/library", label: "Bibliothèque persona",  icon: "⊕", group: "Configuration", module: "agents" },
   { href: "/voices",         label: "Voice Studio",          icon: <Music size={16} />, group: "Configuration", module: "agents" },
 
-  // ─── OPERATIONS ───
-  { href: "/campaigns", label: "Campaigns",      icon: "⇈", group: "Operations", module: "campaigns" },
+  // ─── OPÉRATIONS ───
+  { href: "/campaigns", label: "Campagnes",      icon: "⇈", group: "Opérations", module: "campaigns" },
   // /calls retired June 10 — the same info lives in the Live tab of the
   // dashboard and the Call Logs tab. Keeping the route reachable (for
   // legacy bookmarks) but hidden from nav. NON_AGENT_PAGES_FOR_AGENT_ROLE
   // also gates it.
-  { href: "/workflows", label: "Automation",     icon: "⇄", group: "Operations", module: "workflows" },
-  { href: "/flows",     label: "Flows / IVR",    icon: "❖", group: "Operations", module: "flows" },
-  { href: "/queues",    label: "Queues",          icon: "≡", group: "Operations", module: "queues" },
+  { href: "/workflows", label: "Automatisation", icon: "⇄", group: "Opérations", module: "workflows" },
+  { href: "/flows",     label: "Flows / IVR",    icon: "❖", group: "Opérations", module: "flows" },
+  { href: "/queues",    label: "Files d'attente", icon: "≡", group: "Opérations", module: "queues" },
 
-  // ─── DATA ───
-  { href: "/contacts",       label: "CRM / Contacts",  icon: "◐", group: "Data", module: "contacts" },
-  { href: "/numbers",        label: "Phone numbers",    icon: "✆", group: "Data", module: "numbers" },
-  { href: "/numbers/health", label: "Number health",    icon: <Heart size={16} />, group: "Data", module: "numbers" },
+  // ─── DONNÉES ───
+  { href: "/contacts",       label: "CRM / Contacts",       icon: "◐", group: "Données", module: "contacts" },
+  { href: "/numbers",        label: "Numéros de téléphone", icon: "✆", group: "Données", module: "numbers" },
+  { href: "/numbers/health", label: "Santé des numéros",    icon: <Heart size={16} />, group: "Données", module: "numbers" },
 
-  // ─── ACCOUNT ───
-  { href: "/team",      label: "Team",            icon: "◉", group: "Account", module: "team" },
-  { href: "/settings",  label: "Settings",        icon: <Settings size={16} />, group: "Account", module: "settings" },
-  { href: "/help",      label: "Guide",           icon: "?", group: "Account" },
+  // ─── COMPTE ───
+  { href: "/team",      label: "Équipe",          icon: "◉", group: "Compte", module: "team" },
+  { href: "/settings",  label: "Paramètres",      icon: <Settings size={16} />, group: "Compte", module: "settings" },
+  { href: "/help",      label: "Guide",            icon: "?", group: "Compte" },
 ];
 
 // Render order for the primary groups. The "Avancé" collapsible section is
 // fully retired — every advanced page now lives in its proper functional group.
-const GROUP_ORDER = ["Overview", "Configuration", "Operations", "Data", "Account"];
+const GROUP_ORDER = ["Vue d'ensemble", "Configuration", "Opérations", "Données", "Compte"];
 
 export function ClientSidebar() {
   const t = useT();
@@ -122,9 +122,20 @@ export function ClientSidebar() {
   const [visibleModules, setVisibleModules] = useState<ModuleId[] | null>(null);
   const [loadedRole, setLoadedRole] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
   // Mobile drawer state — only meaningful below MOBILE_BREAKPOINT; ignored
   // by the CSS on desktop where the sidebar is permanently visible.
   const [drawerOpen, setDrawerOpen] = useState(false);
+
+  // Init collapsed state from localStorage, then sync to html dataset.
+  useEffect(() => {
+    const stored = localStorage.getItem("sidebar-collapsed");
+    if (stored === "1") setCollapsed(true);
+  }, []);
+  useEffect(() => {
+    document.documentElement.dataset.sidebarCollapsed = collapsed ? "1" : "0";
+    localStorage.setItem("sidebar-collapsed", collapsed ? "1" : "0");
+  }, [collapsed]);
 
   // Close the drawer whenever the route changes — otherwise a user who taps a
   // nav link sees the overlay linger on top of the destination page.
@@ -252,14 +263,16 @@ export function ClientSidebar() {
         href={n.href}
         className={`nav-link ${active ? "active" : ""}`}
         aria-label={n.label}
+        title={collapsed ? t(n.label) : undefined}
         aria-current={active ? "page" : undefined}
         onClick={() => setDrawerOpen(false)}
-        style={n.indent ? { paddingLeft: 30 } : undefined}
+        style={n.indent && !collapsed ? { paddingLeft: 30 } : undefined}
       >
-        <span aria-hidden="true" style={{ width: 16, opacity: 0.7, fontSize: n.indent ? 12 : undefined }}>{n.icon}</span>
-        <span style={{ flex: 1, fontSize: n.indent ? 13 : undefined, opacity: n.indent && !active ? 0.85 : undefined }}>{t(n.label)}</span>
+        <span aria-hidden="true" style={{ width: 16, opacity: 0.7, fontSize: n.indent ? 12 : undefined, flexShrink: 0 }}>{n.icon}</span>
+        <span className="sidebar-label" style={{ flex: 1, fontSize: n.indent ? 13 : undefined, opacity: n.indent && !active ? 0.85 : undefined }}>{t(n.label)}</span>
         {n.href === "/desk" && deskBadge > 0 ? (
           <span
+            className="sidebar-label"
             aria-label={`${deskBadge} pending task${deskBadge > 1 ? "s" : ""}`}
             style={{
               minWidth: 20,
@@ -314,13 +327,14 @@ export function ClientSidebar() {
         <Brand size={18} />
       </Link>
 
-      <div style={{ marginTop: 10, marginBottom: 4, paddingBottom: 10, borderBottom: "1px solid var(--border)" }}>
+      <div className="sidebar-extras" style={{ marginTop: 10, marginBottom: 4, paddingBottom: 10, borderBottom: "1px solid var(--border)" }}>
         <ThemeLangSwitcher />
       </div>
 
       {GROUP_ORDER.filter((g) => groups[g]?.length).map((group) => (
         <div key={group} style={{ marginTop: 6 }}>
           <div
+            className="sidebar-group-label"
             style={{
               fontSize: 10,
               color: "var(--muted-2)",
@@ -381,7 +395,35 @@ export function ClientSidebar() {
         </div>
       )}
 
-      <div style={{ marginTop: "auto" }}>
+      {/* Collapse toggle button */}
+      <button
+        type="button"
+        onClick={() => setCollapsed((v) => !v)}
+        title={collapsed ? t("Ouvrir le menu") : t("Réduire le menu")}
+        aria-label={collapsed ? t("Ouvrir le menu") : t("Réduire le menu")}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: collapsed ? "center" : "flex-end",
+          gap: 6,
+          marginTop: "auto",
+          padding: "7px 10px",
+          borderRadius: 8,
+          background: "transparent",
+          border: "1px solid var(--border)",
+          color: "var(--muted)",
+          cursor: "pointer",
+          fontSize: 12,
+          width: "100%",
+          boxSizing: "border-box",
+          transition: "color 0.15s",
+        }}
+      >
+        {!collapsed && <span className="sidebar-label" style={{ fontSize: 11 }}>{t("Réduire")}</span>}
+        {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+      </button>
+
+      <div className="sidebar-extras">
         {/* Super-admin: jump to the Axon admin app — made prominent */}
         {loadedRole && role === "super_admin" && (
           <div style={{ padding: "8px 10px 4px" }}>

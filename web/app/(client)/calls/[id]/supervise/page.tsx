@@ -8,6 +8,7 @@ import {
   RoomAudioRenderer,
   StartAudio,
 } from "@livekit/components-react";
+import { useT } from "@/lib/i18n";
 
 type SupervisionMode = "listen" | "whisper" | "barge";
 
@@ -19,21 +20,6 @@ type TokenResponse = {
   mode: SupervisionMode;
 };
 
-const MODE_LABELS: Record<SupervisionMode, string> = {
-  listen: "Écoute discrète",
-  whisper: "Souffler à l'agent",
-  barge: "Intervenir",
-};
-
-const MODE_DESCRIPTIONS: Record<SupervisionMode, string> = {
-  listen:
-    "L'agent et le client ne vous entendent pas. Idéal pour le coaching silencieux.",
-  whisper:
-    "Seul l'agent vous entend (le client ne perçoit rien). Utile pour guider en direct.",
-  barge:
-    "Vous parlez à tous les participants — utilisez avec parcimonie.",
-};
-
 /**
  * /calls/[id]/supervise
  *
@@ -43,6 +29,20 @@ const MODE_DESCRIPTIONS: Record<SupervisionMode, string> = {
  * mode change re-mints the token (the server controls publish permissions).
  */
 export default function SupervisePage() {
+  const t = useT();
+
+  const MODE_LABELS: Record<SupervisionMode, string> = {
+    listen: t("Écoute discrète"),
+    whisper: t("Souffler à l'agent"),
+    barge: t("Intervenir"),
+  };
+
+  const MODE_DESCRIPTIONS: Record<SupervisionMode, string> = {
+    listen: t("L'agent et le client ne vous entendent pas. Idéal pour le coaching silencieux."),
+    whisper: t("Seul l'agent vous entend (le client ne perçoit rien). Utile pour guider en direct."),
+    barge: t("Vous parlez à tous les participants — utilisez avec parcimonie."),
+  };
+
   const params = useParams<{ id: string }>();
   const id = params?.id ?? "";
 
@@ -111,15 +111,15 @@ export default function SupervisePage() {
       <div className="page-header">
         <div>
           <Link href={`/calls/${id}`} className="muted" style={{ fontSize: 13 }}>
-            ← Détail de l&apos;appel
+            ← {t("Détail de l'appel")}
           </Link>
-          <h1 style={{ marginTop: 6 }}>Supervision</h1>
+          <h1 style={{ marginTop: 6 }}>{t("Supervision")}</h1>
           <div className="subtitle">{MODE_DESCRIPTIONS[mode]}</div>
         </div>
       </div>
 
       <div className="card" style={{ marginBottom: 18 }}>
-        <h3 style={{ marginTop: 0 }}>Mode</h3>
+        <h3 style={{ marginTop: 0 }}>{t("Mode")}</h3>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {(Object.keys(MODE_LABELS) as SupervisionMode[]).map((m) => (
             <button
@@ -135,13 +135,13 @@ export default function SupervisePage() {
       </div>
 
       <div className="card">
-        {loading && <p className="muted" style={{ margin: 0 }}>Connexion à la salle…</p>}
+        {loading && <p className="muted" style={{ margin: 0 }}>{t("Connexion à la salle…")}</p>}
         {error && (
           <div style={{ color: "var(--bad)", fontSize: 13 }}>
-            Erreur : {error}
+            {t("Erreur :")} {error}
             <div style={{ marginTop: 8 }}>
               <button className="ghost" onClick={() => void fetchToken(mode)}>
-                Réessayer
+                {t("Réessayer")}
               </button>
             </div>
           </div>
@@ -156,10 +156,10 @@ export default function SupervisePage() {
             onDisconnected={() => setConn(null)}
           >
             <RoomAudioRenderer />
-            <StartAudio label="Activer l'audio" />
+            <StartAudio label={t("Activer l'audio")} />
             <div style={{ marginTop: 12, display: "flex", gap: 12, alignItems: "center" }}>
               <span className="muted" style={{ fontSize: 12 }}>
-                Salle : <span className="kbd">{conn.room}</span>
+                {t("Salle :")} <span className="kbd">{conn.room}</span>
               </span>
               <span className="tag">{conn.mode}</span>
               <span className="muted" style={{ fontSize: 12 }}>

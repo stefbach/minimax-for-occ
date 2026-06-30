@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useT } from "@/lib/i18n";
 
 interface Wf {
   id: string;
@@ -56,6 +57,7 @@ const STEP_LABELS: Record<string, string> = {
 };
 
 export function NativeAutomationsPanel() {
+  const t = useT();
   const [wfs, setWfs] = useState<Wf[]>([]);
   const [runs, setRuns] = useState<Run[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
@@ -117,7 +119,7 @@ export function NativeAutomationsPanel() {
         setErr(j.error ?? `HTTP ${r.status}`);
       } else {
         setRunResult(
-          `${wf.name}: ${j.matched ?? 0} rows found · ${j.actions ?? 0} actions · ${j.skipped ?? 0} skipped · ${j.errors ?? 0} errors`,
+          `${wf.name}: ${j.matched ?? 0} ` + t("lignes trouvées") + ` · ${j.actions ?? 0} ` + t("actions") + ` · ${j.skipped ?? 0} ` + t("ignorées") + ` · ${j.errors ?? 0} ` + t("erreurs"),
         );
       }
       await refresh();
@@ -161,7 +163,7 @@ export function NativeAutomationsPanel() {
             <span
               className="tag"
               style={{ fontSize: 11, fontWeight: 700, background: "var(--border)" }}
-              title="Execution order in the pipeline"
+              title={t("Ordre d'exécution dans le pipeline")}
             >
               {step}
             </span>
@@ -183,18 +185,18 @@ export function NativeAutomationsPanel() {
         {wf.description && <div className="muted" style={{ fontSize: 12 }}>{wf.description}</div>}
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <button disabled={busy === wf.id} onClick={() => toggle(wf)} style={{ padding: "6px 12px", fontWeight: 600 }}>
-            {wf.active ? "Disable" : "Enable"}
+            {wf.active ? t("Désactiver") : t("Activer")}
           </button>
           <button className="ghost" disabled={busy === wf.id} onClick={() => runNow(wf)} style={{ padding: "6px 12px" }}>
-            {busy === wf.id ? "…" : "Run now"}
+            {busy === wf.id ? "…" : t("Exécuter maintenant")}
           </button>
           <a href={`/workflows/automations/${wf.id}`}>
-            <button className="ghost" style={{ padding: "6px 12px" }}>Open / Edit</button>
+            <button className="ghost" style={{ padding: "6px 12px" }}>{t("Ouvrir / Modifier")}</button>
           </a>
           <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>
             {wf.last_run_at
-              ? `Last run: ${new Date(wf.last_run_at).toLocaleString()} (${wf.last_status ?? "—"})`
-              : "Never run"}
+              ? t("Dernière exécution :") + ` ${new Date(wf.last_run_at).toLocaleString()} (${wf.last_status ?? "—"})`
+              : t("Jamais exécuté")}
           </span>
         </div>
         {wfRuns.length > 0 && (
@@ -214,14 +216,14 @@ export function NativeAutomationsPanel() {
                     {r.status}
                   </span>
                   <span>
-                    {r.matched} rows · {r.actions} actions · {r.skipped} skipped · {r.errors} errors
+                    {r.matched} {t("lignes")} · {r.actions} {t("actions")} · {r.skipped} {t("ignorées")} · {r.errors} {t("erreurs")}
                   </span>
                   <button
                     className="ghost"
                     onClick={() => loadLogs(r.id)}
                     style={{ padding: "2px 8px", fontSize: 11, marginLeft: "auto" }}
                   >
-                    {logsBusy === r.id ? "…" : openLogRunId === r.id ? "Hide logs" : "View logs"}
+                    {logsBusy === r.id ? "…" : openLogRunId === r.id ? t("Masquer les logs") : t("Voir les logs")}
                   </button>
                 </div>
                 {openLogRunId === r.id && (
@@ -239,7 +241,7 @@ export function NativeAutomationsPanel() {
                     }}
                   >
                     {(logsCache[r.id] ?? []).length === 0 ? (
-                      <span style={{ color: "#888" }}>No logs available.</span>
+                      <span style={{ color: "#888" }}>{t("Aucun log disponible.")}</span>
                     ) : (
                       (logsCache[r.id] ?? []).map((entry, i) => (
                         <div
@@ -307,9 +309,9 @@ export function NativeAutomationsPanel() {
   return (
     <div className="card" style={{ display: "grid", gap: 12, padding: 14 }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
-        <h3 style={{ margin: 0 }}>Native automations</h3>
+        <h3 style={{ margin: 0 }}>{t("Automatisations natives")}</h3>
         <span className="muted" style={{ fontSize: 12 }}>
-          Cron every 5 min · credentials managed server-side
+          {t("Cron toutes les 5 min · identifiants gérés côté serveur")}
         </span>
       </div>
 
@@ -318,7 +320,7 @@ export function NativeAutomationsPanel() {
 
       {wfs.length === 0 ? (
         <div className="muted" style={{ fontSize: 13 }}>
-          No automations. The seeded workflow will appear here after deployment.
+          {t("Aucune automatisation. Le workflow initialisé apparaîtra ici après déploiement.")}
         </div>
       ) : (
         groups.map((group) => {

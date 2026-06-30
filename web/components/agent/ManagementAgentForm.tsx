@@ -9,6 +9,7 @@ import {
   type DirectivesChatContext,
   type FinalizeAgentResult,
 } from "./AgentDirectivesChatPanel";
+import { useT } from "@/lib/i18n";
 
 // Management agents only need a text brain — no voice/TTS. Keep the model
 // picker minimal and aligned with the platform defaults.
@@ -26,6 +27,7 @@ const PROVIDER_MODELS: Record<LlmProvider, { id: string; label: string }[]> = {
 };
 
 export function ManagementAgentForm({ orgCategory = null }: { orgCategory?: string | null }) {
+  const t = useT();
   const router = useRouter();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -62,8 +64,8 @@ export function ManagementAgentForm({ orgCategory = null }: { orgCategory?: stri
 
   async function doCreate(): Promise<FinalizeAgentResult> {
     const d = draftRef.current;
-    if (!d.name.trim()) return { ok: false, error: "Give the agent a name (or let the assistant suggest one)." };
-    if (!d.system_prompt.trim()) return { ok: false, error: "Directives are empty — first describe what the agent should do." };
+    if (!d.name.trim()) return { ok: false, error: t("Donnez un nom à l'agent (ou laissez l'assistant en suggérer un).") };
+    if (!d.system_prompt.trim()) return { ok: false, error: t("Les directives sont vides — décrivez d'abord ce que l'agent doit faire.") };
     const body: AgentInput = {
       name: d.name.trim(),
       description: d.description.trim() || null,
@@ -93,7 +95,7 @@ export function ManagementAgentForm({ orgCategory = null }: { orgCategory?: stri
     setBusy(true);
     const r = await doCreate();
     if (!r.ok) {
-      setError(r.error ?? "Unknown error");
+      setError(r.error ?? t("Erreur inconnue"));
       setBusy(false);
       return r;
     }
@@ -115,22 +117,22 @@ export function ManagementAgentForm({ orgCategory = null }: { orgCategory?: stri
       <div style={{ display: "grid", gap: 16, gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)" }}>
         {/* Identity + model */}
         <section className="card" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <h3 style={{ margin: 0 }}>Identity</h3>
+          <h3 style={{ margin: 0 }}>{t("Identité")}</h3>
           <div>
-            <label>Name *</label>
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex. No-show follow-ups" />
+            <label>{t("Nom")} *</label>
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t("Ex. Suivi no-shows")} />
           </div>
           <div>
-            <label>Description</label>
+            <label>{t("Description")}</label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="What the agent does in one sentence…"
+              placeholder={t("Ce que fait l'agent en une phrase…")}
             />
           </div>
           <div className="wizard-row-2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <div>
-              <label>LLM Provider</label>
+              <label>{t("Fournisseur LLM")}</label>
               <select
                 value={provider}
                 onChange={(e) => {
@@ -146,7 +148,7 @@ export function ManagementAgentForm({ orgCategory = null }: { orgCategory?: stri
               </select>
             </div>
             <div>
-              <label>Model</label>
+              <label>{t("Modèle")}</label>
               <select value={model} onChange={(e) => setModel(e.target.value)}>
                 {models.map((m) => (
                   <option key={m.id} value={m.id}>{m.label}</option>
@@ -156,25 +158,25 @@ export function ManagementAgentForm({ orgCategory = null }: { orgCategory?: stri
           </div>
 
           <div>
-            <label>Agent directives (its brain)</label>
+            <label>{t("Directives de l'agent (son cerveau)")}</label>
             <textarea
               value={systemPrompt}
               onChange={(e) => setSystemPrompt(e.target.value)}
-              placeholder="Drafted by the assistant on the right — editable here."
+              placeholder={t("Rédigé par l'assistant à droite — modifiable ici.")}
               style={{ minHeight: 220, fontFamily: "ui-monospace, monospace", fontSize: 12 }}
             />
             <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-              You can connect this agent to a table / email / WhatsApp in <strong>Workflows</strong>.
+              {t("Vous pouvez connecter cet agent à une table / email / WhatsApp dans")} <strong>{t("Workflows")}</strong>.
             </div>
           </div>
 
           {error && <div style={{ color: "var(--bad)", fontSize: 13 }}>{error}</div>}
           <div style={{ display: "flex", gap: 8 }}>
             <button type="button" onClick={onManualCreate} disabled={busy}>
-              {busy ? "Creating…" : "Create management agent"}
+              {busy ? t("Création…") : t("Créer l'agent de gestion")}
             </button>
             <button type="button" className="ghost" onClick={() => router.push("/agents")} disabled={busy}>
-              Cancel
+              {t("Annuler")}
             </button>
           </div>
         </section>
@@ -182,10 +184,9 @@ export function ManagementAgentForm({ orgCategory = null }: { orgCategory?: stri
         {/* Directives chatbot */}
         <section className="card" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <div>
-            <h3 style={{ margin: 0 }}>Configure directives with the assistant</h3>
+            <h3 style={{ margin: 0 }}>{t("Configurer les directives avec l'assistant")}</h3>
             <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-              Describe what the agent should do; the assistant drafts its directives (on the left)
-              and creates the agent when you say &quot;go&quot;.
+              {t("Décrivez ce que l'agent doit faire ; l'assistant rédige ses directives (à gauche) et crée l'agent quand vous dites « go ».")}
             </div>
           </div>
           <AgentDirectivesChatPanel

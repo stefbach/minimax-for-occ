@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useT } from "@/lib/i18n";
 
 interface Wf {
   id: string;
@@ -28,6 +29,7 @@ interface CredentialInfo {
  * read-only so the operator can copy ids into steps.
  */
 export function AutomationEditor({ id }: { id: string }) {
+  const t = useT();
   const [wf, setWf] = useState<Wf | null>(null);
   const [creds, setCreds] = useState<CredentialInfo[]>([]);
   const [name, setName] = useState("");
@@ -51,7 +53,7 @@ export function AutomationEditor({ id }: { id: string }) {
       }
       const found = (wj.workflows ?? []).find((w) => w.id === id) ?? null;
       if (!found) {
-        setErr("Automation not found.");
+        setErr(t("Automation introuvable."));
         return;
       }
       setWf(found);
@@ -66,7 +68,7 @@ export function AutomationEditor({ id }: { id: string }) {
     } catch (e) {
       setErr(e instanceof Error ? e.message : "fetch_failed");
     }
-  }, [id]);
+  }, [id, t]);
 
   useEffect(() => {
     load();
@@ -80,14 +82,14 @@ export function AutomationEditor({ id }: { id: string }) {
     try {
       trigger = JSON.parse(triggerJson);
     } catch {
-      setErr("The trigger JSON is invalid.");
+      setErr(t("Le JSON du trigger est invalide."));
       return;
     }
     try {
       steps = JSON.parse(stepsJson);
       if (!Array.isArray(steps)) throw new Error();
     } catch {
-      setErr("The steps JSON is invalid (expected an array).");
+      setErr(t("Le JSON des étapes est invalide (tableau attendu)."));
       return;
     }
     setBusy(true);
@@ -102,7 +104,7 @@ export function AutomationEditor({ id }: { id: string }) {
         setErr(j.error ?? `HTTP ${r.status}`);
         return;
       }
-      setSaved("Saved.");
+      setSaved(t("Enregistré."));
       await load();
     } finally {
       setBusy(false);
@@ -113,23 +115,23 @@ export function AutomationEditor({ id }: { id: string }) {
     return (
       <div className="card" style={{ borderColor: "var(--bad)" }}>
         <div style={{ color: "var(--bad)", fontSize: 13 }}>{err}</div>
-        <Link href="/workflows">← Back</Link>
+        <Link href="/workflows">← {t("Retour")}</Link>
       </div>
     );
   }
   if (!wf) {
-    return <div className="card muted">Loading…</div>;
+    return <div className="card muted">{t("Chargement…")}</div>;
   }
 
   return (
     <div style={{ display: "grid", gap: 14, maxWidth: 900 }}>
       <div className="card" style={{ display: "grid", gap: 10, padding: 14 }}>
         <label style={{ display: "grid", gap: 4 }}>
-          <span className="muted" style={{ fontSize: 12 }}>Name</span>
+          <span className="muted" style={{ fontSize: 12 }}>{t("Nom")}</span>
           <input value={name} onChange={(e) => setName(e.target.value)} style={{ padding: 8 }} />
         </label>
         <label style={{ display: "grid", gap: 4 }}>
-          <span className="muted" style={{ fontSize: 12 }}>Description</span>
+          <span className="muted" style={{ fontSize: 12 }}>{t("Description")}</span>
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
@@ -140,7 +142,7 @@ export function AutomationEditor({ id }: { id: string }) {
       </div>
 
       <div className="card" style={{ display: "grid", gap: 8, padding: 14 }}>
-        <strong style={{ fontSize: 14 }}>Trigger (JSON)</strong>
+        <strong style={{ fontSize: 14 }}>{t("Déclencheur (JSON)")}</strong>
         <span className="muted" style={{ fontSize: 12 }}>
           type table_scan|callable · every_minutes · table · data_source_credential_id · filters [{"{"}"column, op, value{"}"}] · max_rows_per_run
         </span>
@@ -154,7 +156,7 @@ export function AutomationEditor({ id }: { id: string }) {
       </div>
 
       <div className="card" style={{ display: "grid", gap: 8, padding: 14 }}>
-        <strong style={{ fontSize: 14 }}>Steps (JSON)</strong>
+        <strong style={{ fontSize: 14 }}>{t("Étapes (JSON)")}</strong>
         <span className="muted" style={{ fontSize: 12 }}>
           ai_brain · send_email_smtp · send_wati_template · send_whatsapp_session · update_row · telegram_notify · call_automation … — {"{{"}column{"}}"}  templates supported
         </span>
@@ -168,9 +170,9 @@ export function AutomationEditor({ id }: { id: string }) {
       </div>
 
       <div className="card" style={{ display: "grid", gap: 6, padding: 14 }}>
-        <strong style={{ fontSize: 14 }}>Available credentials</strong>
+        <strong style={{ fontSize: 14 }}>{t("Identifiants disponibles")}</strong>
         {creds.length === 0 ? (
-          <span className="muted" style={{ fontSize: 12 }}>No credentials.</span>
+          <span className="muted" style={{ fontSize: 12 }}>{t("Aucun identifiant.")}</span>
         ) : (
           creds.map((c) => (
             <div key={c.id} style={{ fontSize: 12, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
@@ -178,7 +180,7 @@ export function AutomationEditor({ id }: { id: string }) {
               <strong>{c.name}</strong>
               <span className="kbd" style={{ fontSize: 11 }}>{c.id}</span>
               <span className="muted">
-                Fields set: {c.fields_set.length > 0 ? c.fields_set.join(", ") : "none"}
+                {t("Champs renseignés :")} {c.fields_set.length > 0 ? c.fields_set.join(", ") : t("aucun")}
               </span>
             </div>
           ))
@@ -190,10 +192,10 @@ export function AutomationEditor({ id }: { id: string }) {
 
       <div style={{ display: "flex", gap: 8 }}>
         <button disabled={busy} onClick={save} style={{ padding: "8px 16px", fontWeight: 600 }}>
-          {busy ? "…" : "Save"}
+          {busy ? "…" : t("Enregistrer")}
         </button>
         <Link href="/workflows">
-          <button className="ghost" style={{ padding: "8px 16px" }}>Back</button>
+          <button className="ghost" style={{ padding: "8px 16px" }}>{t("Retour")}</button>
         </Link>
       </div>
     </div>

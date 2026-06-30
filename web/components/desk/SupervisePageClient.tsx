@@ -356,7 +356,7 @@ function TaskSection({
                       ))}
                       {task.assigned_to && !activeAgents.some((a) => a.user_id === task.assigned_to) && (
                         <option value={task.assigned_to}>
-                          {allAgents.find((a) => a.user_id === task.assigned_to)?.display_name ?? task.assigned_to.slice(0, 8)} (inactif)
+                          {allAgents.find((a) => a.user_id === task.assigned_to)?.display_name ?? task.assigned_to.slice(0, 8)} ({t("inactif")})
                         </option>
                       )}
                     </select>

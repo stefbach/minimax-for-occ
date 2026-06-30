@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useT } from "@/lib/i18n";
 
 interface ActionRow {
   id: string;
@@ -26,6 +27,7 @@ const CHANNEL_LABEL: Record<string, string> = {
  * The reviewer reads what the agent wrote, then approves (sends) or rejects.
  */
 export function ApprovalsClient() {
+  const t = useT();
   const [actions, setActions] = useState<ActionRow[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -77,7 +79,7 @@ export function ApprovalsClient() {
     return (
       <section className="card">
         <p style={{ margin: 0 }} className="muted">
-          Rien à valider. Les actions rédigées par tes agents en mode « validation » apparaîtront ici.
+          {t("Rien à valider. Les actions rédigées par vos agents en mode « validation » apparaîtront ici.")}
         </p>
       </section>
     );
@@ -92,17 +94,17 @@ export function ApprovalsClient() {
               {CHANNEL_LABEL[a.channel] ?? a.channel}
               {a.workflow_name && <span className="muted" style={{ fontWeight: 400 }}> · {a.workflow_name}</span>}
             </div>
-            <span className="muted" style={{ fontSize: 12 }}>fiche {a.row_id}</span>
+            <span className="muted" style={{ fontSize: 12 }}>{t("fiche")} {a.row_id}</span>
           </div>
 
           <ActionPreview channel={a.channel} payload={a.payload} />
 
           <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
             <button type="button" onClick={() => decide(a.id, "approve")} disabled={busy === a.id}>
-              {busy === a.id ? "…" : "✓ Approuver & envoyer"}
+              {busy === a.id ? "…" : "✓ " + t("Approuver & envoyer")}
             </button>
             <button type="button" className="ghost" onClick={() => decide(a.id, "reject")} disabled={busy === a.id}>
-              ✕ Rejeter
+              ✕ {t("Rejeter")}
             </button>
           </div>
         </section>
@@ -112,11 +114,12 @@ export function ApprovalsClient() {
 }
 
 function ActionPreview({ channel, payload }: { channel: string; payload: Record<string, unknown> }) {
+  const t = useT();
   if (channel === "email") {
     return (
       <div style={{ fontSize: 13, lineHeight: 1.5 }}>
-        <div className="muted">À : {String(payload.to ?? "—")}</div>
-        <div><strong>{String(payload.subject ?? "(sans objet)")}</strong></div>
+        <div className="muted">{t("À")} : {String(payload.to ?? "—")}</div>
+        <div><strong>{String(payload.subject ?? ("(" + t("sans objet") + ")"))}</strong></div>
         <div
           style={{ marginTop: 6, padding: 10, background: "var(--bg-2)", borderRadius: 6, maxHeight: 220, overflow: "auto" }}
           dangerouslySetInnerHTML={{ __html: String(payload.html ?? "") }}
@@ -128,7 +131,7 @@ function ActionPreview({ channel, payload }: { channel: string; payload: Record<
     const params = Array.isArray(payload.parameters) ? (payload.parameters as Array<{ name: string; value: string }>) : [];
     return (
       <div style={{ fontSize: 13, lineHeight: 1.6 }}>
-        <div className="muted">À : {String(payload.phone ?? "—")} · template {String(payload.template_name ?? "—")}</div>
+        <div className="muted">{t("À")} : {String(payload.phone ?? "—")} · template {String(payload.template_name ?? "—")}</div>
         <ul style={{ margin: "6px 0 0 16px" }}>
           {params.map((p, i) => (
             <li key={i}><span className="muted">{p.name} :</span> {p.value}</li>

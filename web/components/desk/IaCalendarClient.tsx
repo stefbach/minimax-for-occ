@@ -233,7 +233,7 @@ export function IaCalendarClient() {
                 gap: 8,
               }}
             >
-              <strong style={{ fontSize: 14 }}>{formatUkDayHeader(g.key, lang)}</strong>
+              <strong style={{ fontSize: 14 }}>{formatUkDayHeader(g.key, lang, t)}</strong>
               <span className="muted" style={{ fontSize: 12 }}>
                 {g.items.length} {g.items.length > 1 ? t("rappels") : t("rappel")}
               </span>
@@ -401,13 +401,13 @@ function formatUkTime(iso: string): string {
   if (!Number.isFinite(t)) return iso;
   return new Date(t).toLocaleTimeString("fr-FR", { timeZone: UK_TZ, hour: "2-digit", minute: "2-digit", hour12: false });
 }
-function formatUkDayHeader(ymd: string, lang: "fr" | "en"): string {
+function formatUkDayHeader(ymd: string, lang: "fr" | "en", t: (s: string) => string): string {
   const locale = lang === "en" ? "en-GB" : "fr-FR";
   const todayUk = new Date().toLocaleDateString("en-CA", { timeZone: UK_TZ });
   const d = new Date(`${ymd}T12:00:00Z`);
   const label = d.toLocaleDateString(locale, { timeZone: UK_TZ, weekday: "long", day: "numeric", month: "long" });
-  if (ymd === todayUk) return lang === "en" ? `Today — ${label}` : `Aujourd'hui — ${label}`;
+  if (ymd === todayUk) return `${t("Aujourd'hui")} — ${label}`;
   const tmrwUk = new Date(Date.now() + 86400000).toLocaleDateString("en-CA", { timeZone: UK_TZ });
-  if (ymd === tmrwUk) return lang === "en" ? `Tomorrow — ${label}` : `Demain — ${label}`;
+  if (ymd === tmrwUk) return `${t("Demain")} — ${label}`;
   return label;
 }

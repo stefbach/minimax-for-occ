@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+import { useT } from "@/lib/i18n";
 
 type Handle = {
   id: string;
@@ -29,6 +30,7 @@ export function TransferModal({
   onClose: () => void;
   onTransferred: () => void;
 }) {
+  const t = useT();
   const [handles, setHandles] = useState<Handle[]>([]);
   const [presence, setPresence] = useState<Map<string, string>>(new Map());
   const [busy, setBusy] = useState<string | null>(null);
@@ -112,13 +114,13 @@ export function TransferModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <h3 style={{ margin: 0 }}>Transfer call</h3>
+          <h3 style={{ margin: 0 }}>{t("Transférer l'appel")}</h3>
           <button className="ghost" onClick={onClose}>
-            Close
+            {t("Fermer")}
           </button>
         </div>
         <p className="muted" style={{ marginTop: 6 }}>
-          Select an AI agent or an available human agent.
+          {t("Sélectionnez un agent IA ou un agent humain disponible.")}
         </p>
 
         {error && (
@@ -128,7 +130,7 @@ export function TransferModal({
         )}
 
         {targets.length === 0 ? (
-          <p className="muted">No available targets.</p>
+          <p className="muted">{t("Aucune cible disponible.")}</p>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {targets.map((h) => (
@@ -148,11 +150,11 @@ export function TransferModal({
                 <span>
                   <strong style={{ fontSize: 13 }}>{h.display_name}</strong>
                   <span className="muted" style={{ marginLeft: 8, fontSize: 12 }}>
-                    {h.kind === "ai" ? "AI" : "human · available"}
+                    {h.kind === "ai" ? "IA" : t("humain · disponible")}
                   </span>
                 </span>
                 <span className="tag">
-                  {busy === h.id ? "…" : "Transfer"}
+                  {busy === h.id ? "…" : t("Transférer")}
                 </span>
               </button>
             ))}
