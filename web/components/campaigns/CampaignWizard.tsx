@@ -1881,7 +1881,7 @@ export function CampaignWizard({
           style={{ marginTop: 14, padding: "8px 12px", display: "flex", alignItems: "center", gap: 8, width: "100%", justifyContent: "space-between" }}
         >
           <span>
-            {showAdvanced ? "▾" : "▸"} Réglages avancés
+            {showAdvanced ? "▾" : "▸"} {t("Réglages avancés")}
           </span>
           <span className="muted" style={{ fontSize: 12 }}>
             {maxConcurrency} simultanés · {maxAttempts} tentative{maxAttempts > 1 ? "s" : ""} · retry {retryDelayMin} min
@@ -1892,7 +1892,7 @@ export function CampaignWizard({
           <div style={{ marginTop: 10, padding: 12, border: "1px solid var(--border)", borderRadius: 8, background: "var(--bg-2)" }}>
             <div className="wizard-row-3">
               <div>
-                <label>Appels simultanés (max)</label>
+                <label>{t("Appels simultanés (max)")}</label>
                 <input
                   type="number"
                   min={1}
@@ -1919,7 +1919,7 @@ export function CampaignWizard({
                 )}
               </div>
               <div>
-                <label>Tentatives max</label>
+                <label>{t("Tentatives max")}</label>
                 <input
                   type="number"
                   min={1}
@@ -1932,7 +1932,7 @@ export function CampaignWizard({
                 </div>
               </div>
               <div>
-                <label>Délai retry (min)</label>
+                <label>{t("Délai retry (min)")}</label>
                 <input
                   type="number"
                   min={1}
@@ -1961,9 +1961,9 @@ export function CampaignWizard({
 
       {/* 6. Récap */}
       <section className="card">
-        <h3>6. Récapitulatif</h3>
+        <h3>6. {t("Récapitulatif")}</h3>
         <div className="muted" style={{ fontSize: 12, marginTop: -6, marginBottom: 10 }}>
-          Vérifie avant de créer. La campagne est créée en brouillon — tu la démarres ensuite.
+          {t("Vérifie avant de créer. La campagne est créée en brouillon — tu la démarres ensuite.")}
         </div>
         <ul style={{ margin: 0, paddingLeft: 18, color: "var(--muted)", lineHeight: 1.7 }}>
           <li>
@@ -2007,7 +2007,7 @@ export function CampaignWizard({
             disabled={submitting || !preflightClear}
             title={!preflightClear ? "Corrige les blocages ci-dessus pour pouvoir lancer." : undefined}
           >
-            {submitting ? "Création…" : "Créer en brouillon"}
+            {submitting ? t("Création…") : t("Créer en brouillon")}
           </button>
           <button
             type="button"
@@ -2015,7 +2015,7 @@ export function CampaignWizard({
             onClick={() => router.push("/campaigns")}
             disabled={submitting}
           >
-            Annuler
+            {t("Annuler")}
           </button>
         </div>
       </section>
@@ -2029,7 +2029,7 @@ export function CampaignWizard({
           onClick={() => setCurrentStep((s) => (s > 1 ? ((s - 1) as 1 | 2 | 3) : s))}
           disabled={currentStep === 1}
         >
-          ← Précédent
+          ← {t("Précédent")}
         </button>
         <div className="muted wizard-nav-label" style={{ fontSize: 12 }}>
           Étape {currentStep} / 3 — {STEPS.find((s) => s.n === currentStep)?.label}
@@ -2047,7 +2047,7 @@ export function CampaignWizard({
                   : ""
             }
           >
-            Suivant →
+            {t("Suivant")} →
           </button>
         ) : (
           <div className="muted" style={{ fontSize: 12 }}>↓ Vérifie le récap puis crée</div>
