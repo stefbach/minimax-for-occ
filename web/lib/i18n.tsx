@@ -26,7 +26,6 @@ const EN: Record<string, string> = {
   "Synthèse exécutive, KPIs, plan d'action et vigilance — générés à la demande.": "Executive summary, KPIs, action plan and watchpoints — generated on demand.",
   "Choisir le type de rapport": "Choose report type",
   "disponible": "available",
-  "à venir": "coming soon",
   "Choisir la période": "Choose period",
   "Cette semaine": "This week",
   "7 derniers jours": "Last 7 days",
@@ -368,7 +367,6 @@ const EN: Record<string, string> = {
   "Incident": "Incident",
   "Non configuré": "Not configured",
   // ── Global filter bar (legacy OCC dashboard parity) ──
-  "Personnalisé": "Custom",
   "Période active": "Active period",
   "Choisir une date ou un intervalle précis": "Pick a specific day or range",
   "Tentative": "Attempt",
@@ -1192,8 +1190,6 @@ const EN: Record<string, string> = {
   "Quotidien": "Daily",
   "Hebdomadaire": "Weekly",
   "Mensuel": "Monthly",
-  "Du": "From",
-  "Au": "To",
   "Dossier patient": "Patient record",
   "Fiche CRM": "CRM record",
   "Fiche contact": "Contact record",
@@ -1607,7 +1603,6 @@ const EN: Record<string, string> = {
   // ── Agent session / voice / simulation ──
   "Tapez un message pour démarrer la conversation textuelle avec cet agent.": "Type a message to start a text conversation with this agent.",
   "Votre message…": "Your message…",
-  "Envoyer": "Send",
   "Chat texte": "Text chat",
   "Aucune variable {{...}} détectée dans le prompt — la simulation utilisera la configuration brute de l'agent.": "No variable {{...}} detected in the prompt — the simulation will use the agent's raw configuration.",
   "▶ Démarrer la simulation": "▶ Start simulation",
@@ -1660,7 +1655,6 @@ const EN: Record<string, string> = {
   // ── Persona library ──
   "Industrie": "Industry",
   "— toutes —": "— all —",
-  "disponible": "available",
   "disponibles": "available",
   "vérifie que le dossier /personas est présent dans le déploiement.": "make sure the /personas folder is present in the deployment.",
   "Cloner dans mon org": "Clone into my org",
