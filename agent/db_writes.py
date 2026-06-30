@@ -218,11 +218,17 @@ def save_to_data_table(
                 k: v for k, v in (fields or {}).items()
                 if v is not None and k in valid_cols and k not in ("id", "created_at")
             }
-            # FAUX NUMERO → NE PAS RAPPELER: an invalid number must never be
-            # dialled again. Remap at write time so leads_rdv always carries
-            # the canonical do-not-call label.
-            if clean.get("qualification") == "FAUX NUMERO":
-                clean["qualification"] = "NE PAS RAPPELER"
+            # Canonical qualification remapping at write time. The AI label is
+            # kept verbatim on calls.metadata for audit; leads_rdv carries the
+            # normalised label so the cadence engine sees the right value.
+            _QUAL_REMAP = {
+                "FAUX NUMERO": "NE PAS RAPPELER",  # invalid → permanent DNC
+                "RAPPEL":      "PAS DE REPONSE",   # no answer → cadence retries
+                "A RAPPELER":  "PAS DE REPONSE",
+            }
+            q = clean.get("qualification")
+            if q in _QUAL_REMAP:
+                clean["qualification"] = _QUAL_REMAP[q]
             # Always bump updated_at if the column exists.
             if "updated_at" in valid_cols:
                 from datetime import datetime, timezone
@@ -647,8 +653,8 @@ _CALLBACK_QUAL_PATTERNS = (
     # Soft positives (the AI's prompts actually emit these)
     "interested", "interess", "hot_lead", "hot lead", "warm_lead", "warm lead",
     "nouveau dossier", "new case", "nouveau_dossier",
-    # Explicit callback / human transfer signals
-    "rappel", "callback", "call_back", "call back", "follow_up", "follow up",
+    # Human transfer signals (RAPPEL/callback excluded — they now map to
+    # PAS DE REPONSE and do not need a human task; the cadence retries).
     "humain", "human", "to_human", "passer", "transferred_to_human",
     # Warm lead that reached a specialist (agent 2/3) but didn't book →
     # needs human follow-up (SUIVI REQUIS).
@@ -819,7 +825,9 @@ def _qualification_needs_callback(raw: Optional[str]) -> bool:
     negative = ("pas_interess", "pas interess", "not interest", "decline",
                 "do_not_call", "do not call", "dnc", "ne pas rappel",
                 "wrong number", "faux num", "non eligib", "non éligib",
-                "ineligib", "not eligib")
+                "ineligib", "not eligib",
+                # RAPPEL / PAS DE REPONSE = no answer, cadence retries — no human task.
+                "rappel", "pas de reponse", "pas_de_reponse", "repondeur")
     if any(n in s for n in negative):
         return False
     return any(p in s for p in _CALLBACK_QUAL_PATTERNS)

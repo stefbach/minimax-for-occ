@@ -191,10 +191,14 @@ export async function POST(
   if (has("last_updated")) patch.last_updated = endedAt;
 
   if (shouldPropagateQualification && has("qualification")) {
-    // FAUX NUMERO is treated as NE PAS RAPPELER in the leads table: the lead's
-    // number is invalid so it must never be dialled again. The calls row keeps
-    // the original qualification for audit; only the lead writeback is remapped.
-    patch.qualification = callQual === "FAUX NUMERO" ? "NE PAS RAPPELER" : callQual;
+    // Canonical remap: the calls row keeps the raw AI label for audit; only
+    // leads_rdv carries the normalised label so the cadence engine sees the right value.
+    const QUAL_REMAP: Record<string, string> = {
+      "FAUX NUMERO": "NE PAS RAPPELER",  // invalid number → permanent DNC
+      "RAPPEL":      "PAS DE REPONSE",   // no meaningful contact → cadence retries
+      "A RAPPELER":  "PAS DE REPONSE",
+    };
+    patch.qualification = QUAL_REMAP[callQual!] ?? callQual!;
   }
   if (isExplicit && has("last_qualification_update")) {
     patch.last_qualification_update = endedAt;
@@ -209,7 +213,9 @@ export async function POST(
   // Otherwise we increment the attempt counter but leave date_jN NULL so
   // the engine re-picks the lead at the next slot in the same day (08/13/18
   // pattern: 3 tries same day, then move to next phase).
-  const NON_TERMINAL = new Set(["PAS DE REPONSE", "REPONDEUR"]);
+  // RAPPEL / A RAPPELER map to PAS DE REPONSE on leads_rdv, but for phase
+  // progression they are non-terminal too — the cadence should keep retrying.
+  const NON_TERMINAL = new Set(["PAS DE REPONSE", "REPONDEUR", "RAPPEL", "A RAPPELER"]);
   const isTerminal = !!callQual && !NON_TERMINAL.has(callQual);
 
   // Read max_attempts_per_phase from the call's campaign. Fall back to 3.
@@ -268,6 +274,29 @@ export async function POST(
   // Voicemail detected flag.
   if (has("voicemail_detected") && callQual === "REPONDEUR") {
     patch.voicemail_detected = true;
+  }
+
+  // Note writing: append a timestamped one-liner to note + call_N_note columns
+  // so the CRM history is readable without opening the call recording.
+  // Format: [DD/MM/YYYY HH:MM] #N · J1 · PAS DE REPONSE · 12s
+  {
+    const finalQual = (patch.qualification as string | undefined) ?? callQual ?? "—";
+    const callNum = (patch.call_count as number | undefined) ?? ((Number(lead?.call_count) || 0) + 1);
+    const durationStr = call.duration_secs != null ? `${Math.round(call.duration_secs)}s` : "—";
+    const d = new Date(endedAt);
+    const dd = String(d.getUTCDate()).padStart(2, "0");
+    const mo = String(d.getUTCMonth() + 1).padStart(2, "0");
+    const HH = String(d.getUTCHours()).padStart(2, "0");
+    const MI = String(d.getUTCMinutes()).padStart(2, "0");
+    const noteEntry = `[${dd}/${mo}/${d.getUTCFullYear()} ${HH}:${MI}] #${callNum} · ${phase ?? "—"} · ${finalQual} · ${durationStr}`;
+    if (has("note")) {
+      const existing = typeof lead?.note === "string" && lead.note ? lead.note : "";
+      patch.note = existing ? `${noteEntry}\n${existing}` : noteEntry;
+    }
+    if (callNum >= 1 && callNum <= 3) {
+      const noteKey = `call_${callNum}_note`;
+      if (has(noteKey)) patch[noteKey] = noteEntry;
+    }
   }
 
   if (Object.keys(patch).length === 0) {
