@@ -366,9 +366,9 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
             style={{ width: "100%" }}
           >
             <option value="">{t("— Aucune —")}</option>
-            {tables.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.label} ({t.physical_table})
+            {tables.map((tbl) => (
+              <option key={tbl.id} value={tbl.id}>
+                {tbl.label} ({tbl.physical_table})
               </option>
             ))}
           </select>
@@ -405,8 +405,8 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
                 style={{ width: "100%" }}
               >
                 <option value="">{t("— Aucune —")}</option>
-                {teams.map((t) => (
-                  <option key={t.id} value={t.id}>{t.name}</option>
+                {teams.map((tm) => (
+                  <option key={tm.id} value={tm.id}>{tm.name}</option>
                 ))}
               </select>
             </div>
