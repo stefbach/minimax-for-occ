@@ -131,10 +131,11 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
   }, [fetchData, refreshKey]);
 
   const loadLive = useCallback(async () => {
-    const today = new Date().toISOString().slice(0, 10);
+    const now = new Date();
+    const todayStart = now.toISOString().slice(0, 10) + "T00:00:00Z";
     const src = leadsSource === "test" ? "test" : "prod";
     const base = new URLSearchParams({
-      from: today, to: today, leads_source: src, limit: "500",
+      from: todayStart, to: now.toISOString(), leads_source: src, limit: "500",
       ...(system && system !== "all" ? { system } : {}),
     });
     try {
