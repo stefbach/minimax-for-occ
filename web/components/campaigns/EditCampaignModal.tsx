@@ -511,7 +511,7 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
             </div>
 
             <div>
-              <label style={{ fontSize: 12 }}>Timezone (engine)</label>
+              <label style={{ fontSize: 12 }}>{t("Fuseau horaire (moteur)")}</label>
               <input
                 value={slotsTz}
                 onChange={(e) => setSlotsTz(e.target.value)}
@@ -525,8 +525,8 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
         {/* ─── Target statuses ───────────────────────────────────────── */}
         <section>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-            <h4 style={{ margin: "0 0 8px 0", fontSize: 14 }}>Target statuses</h4>
-            {!isUnlocked("statuses") && unlockBtn("statuses", "Target statuses")}
+            <h4 style={{ margin: "0 0 8px 0", fontSize: 14 }}>{t("Statuts ciblés")}</h4>
+            {!isUnlocked("statuses") && unlockBtn("statuses", t("Statuts ciblés"))}
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
             {KNOWN_STATUSES.map((s) => {
