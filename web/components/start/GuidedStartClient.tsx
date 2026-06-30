@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useT } from "@/lib/i18n";
+import { HelpButton } from "@/components/help/HelpButton";
 
 type StepKey =
   | "agent" | "contacts" | "scripts" | "number" | "campaign"
@@ -174,6 +175,7 @@ export function GuidedStartClient({
             {t("Choisissez votre scénario : Axon vous déroule les étapes dans le bon ordre.")}
           </div>
         </div>
+        <HelpButton contextKey="start" />
       </div>
 
       <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 12, marginBottom: 18 }}>

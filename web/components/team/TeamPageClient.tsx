@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { TeamList } from "./TeamList";
 import { useT } from "@/lib/i18n";
+import { HelpButton } from "@/components/help/HelpButton";
 
 /**
  * Client wrapper for the /team page. Owns the "open invite modal" signal so
@@ -22,6 +23,7 @@ export function TeamPageClient() {
           </div>
         </div>
         <button onClick={() => setOpenSignal((n) => n + 1)}>+ Invite</button>
+        <HelpButton contextKey="team" />
       </div>
       <TeamList inviteOpenSignal={openSignal} />
     </>

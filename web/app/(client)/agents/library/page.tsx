@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { listPersonas } from "@/lib/personas/loader";
 import { PersonaLibraryClient } from "@/components/personas/PersonaLibraryClient";
+import { HelpButton } from "@/components/help/HelpButton";
 
 export const dynamic = "force-dynamic";
 
@@ -22,9 +23,12 @@ export default async function PersonaLibraryPage() {
             {personas.length} template{personas.length === 1 ? "" : "s"} ready to clone into your organisation
           </div>
         </div>
-        <Link href="/agents">
-          <button className="ghost">← My agents</button>
-        </Link>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <Link href="/agents">
+            <button className="ghost">← My agents</button>
+          </Link>
+          <HelpButton contextKey="agents.library" />
+        </div>
       </div>
 
       <PersonaLibraryClient initial={personas} />
