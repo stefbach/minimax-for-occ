@@ -790,8 +790,6 @@ const EN: Record<string, string> = {
   "total": "total",
   "Masquer": "Hide",
   "Appeler les leads": "Call leads",
-  "En cours": "In progress",
-  "Appels": "Calls",
   "Confier à un agent": "Assign to an agent",
   "Pool (non assigné)": "Pool (unassigned)",
   "Modifier la date/heure du rappel": "Edit callback date/time",
@@ -805,7 +803,6 @@ const EN: Record<string, string> = {
   "Les rappels que Charlotte (IA) passera à l'heure demandée par le patient.": "Callbacks that Charlotte (AI) will make at the patient's requested time.",
   "Calendrier IA": "AI Calendar",
   "Nombre d'éléments par page": "Items per page",
-  "Tout": "All",
   "éléments": "items",
   "élément": "item",
   "Ce tableau ne liste que les leads en attente d'un humain. L'option « Agent IA » du menu d'assignation clôture la tâche et la retire d'ici — le lead repart automatiquement dans le dialer. Il n'y a donc rien à filtrer sous « Agent IA ».": "This table only lists leads waiting for a human. The \"AI Agent\" option in the assignment menu closes the task and removes it — the lead goes back into the dialer automatically. There is nothing to filter under \"AI Agent\".",
@@ -1323,7 +1320,6 @@ const EN: Record<string, string> = {
 
   // ── Call detail & transcript ──
   "Résumé": "Summary",
-  "Résumé de l'appel IA": "AI call summary",
   "Résumés d'appels regroupés par qualification": "Call summaries grouped by qualification",
   "Ouvrir l'enregistrement dans un onglet": "Open recording in a tab",
   "Écouter l'enregistrement": "Listen to recording",
@@ -1332,7 +1328,6 @@ const EN: Record<string, string> = {
   "Non décrochés": "Unanswered",
   "Aucun enregistrement disponible": "No recording available",
   "Aucun enregistrement disponible.": "No recording available.",
-  "Aucun transcript pour cet appel.": "No transcript for this call.",
   // ── New-number / inbound features (EN coverage for strings added on main) ──
   "Numéros de l'agent": "Agent's numbers",
   "Entrants": "Inbound",
@@ -1349,7 +1344,6 @@ const EN: Record<string, string> = {
   "NON ELIGIBLE": "NOT ELIGIBLE",
   "NE PAS RAPPELER": "DO NOT CALL",
   "SUIVI REQUIS": "FOLLOW-UP REQUIRED",
-  "Ce tableau ne liste que les leads en attente d'un humain. L'option « Agent IA » du menu d'assignation clôture la tâche et la retire d'ici — le lead repart automatiquement dans le dialer. Il n'y a donc rien à filtrer sous « Agent IA ».":
     "This board only lists leads awaiting a human. The \"Agent IA\" option in the assignment menu closes the task and removes it from here — the lead automatically goes back to the dialer. So there is nothing to filter under \"Agent IA\".",
   // ── Stats tab ──
   "RDV obtenus": "Appointments booked",
@@ -1382,13 +1376,9 @@ const EN: Record<string, string> = {
   "Aucun appel ne correspond à cette sélection sur la période.": "No calls match this selection for the period.",
   "Aucun résumé d'appel sur la période. Les résumés sont générés post-appel.": "No call summary for the period. Summaries are generated after the call.",
   "Aucun résumé pour cette qualification.": "No summary for this qualification.",
-  "Aucun appel à traiter": "No calls to handle",
   "Dernière MAJ": "Last updated",
-  "Dernière réponse": "Latest reply",
   "Mis à jour le": "Updated on",
   "Docs reçus": "Docs received",
-  "Documents reçus": "Documents received",
-  "Documents manquants": "Missing documents",
 
   // ── Qualifications & call outcomes ──
   "Approuvé": "Approved",
@@ -1410,7 +1400,6 @@ const EN: Record<string, string> = {
   "Négatif": "Negative",
   "Assigné": "Assigned",
   "Assignés": "Assigned",
-  "Déjà assignés": "Already assigned",
 
   // ── Costs & performance ──
   "Coût": "Cost",
@@ -1480,7 +1469,6 @@ const EN: Record<string, string> = {
   // ── Time slots & filters ──
   "Créneau": "Time slot",
   "Date de début": "Start date",
-  "Date précise": "Specific date",
   "Après-midi (13h-14h)": "Afternoon (1pm–2pm)",
   "Plage de durée personnalisée": "Custom duration range",
   "Seuil « appel qualitatif »": "Qualifying call threshold",
@@ -1516,12 +1504,8 @@ const EN: Record<string, string> = {
   "critères ICB non remplis": "ICB criteria not met",
 
   // ── Patient CRM fields ──
-  "Allergies anesthésie": "Anaesthesia allergies",
-  "Antécédents chirurgicaux": "Surgical history",
-  "Autres antécédents": "Other medical history",
   "Mes patients assignés": "My assigned patients",
   "Aucun patient assigné pour le moment.": "No patient assigned for now.",
-  "Aucun patient ne correspond à cette recherche.": "No patient matches this search.",
   "Ce numéro de téléphone apparaît sur plusieurs dossiers": "This phone number appears on multiple records",
 
   // ── Lead management ──
@@ -1529,18 +1513,13 @@ const EN: Record<string, string> = {
   "Lead trouvé": "Lead found",
   "Lead introuvable. Créer la fiche :": "Lead not found. Create record:",
   "Lead supprimé": "Lead deleted",
-  "Leads non encore pris en charge — assigne à un agent": "Leads not yet handled — assign to an agent",
-  "Aucun lead assigné actuellement.": "No lead currently assigned.",
-  "Aucun lead en attente d'assignation. 🎉": "No leads waiting for assignment. 🎉",
   "Aucun dossier en attente.": "No pending case.",
-  "À assigner": "To assign",
   "À passer à l'humain": "To hand over to human",
   "À passer à un humain (autre)": "To hand over to human (other)",
   "À traiter": "To handle",
   "Chaîne d'agents": "Agent chain",
   "déjà présents": "already present",
   "importé(s)": "imported",
-  "leads dans le pool partagé. Prends-en un pour démarrer.": "leads in the shared pool. Take one to get started.",
   "lignes trouvées": "rows found",
   "max 250 par requête": "max 250 per request",
   "qualité de la liste": "list quality",
@@ -1556,8 +1535,6 @@ const EN: Record<string, string> = {
   "sans réponse": "no answer",
   "sévérité": "severity",
   "champs renseignés": "fields filled in",
-  "éléments": "items",
-  "élément": "item",
   "à": "to",
 
   // ── Agent / softphone / desk ──
@@ -1574,15 +1551,6 @@ const EN: Record<string, string> = {
   "Note initiale (optionnel)": "Initial note (optional)",
 
   // ── Callbacks & scheduling ──
-  "Aucun rappel programmé. Tu peux prendre des leads dans le pool partagé.": "No callback scheduled. You can take leads from the shared pool.",
-  "Aucun rappel programmé. Va sur Mon poste pour gérer les leads à traiter.": "No callback scheduled. Go to My Workstation to manage your leads.",
-  "Programmer pour le prochain jour ouvré (par défaut)": "Schedule for the next working day (default)",
-  "Reprogrammer demain (prochain jour ouvré)": "Reschedule for tomorrow (next working day)",
-  "Créer une tâche de rappel": "Create a callback task",
-  "Prends-en un dans le Pool partagé →": "Take one from the shared Pool →",
-  "Tu as 1 appel personnel à traiter aujourd'hui.": "You have 1 personal call to handle today.",
-  "Tu as terminé tous les rappels du jour. 🎉": "You've completed all today's callbacks. 🎉",
-  "appels personnels à traiter aujourd'hui.": "personal calls to handle today.",
 
   // ── Retell / Twilio sync ──
   "Réconcilier l'historique des appels Twilio": "Reconcile Twilio call history",
@@ -1595,7 +1563,6 @@ const EN: Record<string, string> = {
   // ── Users & permissions ──
   "Créer un utilisateur": "Create a user",
   "Nom, numéro, agent, qualification…": "Name, number, agent, qualification…",
-  "Nombre d'éléments par page": "Items per page",
   "Minimum 8 caractères. Tu transmets ce mot de passe à la personne — elle pourra le changer plus tard.": "Minimum 8 characters. Share this password with the person — they can change it later.",
   "Générer un autre mot de passe": "Generate another password",
   "Transmets ces identifiants à la personne — c'est la seule fois où le mot de passe est affiché en clair.": "Share these credentials with the person — this is the only time the password is shown in plain text.",
@@ -1628,11 +1595,9 @@ const EN: Record<string, string> = {
   "⊕ Bibliothèque": "⊕ Library",
 
   // ── Status feedback ──
-  "Modifications enregistrées automatiquement.": "Changes saved automatically.",
   "✓ Enregistré": "✓ Saved",
   "✓ Sauvegardé": "✓ Saved",
   "✓ Qualification enregistrée": "✓ Qualification saved",
-  "Échec d'enregistrement": "Save failed",
   "Échec de la génération": "Generation failed",
   "Aucun coût attribué.": "No cost attributed.",
   "Re-générer": "Regenerate",
@@ -1640,14 +1605,8 @@ const EN: Record<string, string> = {
   "Facturée": "Billed",
 
   // ── Pagination & navigation ──
-  "Page précédente": "Previous page",
-  "Précédent": "Previous",
   "Recherche du lead…": "Searching for lead…",
-  "Rechercher (nom ou téléphone)…": "Search (name or phone)…",
-  "Rechercher (nom, téléphone)": "Search (name, phone)",
   "Tape un numéro pour rechercher le lead.": "Type a number to search for the lead.",
-  "Trier: nb tâches": "Sort: task count",
-  "Trier: récent": "Sort: recent",
   "Voir les détails": "View details",
   "Voir les appels non qualifiés": "View unqualified calls",
 
@@ -1660,10 +1619,8 @@ const EN: Record<string, string> = {
   "Éléments requis": "Required elements",
   "Éléments manquants requis": "Required elements missing",
   "Tâches": "Tasks",
-  "Bon après-midi": "Good afternoon",
   "Système": "System",
   "Prénom Nom": "First Last",
-  "+ Créer une tâche": "+ Create a task",
 
   // ── Softphone / TransferModal / ComplianceClient ──
   "Transférer l'appel": "Transfer call",
@@ -1766,10 +1723,8 @@ const EN: Record<string, string> = {
   "Aucune erreur enregistrée.": "No errors logged.",
   "Credential enregistré.": "Credential saved.",
   "Déclencheurs automatiques (CRON)": "Automatic triggers (CRON)",
-  "Démarrer": "Start",
   "Enregistrement échoué :": "Save failed:",
   "Enregistré ·": "Saved ·",
-  "Marquer terminé": "Mark as done",
   "Ordre d'exécution dans le pipeline": "Execution order in pipeline",
   "Sous-agents du pipeline (appelés par l'orchestrateur)": "Pipeline sub-agents (called by orchestrator)",
   "ai_brain · send_email_smtp · send_wati_template · send_whatsapp_session · update_row · telegram_notify · call_automation … — modèles {{colonne}} acceptés":
@@ -1858,15 +1813,6 @@ const EN: Record<string, string> = {
   "activé": "on",
   "désactivé": "off",
   // ── Calendrier IA ──
-  "Calendrier IA": "AI Calendar",
-  "Les rappels que Charlotte (IA) passera à l'heure demandée par le patient.": "Callbacks Charlotte (AI) will make at the patient's requested time.",
-  "Rappels que Charlotte (IA) passera à l'heure demandée par le patient. Heures affichées en heure UK.": "Callbacks Charlotte (AI) will make at the patient's requested time. Times shown in UK time.",
-  "Rappels IA": "AI Callbacks",
-  "Rappel Charlotte": "Charlotte callback",
-  "Confier à un agent": "Hand off to agent",
-  "Confier ce rappel à un agent humain": "Hand this callback off to a human agent",
-  "Pool (non assigné)": "Pool (unassigned)",
-  "Aucun rappel programmé pour l'IA. Quand un patient demande à être rappelé à une heure précise, le rappel apparaîtra ici.": "No AI callbacks scheduled. When a patient requests a specific callback time, it will appear here.",
   // ── DirectorTab ──
   "Appels entrants": "Inbound calls",
   "Voir tous les entrants": "View all inbound calls",
@@ -1910,7 +1856,6 @@ const EN: Record<string, string> = {
   "Coller un CSV (e164,nom)": "Paste a CSV (e164,name)",
   "… ou importer depuis les contacts existants": "… or import from existing contacts",
   "Filtrer (nom ou numéro)…": "Filter (name or number)…",
-  "Aucun contact": "No contacts",
   "Modèle SMS": "SMS template",
   "Numéro d'envoi SMS": "SMS sender number",
   "Modèle WhatsApp": "WhatsApp template",
