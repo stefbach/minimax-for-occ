@@ -97,12 +97,17 @@ export async function GET(req: Request) {
       // Post-call qualification (RAPPEL, PAS INTERESSE, RDV CONFIRME, …) for the
       // dashboard column — what the agent recorded once the call ended.
       qualification = (after.metadata?.qualification ?? after.disposition ?? null) || null;
-      // "Décroché" = a real HUMAN picked up. A répondeur / voicemail also sets
-      // answered_at (the machine answers), so we must test the qualification
-      // FIRST and exclude it — otherwise voicemails inflate the answered count
-      // (Wati 26/06). REPONDEUR is carried on calls.metadata.qualification.
+      // "Décroché" = a real HUMAN picked up and the call yielded a conclusive
+      // outcome. Three exclusions before we can call it "answered":
+      //  1. Voicemail / machine: REPONDEUR, AMD, messagerie, etc. — answered_at
+      //     is set by the machine so we must test qualification FIRST.
+      //  2. "Rappel" / "rappeler": the AI recorded that the contact needs to be
+      //     called back → treat as no_answer for dashboard purposes (Wati 30/06).
+      //  3. "Pas de réponse" / "pas_de_reponse": qualification explicitly says no
+      //     meaningful contact was made, even if answered_at was briefly set.
       const qual = String(qualification ?? "");
       if (/repond|voicemail|messagerie|machine|\bamd\b/i.test(qual)) answered = "voicemail";
+      else if (/\brappel(?:er)?\b|pas[_\s]de[_\s]r[ée]ponse/i.test(qual)) answered = "no_answer";
       else if (after.answered_at) answered = "answered";
       else answered = "no_answer";
     }
