@@ -62,6 +62,11 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
   const [loading, setLoading] = useState(true);
   const [drillSpec, setDrillSpec] = useState<DrillSpec | null>(null);
 
+  // Live Fil Actif counters — today only, auto-refresh every 10 s
+  const [live, setLive] = useState<{ passerHumain: number; pasInteresse: number } | null>(null);
+  const [liveLoading, setLiveLoading] = useState(true);
+  const [liveLastAt, setLiveLastAt] = useState<string | null>(null);
+
   const fetchData = useCallback(async () => {
     try {
       setLoading(true);
@@ -125,6 +130,39 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
     fetchData();
   }, [fetchData, refreshKey]);
 
+  const loadLive = useCallback(async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const src = leadsSource === "test" ? "test" : "prod";
+    const base = new URLSearchParams({
+      from: today, to: today, leads_source: src, limit: "500",
+      ...(system && system !== "all" ? { system } : {}),
+    });
+    try {
+      type Row = { id: string; to_e164?: string | null };
+      type Resp = Row[] | { rows: Row[] };
+      const parse = async (res: Response): Promise<Row[]> => {
+        if (!res.ok) return [];
+        const j = (await res.json()) as Resp;
+        return Array.isArray(j) ? j : (j.rows ?? []);
+      };
+      const [phRows, piRows] = await Promise.all([
+        fetch(`/api/dashboard/calls-drill?${base}&qualification=passer_humain`, { cache: "no-store" }).then(parse),
+        fetch(`/api/dashboard/calls-drill?${base}&qualification=pas_interesse`, { cache: "no-store" }).then(parse),
+      ]);
+      const uniq = (rows: Row[]) => new Set(rows.map((r) => r.to_e164 ?? r.id)).size;
+      setLive({ passerHumain: uniq(phRows), pasInteresse: uniq(piRows) });
+      setLiveLastAt(new Date().toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
+    } catch { /* silent — don't block the rest of the tab */ } finally {
+      setLiveLoading(false);
+    }
+  }, [leadsSource, system]);
+
+  useEffect(() => {
+    loadLive();
+    const id = setInterval(loadLive, 10_000);
+    return () => clearInterval(id);
+  }, [loadLive]);
+
   // Silently drain the AI qualification backlog in the background whenever
   // the tab is viewed. Mirrors DirectorTab's auto-qualify logic so the user
   // never has to find or click a button. A sig-ref prevents re-draining the
@@ -186,6 +224,64 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+
+      {/* ── Fil Actif — Live priority board ──────────────────────────────── */}
+      <div>
+        <div style={{
+          fontSize: 13, fontWeight: 700, textTransform: "uppercase",
+          letterSpacing: 0.6, color: "var(--muted)", marginBottom: 10,
+          display: "flex", alignItems: "center", gap: 8,
+        }}>
+          <span>⏵ {t("Fil Actif")}</span>
+          <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>·</span>
+          <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>{t("Aujourd'hui")}</span>
+          <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>
+            <span style={{ color: liveLoading ? "var(--muted)" : "var(--good)" }}>●</span>
+            {liveLastAt && <span style={{ color: "var(--muted)" }}>{t("màj")} {liveLastAt}</span>}
+          </span>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 12 }}>
+
+          {/* À passer à l'humain */}
+          <div className="card" style={{ padding: "18px 20px", borderLeft: `4px solid ${CAT_COLORS.passer_humain}`, position: "relative" }}>
+            {(live?.passerHumain ?? 0) > 0 && (
+              <span style={{
+                position: "absolute", top: 10, right: 12,
+                fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5,
+                color: CAT_COLORS.passer_humain,
+                background: `color-mix(in srgb, ${CAT_COLORS.passer_humain} 15%, transparent)`,
+                padding: "2px 8px", borderRadius: 99,
+              }}>
+                {t("Action requise")}
+              </span>
+            )}
+            <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 6 }}>
+              🔴 {t("À passer à l'humain")}
+            </div>
+            <div style={{ fontSize: 48, fontWeight: 800, lineHeight: 1, fontVariantNumeric: "tabular-nums", color: liveLoading ? "var(--muted)" : CAT_COLORS.passer_humain }}>
+              {liveLoading ? "—" : (live?.passerHumain ?? 0)}
+            </div>
+            <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 6 }}>
+              {t("Leads uniques demandant un agent humain")}
+            </div>
+          </div>
+
+          {/* Pas intéressés */}
+          <div className="card" style={{ padding: "18px 20px", borderLeft: `4px solid ${CAT_COLORS.pas_interesse}` }}>
+            <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted)", marginBottom: 6 }}>
+              📵 {t("Pas intéressés")}
+            </div>
+            <div style={{ fontSize: 48, fontWeight: 800, lineHeight: 1, fontVariantNumeric: "tabular-nums", color: liveLoading ? "var(--muted)" : CAT_COLORS.pas_interesse }}>
+              {liveLoading ? "—" : (live?.pasInteresse ?? 0)}
+            </div>
+            <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 6 }}>
+              {t("Leads uniques ayant décliné aujourd'hui")}
+            </div>
+          </div>
+
+        </div>
+      </div>
 
       {/* ── Top 3 KPI cards ────────────────────────────────────────────────── */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
