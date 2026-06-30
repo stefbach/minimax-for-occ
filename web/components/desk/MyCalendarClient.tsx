@@ -61,8 +61,8 @@ export function MyCalendarClient() {
       const horizonDays = filterMode === "h7" ? 7 : 30;
       const todayMs = Date.parse(isoToday() + "T00:00:00");
       const horizonMs = todayMs + horizonDays * 86400000;
-      return tasks.filter((t) => {
-        const ts = Date.parse(t.scheduled_for);
+      return tasks.filter((task) => {
+        const ts = Date.parse(task.scheduled_for);
         return ts >= todayMs && ts < horizonMs;
       });
     }
@@ -72,7 +72,7 @@ export function MyCalendarClient() {
         : filterMode === "tomorrow"
           ? isoTomorrow()
           : customDate;
-    return tasks.filter((t) => sameLocalDay(t.scheduled_for, targetISO));
+    return tasks.filter((task) => sameLocalDay(task.scheduled_for, targetISO));
   }, [tasks, filterMode, customDate]);
 
   useEffect(() => {
@@ -100,7 +100,7 @@ export function MyCalendarClient() {
   }, [filteredTasks]);
 
   const overdue = useMemo(
-    () => filteredTasks.filter((t) => Date.parse(t.scheduled_for) < Date.now()),
+    () => filteredTasks.filter((task) => Date.parse(task.scheduled_for) < Date.now()),
     [filteredTasks],
   );
 
@@ -262,7 +262,7 @@ function formatDayHeader(d: Date, t: (s: string) => string): string {
 }
 
 function formatHHmm(iso: string): string {
-  const t = Date.parse(iso);
-  if (!Number.isFinite(t)) return iso;
-  return new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return iso;
+  return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }

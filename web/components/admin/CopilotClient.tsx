@@ -5,6 +5,7 @@ import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import { useToast } from "@/lib/use-toast";
 import { SkeletonRows } from "@/components/ui/Skeleton";
+import { useT } from "@/lib/i18n";
 
 interface ActionRow {
   id: string;
@@ -62,6 +63,7 @@ function StatusBadge({ s }: { s: ActionRow["status"] }) {
 }
 
 export function CopilotClient() {
+  const t = useT();
   const toast = useToast();
   const [input, setInput] = useState("");
   const [actions, setActions] = useState<ActionRow[]>([]);
@@ -92,8 +94,8 @@ export function CopilotClient() {
 
   useEffect(() => {
     refreshActions();
-    const t = setInterval(refreshActions, 5000);
-    return () => clearInterval(t);
+    const timer = setInterval(refreshActions, 5000);
+    return () => clearInterval(timer);
   }, [refreshActions]);
 
   async function confirmAction(id: string) {
@@ -104,7 +106,7 @@ export function CopilotClient() {
         const j = (await r.json().catch(() => ({}))) as { error?: string };
         toast.error(`Échec : ${j.error ?? r.statusText}`);
       } else {
-        toast.success("Action confirmée.");
+        toast.success(t("Action confirmée."));
       }
       await refreshActions();
     } finally {
@@ -147,7 +149,7 @@ export function CopilotClient() {
         }}
       >
         <div style={{ fontSize: 11, color: "var(--muted-2)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>
-          Suggestions
+          {t("Suggestions")}
         </div>
         {SUGGESTIONS.map((s) => (
           <button
@@ -195,7 +197,7 @@ export function CopilotClient() {
           {messages.map((m) => (
             <div key={m.id} style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 11, color: "var(--muted-2)", marginBottom: 4 }}>
-                {m.role === "user" ? "Vous" : "Copilote"}
+                {m.role === "user" ? t("Vous") : t("Copilote")}
               </div>
               {m.parts?.map((p, i) => {
                 if (p.type === "text") {
@@ -236,7 +238,7 @@ export function CopilotClient() {
                       )}
                       {out?.pending && out.action_id ? (
                         <div style={{ marginTop: 8 }}>
-                          <div style={{ marginBottom: 6 }}>{out.summary ?? "Action en attente de confirmation."}</div>
+                          <div style={{ marginBottom: 6 }}>{out.summary ?? t("Action en attente de confirmation.")}</div>
                           <button
                             type="button"
                             onClick={() => confirmAction(out.action_id!)}
@@ -252,7 +254,7 @@ export function CopilotClient() {
                               fontWeight: 600,
                             }}
                           >
-                            {busy === out.action_id ? "…" : "Confirmer"}
+                            {busy === out.action_id ? "…" : t("Confirmer")}
                           </button>
                           <button
                             type="button"
@@ -267,12 +269,12 @@ export function CopilotClient() {
                               cursor: "pointer",
                             }}
                           >
-                            Rejeter
+                            {t("Rejeter")}
                           </button>
                         </div>
                       ) : tp.output != null ? (
                         <details>
-                          <summary style={{ cursor: "pointer", color: "var(--muted-2)" }}>résultat</summary>
+                          <summary style={{ cursor: "pointer", color: "var(--muted-2)" }}>{t("résultat")}</summary>
                           <pre style={{ background: "rgba(0,0,0,0.3)", padding: 8, borderRadius: 4, overflowX: "auto", maxHeight: 220 }}>
                             {fmtArgs(tp.output)}
                           </pre>
@@ -296,7 +298,7 @@ export function CopilotClient() {
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Ex. « crée une org Demo avec slug demo »"
+            placeholder={t("Vous") === "You" ? "E.g. « create Demo org with demo slug »" : "Ex. « crée une org Demo avec slug demo »"}
             disabled={isLoading}
             style={{
               flex: 1,
@@ -321,7 +323,7 @@ export function CopilotClient() {
               fontWeight: 600,
             }}
           >
-            {isLoading ? "…" : "Envoyer"}
+            {isLoading ? "…" : t("Envoyer")}
           </button>
         </form>
       </main>
@@ -343,7 +345,7 @@ export function CopilotClient() {
         {auditLoading && actions.length === 0 ? (
           <SkeletonRows count={4} />
         ) : (
-          actions.length === 0 && <div style={{ color: "var(--muted)" }}>Aucune action.</div>
+          actions.length === 0 && <div style={{ color: "var(--muted)" }}>{t("Aucune action.")}</div>
         )}
         {actions.map((a) => (
           <div
@@ -379,7 +381,7 @@ export function CopilotClient() {
                     fontWeight: 600,
                   }}
                 >
-                  Confirmer
+                  {t("Confirmer")}
                 </button>
                 <button
                   type="button"
@@ -395,7 +397,7 @@ export function CopilotClient() {
                     fontSize: 11,
                   }}
                 >
-                  Rejeter
+                  {t("Rejeter")}
                 </button>
               </div>
             )}

@@ -14,6 +14,7 @@ import { GLOBAL_DURATION_BUCKETS, type GlobalFilters } from "@/lib/global-filter
 interface SmsRow {
   id: string;
   campaign_id: string | null;
+  contact_id: string | null;
   target_id: string | null;
   to_e164: string | null;
   lead_name: string | null;
@@ -138,13 +139,17 @@ export function PrecallSmsTab({ from, to, global }: { from: string; to: string; 
 
   const kpis = useMemo(() => {
     let sent = 0, failed = 0, called = 0, answered = 0, voicemail = 0;
+    const answeredContacts = new Set<string>();
     for (const r of scoped) {
       if (r.status === "failed") failed += 1; else sent += 1;
       if (r.call_id) called += 1;
-      if (r.answered === "answered") answered += 1;          // real human only
+      if (r.answered === "answered") {
+        answered += 1;
+        if (r.contact_id) answeredContacts.add(r.contact_id);
+      }
       if (r.answered === "voicemail") voicemail += 1;
     }
-    return { sent, failed, called, answered, voicemail, total: scoped.length };
+    return { sent, failed, called, answered, answeredLeads: answeredContacts.size, voicemail, total: scoped.length };
   }, [scoped]);
 
   const filtered = useMemo(() => {
@@ -192,7 +197,12 @@ export function PrecallSmsTab({ from, to, global }: { from: string; to: string; 
           </div>
         </div>
         <div className="card" style={{ padding: 14 }}>
-          <div className="muted" style={{ fontSize: 11, textTransform: "uppercase" }}>{t("Ont décroché (humain)")}</div>
+          <div className="muted" style={{ fontSize: 11, textTransform: "uppercase" }}>{t("Décroché — leads uniques")}</div>
+          <div style={{ fontSize: 26, fontWeight: 700, marginTop: 4, color: "var(--good)" }}>✅ {kpis.answeredLeads}</div>
+          <div className="muted" style={{ fontSize: 11 }}>{t("leads distincts ayant décroché")}</div>
+        </div>
+        <div className="card" style={{ padding: 14 }}>
+          <div className="muted" style={{ fontSize: 11, textTransform: "uppercase" }}>{t("Décroché — par appels")}</div>
           <div style={{ fontSize: 26, fontWeight: 700, marginTop: 4, color: "var(--good)" }}>✅ {kpis.answered}</div>
           <div className="muted" style={{ fontSize: 11 }}>
             {kpis.called ? Math.round((kpis.answered / kpis.called) * 100) : 0}% {t("des appels")}

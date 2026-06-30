@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useToast } from "@/lib/use-toast";
+import { useT } from "@/lib/i18n";
 
 /**
  * Small client island used from the server-rendered /numbers/health page.
@@ -20,12 +21,13 @@ export function ReleaseButton({
 }) {
   const router = useRouter();
   const toast = useToast();
+  const t = useT();
   const [busy, setBusy] = useState(false);
 
   async function onClick() {
     if (
       !window.confirm(
-        `Libérer ${e164} ? Le numéro sera supprimé de Twilio et de la base.`,
+        t("release_number_confirm").replace("{e164}", e164),
       )
     ) {
       return;
@@ -38,18 +40,18 @@ export function ReleaseButton({
         warning?: string | null;
       };
       if (!r.ok) {
-        toast.error(`Libération échouée : ${j.error ?? r.statusText}`);
+        toast.error(`${t("release_number_failed")}: ${j.error ?? r.statusText}`);
         return;
       }
       if (j.warning) {
-        toast.info(`${e164} libéré (avec avertissement) : ${j.warning}`);
+        toast.info(`${t("release_number_success_warning").replace("{e164}", e164)}: ${j.warning}`);
       } else {
-        toast.success(`${e164} libéré.`);
+        toast.success(t("release_number_success").replace("{e164}", e164));
       }
       router.refresh();
     } catch (e) {
       toast.error(
-        `Libération échouée : ${e instanceof Error ? e.message : String(e)}`,
+        `${t("release_number_failed")}: ${e instanceof Error ? e.message : String(e)}`,
       );
     } finally {
       setBusy(false);
@@ -64,7 +66,7 @@ export function ReleaseButton({
       disabled={busy}
       style={{ padding: "4px 9px", fontSize: 12 }}
     >
-      {busy ? "Libération…" : "Libérer le numéro"}
+      {busy ? t("release_number_busy") : t("release_number_button")}
     </button>
   );
 }
