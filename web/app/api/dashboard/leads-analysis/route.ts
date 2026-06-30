@@ -49,7 +49,7 @@ type CallRow = {
   started_at: string | null;
   duration_secs: number | null;
   disposition: string | null;
-  agent_handle_id: string | null;
+  agent_handles?: { display_name: string | null } | null;
   contact_id: string | null;
   to_e164: string | null;
   summary: string | null;
@@ -82,7 +82,7 @@ export async function GET(request: Request) {
     let q = sb
       .from("calls")
       .select(
-        "id, direction, state, answered_at, started_at, duration_secs, disposition, agent_handle_id, contact_id, to_e164, summary, metadata, contacts(display_name)",
+        "id, direction, state, answered_at, started_at, duration_secs, disposition, agent_handles(display_name), contact_id, to_e164, summary, metadata, contacts(display_name)",
       )
       .eq("org_id", orgId)
       .gte("started_at", from.toISOString())
@@ -123,7 +123,7 @@ export async function GET(request: Request) {
       matchesGlobalFilters(gf, {
         durationSecs: r.duration_secs ?? 0,
         bucket: bucketForCall(r),
-        agent: r.agent_handle_id ?? null,
+        agent: r.agent_handles?.display_name ?? null,
         answered: !!r.answered_at,
         attempt: r.to_e164 ? attemptIdx.get(r.id) ?? null : null,
         eligibility: eligibilityForPhone(r.to_e164, leadIdx),
