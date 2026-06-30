@@ -792,17 +792,17 @@ export function CampaignWizard({
   // finalize_campaign tool can reuse the exact same creation path (single
   // source of truth — same validation, same schedule/engine build).
   async function doCreate(): Promise<{ ok: boolean; id?: string; error?: string }> {
-    if (!name.trim()) return { ok: false, error: "Le nom est requis." };
+    if (!name.trim()) return { ok: false, error: t("Le nom est requis.") };
     if (!effectiveHandleId) {
       return {
         ok: false,
         error: selectedTeam
-          ? "Cette team n'a pas d'agent lead actif. Définissez un lead dans Teams IA."
-          : "Sélectionnez un agent IA (ou une team).",
+          ? t("Cette team n'a pas d'agent lead actif. Définissez un lead dans Teams IA.")
+          : t("Sélectionnez un agent IA (ou une team)."),
       };
     }
     if (!phoneNumberId && !callerIdOverride) {
-      return { ok: false, error: "Choisissez un numéro émetteur ou un caller-id." };
+      return { ok: false, error: t("Choisissez un numéro émetteur ou un caller-id.") };
     }
     persistDraft();
 
@@ -898,7 +898,7 @@ export function CampaignWizard({
       if (!res.ok) return { ok: false, error: json?.error ?? `HTTP ${res.status}` };
       return { ok: true, id: json.id as string };
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : "Erreur inconnue" };
+      return { ok: false, error: err instanceof Error ? err.message : t("Erreur inconnue") };
     }
   }
 
@@ -908,7 +908,7 @@ export function CampaignWizard({
     setSubmitting(true);
     const r = await doCreate();
     if (!r.ok) {
-      setError(r.error ?? "Erreur inconnue");
+      setError(r.error ?? t("Erreur inconnue"));
       setSubmitting(false);
       return;
     }
@@ -926,25 +926,25 @@ export function CampaignWizard({
   // relays back into the conversation.
   async function finalizeFromChat(): Promise<FinalizeResult> {
     if (!step1Valid) {
-      return { ok: false, error: "Complète d'abord « Qui appelle » (numéro émetteur) à l'étape 1." };
+      return { ok: false, error: t("Complète d'abord « Qui appelle » (numéro émetteur) à l'étape 1.") };
     }
     if (!step2Valid) {
-      return { ok: false, error: "Choisis d'abord la base de contacts (ou des cibles) à l'étape « Qui appeler »." };
+      return { ok: false, error: t("Choisis d'abord la base de contacts (ou des cibles) à l'étape « Qui appeler ».") };
     }
     if (!preflightClear) {
       const blockers = blockingChecks(preflightResult).map((c) => c.label);
       return {
         ok: false,
         error: blockers.length
-          ? `Blocage(s) à corriger avant de créer : ${blockers.join(" ; ")}.`
-          : "Des blocages subsistent dans le récap de vérification — corrige-les avant de créer.",
+          ? `${t("Blocage(s) à corriger avant de créer :")} ${blockers.join(" ; ")}.`
+          : t("Des blocages subsistent dans le récap de vérification — corrige-les avant de créer."),
       };
     }
     setError(null);
     setSubmitting(true);
     const r = await doCreate();
     if (!r.ok) {
-      setError(r.error ?? "Erreur inconnue");
+      setError(r.error ?? t("Erreur inconnue"));
       setSubmitting(false);
       return r;
     }
@@ -1144,7 +1144,7 @@ export function CampaignWizard({
               >
                 {isDone ? "✓" : s.n}
               </span>
-              <span style={{ fontSize: 13 }}>{s.icon} {s.label}</span>
+              <span style={{ fontSize: 13 }}>{s.icon} {t(s.label)}</span>
             </button>
           );
         })}
@@ -1272,9 +1272,9 @@ export function CampaignWizard({
                   </div>
                 ) : (
                   <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
-                    Modèle : <span className="kbd">{selectedAgent.llm_model ?? "—"}</span>
+                    {t("Modèle :")} <span className="kbd">{selectedAgent.llm_model ?? "—"}</span>
                     {" · "}
-                    Voix : <span className="kbd">{selectedAgent.tts_voice_id ?? "—"}</span>
+                    {t("Voix :")} <span className="kbd">{selectedAgent.tts_voice_id ?? "—"}</span>
                   </div>
                 ))}
               </div>
@@ -1749,7 +1749,7 @@ export function CampaignWizard({
                       onClick={() => toggleDay(d.id)}
                       style={{ padding: "6px 12px" }}
                     >
-                      {d.label}
+                      {t(d.label)}
                     </button>
                   );
                 })}
@@ -1837,7 +1837,7 @@ export function CampaignWizard({
                   <li className="muted" style={{ marginTop: 4 }}>
                     {t("Soit")} <strong>{hourRanges.filter((r) => r.start && r.end).length}{" "}
                     wave{hourRanges.filter((r) => r.start && r.end).length > 1 ? "s" : ""}/jour</strong> ·{" "}
-                    {t("jours actifs :")} {days.map((d) => DAYS.find((x) => x.id === d)?.label).filter(Boolean).join(", ") || t("aucun")}
+                    {t("jours actifs :")} {days.map((d) => { const found = DAYS.find((x) => x.id === d); return found ? t(found.label) : undefined; }).filter(Boolean).join(", ") || t("aucun")}
                   </li>
                 </ul>
               ) : (
@@ -1848,7 +1848,7 @@ export function CampaignWizard({
                     </li>
                   ))}
                   <li className="muted" style={{ marginTop: 4 }}>
-                    {t("Jours actifs :")} {days.map((d) => DAYS.find((x) => x.id === d)?.label).filter(Boolean).join(", ") || t("aucun")} ·{" "}
+                    {t("Jours actifs :")} {days.map((d) => { const found = DAYS.find((x) => x.id === d); return found ? t(found.label) : undefined; }).filter(Boolean).join(", ") || t("aucun")} ·{" "}
                     {t("Aucun appel en dehors de ces fenêtres.")}
                   </li>
                 </ul>
@@ -1886,7 +1886,7 @@ export function CampaignWizard({
             {showAdvanced ? t("▾ Réglages avancés") : t("▸ Réglages avancés")}
           </span>
           <span className="muted" style={{ fontSize: 12 }}>
-            {maxConcurrency} simultanés · {maxAttempts} tentative{maxAttempts > 1 ? "s" : ""} · retry {retryDelayMin} min
+            {maxConcurrency} {t("simultanés")} · {maxAttempts} {maxAttempts > 1 ? t("tentatives") : t("tentative")} · retry {retryDelayMin} min
           </span>
         </button>
 
@@ -1988,15 +1988,15 @@ export function CampaignWizard({
           </li>
           {dynamicMode && engineConfig ? (
             <li>
-              {t("Créneaux")} ({TZ_LABEL_BY_ID[timezone] ?? timezone}) : {days.map((d) => DAYS.find((x) => x.id === d)?.label).filter(Boolean).join(", ") || "—"}
+              {t("Créneaux")} ({TZ_LABEL_BY_ID[timezone] ?? timezone}) : {days.map((d) => { const found = DAYS.find((x) => x.id === d); return found ? t(found.label) : undefined; }).filter(Boolean).join(", ") || "—"}
               {" · "}
               {hourRanges.map((r) => `${r.start}–${r.end}`).join(" + ") || "—"}
               {" · max "}
-              {engineConfig.volume.max_new_per_day} nouveaux/créneau
+              {engineConfig.volume.max_new_per_day} {t("nouveaux/créneau")}
             </li>
           ) : (
             <li>
-              {t("Fenêtre :")} {days.map((d) => DAYS.find((x) => x.id === d)?.label).join(", ")} · {hourRanges.map((r) => `${r.start}–${r.end}`).join(" + ")} ({TZ_LABEL_BY_ID[timezone] ?? timezone}) <span className="muted">→ {hourRanges.map((r) => `${localToUtc(r.start, timezone)}–${localToUtc(r.end, timezone)}`).join(" + ")} UTC</span>
+              {t("Fenêtre :")} {days.map((d) => { const found = DAYS.find((x) => x.id === d); return found ? t(found.label) : undefined; }).filter(Boolean).join(", ")} · {hourRanges.map((r) => `${r.start}–${r.end}`).join(" + ")} ({TZ_LABEL_BY_ID[timezone] ?? timezone}) <span className="muted">→ {hourRanges.map((r) => `${localToUtc(r.start, timezone)}–${localToUtc(r.end, timezone)}`).join(" + ")} UTC</span>
             </li>
           )}
         </ul>
@@ -2034,7 +2034,7 @@ export function CampaignWizard({
           {t("← Précédent")}
         </button>
         <div className="muted wizard-nav-label" style={{ fontSize: 12 }}>
-          {t("Étape")} {currentStep} / 3 — {STEPS.find((s) => s.n === currentStep)?.label}
+          {t("Étape")} {currentStep} / 3 — {(() => { const s = STEPS.find((s) => s.n === currentStep); return s ? t(s.label) : ""; })()}
         </div>
         {currentStep < 3 ? (
           <button

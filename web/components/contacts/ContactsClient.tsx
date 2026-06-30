@@ -38,7 +38,7 @@ export function ContactsClient({ initial }: { initial: Contact[] }) {
       if (c.display_name?.toLowerCase().includes(q)) return true;
       if (c.e164.toLowerCase().includes(q)) return true;
       if (c.email?.toLowerCase().includes(q)) return true;
-      if ((c.tags ?? []).some((t) => t.toLowerCase().includes(q))) return true;
+      if ((c.tags ?? []).some((tag) => tag.toLowerCase().includes(q))) return true;
       return false;
     });
   }, [rows, search]);
@@ -59,14 +59,14 @@ export function ContactsClient({ initial }: { initial: Contact[] }) {
         e164,
         display_name: name || null,
         email: email || null,
-        tags: tags ? tags.split(",").map((t) => t.trim()).filter(Boolean) : [],
+        tags: tags ? tags.split(",").map((tag) => tag.trim()).filter(Boolean) : [],
         notes: notes || null,
       }),
     });
     setBusy(false);
     if (!r.ok) {
       const j = await r.json().catch(() => ({}));
-      setError(j.error ?? "Erreur");
+      setError(j.error ?? t("Erreur"));
       return;
     }
     setE164(""); setName(""); setEmail(""); setTags(""); setNotes("");
@@ -163,12 +163,10 @@ export function ContactsClient({ initial }: { initial: Contact[] }) {
       <div className="card">
         <h3 style={{ marginTop: 0 }}>{t("Import en masse (fichier Excel)")}</h3>
         <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
-          Pour ajouter beaucoup de contacts d&apos;un coup, télécharge le modèle
-          Excel ci-dessous, remplis-le avec les colonnes exactes
+          {t("Pour ajouter beaucoup de contacts d'un coup, télécharge le modèle Excel ci-dessous, remplis-le avec les colonnes exactes")}{" "}
           (<span className="kbd">phone</span>, <span className="kbd">name</span>,{" "}
           <span className="kbd">email</span>, <span className="kbd">tags</span>,{" "}
-          <span className="kbd">notes</span>), puis re-uploade-le. Les numéros
-          déjà connus sont mis à jour, les nouveaux ajoutés.
+          <span className="kbd">notes</span>){", "}{t("puis re-uploade-le. Les numéros déjà connus sont mis à jour, les nouveaux ajoutés.")}
         </p>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
           <a
@@ -199,20 +197,20 @@ export function ContactsClient({ initial }: { initial: Contact[] }) {
         {importResult && (
           <div className="card" style={{ marginTop: 10, padding: 10, background: "var(--bg-2)" }}>
             <div style={{ fontSize: 13 }}>
-              ✅ <strong>{importResult.inserted}</strong> contact{importResult.inserted === 1 ? "" : "s"} importé{importResult.inserted === 1 ? "" : "s"}
+              ✅ <strong>{importResult.inserted}</strong> contact{importResult.inserted === 1 ? "" : "s"} {importResult.inserted === 1 ? t("importé") : t("importés")}
               {importResult.skipped > 0 ? (
-                <>, <strong style={{ color: "var(--bad)" }}>{importResult.skipped}</strong> ligne{importResult.skipped === 1 ? "" : "s"} ignorée{importResult.skipped === 1 ? "" : "s"}</>
+                <>, <strong style={{ color: "var(--bad)" }}>{importResult.skipped}</strong> {importResult.skipped === 1 ? t("ligne") : t("lignes")} {importResult.skipped === 1 ? t("ignorée") : t("ignorées")}</>
               ) : null}
             </div>
             {importResult.errors.length > 0 && (
               <details style={{ marginTop: 6 }}>
                 <summary style={{ cursor: "pointer", fontSize: 13 }}>
-                  Détail des erreurs ({importResult.errors.length})
+                  {t("Détail des erreurs")} ({importResult.errors.length})
                 </summary>
                 <ul style={{ marginTop: 6, fontSize: 12, paddingLeft: 18 }}>
                   {importResult.errors.slice(0, 20).map((e, i) => (
                     <li key={i}>
-                      {e.row > 0 ? `Ligne ${e.row}: ` : ""}{e.reason}
+                      {e.row > 0 ? `${t("Ligne")} ${e.row}: ` : ""}{e.reason}
                     </li>
                   ))}
                   {importResult.errors.length > 20 && (

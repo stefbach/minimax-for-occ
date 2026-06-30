@@ -80,14 +80,14 @@ export function ScheduleChatPanel({
           tool: "finalize_campaign",
           toolCallId: toolCall.toolCallId,
           output: res.ok
-            ? { ok: true, message: "Campagne créée en brouillon." }
-            : { ok: false, error: res.error ?? "création impossible" },
+            ? { ok: true, message: t("Campagne créée en brouillon.") }
+            : { ok: false, error: res.error ?? t("création impossible") },
         });
       } catch (e) {
         addToolResult({
           tool: "finalize_campaign",
           toolCallId: toolCall.toolCallId,
-          output: { ok: false, error: e instanceof Error ? e.message : "erreur inconnue" },
+          output: { ok: false, error: e instanceof Error ? e.message : t("erreur inconnue") },
         });
       }
     },

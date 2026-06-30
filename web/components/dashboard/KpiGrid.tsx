@@ -20,37 +20,46 @@ function fmtPct(v: number): string {
   return `${(v * 100).toFixed(1)}%`;
 }
 
-function trend(today: number, yesterday: number, unit: "count" | "pct" | "duration" = "count"): {
-  label: string;
+type TrendResult = {
+  delta: number | null; // null means "no data" (both zero); Infinity means yesterday was 0 but today > 0
   tone: "good" | "bad" | "muted";
-} {
-  if (yesterday === 0 && today === 0) return { label: "vs hier: —", tone: "muted" };
-  if (yesterday === 0) return { label: "vs hier: +∞", tone: "good" };
-  const delta = (today - yesterday) / yesterday;
-  const sign = delta >= 0 ? "+" : "";
-  const label = `vs hier: ${sign}${(delta * 100).toFixed(0)}%`;
+};
+
+function trend(today: number, yesterday: number, unit: "count" | "pct" | "duration" = "count"): TrendResult {
   // For abandon rate, higher is bad. We only use tone heuristically.
   void unit;
+  if (yesterday === 0 && today === 0) return { delta: null, tone: "muted" };
+  if (yesterday === 0) return { delta: Infinity, tone: "good" };
+  const delta = (today - yesterday) / yesterday;
   const tone = delta === 0 ? "muted" : delta > 0 ? "good" : "bad";
-  return { label, tone };
+  return { delta, tone };
 }
 
 function Kpi({
   label,
   value,
-  hint,
+  trend: trendData,
   tone,
 }: {
   label: string;
   value: string;
-  hint: string;
+  trend: TrendResult;
   tone: "good" | "bad" | "muted";
 }) {
   const t = useT();
   const color =
     tone === "good" ? "var(--good)" : tone === "bad" ? "var(--bad)" : "var(--muted)";
-  // "vs hier: …" → "vs yest: …" in EN (the numeric part is kept verbatim).
-  const hintText = t("vs hier") !== "vs hier" ? hint.replace("vs hier", t("vs hier")) : hint;
+
+  let hintText: string;
+  if (trendData.delta === null) {
+    hintText = `${t("vs hier")}: —`;
+  } else if (trendData.delta === Infinity) {
+    hintText = `${t("vs hier")}: +∞`;
+  } else {
+    const sign = trendData.delta >= 0 ? "+" : "";
+    hintText = `${t("vs hier")}: ${sign}${(trendData.delta * 100).toFixed(0)}%`;
+  }
+
   return (
     <div className="card" style={{ padding: 14 }}>
       <div style={{ color: "var(--muted)", fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4 }}>
@@ -77,11 +86,11 @@ export function KpiGrid({ today, yesterday }: Props) {
   const tDur = trend(today.avg_duration_secs, yesterday.avg_duration_secs, "duration");
   // Abandon: increase is BAD — flip tone:
   const tAbandonRaw = trend(today.abandon_rate, yesterday.abandon_rate, "pct");
-  const tAbandon = {
+  const tAbandon: TrendResult = {
     ...tAbandonRaw,
     tone:
       tAbandonRaw.tone === "good" ? "bad" : tAbandonRaw.tone === "bad" ? "good" : "muted",
-  } as { label: string; tone: "good" | "bad" | "muted" };
+  };
   const tAi = trend(today.ai_pct, yesterday.ai_pct, "pct");
   const tCamp = trend(today.active_campaigns, yesterday.active_campaigns);
   const tRecall = trend(today.contacts_to_recall, yesterday.contacts_to_recall);
@@ -94,35 +103,35 @@ export function KpiGrid({ today, yesterday }: Props) {
         gap: 12,
       }}
     >
-      <Kpi label="Leads uniques" value={String(today.unique_leads_count)} hint={tCalls.label} tone={tCalls.tone} />
+      <Kpi label="Leads uniques" value={String(today.unique_leads_count)} trend={tCalls} tone={tCalls.tone} />
       <Kpi
         label="Durée moyenne"
         value={fmtDuration(today.avg_duration_secs)}
-        hint={tDur.label}
+        trend={tDur}
         tone={tDur.tone}
       />
       <Kpi
         label="Taux d'abandon"
         value={fmtPct(today.abandon_rate)}
-        hint={tAbandon.label}
+        trend={tAbandon}
         tone={tAbandon.tone}
       />
       <Kpi
         label="Mix IA / humain"
         value={`${Math.round(today.ai_pct * 100)}% / ${Math.round(today.human_pct * 100)}%`}
-        hint={tAi.label}
+        trend={tAi}
         tone={tAi.tone}
       />
       <Kpi
         label="Campagnes actives"
         value={String(today.active_campaigns)}
-        hint={tCamp.label}
+        trend={tCamp}
         tone={tCamp.tone}
       />
       <Kpi
         label="Contacts à rappeler"
         value={String(today.contacts_to_recall)}
-        hint={tRecall.label}
+        trend={tRecall}
         tone={tRecall.tone}
       />
     </div>

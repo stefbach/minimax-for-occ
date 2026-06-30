@@ -71,7 +71,7 @@ function DiagnosticBanner({ report, onRetry }: { report: HealthReport; onRetry: 
       </ul>
       {failed.length > 0 && (
         <div style={{ marginTop: 12, padding: 8, background: "rgba(0,0,0,0.2)", borderRadius: 4, fontSize: 13 }}>
-          <strong>{t("Action requise")} :</strong>{" "}
+          <strong>{t("Action requise :")}</strong>{" "}
           {failed[0].service === "MiniMax" && failed[0].message.includes("Crédit") && (
             <>{t("rechargez le crédit MiniMax sur")} <a href="https://platform.minimax.io" target="_blank" rel="noreferrer">platform.minimax.io</a></>
           )}
@@ -85,7 +85,7 @@ function DiagnosticBanner({ report, onRetry }: { report: HealthReport; onRetry: 
             <>{t("vérifiez la clé API")} {failed[0].service} {t("dans les variables d'environnement")}</>
           )}
           {failed[0].message.includes("injoignable") && (
-            <>{t("service")} {failed[0].service} {t("indisponible, réessayez plus tard")}</>
+            <>{t("service")} {failed[0].service} {t("indisponible, réessayer plus tard")}</>
           )}
         </div>
       )}
@@ -234,7 +234,7 @@ export function VoicePanel({
         ) : (
           <>
             <p style={{ color: "var(--muted)", margin: 0 }}>
-              {t("Cliquez pour rejoindre la salle LiveKit. Le worker sera dispatché et chargera la configuration de cet agent.")}
+              {t("Cliquez pour rejoindre la salle LiveKit. Le worker y sera dispatché et chargera la config de cet agent.")}
             </p>
             <div style={{ display: "flex", gap: 8 }}>
               <button onClick={() => connect()} disabled={loading}>
