@@ -162,28 +162,28 @@ export default function CallsPage() {
     <div>
       <div className="page-header">
         <div>
-          <h1>Appels — supervision live</h1>
+          <h1>{"Calls — live supervision"}</h1>
           <div className="subtitle">
-            Vue temps réel des appels en cours. Écoute, souffler, intervenir.
+            {"Real-time view of ongoing calls. Listen, whisper, intervene."}
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <button className="ghost" onClick={() => void refresh()}>
-            Rafraîchir
+            {"Refresh"}
           </button>
           <HelpButton contextKey="calls" />
         </div>
       </div>
 
       <div className="grid cols-3 calls-kpis">
-        <KpiCard label="En sonnerie" value={counts.ringing} tone="accent" />
-        <KpiCard label="En cours" value={counts.in_progress} tone="good" />
-        <KpiCard label="En file" value={counts.queued} tone="muted" />
+        <KpiCard label={"Ringing"} value={counts.ringing} tone="accent" />
+        <KpiCard label={"In progress"} value={counts.in_progress} tone="good" />
+        <KpiCard label={"Queued"} value={counts.queued} tone="muted" />
       </div>
       <div className="grid cols-3 calls-kpis" style={{ marginTop: 10 }}>
-        <KpiCard label="Wrap-up" value={counts.wrap_up} tone="muted" />
-        <KpiCard label="Actifs total" value={active.length} tone="accent" />
-        <KpiCard label="Terminés (24h)" value={ended.length} tone="muted" />
+        <KpiCard label={"Wrap-up"} value={counts.wrap_up} tone="muted" />
+        <KpiCard label={"Active total"} value={active.length} tone="accent" />
+        <KpiCard label={"Ended (24h)"} value={ended.length} tone="muted" />
       </div>
 
       {supervision && (
@@ -197,12 +197,12 @@ export default function CallsPage() {
       )}
 
       <div className="card calls-grid" style={{ marginTop: 22 }}>
-        <h3>Appels actifs</h3>
-        {loading && <p className="muted">Chargement…</p>}
-        {error && <p style={{ color: "var(--bad)" }}>Erreur : {error}</p>}
+        <h3>{"Active calls"}</h3>
+        {loading && <p className="muted">{"Loading…"}</p>}
+        {error && <p style={{ color: "var(--bad)" }}>{"Error:"} {error}</p>}
         {!loading && !error && active.length === 0 && (
           <p className="muted" style={{ margin: 0 }}>
-            Aucun appel actif pour le moment.
+            {"No active calls at the moment."}
           </p>
         )}
         {active.length > 0 && (
@@ -210,12 +210,12 @@ export default function CallsPage() {
             <table className="list">
               <thead>
                 <tr>
-                  <th>De</th>
-                  <th>Vers</th>
-                  <th>État</th>
-                  <th>Agent</th>
-                  <th>Durée</th>
-                  <th>Actions</th>
+                  <th>{"From"}</th>
+                  <th>{"To"}</th>
+                  <th>{"Status"}</th>
+                  <th>{"Agent"}</th>
+                  <th>{"Duration"}</th>
+                  <th>{"Actions"}</th>
                 </tr>
               </thead>
               <tbody>
@@ -246,30 +246,30 @@ export default function CallsPage() {
                         <button
                           className="ghost"
                           onClick={() => void startSupervision(c.id, "listen")}
-                          title="Écoute discrète"
+                          title={"Silent listen"}
                         >
-                          Écouter
+                          {"Listen"}
                         </button>
                         <button
                           className="ghost"
                           onClick={() => void startSupervision(c.id, "whisper")}
-                          title="Souffler à l'agent"
+                          title={"Whisper to agent"}
                         >
-                          Souffler
+                          {"Whisper"}
                         </button>
                         <button
                           className="ghost"
                           onClick={() => void startSupervision(c.id, "barge")}
-                          title="Intervenir dans l'appel"
+                          title={"Barge into call"}
                         >
-                          Intervenir
+                          {"Barge in"}
                         </button>
                         <Link
                           href={`/calls/${c.id}`}
                           className="tag"
                           style={{ textDecoration: "none" }}
                         >
-                          Détails
+                          {"Details"}
                         </Link>
                       </div>
                     </td>
@@ -287,24 +287,24 @@ export default function CallsPage() {
           onClick={() => setHistoryOpen((v) => !v)}
           style={{ width: "100%", textAlign: "left" }}
         >
-          {historyOpen ? "▾" : "▸"} Historique des dernières 24h ({ended.length})
+          {historyOpen ? "▾" : "▸"} {"Last 24h history"} ({ended.length})
         </button>
         {historyOpen && (
           <div style={{ marginTop: 12, overflowX: "auto" }}>
             {ended.length === 0 ? (
               <p className="muted" style={{ margin: 0 }}>
-                Aucun appel terminé sur la période.
+                {"No ended calls in this period."}
               </p>
             ) : (
               <table className="list">
                 <thead>
                   <tr>
-                    <th>Pair</th>
-                    <th>Direction</th>
-                    <th>État</th>
-                    <th>Agent</th>
-                    <th>Durée</th>
-                    <th>Terminé</th>
+                    <th>{"Peer"}</th>
+                    <th>{"Direction"}</th>
+                    <th>{"Status"}</th>
+                    <th>{"Agent"}</th>
+                    <th>{"Duration"}</th>
+                    <th>{"Ended"}</th>
                     <th></th>
                   </tr>
                 </thead>
@@ -312,7 +312,7 @@ export default function CallsPage() {
                   {ended.map((c) => (
                     <tr key={c.id}>
                       <td>{callPeer(c)}</td>
-                      <td>{c.direction === "in" ? "Entrant" : "Sortant"}</td>
+                      <td>{c.direction === "in" ? "Inbound" : "Outbound"}</td>
                       <td>
                         <span className="tag">{c.state}</span>
                       </td>
@@ -335,7 +335,7 @@ export default function CallsPage() {
                       </td>
                       <td>
                         <Link href={`/calls/${c.id}`} className="tag">
-                          Détails
+                          {"Details"}
                         </Link>
                       </td>
                     </tr>

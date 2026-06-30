@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 import { Brand } from "@/components/brand/Brand";
+import { useT } from "@/lib/i18n";
 
 function landingForRole(role: string | undefined): string {
   switch (role) {
@@ -22,6 +23,7 @@ function landingForRole(role: string | undefined): string {
 }
 
 function SignupForm() {
+  const t = useT();
   const router = useRouter();
   const sp = useSearchParams();
   const next = sp.get("next") ?? "/";
@@ -48,7 +50,7 @@ function SignupForm() {
     // If the project requires email confirmation, there's no session yet.
     if (!data.session) {
       setBusy(false);
-      setInfo("Compte créé. Vérifiez votre email pour confirmer, puis reconnectez-vous pour finaliser votre invitation.");
+      setInfo(t("Compte créé. Vérifiez votre email pour confirmer, puis reconnectez-vous pour finaliser votre invitation."));
       return;
     }
 
@@ -62,7 +64,7 @@ function SignupForm() {
       setBusy(false);
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        setError(j.error ?? "Échec de l'acceptation de l'invitation");
+        setError(j.error ?? t("Échec de l'acceptation de l'invitation"));
         return;
       }
       const j = (await res.json()) as { role?: string };
@@ -83,7 +85,7 @@ function SignupForm() {
     setBusy(false);
     if (!res.ok) {
       const j = await res.json().catch(() => ({}));
-      setError(j.error ?? "Création de l'organisation échouée");
+      setError(j.error ?? t("Création de l'organisation échouée"));
       return;
     }
     router.push(next);
@@ -95,12 +97,12 @@ function SignupForm() {
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <Brand size={22} />
         <span style={{ color: "var(--muted)", marginLeft: 6 }}>
-          · {token ? "Acceptation d'invitation" : "Inscription"}
+          · {token ? t("Acceptation d'invitation") : t("Inscription")}
         </span>
       </div>
       {token && (
         <div className="tag" style={{ width: "fit-content" }}>
-          Vous rejoignez une organisation existante
+          {t("Vous rejoignez une organisation existante")}
         </div>
       )}
       <form onSubmit={onSubmit} style={{ display: "grid", gap: 12 }}>
@@ -109,7 +111,7 @@ function SignupForm() {
           <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
         </div>
         <div>
-          <label>Mot de passe (8+ caractères)</label>
+          <label>{t("Mot de passe (8+ caractères)")}</label>
           <input
             type="password"
             required
@@ -120,18 +122,18 @@ function SignupForm() {
         </div>
         {!token && (
           <div>
-            <label>Nom de votre organisation</label>
+            <label>{t("Nom de votre organisation")}</label>
             <input value={orgName} onChange={(e) => setOrgName(e.target.value)} placeholder="Hôtel Belvédère, Tibok, etc." />
           </div>
         )}
         {error && <div style={{ color: "var(--bad)", fontSize: 13 }}>{error}</div>}
         {info && <div style={{ color: "var(--good)", fontSize: 13 }}>{info}</div>}
         <button type="submit" disabled={busy || !email || !password}>
-          {busy ? "Création…" : token ? "Rejoindre l'organisation" : "Créer mon compte"}
+          {busy ? t("Création…") : token ? t("Rejoindre l'organisation") : t("Créer mon compte")}
         </button>
       </form>
       <div style={{ fontSize: 13, color: "var(--muted)" }}>
-        Déjà un compte ? <Link href={`/login${next ? `?next=${next}` : ""}`} style={{ color: "var(--accent-2)" }}>Se connecter</Link>
+        {t("Déjà un compte ?")} <Link href={`/login${next ? `?next=${next}` : ""}`} style={{ color: "var(--accent-2)" }}>{t("Se connecter")}</Link>
       </div>
     </div>
   );

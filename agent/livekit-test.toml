@@ -1,0 +1,18 @@
+# LiveKit Cloud Agents deployment manifest pour l'agent TEST (Wati 16/06).
+#
+# Cet agent (CA_PbChboVCvPJC) tourne le meme code que le prod (CA_PFUfvaBhC8Wk)
+# mais il est dispatche separement quand /api/token detecte un agent OCC dont
+# le nom contient "teste" (Charlotte-teste, Isabelle-teste, Victoria-teste).
+#
+# La separation se fait via LIVEKIT_AGENT_NAME_TEST=axon-voice-agent-test sur
+# Vercel. Tant que cette var n'est pas posee, le routage reste 100% prod et
+# cet agent test ne recoit rien meme s'il est deploye.
+
+[project]
+  subdomain = "minimax-i107a5a3"
+
+[agent]
+  id = "CA_PbChboVCvPJC"
+
+[build]
+  dockerfile = "Dockerfile"

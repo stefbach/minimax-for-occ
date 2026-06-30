@@ -55,7 +55,7 @@ const ALL_MODULES: readonly ModuleId[] = MODULE_IDS;
 const MANAGER_MODULES: readonly ModuleId[] = [
   "dashboard", "copilot", "desk", "alerts", "agents", "campaigns",
   "calls", "workflows", "flows", "queues", "contacts", "numbers",
-  "team", "settings",
+  "settings",
 ];
 const SUPERVISOR_MODULES: readonly ModuleId[] = [
   "dashboard", "alerts", "desk", "calls", "queues", "contacts",

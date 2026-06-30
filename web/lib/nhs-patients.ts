@@ -27,6 +27,7 @@ export type DossierRow = Record<string, unknown> & {
   dossier_status: string | null;
   submission_ready: boolean | null;
   nhs_submission_status: string | null;
+  nhs_submission_date: string | null;
   bank_statement_exception: boolean | null;
   last_analysed_at: string | null;
 };
@@ -48,7 +49,11 @@ export type LeadRow = {
 };
 
 export interface NhsPatient {
+  // id is ALWAYS the lead ID. dossier_id is set only when a dossier exists.
+  // This allows leads without dossiers to appear in the list (email recipients
+  // who haven't started a dossier yet are shown with aucun-doc status).
   id: string;
+  dossier_id?: string;
   lead_id: string;
   name: string | null;
   initials: string;
@@ -62,6 +67,8 @@ export interface NhsPatient {
   nhs_status: string | null;
   escalade: boolean;
   bank_exception: boolean;
+  has_response: boolean;
+  duplicate?: boolean;
 }
 
 export function ageFromDob(dob: string | null): number | null {
@@ -111,13 +118,17 @@ function deriveStatus(d: DossierRow, l: LeadRow, received: number, threeDaysAgo:
   return "partiels";
 }
 
+// Build a patient from a dossier + lead pair. The patient ID is always the
+// lead ID so that /patients/[id] can resolve by lead whether or not a dossier
+// exists. dossier_id carries the nhs_dossiers PK for reference.
 export function buildPatient(d: DossierRow, l: LeadRow, threeDaysAgo: Date): NhsPatient {
   const { received, required } = countDocs(d);
   const status = deriveStatus(d, l, received, threeDaysAgo);
   const lastActivity =
     d.last_analysed_at || l.last_response_date || l.relance_email_date || l.last_call_datetime || l.last_updated || null;
   return {
-    id: d.id,
+    id: l.id,
+    dossier_id: d.id,
     lead_id: l.id,
     name: l.nom,
     initials: initialsOf(l.nom),
@@ -131,9 +142,100 @@ export function buildPatient(d: DossierRow, l: LeadRow, threeDaysAgo: Date): Nhs
     nhs_status: d.nhs_submission_status,
     escalade: status === "sans-reponse",
     bank_exception: !!d.bank_statement_exception,
+    has_response: !!l.last_response_date,
   };
 }
 
-export const DOSSIER_SELECT = `id, lead_id, dossier_status, submission_ready, nhs_submission_status, bank_statement_exception, last_analysed_at, ${NHS_DOCS.map((d) => d.key).join(", ")}`;
+// Build a patient from a lead alone — no dossier exists yet. Used for the
+// 63 explanation-email recipients who haven't started their dossier.
+export function buildPatientFromLead(l: LeadRow, threeDaysAgo: Date): NhsPatient {
+  const required = NHS_DOCS.filter((x) => x.required).length;
+  const noResponse =
+    !!l.email_sent &&
+    !l.last_response_date &&
+    !!l.relance_email_sent &&
+    !!l.relance_email_date &&
+    new Date(l.relance_email_date) < threeDaysAgo;
+  const status: PatientStatus = noResponse ? "sans-reponse" : "aucun-doc";
+  const lastActivity =
+    l.last_response_date || l.relance_email_date || l.last_call_datetime || l.last_updated || null;
+  return {
+    id: l.id,
+    lead_id: l.id,
+    name: l.nom,
+    initials: initialsOf(l.nom),
+    age: ageFromDob(l.patient_dob),
+    email: l.email,
+    phone: l.numero_telephone,
+    status,
+    docs_received: 0,
+    docs_required: required,
+    last_activity: lastActivity,
+    nhs_status: null,
+    escalade: status === "sans-reponse",
+    bank_exception: false,
+    has_response: !!l.last_response_date,
+  };
+}
+
+export const DOSSIER_SELECT = `id, lead_id, dossier_status, submission_ready, nhs_submission_status, nhs_submission_date, bank_statement_exception, last_analysed_at, ${NHS_DOCS.map((d) => d.key).join(", ")}`;
 export const LEAD_SELECT =
   "id, nom, email, numero_telephone, patient_dob, email_sent, whatsapp_sent, relance_email_sent, relance_whatsapp_sent, relance_email_date, last_response_date, last_call_datetime, last_updated";
+
+// Strip non-digits and normalise UK mobile numbers (07xxx → +447xxx) so that
+// two rows for the same person collapse to the same key regardless of spacing
+// or country-code formatting.
+export function normalizePhone(phone: string | null): string | null {
+  if (!phone) return null;
+  const d = phone.replace(/\D/g, "");
+  if (!d) return null;
+  if (d.startsWith("07") && d.length === 11) return `+44${d.slice(1)}`;
+  if (d.startsWith("447") && d.length === 12) return `+${d}`;
+  return d;
+}
+
+// Collapse duplicate leads_rdv rows that represent the same patient (same phone
+// number). Returns one T per unique phone. Among duplicates:
+//   • Prefers the row whose ID is the dossier's lead_id (so the dossier lookup
+//     by primary.id always works).
+//   • Otherwise prefers the most recently updated row.
+// Boolean flags (relance_email_sent, whatsapp, response) are OR-merged so a
+// flag set on any duplicate row is reflected on the primary.
+export function deduplicateLeads<T extends LeadRow>(
+  leads: T[],
+  hasDossier: (leadId: string) => boolean,
+): T[] {
+  const byKey = new Map<string, T[]>();
+  for (const l of leads) {
+    const key =
+      normalizePhone(l.numero_telephone) ??
+      l.email?.toLowerCase() ??
+      String(l.id);
+    if (!byKey.has(key)) byKey.set(key, []);
+    byKey.get(key)!.push(l);
+  }
+  return [...byKey.values()].map((rows) => {
+    // Pick primary row: dossier-linked first, then most recently updated
+    let primary = rows[0];
+    for (const r of rows) {
+      const rHas = hasDossier(String(r.id));
+      const pHas = hasDossier(String(primary.id));
+      if (rHas && !pHas) { primary = r; continue; }
+      if (!rHas && pHas) continue;
+      if (new Date(r.last_updated ?? 0) > new Date(primary.last_updated ?? 0)) primary = r;
+    }
+    // Merge boolean flags with OR so no signal is lost across duplicates
+    return {
+      ...primary,
+      relance_email_sent:
+        rows.some((r) => !!r.relance_email_sent) || !!primary.relance_email_sent,
+      relance_whatsapp_sent:
+        rows.some((r) => !!r.relance_whatsapp_sent) || !!primary.relance_whatsapp_sent,
+      whatsapp_sent:
+        rows.some((r) => !!r.whatsapp_sent) || !!primary.whatsapp_sent,
+      last_response_date:
+        rows.find((r) => r.last_response_date)?.last_response_date ??
+        primary.last_response_date,
+    } as T;
+  });
+}

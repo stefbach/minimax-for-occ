@@ -11,6 +11,7 @@ import {
   effectiveModules,
   type ModuleId,
 } from "@/lib/permissions";
+import { MemberNumbersModal } from "./MemberNumbersModal";
 
 const ROLE_LABEL: Record<string, { label: string; tone: string }> = {
   super_admin: { label: "Super admin", tone: "var(--bad)" },
@@ -215,6 +216,7 @@ function MemberCard({
   const [menuOpen, setMenuOpen] = useState(false);
   const [editingRole, setEditingRole] = useState(false);
   const [permissionsOpen, setPermissionsOpen] = useState(false);
+  const [numbersOpen, setNumbersOpen] = useState(false);
   const [newRole, setNewRole] = useState<string>(m.role);
   const [busy, setBusy] = useState(false);
 
@@ -293,8 +295,7 @@ function MemberCard({
         <button
           className="ghost"
           onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }}
-          disabled={busy || m.is_self}
-          title={m.is_self ? t("Vous ne pouvez pas modifier votre propre rôle.") : ""}
+          disabled={busy}
           style={{ padding: "4px 12px", flexShrink: 0 }}
         >
           ⋯
@@ -340,7 +341,7 @@ function MemberCard({
         </div>
       )}
 
-      {menuOpen && !m.is_self && (
+      {menuOpen && (
         <div
           style={{
             position: "absolute",
@@ -355,35 +356,48 @@ function MemberCard({
             boxShadow: "0 4px 12px rgba(0,0,0,0.25)",
           }}
         >
+          {!m.is_self && (
+            <button
+              className="ghost"
+              onClick={() => { setEditingRole(true); setMenuOpen(false); setNewRole(m.role); }}
+              style={{ display: "block", width: "100%", textAlign: "left", padding: "6px 10px", border: "none", background: "transparent" }}
+            >
+              {t("Changer le rôle")}
+            </button>
+          )}
+          {!m.is_self && (
+            <button
+              className="ghost"
+              onClick={() => { setPermissionsOpen(true); setMenuOpen(false); }}
+              style={{ display: "block", width: "100%", textAlign: "left", padding: "6px 10px", border: "none", background: "transparent" }}
+            >
+              {t("Permissions")}
+            </button>
+          )}
           <button
             className="ghost"
-            onClick={() => { setEditingRole(true); setMenuOpen(false); setNewRole(m.role); }}
+            onClick={() => { setNumbersOpen(true); setMenuOpen(false); }}
             style={{ display: "block", width: "100%", textAlign: "left", padding: "6px 10px", border: "none", background: "transparent" }}
           >
-            {t("Changer le rôle")}
+            {t("Numéros de l'agent")}
           </button>
-          <button
-            className="ghost"
-            onClick={() => { setPermissionsOpen(true); setMenuOpen(false); }}
-            style={{ display: "block", width: "100%", textAlign: "left", padding: "6px 10px", border: "none", background: "transparent" }}
-          >
-            {t("Permissions")}
-          </button>
-          <button
-            className="ghost"
-            onClick={toggleActive}
-            style={{
-              display: "block",
-              width: "100%",
-              textAlign: "left",
-              padding: "6px 10px",
-              border: "none",
-              background: "transparent",
-              color: m.status === "active" ? "var(--bad)" : "var(--good)",
-            }}
-          >
-            {m.status === "active" ? t("Désactiver") : t("Réactiver")}
-          </button>
+          {!m.is_self && (
+            <button
+              className="ghost"
+              onClick={toggleActive}
+              style={{
+                display: "block",
+                width: "100%",
+                textAlign: "left",
+                padding: "6px 10px",
+                border: "none",
+                background: "transparent",
+                color: m.status === "active" ? "var(--bad)" : "var(--good)",
+              }}
+            >
+              {m.status === "active" ? t("Désactiver") : t("Réactiver")}
+            </button>
+          )}
         </div>
       )}
       {permissionsOpen && (
@@ -391,6 +405,13 @@ function MemberCard({
           member={m}
           onClose={() => setPermissionsOpen(false)}
           onSaved={onChanged}
+          onToast={onToast}
+        />
+      )}
+      {numbersOpen && (
+        <MemberNumbersModal
+          member={m}
+          onClose={() => setNumbersOpen(false)}
           onToast={onToast}
         />
       )}
@@ -410,8 +431,14 @@ function MemberRow({
   const t = useT();
   const roleInfo = ROLE_LABEL[m.role] ?? { label: m.role, tone: "var(--muted)" };
   const [menuOpen, setMenuOpen] = useState(false);
+  // The desktop table card uses `overflow: hidden` (rounded corners), which
+  // clips an absolutely-positioned dropdown — the ⋯ menu never showed. We
+  // position it `fixed` from the button's on-screen rect so it escapes any
+  // clipping / scroll container.
+  const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null);
   const [editingRole, setEditingRole] = useState(false);
   const [permissionsOpen, setPermissionsOpen] = useState(false);
+  const [numbersOpen, setNumbersOpen] = useState(false);
   const [newRole, setNewRole] = useState<string>(m.role);
   const [busy, setBusy] = useState(false);
 
@@ -421,8 +448,13 @@ function MemberRow({
       const el = e.target as HTMLElement;
       if (!el.closest(`[data-row-menu="${m.user_id}"]`)) setMenuOpen(false);
     };
+    const onScroll = () => setMenuOpen(false);
     document.addEventListener("click", onDoc);
-    return () => document.removeEventListener("click", onDoc);
+    window.addEventListener("scroll", onScroll, true);
+    return () => {
+      document.removeEventListener("click", onDoc);
+      window.removeEventListener("scroll", onScroll, true);
+    };
   }, [menuOpen, m.user_id]);
 
   async function saveRole() {
@@ -542,64 +574,78 @@ function MemberRow({
           className="ghost"
           onClick={(e) => {
             e.stopPropagation();
-            setMenuOpen((v) => !v);
+            if (menuOpen) { setMenuOpen(false); return; }
+            const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+            setMenuPos({ top: r.bottom + 4, right: Math.max(8, window.innerWidth - r.right) });
+            setMenuOpen(true);
           }}
-          disabled={busy || m.is_self}
-          title={m.is_self ? t("Vous ne pouvez pas modifier votre propre rôle.") : ""}
+          disabled={busy}
           style={{ padding: "4px 10px" }}
         >
           ⋯
         </button>
-        {menuOpen && !m.is_self && (
+        {menuOpen && menuPos && (
           <div
             style={{
-              position: "absolute",
-              right: 8,
-              top: "100%",
-              marginTop: 4,
+              position: "fixed",
+              right: menuPos.right,
+              top: menuPos.top,
               background: "var(--panel)",
               border: "1px solid var(--border)",
               borderRadius: 8,
               padding: 4,
               minWidth: 180,
-              zIndex: 20,
+              zIndex: 1000,
               boxShadow: "0 4px 12px rgba(0,0,0,0.25)",
               textAlign: "left",
             }}
           >
+            {!m.is_self && (
+              <button
+                className="ghost"
+                onClick={() => {
+                  setEditingRole(true);
+                  setMenuOpen(false);
+                  setNewRole(m.role);
+                }}
+                style={{ display: "block", width: "100%", textAlign: "left", padding: "6px 10px", border: "none", background: "transparent" }}
+              >
+                {t("Changer le rôle")}
+              </button>
+            )}
+            {!m.is_self && (
+              <button
+                className="ghost"
+                onClick={() => { setPermissionsOpen(true); setMenuOpen(false); }}
+                style={{ display: "block", width: "100%", textAlign: "left", padding: "6px 10px", border: "none", background: "transparent" }}
+              >
+                {t("Permissions")}
+              </button>
+            )}
             <button
               className="ghost"
-              onClick={() => {
-                setEditingRole(true);
-                setMenuOpen(false);
-                setNewRole(m.role);
-              }}
+              onClick={() => { setNumbersOpen(true); setMenuOpen(false); }}
               style={{ display: "block", width: "100%", textAlign: "left", padding: "6px 10px", border: "none", background: "transparent" }}
             >
-              {t("Changer le rôle")}
+              {t("Numéros de l'agent")}
             </button>
-            <button
-              className="ghost"
-              onClick={() => { setPermissionsOpen(true); setMenuOpen(false); }}
-              style={{ display: "block", width: "100%", textAlign: "left", padding: "6px 10px", border: "none", background: "transparent" }}
-            >
-              {t("Permissions")}
-            </button>
-            <button
-              className="ghost"
-              onClick={toggleActive}
-              style={{
-                display: "block",
-                width: "100%",
-                textAlign: "left",
-                padding: "6px 10px",
-                border: "none",
-                background: "transparent",
-                color: m.status === "active" ? "var(--bad)" : "var(--good)",
-              }}
-            >
-              {m.status === "active" ? t("Désactiver") : t("Réactiver")}
-            </button>
+            {!m.is_self && (
+              <button
+                className="ghost"
+                onClick={toggleActive}
+                style={{
+                  display: "block",
+                  width: "100%",
+                  textAlign: "left",
+                  padding: "6px 10px",
+                  border: "none",
+                  background: "transparent",
+                  color: m.status === "active" ? "var(--bad)" : "var(--good)",
+                }}
+              >
+                {m.status === "active" ? t("Désactiver") : t("Réactiver")}
+              </button>
+            )}
           </div>
         )}
         {permissionsOpen && (
@@ -607,6 +653,13 @@ function MemberRow({
             member={m}
             onClose={() => setPermissionsOpen(false)}
             onSaved={onChanged}
+            onToast={onToast}
+          />
+        )}
+        {numbersOpen && (
+          <MemberNumbersModal
+            member={m}
+            onClose={() => setNumbersOpen(false)}
             onToast={onToast}
           />
         )}

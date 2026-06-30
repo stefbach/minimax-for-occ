@@ -87,45 +87,41 @@ export function ContactPanel({ call }: { call: ContactCall | null }) {
     }
   }, [contactId, noteDraft, call?.id, refresh]);
 
-  // Wati June 10 v4: when no active call, render nothing. The empty-state
-  // placeholder ('Prêt à prendre un appel') used to live here and ate
-  // half the screen — now it's a small message in the bottom-right slot
-  // of /desk's 2x2 grid instead.
   if (!call) return null;
   const phone = call.direction === "in" ? call.from_e164 : call.to_e164;
   return (
     <div className="card softphone-right">
-      <h3>{call.contacts?.display_name ?? phone ?? "Contact inconnu"}</h3>
+      <h3>{call.contacts?.display_name ?? phone ?? "Unknown contact"}</h3>
       <div className="muted" style={{ fontSize: 13 }}>{phone}</div>
 
       <div style={{ display: "grid", gap: 6, marginTop: 12, fontSize: 13 }}>
         <div>
-          <span className="muted">État : </span>
+          <span className="muted">Status: </span>
           <span className="tag">{call.state}</span>
         </div>
         <div>
-          <span className="muted">Direction : </span>
-          {call.direction === "in" ? "Entrant" : "Sortant"}
+          <span className="muted">Direction: </span>
+          {call.direction === "in" ? "Inbound" : "Outbound"}
         </div>
         <div>
-          <span className="muted">Début : </span>
+          <span className="muted">Started: </span>
           {new Date(call.started_at).toLocaleString()}
         </div>
         {call.answered_at && (
           <div>
-            <span className="muted">Répondu : </span>
+            <span className="muted">Answered: </span>
             {new Date(call.answered_at).toLocaleTimeString()}
           </div>
         )}
         {call.ended_at && (
           <div>
-            <span className="muted">Terminé : </span>
+            <span className="muted">Ended: </span>
             {new Date(call.ended_at).toLocaleTimeString()}
           </div>
         )}
         {call.room_id && (
           <div>
-            <span className="muted">Room : </span>
+            <span className="muted">Room: </span>
             <span className="kbd">{call.room_id}</span>
           </div>
         )}
@@ -141,7 +137,7 @@ export function ContactPanel({ call }: { call: ContactCall | null }) {
             marginBottom: 6,
           }}
         >
-          Historique interactions
+          Interaction history
         </div>
         {!contactId ? (
           <div
@@ -154,7 +150,7 @@ export function ContactPanel({ call }: { call: ContactCall | null }) {
               fontSize: 12,
             }}
           >
-            Aucun contact lié à cet appel.
+            No contact linked to this call.
           </div>
         ) : interactions.length === 0 ? (
           <div
@@ -167,7 +163,7 @@ export function ContactPanel({ call }: { call: ContactCall | null }) {
               fontSize: 12,
             }}
           >
-            Aucune interaction antérieure.
+            No previous interactions.
           </div>
         ) : (
           <div
@@ -213,7 +209,7 @@ export function ContactPanel({ call }: { call: ContactCall | null }) {
               rows={2}
               value={noteDraft}
               onChange={(e) => setNoteDraft(e.target.value)}
-              placeholder="Ajouter une note…"
+              placeholder="Add a note…"
               style={{ fontSize: 12 }}
             />
             <div style={{ display: "flex", justifyContent: "flex-end" }}>

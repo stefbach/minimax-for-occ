@@ -26,6 +26,14 @@ export interface RunCtx {
   log: (level: "info" | "warn" | "error", msg: string) => void;
   /** Re-entrancy guard for call_automation. */
   depth: number;
+  /** Workflow id — set when enqueuing review-mode management actions. */
+  workflowId?: string;
+  /** Current run id (nullable link on queued actions). */
+  runId?: string | null;
+  /** Management agent powering ai_email/ai_whatsapp/ai_update_row steps. */
+  agent?: { id: string; llm_provider: string; llm_model: string; system_prompt: string } | null;
+  /** 'auto' = AI steps send immediately; 'review' = enqueue for approval. */
+  approvalMode?: "auto" | "review";
 }
 
 /** Load a credential (merged kind + secret data) from the app DB, cached per run. */

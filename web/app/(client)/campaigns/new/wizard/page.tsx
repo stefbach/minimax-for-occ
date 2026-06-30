@@ -22,17 +22,27 @@ export default async function NewCampaignWizardPage({
   let teams: TeamOption[] = [];
   let contactLists: ContactListOption[] = [];
   let dataTables: DataTableOption[] = [];
+  let orgCategory: string | null = null;
 
   if (hasSupabase()) {
     const sb = supabaseServer();
     const DEFAULT_ORG = await currentOrgIdForServer();
     try {
+      const { data: org } = await sb
+        .from("organizations")
+        .select("category")
+        .eq("id", DEFAULT_ORG)
+        .maybeSingle();
+      orgCategory = (org as { category: string | null } | null)?.category ?? null;
+    } catch { /* ignore */ }
+    try {
       const { data } = await sb
         .from("agent_handles")
         .select("id,display_name,kind,ai_agent_id,active")
         .eq("org_id", DEFAULT_ORG)
-        .eq("kind", "ai")
+        .in("kind", ["ai", "human"]) // human handles can run a "desk" campaign
         .eq("active", true)
+        .order("kind", { ascending: true })
         .order("display_name", { ascending: true })
         .limit(200);
       const handles = (data ?? []) as Array<{
@@ -62,6 +72,7 @@ export default async function NewCampaignWizardPage({
       agents = handles.map((h) => ({
         id: h.id,
         display_name: h.display_name,
+        kind: h.kind === "human" ? "human" : "ai",
         llm_model: h.ai_agent_id ? agentInfo.get(h.ai_agent_id)?.llm_model ?? null : null,
         tts_voice_id: h.ai_agent_id ? agentInfo.get(h.ai_agent_id)?.tts_voice_id ?? null : null,
         has_prompt: h.ai_agent_id ? agentInfo.get(h.ai_agent_id)?.has_prompt ?? false : false,
@@ -199,6 +210,7 @@ export default async function NewCampaignWizardPage({
         teams={teams}
         contactLists={contactLists}
         dataTables={dataTables}
+        orgCategory={orgCategory}
       />
     </>
   );

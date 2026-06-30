@@ -59,8 +59,27 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   // ?q=<term> we search the WHOLE physical table on the registered name
   // + phone columns and return the matches — the client swaps its list
   // for these results while a search is active.
+  //
+  // Pagination (Wati 2026-06-15): the CRM was rendering the whole table
+  // in one shot — 7800+ rows for OCC's leads_rdv tanked the browser.
+  // Both branches (search + default listing) now accept ?page= and
+  // ?per_page= so the client can render a small window at a time.
+  // per_page=0 (or "all") asks for everything up to a hard cap.
   const url = new URL(req.url);
   const searchTerm = (url.searchParams.get("q") ?? "").trim();
+  const pageRaw = Number.parseInt(url.searchParams.get("page") ?? "1", 10);
+  const perPageRaw = url.searchParams.get("per_page");
+  const page = Number.isFinite(pageRaw) && pageRaw > 0 ? pageRaw : 1;
+  // "all" / "0" / unspecified-large → fall back to the hard cap (10k for
+  // the listing path, 1k for search). Otherwise clamp to [1, 500].
+  const HARD_CAP_LIST = 10000;
+  const HARD_CAP_SEARCH = 1000;
+  const perPageWanted = perPageRaw === null
+    ? 20
+    : perPageRaw === "all" || perPageRaw === "0"
+      ? HARD_CAP_LIST
+      : Math.max(1, Math.min(500, Number.parseInt(perPageRaw, 10) || 20));
+
   if (searchTerm) {
     // Strip the characters that have meaning in PostgREST or-filters so a
     // user typing "%" or "," can't break out of the pattern.
@@ -70,18 +89,43 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       reg.name_column ? `${reg.name_column}.ilike.${pattern}` : null,
       reg.phone_column ? `${reg.phone_column}.ilike.${pattern}` : null,
     ].filter(Boolean) as string[];
-    let sq = sb.from(reg.physical_table).select("*").limit(100);
+    const perPageS = Math.min(perPageWanted, HARD_CAP_SEARCH);
+    const from = (page - 1) * perPageS;
+    const to = from + perPageS - 1;
+    let sq = sb
+      .from(reg.physical_table)
+      .select("*", { count: "exact" })
+      .range(from, to);
     if (orParts.length > 0) sq = sq.or(orParts.join(","));
-    const { data: found, error: sErr } = await sq;
+    const { data: found, count, error: sErr } = await sq;
     if (sErr) return NextResponse.json({ error: sErr.message }, { status: 500 });
-    return NextResponse.json({ table: reg, rows: found ?? [], search: searchTerm });
+    return NextResponse.json({
+      table: reg,
+      rows: found ?? [],
+      total: count ?? (found?.length ?? 0),
+      page,
+      per_page: perPageS,
+      search: searchTerm,
+    });
   }
 
-  let q = sb.from(reg.physical_table).select("*").limit(1000);
+  const perPageL = Math.min(perPageWanted, HARD_CAP_LIST);
+  const from = (page - 1) * perPageL;
+  const to = from + perPageL - 1;
+  let q = sb
+    .from(reg.physical_table)
+    .select("*", { count: "exact" })
+    .range(from, to);
   if (orderCol) q = q.order(orderCol, { ascending: false, nullsFirst: false });
-  const { data, error } = await q;
+  const { data, count, error } = await q;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ table: reg, rows: data ?? [] });
+  return NextResponse.json({
+    table: reg,
+    rows: data ?? [],
+    total: count ?? (data?.length ?? 0),
+    page,
+    per_page: perPageL,
+  });
 }
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -106,7 +150,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   }
   if (!clean[reg.phone_column]) {
     return NextResponse.json(
-      { error: `Le numéro (${reg.phone_column}) est requis.` },
+      { error: `Phone number (${reg.phone_column}) is required.` },
       { status: 400 },
     );
   }

@@ -15,6 +15,8 @@ export type ReportType =
   | "funnel_campagne"
   | "nhs_s2";
 
+export type Lang = "fr" | "en";
+
 export interface ReportPeriod {
   /** ISO start (UTC). */
   from: string;
@@ -102,6 +104,8 @@ export interface ReportPayload {
   /** Pre-formatted ("9 juin 2026"). */
   generatedAt: string;
   period: ReportPeriod;
+  /** Language of the report. Defaults to "fr". */
+  lang?: Lang;
   /** Free-form meta entries that render in the masthead row. */
   meta: Array<{ label: string; value: string }>;
   /** Section 01: 1-2 sentence lead paragraph (AI). */

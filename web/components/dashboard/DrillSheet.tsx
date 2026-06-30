@@ -50,6 +50,7 @@ const QUAL_TONE: Record<QualBucket, string> = {
   faux_numero: "var(--bad)",
   non_eligible: "var(--bad)",
   ne_pas_rappeler: "var(--bad)",
+  suivi_requis: "var(--warn)",
   autre: "var(--muted)",
 };
 
@@ -104,10 +105,10 @@ function AnsweredIcon({ answered, t }: { answered: boolean; t: (s: string) => st
 // coordinator queue (Summer / Rain / Stormi). Resolves the lead by phone via
 // /api/dashboard/nhs-suivi/assign; shared dashboard_assignments table, so the
 // queues stay in sync with the legacy dashboard.
-function AssignMenu({ phone, t }: { phone: string | null; t: (s: string) => string }) {
+function AssignMenu({ phone, initialAssignee, t }: { phone: string | null; initialAssignee?: string | null; t: (s: string) => string }) {
   const ref = useRef<HTMLDetailsElement>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const [done, setDone] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(initialAssignee ?? null);
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
     const close = (e: MouseEvent) => {
@@ -231,7 +232,7 @@ function toCSV(rows: DrillCall[]): string {
   return [header.join(","), ...lines].join("\n");
 }
 
-export function DrillSheet({ spec, onClose }: { spec: DrillSpec | null; onClose: () => void }) {
+export function DrillSheet({ spec, onClose, onClosed }: { spec: DrillSpec | null; onClose: () => void; onClosed?: () => void }) {
   const t = useT();
   const [data, setData] = useState<DrillResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -243,6 +244,9 @@ export function DrillSheet({ spec, onClose }: { spec: DrillSpec | null; onClose:
   const open = Boolean(spec);
   const lastFocused = useRef<HTMLElement | null>(null);
   const closeBtnRef = useRef<HTMLButtonElement | null>(null);
+  // Tracks the previous `open` value so we can fire `onClosed` exactly once,
+  // on the transition open → closed (not on initial mount when open is false).
+  const wasOpenRef = useRef(false);
 
   // Restore focus to whatever opened us — basic keyboard hygiene.
   useEffect(() => {
@@ -250,10 +254,21 @@ export function DrillSheet({ spec, onClose }: { spec: DrillSpec | null; onClose:
       lastFocused.current = (document.activeElement as HTMLElement) ?? null;
       // Defer to next tick so the close button is mounted.
       setTimeout(() => closeBtnRef.current?.focus(), 0);
-    } else if (lastFocused.current) {
-      lastFocused.current.focus();
+    } else {
+      if (lastFocused.current) lastFocused.current.focus();
+      onClosed?.();
     }
   }, [open]);
+
+  // Fire `onClosed` on the open → closed transition. Lets the parent refresh
+  // any aggregate views (e.g. KPI tiles) that may have gone stale while the
+  // user was inspecting the drill list.
+  useEffect(() => {
+    if (wasOpenRef.current && !open) {
+      onClosed?.();
+    }
+    wasOpenRef.current = open;
+  }, [open, onClosed]);
 
   // ESC closes the detail overlay first (if open), otherwise the whole sheet.
   useEffect(() => {
@@ -481,7 +496,7 @@ export function DrillSheet({ spec, onClose }: { spec: DrillSpec | null; onClose:
                     </span>
                   </div>
                 </button>
-                <AssignMenu phone={c.phone} t={t} />
+                <AssignMenu phone={c.phone} initialAssignee={c.assignee} t={t} />
               </div>
             );
           })}

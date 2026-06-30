@@ -165,10 +165,11 @@ async function runWriteTool(name: string, args: Record<string, unknown>, _ctx: A
       return data;
     }
     case "create_agent": {
-      const a = args as { name: string; system_prompt?: string; voice_id?: string; llm_model?: string };
+      const a = args as { org_id?: string; name: string; system_prompt?: string; voice_id?: string; llm_model?: string };
       const { data, error } = await sb
         .from("agents")
         .insert({
+          org_id: a.org_id ?? null,
           name: a.name,
           system_prompt: a.system_prompt ?? "",
           tts_voice_id: a.voice_id ?? null,

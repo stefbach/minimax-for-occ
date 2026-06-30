@@ -54,6 +54,12 @@ interface EngineConfig {
     phone_starts_with: string;
     phone_min_len: number | null;
     phone_max_len: number | null;
+    /** Optional second filter, ANDed with the status whitelist: restrict to
+     *  rows whose `assigned_column` is one of `assigned_values`. Used by human
+     *  desk campaigns to call ONLY the leads assigned to that agent. Empty /
+     *  unset = no assignment filter (every status-matching row is eligible). */
+    assigned_column?: string | null;
+    assigned_values?: string[];
   };
   callback: { enabled: boolean; status_value: string; datetime_column: string };
   cadence: {
@@ -63,7 +69,29 @@ interface EngineConfig {
     phases: Phase[];
   };
   slots: { days: number[]; hours: string[]; timezone: string };
-  volume: { max_new_per_day: number; wave_size: number; wave_pause_secs: number };
+  volume: {
+    max_new_per_day: number;
+    wave_size: number;
+    wave_pause_secs: number;
+    // When set, brand-new (first-phase) leads are admitted HIGHEST-value-first
+    // on this column (numeric, descending) instead of the default random
+    // shuffle. OCC's pre-call-SMS campaign sets "bmi" so the heaviest patients
+    // are called before lighter ones. Absent ⇒ shuffle (unchanged for every
+    // existing campaign).
+    order_by_desc?: string;
+    // Sanity bounds on order_by_desc, applied when claiming. OCC's BMI data has
+    // corrupt rows (values up to 1.5M); without [order_min, order_max] a
+    // "highest BMI first" claim would reserve the junk. Set 35..70 for BMI.
+    order_min?: number;
+    order_max?: number;
+  };
+  // Incremental lead-claiming. When enabled, this campaign RESERVES up to
+  // volume.max_new_per_day brand-new leads/day from the SHARED data table
+  // (highest order_by_desc first), tagging them claimed_by_campaign = its id so
+  // no other campaign re-dials them — without grabbing the whole pool at once.
+  // Other (non-claim) campaigns skip any claimed lead; this campaign works ONLY
+  // its own claimed leads.
+  claim?: { enabled: boolean };
 }
 
 interface CampaignRow {
@@ -259,14 +287,75 @@ export async function runDynamicSelection(sb: SupabaseClient, campaign: Campaign
           .order("id", { ascending: true })
           .range(from, from + PAGE_BL - 1);
         if (blErr) throw new Error(blErr.message);
-        const batch = (blRows ?? []) as Record<string, unknown>[];
+        const batch = (blRows ?? []) as unknown as Record<string, unknown>[];
         for (const r of batch) {
-          const p = String(r[phoneCol] ?? "").trim();
+          const p = normalisePhoneToE164(String(r[phoneCol] ?? ""));
           if (p) blacklistedPhones.add(p);
         }
         if (batch.length < PAGE_BL) break;
       }
     }
+
+    // Wati 25/06 — leads a HUMAN is actively handling must NOT be auto-dialled.
+    // A lead is "human-owned" when it has an OPEN human_callback_task assigned
+    // to a person (status pending/in_progress, assigned_to set). A supervisor
+    // hands a lead back to the AI via the "Agent IA" option, which closes the
+    // task — so it reappears here automatically. (Leads qualified
+    // A PASSER A L'HUMAIN / SUIVI REQUIS are already excluded via cycle_status
+    // ≠ ACTIF; this additionally covers a human CLAIMING an otherwise-active
+    // RAPPEL / PAS DE REPONSE lead from the supervise board.)
+    const humanOwnedPhones = new Set<string>();
+    {
+      const { data: tasks, error: tErr } = await sb
+        .from("human_callback_tasks")
+        .select("e164, contact_id")
+        .eq("org_id", campaign.org_id)
+        .not("assigned_to", "is", null)
+        .in("status", ["pending", "in_progress"]);
+      if (tErr) throw new Error(tErr.message);
+      const missingContactIds: string[] = [];
+      for (const t of (tasks ?? []) as { e164: string | null; contact_id: string | null }[]) {
+        const p = normalisePhoneToE164(String(t.e164 ?? ""));
+        if (p) humanOwnedPhones.add(p);
+        else if (t.contact_id) missingContactIds.push(t.contact_id);
+      }
+      // Older tasks predate the denormalised e164 column — resolve via contacts.
+      for (let i = 0; i < missingContactIds.length; i += 1000) {
+        const chunk = missingContactIds.slice(i, i + 1000);
+        const { data: cs } = await sb.from("contacts").select("e164").in("id", chunk);
+        for (const crow of (cs ?? []) as { e164: string | null }[]) {
+          const p = normalisePhoneToE164(String(crow.e164 ?? ""));
+          if (p) humanOwnedPhones.add(p);
+        }
+      }
+    }
+    // ── Incremental claim (engine.claim.enabled) ────────────────────────────
+    // Is THIS the first productive slot of the day? A claim campaign reserves
+    // its daily batch exactly once (not again at 13:00/18:00). Same definition
+    // used below to gate fresh-lead seeding.
+    const sortedHours = [...(engine.slots.hours ?? [])].sort();
+    let isFirstSlotOfDay = dueSlot === sortedHours[0];
+    if (!isFirstSlotOfDay) {
+      const { count: priorProductive } = await sb
+        .from("campaign_runs")
+        .select("id", { count: "exact", head: true })
+        .eq("campaign_id", campaign.id)
+        .eq("run_date", dateStr)
+        .neq("id", runRow.id)
+        .gt("selected", 0);
+      if ((priorProductive ?? 0) === 0) isFirstSlotOfDay = true;
+    }
+
+    // Claim today's batch from the SHARED pool BEFORE the scan, so the scan
+    // (filtered to claimed_by_campaign = this campaign) picks them up as fresh
+    // J1 leads. No-op for non-claim campaigns.
+    if (engine.claim?.enabled && isFirstSlotOfDay) {
+      await claimNewLeads(
+        sb, campaign, engine, table, phoneCol, NEGATIVE_QUALS,
+        blacklistedPhones, humanOwnedPhones,
+      );
+    }
+
     // Paginate with .range() — PostgREST caps every response at its
     // server-side max-rows (1000 by default) REGARDLESS of .limit().
     // Until 2026-06-12 this silently truncated the scan to the first
@@ -287,6 +376,19 @@ export async function runDynamicSelection(sb: SupabaseClient, campaign: Campaign
       if (engine.selection.include_statuses.length > 0) {
         q = q.in(engine.selection.status_column, engine.selection.include_statuses);
       }
+      // Optional assignment filter (human desk campaigns): only this agent's leads.
+      if (engine.selection.assigned_column && (engine.selection.assigned_values?.length ?? 0) > 0) {
+        q = q.in(engine.selection.assigned_column, engine.selection.assigned_values!);
+      }
+      // Claim campaigns work ONLY their reserved leads; every other campaign
+      // skips claimed leads so it can't double-dial a reserved patient. With no
+      // lead claimed yet, `claimed_by_campaign IS NULL` matches everything, so
+      // existing campaigns behave exactly as before.
+      if (engine.claim?.enabled) {
+        q = q.eq("claimed_by_campaign", campaign.id);
+      } else {
+        q = q.is("claimed_by_campaign", null);
+      }
       const { data: rows, error } = await q;
       if (error) throw new Error(error.message);
       const batch = (rows ?? []) as Record<string, unknown>[];
@@ -303,9 +405,14 @@ export async function runDynamicSelection(sb: SupabaseClient, campaign: Campaign
       .map((r) => ({ row: r, phase: computePhase(r, engine, now) }))
       .filter((x) => {
         if (x.phase === null) return false;
-        const phone = String(x.row[phoneCol] ?? "").trim();
+        // Normalise to E.164 BEFORE the phone filter so a lead stored as
+        // "07…", "+44 7…" (with spaces) or "447…" isn't silently dropped
+        // (Wati 25/06 — only 3 of 247 fresh leads passed the raw +44/length
+        // filter because their numbers weren't normalised at import).
+        const phone = normalisePhoneToE164(String(x.row[phoneCol] ?? ""));
         if (!phoneOk(phone, engine.selection)) return false;
         if (blacklistedPhones.has(phone)) return false;
+        if (humanOwnedPhones.has(phone)) return false;
         return true;
       });
 
@@ -332,34 +439,25 @@ export async function runDynamicSelection(sb: SupabaseClient, campaign: Campaign
     //     both carryovers and brand-new of the first-phase.
     const attemptsCol = firstPhaseCfg?.attempts_column ?? "j1_attempts";
     const freshRetries = freshAll.filter((x) => Number(x.row[attemptsCol]) > 0);
-    const freshNew = shuffle(freshAll.filter((x) => !(Number(x.row[attemptsCol]) > 0)));
+    // Brand-new leads: HIGHEST-value-first when volume.order_by_desc is set
+    // (OCC pre-call-SMS uses "bmi" so the heaviest patients lead), else random.
+    // Both are then capped to the day's remaining intake budget below, so the
+    // ordering decides WHICH leads make today's batch — not just their order.
+    const orderCol = engine.volume.order_by_desc;
+    const freshNewRaw = freshAll.filter((x) => !(Number(x.row[attemptsCol]) > 0));
+    const freshNew = orderCol
+      ? [...freshNewRaw].sort((a, b) => {
+          const av = Number(a.row[orderCol]);
+          const bv = Number(b.row[orderCol]);
+          const an = Number.isFinite(av) ? av : -Infinity;
+          const bn = Number.isFinite(bv) ? bv : -Infinity;
+          return bn - an;
+        })
+      : shuffle(freshNewRaw);
 
-    const sortedHours = [...(engine.slots.hours ?? [])].sort();
-    // "First slot of the day" used to be purely positional (the earliest hour
-    // in slots.hours). That broke whenever the morning slot was missed for
-    // any reason — campaign created/activated after 08:30, dialer down, Fly
-    // restart, etc.: 13:00 and 18:00 would refuse to seed new leads because
-    // they're "not first by clock", and no carryovers exist from the missed
-    // 08:00 run, so the campaign just sat doing nothing all day.
-    //
-    // New definition: this run is the effective first slot if no PRIOR run
-    // today on this campaign actually seeded anything (`selected > 0`). The
-    // freshly-inserted runRow above is excluded by id. As soon as one slot
-    // successfully seeds the day's batch, subsequent slots fall back to the
-    // retry-only path the comment block above describes.
-    const wasFirstByClock = dueSlot === sortedHours[0];
-    let isFirstSlotOfDay = wasFirstByClock;
-    if (!wasFirstByClock) {
-      const { count: priorProductive } = await sb
-        .from("campaign_runs")
-        .select("id", { count: "exact", head: true })
-        .eq("campaign_id", campaign.id)
-        .eq("run_date", dateStr)
-        .neq("id", runRow.id)
-        .gt("selected", 0);
-      if ((priorProductive ?? 0) === 0) isFirstSlotOfDay = true;
-    }
-
+    // isFirstSlotOfDay was computed above (before the claim step) using the
+    // "first PRODUCTIVE slot today" definition — reuse it here as the gate for
+    // seeding brand-new leads (13:00/18:00 only retry the morning's batch).
     const dayCap = engine.volume.max_new_per_day ?? 200;
     const remainingCap = Math.max(0, dayCap - freshRetries.length);
     const freshNewCapped = isFirstSlotOfDay ? freshNew.slice(0, remainingCap) : [];
@@ -389,6 +487,114 @@ export async function runDynamicSelection(sb: SupabaseClient, campaign: Campaign
     await sb.from("campaign_runs").update({ finished_at: new Date().toISOString(), error: msg }).eq("id", runRow?.id);
     console.error(`[dynamic] campaign=${campaign.id} selection failed:`, msg);
   }
+}
+
+// ── Incremental lead-claiming (engine.claim.enabled) ──────────────────────
+// Reserve up to volume.max_new_per_day brand-new leads from the SHARED table,
+// highest volume.order_by_desc first, tagging them claimed_by_campaign = this
+// campaign. They're reset to a fresh J1 cadence (date_jN / attempts cleared) so
+// the cadence engine runs them from the top — safe because, once claimed, no
+// other campaign reads them. Called once per day (first productive slot).
+async function claimNewLeads(
+  sb: SupabaseClient,
+  campaign: CampaignRow,
+  engine: EngineConfig,
+  table: string,
+  phoneCol: string,
+  negativeQuals: string[],
+  blacklistedPhones: Set<string>,
+  humanOwnedPhones: Set<string>,
+): Promise<void> {
+  const perDay = engine.volume.max_new_per_day ?? 100;
+  const orderCol = engine.volume.order_by_desc || "id";
+
+  // Best UNCLAIMED candidates first. Over-fetch so phone/blacklist filtering
+  // still leaves `perDay` dialable ones (PostgREST caps a page at 1000).
+  let q = sb
+    .from(table)
+    .select("id," + phoneCol)
+    .is("claimed_by_campaign", null)
+    .eq("do_not_call", false)
+    .eq("cycle_status", "ACTIF")
+    .not("qualification", "in", `(${negativeQuals.map((x) => `"${x}"`).join(",")})`)
+    .order(orderCol, { ascending: false, nullsFirst: false })
+    .limit(Math.min(1000, perDay + 300));
+  if (engine.selection.include_statuses.length > 0) {
+    q = q.in(engine.selection.status_column, engine.selection.include_statuses);
+  }
+  // Same assignment filter at claim time, so a human campaign only reserves
+  // (claims) leads that belong to its agent.
+  if (engine.selection.assigned_column && (engine.selection.assigned_values?.length ?? 0) > 0) {
+    q = q.in(engine.selection.assigned_column, engine.selection.assigned_values!);
+  }
+  // Sanity-bound the order column so corrupt values (BMI up to 1.5M) can't be
+  // reserved ahead of real high-BMI patients.
+  if (engine.volume.order_min != null) q = q.gte(orderCol, engine.volume.order_min);
+  if (engine.volume.order_max != null) q = q.lte(orderCol, engine.volume.order_max);
+  const { data: cands, error } = await q;
+  if (error) throw new Error(`claim scan failed: ${error.message}`);
+
+  const seen = new Set<string>();
+  const pickIds: string[] = [];
+  for (const r of (cands ?? []) as unknown as Record<string, unknown>[]) {
+    if (pickIds.length >= perDay) break;
+    const phone = normalisePhoneToE164(String(r[phoneCol] ?? ""));
+    if (!phoneOk(phone, engine.selection)) continue;
+    if (blacklistedPhones.has(phone) || humanOwnedPhones.has(phone)) continue;
+    if (seen.has(phone)) continue;
+    seen.add(phone);
+    pickIds.push(String(r.id));
+  }
+  if (pickIds.length === 0) {
+    console.log(`[claim] campaign=${campaign.id} — no unclaimed leads left to reserve`);
+    return;
+  }
+
+  // Reserve + reset to fresh J1. The .is(claimed,null) guard makes concurrent
+  // claims safe (a lead grabbed by a racing tick is skipped here).
+  const { error: uerr } = await sb
+    .from(table)
+    .update({
+      claimed_by_campaign: campaign.id,
+      date_j1: null,
+      j1_attempts: 0,
+      date_j3: null,
+      j3_attempts: 0,
+      date_j5: null,
+      j5_attempts: 0,
+      call_count: 0,
+      rappel_rdv: null,
+    })
+    .in("id", pickIds)
+    .is("claimed_by_campaign", null);
+  if (uerr) throw new Error(`claim update failed: ${uerr.message}`);
+
+  // No double-dial: a just-reserved patient may still have a LIVE pending target
+  // in ANOTHER campaign (seeded before this claim). Null those so only THIS
+  // campaign calls them now — future selections already skip claimed leads.
+  const phones = [...seen];
+  const otherContactIds: string[] = [];
+  for (let i = 0; i < phones.length; i += 500) {
+    const { data: cs } = await sb
+      .from("contacts")
+      .select("id")
+      .eq("org_id", campaign.org_id)
+      .in("e164", phones.slice(i, i + 500));
+    for (const c of (cs ?? []) as { id: string }[]) otherContactIds.push(c.id);
+  }
+  for (let i = 0; i < otherContactIds.length; i += 500) {
+    await sb
+      .from("campaign_targets")
+      .update({ next_attempt_at: null })
+      .neq("campaign_id", campaign.id)
+      .in("contact_id", otherContactIds.slice(i, i + 500))
+      .eq("status", "pending")
+      .not("next_attempt_at", "is", null);
+  }
+
+  console.log(
+    `[claim] campaign=${campaign.id} reserved ${pickIds.length} new lead(s) (order=${orderCol} desc, per_day=${perDay})`,
+  );
 }
 
 function pickDueSlot(hours: string[], nowMinutes: number): string | null {

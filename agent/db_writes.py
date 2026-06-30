@@ -218,6 +218,11 @@ def save_to_data_table(
                 k: v for k, v in (fields or {}).items()
                 if v is not None and k in valid_cols and k not in ("id", "created_at")
             }
+            # FAUX NUMERO → NE PAS RAPPELER: an invalid number must never be
+            # dialled again. Remap at write time so leads_rdv always carries
+            # the canonical do-not-call label.
+            if clean.get("qualification") == "FAUX NUMERO":
+                clean["qualification"] = "NE PAS RAPPELER"
             # Always bump updated_at if the column exists.
             if "updated_at" in valid_cols:
                 from datetime import datetime, timezone
@@ -645,6 +650,9 @@ _CALLBACK_QUAL_PATTERNS = (
     # Explicit callback / human transfer signals
     "rappel", "callback", "call_back", "call back", "follow_up", "follow up",
     "humain", "human", "to_human", "passer", "transferred_to_human",
+    # Warm lead that reached a specialist (agent 2/3) but didn't book →
+    # needs human follow-up (SUIVI REQUIS).
+    "suivi",
 )
 
 
@@ -980,20 +988,26 @@ def auto_qualify_call(call_id: Optional[str]) -> None:
             # messaging service and the lead tagged as a callback.
             voicemail_transcript = False
             any_user_speech = False
+            user_rows_full: list = []
+            joined_full = ""
             try:
                 vt = c.get(
                     _supabase_url(
                         f"/rest/v1/call_transcripts?call_id=eq.{call_id}"
-                        "&speaker=in.(user,customer)&select=text&order=seq.asc&limit=8"
+                        "&speaker=in.(user,customer)&select=text&order=seq.asc&limit=100"
                     ),
                 )
                 if vt.is_success:
-                    user_rows = vt.json() or []
+                    user_rows_full = vt.json() or []
                     any_user_speech = any(
-                        str(r.get("text") or "").strip() for r in user_rows
+                        str(r.get("text") or "").strip() for r in user_rows_full
                     )
+                    user_rows = user_rows_full[:8]
                     joined = " ".join(
                         str(r.get("text") or "") for r in user_rows
+                    ).lower()
+                    joined_full = " ".join(
+                        str(r.get("text") or "") for r in user_rows_full
                     ).lower()
                     voicemail_transcript = bool(re.search(
                         r"leave\s+(a|your)\s+message|after\s+the\s+(tone|beep)"
@@ -1022,6 +1036,91 @@ def auto_qualify_call(call_id: Optional[str]) -> None:
             except Exception:
                 pass
 
+            # ── Transcript intent detection (Wati 15/06 — safety net) ─────────
+            # When the agent forgets to call save_contact_data /
+            # transfer_to_human, we rescue the qualification by reading the
+            # patient's own words. The 15/06 morning audit caught six
+            # mis-qualified RAPPEL calls in one batch: Charlotte/Isabelle
+            # engaged the conversation but never wrote a qualification, so the
+            # duration heuristic bucketed every >30s answered call as RAPPEL.
+            # That silently loses leads who explicitly asked for a human and
+            # leaves "no thanks" patients getting recalled for weeks.
+            # Three intents in priority order:
+            #   1. WRONG_NUMBER — patient explicitly states this is a wrong number.
+            #      ONLY if the patient explicitly says so (e.g., "you've got the wrong person")
+            #   2. HUMAN_SIGNAL — explicit ask for a real person, bot
+            #      rejection, or sensitive life event (bereavement, terminal
+            #      diagnosis, hospitalisation).
+            #   3. EXPLICIT_REFUSAL — patient said "no" with clear intent.
+            #      Polite "I'm fine for now" stays RAPPEL via duration.
+            intent_qual: Optional[str] = None
+            intent_source: Optional[str] = None
+            if any_user_speech and not voicemail_transcript and not audio_dropped:
+                # Check for patient-initiated wrong number signals FIRST
+                # Only mark as FAUX NUMERO if the patient explicitly says so
+                if re.search(
+                    r"(you'?ve|you\s+have)\s+got\s+the\s+wrong\s+(number|person)"
+                    r"|\bwrong\s+number\b"
+                    r"|this\s+is\s+not\s+the\s+right\s+(number|person)"
+                    r"|i\s+think\s+you\s+have\s+the\s+wrong\s+(number|person)"
+                    r"|you've\s+dialed\s+the\s+wrong\s+number"
+                    r"|this\s+is\s+(a\s+)?wrong\s+number"
+                    r"|c'est\s+pas\s+le\s+bon\s+num[ée]ro"
+                    r"|vous\s+avez\s+le\s+mauvais\s+num[ée]ro"
+                    r"|mauvais\s+num[ée]ro",
+                    joined_full,
+                ):
+                    intent_qual = "NE PAS RAPPELER"
+                    intent_source = "transcript_wrong_number"
+                elif re.search(
+                    r"(real|actual|live)\s+(person|human|being)"
+                    r"|(speak|talk|chat)\s+(to|with)\s+(a|an|the)?\s*(real\s+)?(human|person)"
+                    r"|human\s+being\s+(to\s+)?(talk|speak|call)"
+                    r"|(have|want|need|get)\s+(a|the)\s+human"
+                    r"|when\s+you\s+have\s+a\s+human"
+                    r"|have\s+a\s+human\s+(being\s+)?(to\s+)?(talk|call|speak)"
+                    # Bot rejection: patient names what they're talking to AND
+                    # signals they don't want it (time complaint, "don't have
+                    # time for automated", "machines speak", etc.).
+                    r"|this\s+is\s+(a\s+)?(computer|robot|bot|machine|automated|automation|an\s+ai)"
+                    r"|i\s+know\s+(this|you('?re|\s+are))\s+(a|an)\s*(computer|robot|bot|machine|automated|ai)"
+                    r"|don'?t\s+(really\s+)?have\s+time\s+(to\s+)?(be\s+)?(talking|speaking)\s+to\s+(automated|computers|robots|bots|machines|an?\s*ai)"
+                    r"|grab\s+the\s+automata"
+                    r"|machines?\s+speak\s+with"
+                    # Bereavement / sensitive medical context.
+                    r"|(mother(\s*[\-\s]?in[\-\s]?law)?|father(\s*[\-\s]?in[\-\s]?law)?|husband|wife|partner|son|daughter|sister|brother|mum|dad|mom)\s+(just\s+)?(passed\s+away|has\s+died|died(\s+recently)?)"
+                    r"|just\s+lost\s+my\s+(mother|father|husband|wife|partner|son|daughter|sister|brother|mum|dad|mom)"
+                    r"|i'?m?\s+(in\s+)?mourning|bereave(d|ment)"
+                    r"|(diagnosed\s+with|fighting)\s+(cancer|terminal)"
+                    r"|in\s+(the\s+)?hospital\s+(right\s+)?(now|today|currently)",
+                    joined_full,
+                ):
+                    intent_qual = "A PASSER A L'HUMAIN"
+                    intent_source = "transcript_human_signal"
+                elif re.search(
+                    r"\bno,?\s*(i\s+)?(don'?t|do\s+not|did\s+not|didn'?t|never)\s+(want(ed)?|need|think\s+i\s+(ever\s+)?(want|need))\b"
+                    r"|\bi\s+(never|don'?t)\s+(want(ed)?|need(ed)?|ask(ed)?|sign(ed)?\s+up|appl(ied|y))\b"
+                    r"|\bno\s+interest\b"
+                    r"|\bnot\s+interested\b"
+                    r"|\bi'?m\s+not\s+interested\b"
+                    r"|\bdon'?t\s+call\s+(me\s+)?(again|back|anymore|any\s+more)\b"
+                    r"|\bstop\s+calling\b"
+                    r"|\bremove\s+me\s+(from|off)\b"
+                    r"|\bplease\s+(do\s+not|don'?t)\s+(contact|call)\s+me\b"
+                    r"|\btake\s+me\s+off\s+(your\s+)?(list|database)\b"
+                    # French variants for explicit refusal
+                    r"|(?:non|pas)\s+(?:d'?)?intéress"
+                    r"|pas\s+(?:du\s+)?tout\s+intéress"
+                    r"|ne\s+m'?(?:intéress|appell)"
+                    r"|pas\s+(?:de\s+)?temps\s+pour\s+(?:ca|cela|ça)"
+                    r"|arrêt(?:ez|e)\s+(?:de\s+)?m'?(?:appel|contact)"
+                    r"|suppress(?:ez)?[-\s]*moi\s+de\s+la\s+(?:liste|base)"
+                    r"|(?:ne|pas|no)\s+merci",
+                    joined_full,
+                ):
+                    intent_qual = "PAS INTERESSE"
+                    intent_source = "transcript_refusal_signal"
+
             if voicemail_transcript:
                 qual = "REPONDEUR"
                 qualification_source = "voicemail_transcript"
@@ -1029,8 +1128,21 @@ def auto_qualify_call(call_id: Optional[str]) -> None:
                 qual = "RAPPEL"
                 qualification_source = "audio_drop_heuristic"
             elif handoff_count > 0:
-                qual = "A PASSER A L'HUMAIN"
-                qualification_source = "auto_inferred"
+                # Wati 25/06 — an INTERNAL swarm handoff fired (Charlotte→
+                # Isabelle→Victoria) but no explicit close was written. That
+                # means the patient REACHED a specialist (agent 2/3) yet the
+                # call ended WITHOUT RDV CONFIRME — a warm lead that needs human
+                # follow-up, NOT someone who asked for a human. The genuine
+                # "asked for a human" path is the transfer_to_human tool, which
+                # writes its own explicit "A PASSER A L'HUMAIN" and never reaches
+                # this heuristic. Before this fix, ANY persona swap was
+                # mislabelled A PASSER A L'HUMAIN (e.g. an ineligible-BMI patient
+                # who merely talked to Isabelle), flooding the human desk.
+                qual = "SUIVI REQUIS"
+                qualification_source = "reached_specialist"
+            elif intent_qual is not None:
+                qual = intent_qual
+                qualification_source = intent_source or "auto_inferred"
             elif (not answered and not any_user_speech) or duration == 0:
                 # `answered` comes from calls.answered_at, which the Twilio
                 # status webhook often fails to stamp on the LiveKit path
@@ -1052,18 +1164,17 @@ def auto_qualify_call(call_id: Optional[str]) -> None:
                 qual = "PAS DE REPONSE"
                 qualification_source = "no_speech_heuristic"
             elif duration <= 5:
-                qual = "REPONDEUR"
-                qualification_source = "auto_inferred"
+                # Very short call with speech — patient picked up and
+                # immediately hung up. Treat as PAS DE REPONSE (no real
+                # engagement) rather than REPONDEUR (which implies voicemail).
+                qual = "PAS DE REPONSE"
+                qualification_source = "immediate_hangup"
             elif duration <= 15:
-                # We reach this branch only when any_user_speech=True (the
-                # `not any_user_speech` branch above caught the silent
-                # ones). The patient DID say something — even just "Hello?"
-                # — before hanging up. Calling that PAS DE REPONSE is wrong:
-                # Wati flagged Kerrianne Griffiths (0:13, "Hello.") on
-                # June 11 — she clearly picked up. Treat as RAPPEL so the
-                # campaign retries instead of permanently writing her off.
-                qual = "RAPPEL"
-                qualification_source = "short_pickup_with_speech"
+                # Patient answered and immediately hung up (≤15 s, any speech).
+                # Treat as PAS DE REPONSE — a quick hangup is not a real
+                # conversation; the campaign should not retry as RAPPEL.
+                qual = "PAS DE REPONSE"
+                qualification_source = "immediate_hangup"
             elif duration < 30:
                 # Short engagement: don't lock the patient out unless
                 # they've already been bothered N_GIVEUP times.

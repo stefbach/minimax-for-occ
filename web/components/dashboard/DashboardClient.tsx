@@ -2,8 +2,11 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { AlertTriangle, BarChart2, Building2, ClipboardList, Home, MessageSquare, Phone, PhoneIncoming, Radio, Sparkles, Users } from "lucide-react";
 import type { DashboardOverviewResponse } from "@/app/api/dashboard/overview/route";
+import type { NhsPatientsResponse } from "@/app/api/dashboard/nhs-suivi/patients/route";
 import { KpiGrid } from "./KpiGrid";
 import { VolumeChart } from "./VolumeChart";
 import { DispositionsList } from "./DispositionsList";
@@ -11,14 +14,16 @@ import { CampaignsTable } from "./CampaignsTable";
 import { HelpButton } from "@/components/help/HelpButton";
 import { LiveMonitorClient } from "@/components/live/LiveMonitorClient";
 import { CallLogsTab } from "./CallLogsTab";
+import { InboundTab } from "./InboundTab";
 import { StatsTab } from "./StatsTab";
 import { DirectorTab } from "./DirectorTab";
 import { AiInsightsTab } from "./AiInsightsTab";
+import { LeadsTab } from "./LeadsTab";
 import { NhsSuiviTab } from "./NhsSuiviTab";
 import { ErrorsAlertsTab } from "./ErrorsAlertsTab";
 import { FilActifTab } from "./FilActifTab";
+import { PrecallSmsTab } from "./PrecallSmsTab";
 import { PeriodBar, presetToRange, DEFAULT_FILTERS, type Period, type Filters } from "./PeriodBar";
-import { SyncRetellButton } from "./SyncRetellButton";
 import { SyncTwilioButton } from "./SyncTwilioButton";
 import { ReportButton } from "./ReportButton";
 import { ApiStatusPill } from "./ApiStatusPill";
@@ -28,16 +33,19 @@ import { useT } from "@/lib/i18n";
 // Used by the Agent Spotlight toggle to scope all dashboard views to her calls.
 const RAIN_AGENT_NAME = "bheshouma-arjoon";
 
-type TabId = "overview" | "stats" | "logs" | "live" | "fil-actif" | "errors" | "ai" | "nhs";
-const ALL_TABS: { id: TabId; label: string; icon: string }[] = [
-  { id: "overview", label: "Vue d'ensemble", icon: "🏠" },
-  { id: "stats", label: "Statistiques", icon: "📊" },
-  { id: "logs", label: "Call Logs", icon: "📋" },
-  { id: "live", label: "Live", icon: "🔴" },
-  { id: "fil-actif", label: "Fil Actif", icon: "⏵" },
-  { id: "errors", label: "Erreurs & Alertes", icon: "⚠️" },
-  { id: "ai", label: "AI Insights", icon: "✨" },
-  { id: "nhs", label: "Suivi NHS S2", icon: "🏥" },
+type TabId = "overview" | "stats" | "leads" | "logs" | "entrants" | "live" | "fil-actif" | "sms" | "errors" | "ai" | "nhs";
+const ALL_TABS: { id: TabId; label: string; icon: ReactNode }[] = [
+  { id: "overview", label: "Vue d'ensemble", icon: <Home size={15} /> },
+  { id: "stats", label: "Statistiques", icon: <BarChart2 size={15} /> },
+  { id: "leads", label: "Leads", icon: <Users size={15} /> },
+  { id: "logs", label: "Call Logs", icon: <ClipboardList size={15} /> },
+  { id: "entrants", label: "Entrants", icon: <PhoneIncoming size={15} /> },
+  { id: "sms", label: "SMS", icon: <MessageSquare size={15} /> },
+  { id: "live", label: "Live", icon: <Radio size={15} /> },
+  { id: "fil-actif", label: "Fil Actif", icon: <span>⏵</span> },
+  { id: "errors", label: "Erreurs & Alertes", icon: <AlertTriangle size={15} /> },
+  { id: "ai", label: "AI Insights", icon: <Sparkles size={15} /> },
+  { id: "nhs", label: "Suivi NHS S2", icon: <Building2 size={15} /> },
 ];
 
 // Short human label for the active period, e.g. "05/06" or "01/06 – 05/06".
@@ -81,6 +89,68 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
   // refreshed the overview header, leaving the Vue d'ensemble tiles
   // stale).
   const [refreshKey, setRefreshKey] = useState(0);
+
+  // ── Patient search bar (Overview header) ─────────────────────────────────
+  // Searches NHS patients + CRM contacts + every tenant lead table, so any
+  // patient in the system is reachable from the dashboard. Results deep-link
+  // into the NHS dossier (patients/contacts) or the contact list (leads).
+  const [patientSearchQuery, setPatientSearchQuery] = useState("");
+  const [patientSearchOpen, setPatientSearchOpen] = useState(false);
+  const [nhsPatients, setNhsPatients] = useState<NhsPatientsResponse["patients"] | null>(null);
+  const [searchContacts, setSearchContacts] = useState<Array<{ id: string; display_name: string | null; e164: string | null; table_id?: string }>>([]);
+  const [nhsOpenPatientId, setNhsOpenPatientId] = useState<string | null>(null);
+  const [nhsOpenContactId, setNhsOpenContactId] = useState<string | null>(null);
+
+  const loadNhsPatients = async () => {
+    if (nhsPatients !== null) return;
+    try {
+      const r = await fetch("/api/dashboard/nhs-suivi/patients", { cache: "no-store" });
+      const j = (await r.json()) as NhsPatientsResponse;
+      if (r.ok) setNhsPatients(j.patients);
+    } catch { setNhsPatients([]); }
+  };
+
+  useEffect(() => {
+    const q = patientSearchQuery.trim();
+    if (q.length < 2) { setSearchContacts([]); return; }
+    const timer = setTimeout(() => {
+      fetch(`/api/desk/search-contacts?q=${encodeURIComponent(q)}&limit=6`, { cache: "no-store" })
+        .then((r) => r.json())
+        .then((j: { contacts?: Array<{ id: string; display_name: string | null; e164: string | null; table_id?: string }> }) => setSearchContacts(j.contacts ?? []))
+        .catch(() => {});
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [patientSearchQuery]);
+
+  type PatientSearchResult =
+    | { kind: "patient"; patient: NhsPatientsResponse["patients"][number] }
+    | { kind: "contact"; id: string; name: string; phone: string | null }
+    | { kind: "lead"; id: string; name: string; phone: string | null; table_id: string };
+
+  const patientSearchQ = patientSearchQuery.trim().toLowerCase();
+  const patientSearchResults: PatientSearchResult[] = (() => {
+    if (patientSearchQ.length < 2) return [];
+    const results: PatientSearchResult[] = [];
+    const seen = new Set<string>();
+    for (const p of nhsPatients ?? []) {
+      if (`${p.name ?? ""} ${p.phone ?? ""} ${p.email ?? ""}`.toLowerCase().includes(patientSearchQ)) {
+        results.push({ kind: "patient", patient: p });
+        seen.add((p.name ?? "").toLowerCase());
+      }
+    }
+    for (const c of searchContacts) {
+      const name = c.display_name ?? "";
+      if (seen.has(name.toLowerCase())) continue;
+      seen.add(name.toLowerCase());
+      if (c.table_id) {
+        results.push({ kind: "lead", id: c.id, name, phone: c.e164, table_id: c.table_id });
+      } else {
+        results.push({ kind: "contact", id: c.id, name, phone: c.e164 });
+      }
+    }
+    return results.slice(0, 8);
+  })();
+  // ────────────────────────────────────────────────────────────────────────
 
   const fetchData = useCallback(async () => {
     try {
@@ -134,10 +204,9 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
       <div style={{ flex: 1, minWidth: 0, width: "100%", display: "flex", flexDirection: "column", gap: 18 }}>
         <div className="page-header" style={{ marginBottom: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <span style={{ fontSize: 22 }}>📞</span>
+            <Phone size={20} style={{ flexShrink: 0 }} />
             <div>
               <h1 style={{ margin: 0 }}>{t("Tableau de bord des appels")}</h1>
-              <div className="subtitle">{t("Pilotage et analyse de vos appels Axon")}.</div>
             </div>
           </div>
           {/* page-header is already flex-wrap; the inner button cluster also
@@ -187,9 +256,6 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
         </div>
 
         {/* ── Agent spotlight ─────────────────────────────────────────────── */}
-        {/* A persistent toggle above all tab content so the manager can switch
-            between the team-wide view and Rain's individual view without
-            losing her place in the tab structure. */}
         <div
           style={{
             display: "flex",
@@ -211,7 +277,6 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
             {t("Agent")}
           </span>
 
-          {/* Pill toggle — styled like an iOS-style segmented control */}
           <div
             style={{
               display: "inline-flex",
@@ -222,7 +287,6 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
               padding: 3,
             }}
           >
-            {/* "All agents" pill */}
             <button
               onClick={() => setFilters((f) => ({ ...f, agents: [] }))}
               style={{
@@ -230,14 +294,8 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
                 borderRadius: 7,
                 fontSize: 12,
                 fontWeight: filters.agents.length === 0 ? 700 : 500,
-                background:
-                  filters.agents.length === 0
-                    ? "var(--accent)"
-                    : "transparent",
-                color:
-                  filters.agents.length === 0
-                    ? "#0a0a0a"
-                    : "var(--muted)",
+                background: filters.agents.length === 0 ? "var(--accent)" : "transparent",
+                color: filters.agents.length === 0 ? "#0a0a0a" : "var(--muted)",
                 border: "none",
                 cursor: "pointer",
                 transition: "background 0.15s, color 0.15s",
@@ -247,22 +305,15 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
               {t("Tous les agents")}
             </button>
 
-            {/* "Rain" pill */}
             <button
-              onClick={() =>
-                setFilters((f) => ({ ...f, agents: [RAIN_AGENT_NAME] }))
-              }
+              onClick={() => setFilters((f) => ({ ...f, agents: [RAIN_AGENT_NAME] }))}
               style={{
                 padding: "5px 14px",
                 borderRadius: 7,
                 fontSize: 12,
                 fontWeight: filters.agents.includes(RAIN_AGENT_NAME) ? 700 : 500,
-                background: filters.agents.includes(RAIN_AGENT_NAME)
-                  ? "var(--info)"
-                  : "transparent",
-                color: filters.agents.includes(RAIN_AGENT_NAME)
-                  ? "#0a0a0a"
-                  : "var(--muted)",
+                background: filters.agents.includes(RAIN_AGENT_NAME) ? "var(--info)" : "transparent",
+                color: filters.agents.includes(RAIN_AGENT_NAME) ? "#0a0a0a" : "var(--muted)",
                 border: "none",
                 cursor: "pointer",
                 transition: "background 0.15s, color 0.15s",
@@ -277,9 +328,7 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
                   width: 18,
                   height: 18,
                   borderRadius: "50%",
-                  background: filters.agents.includes(RAIN_AGENT_NAME)
-                    ? "rgba(0,0,0,0.20)"
-                    : "var(--border)",
+                  background: filters.agents.includes(RAIN_AGENT_NAME) ? "rgba(0,0,0,0.20)" : "var(--border)",
                   display: "inline-flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -293,7 +342,6 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
             </button>
           </div>
 
-          {/* Active-filter badge — visible only when Rain is selected */}
           {filters.agents.includes(RAIN_AGENT_NAME) && (
             <span
               style={{
@@ -309,29 +357,11 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
                 padding: "2px 10px",
               }}
             >
-              <span
-                style={{
-                  width: 6,
-                  height: 6,
-                  borderRadius: "50%",
-                  background: "var(--info)",
-                  display: "inline-block",
-                }}
-              />
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--info)", display: "inline-block" }} />
               {t("Vue filtrée — Rain uniquement")}
               <button
                 onClick={() => setFilters((f) => ({ ...f, agents: [] }))}
-                style={{
-                  background: "none",
-                  border: "none",
-                  padding: 0,
-                  cursor: "pointer",
-                  color: "var(--info)",
-                  fontSize: 13,
-                  lineHeight: 1,
-                  display: "flex",
-                  alignItems: "center",
-                }}
+                style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: "var(--info)", fontSize: 13, lineHeight: 1, display: "flex", alignItems: "center" }}
                 title={t("Retirer le filtre")}
               >
                 ✕
@@ -340,30 +370,151 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
           )}
         </div>
 
-        {/* Section header — tells the operator which tab they're in (legacy
-            parity), with the active period for the period-scoped tabs. */}
-        {(() => {
-          const active = TABS.find((x) => x.id === tab);
-          if (!active) return null;
-          const periodScoped = tab === "overview" || tab === "stats" || tab === "logs" || tab === "ai";
+        {/* Section header — overview gets a full card with patient search;
+            other tabs get a simple h2. NHS and fil-actif render their own headers. */}
+        {tab === "overview" && (() => {
           return (
-            <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
-              <h2 style={{ margin: 0, fontSize: 19 }}>
-                <span style={{ marginRight: 8 }}>{active.icon}</span>
-                {t(active.label)}
-              </h2>
-              {periodScoped && (
+            <div style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              gap: 12, flexWrap: "wrap",
+              background: "var(--panel)",
+              border: "1px solid var(--border)",
+              borderLeft: "4px solid var(--accent)",
+              borderRadius: 10,
+              padding: "14px 18px",
+            }}>
+              {/* Left: icon + title + period */}
+              <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+                <h2 style={{ margin: 0, fontSize: 19, display: "flex", alignItems: "center", gap: 8 }}>
+                  <Home size={18} />
+                  {t("Vue d'ensemble")}
+                </h2>
                 <span className="muted" style={{ fontSize: 13 }}>
                   {t("Période")} : {periodLabelFor(period)}
                 </span>
-              )}
+              </div>
+              {/* Right: patient search */}
+              <div style={{ position: "relative", minWidth: 260 }}>
+                <input
+                  type="search"
+                  placeholder={t("Rechercher un patient…")}
+                  value={patientSearchQuery}
+                  onFocus={() => { loadNhsPatients(); setPatientSearchOpen(true); }}
+                  onBlur={() => setTimeout(() => setPatientSearchOpen(false), 180)}
+                  onChange={(e) => { setPatientSearchQuery(e.target.value); setPatientSearchOpen(true); }}
+                  style={{
+                    width: "100%", boxSizing: "border-box",
+                    padding: "8px 12px 8px 34px",
+                    borderRadius: 8,
+                    border: "1px solid var(--border)",
+                    background: "var(--bg)",
+                    color: "var(--text)",
+                    fontSize: 14,
+                    outline: "none",
+                  }}
+                />
+                <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 15, pointerEvents: "none", opacity: 0.5 }}>🔍</span>
+                {patientSearchOpen && patientSearchResults.length > 0 && (
+                  <div style={{
+                    position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 200,
+                    background: "var(--panel)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 8,
+                    boxShadow: "0 8px 24px rgba(0,0,0,0.2)",
+                    overflow: "hidden",
+                  }}>
+                    {patientSearchResults.map((r, i) => {
+                      if (r.kind === "patient") {
+                        const p = r.patient;
+                        return (
+                          <button
+                            key={`p-${p.id ?? i}`}
+                            className="ghost"
+                            onMouseDown={() => {
+                              setPatientSearchQuery("");
+                              setPatientSearchOpen(false);
+                              setNhsOpenPatientId(p.id ?? null);
+                              setTab("nhs");
+                            }}
+                            style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", width: "100%", padding: "10px 14px", gap: 2, borderRadius: 0, borderBottom: "1px solid var(--border)" }}
+                          >
+                            <span style={{ fontWeight: 600, fontSize: 14 }}>{p.name ?? "—"}</span>
+                            <span className="muted" style={{ fontSize: 12 }}>{p.phone ?? p.email ?? ""} · <span style={{ color: "var(--accent)" }}>{t("Dossier patient")}</span></span>
+                          </button>
+                        );
+                      } else if (r.kind === "lead") {
+                        return (
+                          <button
+                            key={`l-${r.table_id}-${r.id}`}
+                            className="ghost"
+                            onMouseDown={() => {
+                              setPatientSearchQuery("");
+                              setPatientSearchOpen(false);
+                              router.push(`/contacts/${r.table_id}?q=${encodeURIComponent(r.name)}`);
+                            }}
+                            style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", width: "100%", padding: "10px 14px", gap: 2, borderRadius: 0, borderBottom: "1px solid var(--border)" }}
+                          >
+                            <span style={{ fontWeight: 600, fontSize: 14 }}>{r.name || "—"}</span>
+                            <span className="muted" style={{ fontSize: 12 }}>{r.phone ?? ""} · <span style={{ color: "var(--info, #6aa0ff)" }}>{t("Fiche contact")}</span></span>
+                          </button>
+                        );
+                      } else {
+                        return (
+                          <button
+                            key={`c-${r.id}`}
+                            className="ghost"
+                            onMouseDown={() => {
+                              setPatientSearchQuery("");
+                              setPatientSearchOpen(false);
+                              setNhsOpenContactId(r.id);
+                              setTab("nhs");
+                            }}
+                            style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", width: "100%", padding: "10px 14px", gap: 2, borderRadius: 0, borderBottom: "1px solid var(--border)" }}
+                          >
+                            <span style={{ fontWeight: 600, fontSize: 14 }}>{r.name || "—"}</span>
+                            <span className="muted" style={{ fontSize: 12 }}>{r.phone ?? ""} · <span style={{ color: "var(--muted)" }}>{t("Fiche CRM")}</span></span>
+                          </button>
+                        );
+                      }
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
+        {tab !== "nhs" && tab !== "overview" && tab !== "fil-actif" && (() => {
+          const active = TABS.find((x) => x.id === tab);
+          if (!active) return null;
+          const periodScoped = tab === "stats" || tab === "logs" || tab === "entrants" || tab === "ai" || tab === "leads" || tab === "sms";
+          return (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+                <h2 style={{ margin: 0, fontSize: 19 }}>
+                  <span style={{ marginRight: 8 }}>{active.icon}</span>
+                  {t(active.label)}
+                </h2>
+                {periodScoped && (
+                  <span className="muted" style={{ fontSize: 13 }}>
+                    {t("Période")} : {periodLabelFor(period)}
+                  </span>
+                )}
+              </div>
             </div>
           );
         })()}
 
         {tab === "overview" && (
           <>
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <div style={{
+              display: "flex", gap: 10, flexWrap: "wrap",
+              background: "var(--panel)",
+              border: "1px solid var(--border)",
+              borderLeft: "4px solid var(--accent)",
+              borderRadius: 10,
+              padding: "14px 18px",
+            }}>
               <Link href="/agents/new" style={{ textDecoration: "none" }}>
                 <button>{t("+ Nouvel agent")}</button>
               </Link>
@@ -376,11 +527,10 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
               <Link href="/contacts" style={{ textDecoration: "none" }}>
                 <button className="ghost">{t("◐ Contacts")}</button>
               </Link>
-              <SyncRetellButton />
               <SyncTwilioButton />
             </div>
             <PeriodBar period={period} filters={filters} onPeriod={setPeriod} onFilters={setFilters} />
-            <DirectorTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} system={filters.system} slot={filters.slot} global={filters} refreshKey={refreshKey} />
+            <DirectorTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} system={filters.system} slot={filters.slot} global={filters} refreshKey={refreshKey} campaignId={filters.campaignId} />
             {data && <CampaignsTable rows={data.campaigns} />}
           </>
         )}
@@ -388,14 +538,21 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
         {tab === "stats" && (
           <>
             <PeriodBar period={period} filters={filters} onPeriod={setPeriod} onFilters={setFilters} />
-            <StatsTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} system={filters.system} global={filters} />
+            <StatsTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} system={filters.system} global={filters} campaignId={filters.campaignId} />
           </>
         )}
 
         {tab === "logs" && (
           <>
             <PeriodBar period={period} filters={filters} onPeriod={setPeriod} onFilters={setFilters} />
-            <CallLogsTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} system={filters.system} global={filters} />
+            <CallLogsTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} system={filters.system} global={filters} campaignId={filters.campaignId} />
+          </>
+        )}
+
+        {tab === "entrants" && (
+          <>
+            <PeriodBar period={period} filters={filters} onPeriod={setPeriod} onFilters={setFilters} />
+            <InboundTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} system={filters.system} global={filters} />
           </>
         )}
 
@@ -409,7 +566,22 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
               leadsSource={filters.leadsSource}
               system={filters.system}
               periodLabel={periodLabelFor(period)}
+              campaignId={filters.campaignId}
             />
+          </>
+        )}
+
+        {tab === "leads" && (
+          <>
+            <PeriodBar period={period} filters={filters} onPeriod={setPeriod} onFilters={setFilters} />
+            <LeadsTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} system={filters.system} global={filters} refreshKey={refreshKey} orgId={orgId} campaignId={filters.campaignId} />
+          </>
+        )}
+
+        {tab === "sms" && (
+          <>
+            <PeriodBar period={period} filters={filters} onPeriod={setPeriod} onFilters={setFilters} />
+            <PrecallSmsTab from={period.from} to={period.to} global={filters} />
           </>
         )}
 
@@ -419,9 +591,15 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
           <FilActifTab leadsSource={filters.leadsSource} system={filters.system} global={filters} />
         )}
 
-        {tab === "errors" && <ErrorsAlertsTab />}
+        {tab === "errors" && <ErrorsAlertsTab campaignId={filters.campaignId} />}
 
-        {tab === "nhs" && showNhs && <NhsSuiviTab />}
+        {tab === "nhs" && showNhs && (
+          <NhsSuiviTab
+            openPatientId={nhsOpenPatientId}
+            openContactId={nhsOpenContactId}
+            onOpened={() => { setNhsOpenPatientId(null); setNhsOpenContactId(null); }}
+          />
+        )}
       </div>
     </div>
   );

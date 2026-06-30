@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useT } from "@/lib/i18n";
 
 /**
  * ConnectTableModal — registers an already-existing physical table to the org.
@@ -20,6 +21,7 @@ interface Props {
 }
 
 export function ConnectTableModal({ onClose, onConnected }: Props) {
+  const t = useT();
   const [assignable, setAssignable] = useState<Assignable[] | null>(null);
   const [physical, setPhysical] = useState("");
   const [label, setLabel] = useState("");
@@ -91,24 +93,23 @@ export function ConnectTableModal({ onClose, onConnected }: Props) {
     <div onClick={onClose} style={overlay}>
       <div onClick={(e) => e.stopPropagation()} className="card" style={modal}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-          <h2 style={{ margin: 0 }}>Connecter une table existante</h2>
+          <h2 style={{ margin: 0 }}>{t("Connecter une table existante")}</h2>
           <button type="button" className="ghost" onClick={onClose}>✕</button>
         </div>
 
         <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-          Choisissez une table mise à votre disposition. Axon lira ses colonnes automatiquement.
+          {t("Choisissez une table mise à votre disposition. Axon lira ses colonnes automatiquement.")}
         </p>
 
         {assignable === null ? (
-          <div className="muted" style={{ fontSize: 13 }}>Chargement…</div>
+          <div className="muted" style={{ fontSize: 13 }}>{t("Chargement…")}</div>
         ) : assignable.length === 0 ? (
           <div style={{ background: "var(--bg-2)", padding: 12, borderRadius: 8, fontSize: 13, color: "var(--muted)" }}>
-            Aucune table disponible à connecter pour le moment. Une table doit d&apos;abord vous être
-            attribuée par un administrateur Axon (après import dans Supabase).
+            {t("Aucune table disponible à connecter pour le moment.")} {t("Une table doit d'abord vous être attribuée par un administrateur Axon (après import dans Supabase).")}
           </div>
         ) : (
           <div>
-            <label>Table disponible</label>
+            <label>{t("Table disponible")}</label>
             <select
               value={physical}
               onChange={(e) => { setPhysical(e.target.value); introspect(e.target.value); }}
@@ -123,7 +124,7 @@ export function ConnectTableModal({ onClose, onConnected }: Props) {
           </div>
         )}
 
-        {busy && !cols && physical && <div className="muted" style={{ fontSize: 13 }}>Analyse des colonnes…</div>}
+        {busy && !cols && physical && <div className="muted" style={{ fontSize: 13 }}>{t("Analyse des colonnes…")}</div>}
 
         {cols && (
           <>
@@ -131,21 +132,21 @@ export function ConnectTableModal({ onClose, onConnected }: Props) {
               ✅ {cols.length} colonne{cols.length === 1 ? "" : "s"} détectée{cols.length === 1 ? "" : "s"}.
             </div>
             <div>
-              <label>Nom affiché dans Axon</label>
+              <label>{t("Nom affiché dans Axon")}</label>
               <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Leads RDV (production)" />
             </div>
             <div className="form-row">
               <div>
-                <label>Colonne « téléphone » (pour appeler) *</label>
+                <label>{t("Colonne « téléphone » (pour appeler) *")}</label>
                 <select value={phoneCol} onChange={(e) => setPhoneCol(e.target.value)}>
-                  <option value="">— choisir —</option>
+                  <option value="">— {t("choisir")} —</option>
                   {cols.map((c) => <option key={c.key} value={c.key}>{c.key} ({c.type})</option>)}
                 </select>
               </div>
               <div>
-                <label>Colonne « nom » (optionnel)</label>
+                <label>{t("Colonne « nom » (optionnel)")}</label>
                 <select value={nameCol} onChange={(e) => setNameCol(e.target.value)}>
-                  <option value="">— aucune —</option>
+                  <option value="">— {t("aucune")} —</option>
                   {cols.map((c) => <option key={c.key} value={c.key}>{c.key} ({c.type})</option>)}
                 </select>
               </div>
@@ -159,9 +160,9 @@ export function ConnectTableModal({ onClose, onConnected }: Props) {
         {error && <div style={errBox}>{error}</div>}
 
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-          <button type="button" className="ghost" onClick={onClose}>Annuler</button>
+          <button type="button" className="ghost" onClick={onClose}>{t("Annuler")}</button>
           <button type="button" onClick={connect} disabled={busy || !cols}>
-            {busy && cols ? "Connexion…" : "Connecter la table"}
+            {busy && cols ? t("Connexion…") : t("Connecter la table")}
           </button>
         </div>
       </div>

@@ -27,7 +27,7 @@ from typing import Optional
 
 from dotenv import load_dotenv
 from livekit import agents
-from livekit.agents import Agent, AgentSession, JobContext, WorkerOptions, cli
+from livekit.agents import Agent, AgentSession, AutoSubscribe, JobContext, WorkerOptions, cli
 from livekit.agents.voice.background_audio import (
     AudioConfig,
     BackgroundAudioPlayer,
@@ -228,8 +228,14 @@ def _shared_openai_client(base_url: str, api_key: str):
     return client
 
 
-def _llm_for(agent: Optional[AxonAgent]):
+def _llm_for(agent: Optional[AxonAgent], _force_direct: bool = False):
     """Build a LiveKit-Agents-compatible LLM from the agent's provider/model.
+
+    _force_direct=True skips the colocalized LiveKit Inference route and builds
+    the provider's DIRECT API client instead. Used to build the secondary LLM
+    for the resilient FallbackAdapter: same model, different transport, so an
+    Inference hiccup falls back to the direct API (Claude stays Claude) rather
+    than dropping the call.
 
     Worker-wide A/B knobs (env): set these to swap LLM provider/model for
     EVERY call without touching any agent row in DB. Unset to return to the
@@ -239,6 +245,23 @@ def _llm_for(agent: Optional[AxonAgent]):
     """
     forced_provider = os.getenv("LLM_PROVIDER_FORCE", "").strip().lower()
     forced_model = os.getenv("LLM_MODEL_FORCE", "").strip()
+
+    # Per-agent escape hatch off the colocalized LiveKit Inference gateway.
+    # Inference is normally faster (TTFT ~500ms vs ~1300ms direct) BUT its
+    # latency is variable: real OCC tests caught it dropping to 8 tok/s with
+    # 2-4s TTFT mid-call while a healthy run 16 min earlier held 35 tok/s /
+    # 700ms. For agents that value PREDICTABILITY over best-case (e.g. the
+    # test agent), agents.metadata.call_tuning.llm_force_direct=true pins the
+    # primary to the provider's own API. Same effect as _force_direct on the
+    # secondary, but for the primary. No-op for agents without the flag.
+    if not _force_direct:
+        try:
+            if agent is not None and isinstance(getattr(agent, "metadata", None), dict):
+                _ct_fd = agent.metadata.get("call_tuning") or {}
+                if str(_ct_fd.get("llm_force_direct")).lower() in ("1", "true", "yes"):
+                    _force_direct = True
+        except Exception:
+            pass
 
     provider = (
         forced_provider
@@ -252,9 +275,12 @@ def _llm_for(agent: Optional[AxonAgent]):
     )
 
     # Cap the response length so a chatty model can't blow our per-turn budget.
-    # 220 tokens ≈ 160 words ≈ ~40s of TTS audio — plenty for conversational
-    # replies, and bounds the worst-case TTFT→last-chunk latency. Tunable via env.
-    max_tokens = int(os.getenv("LLM_MAX_COMPLETION_TOKENS", "220"))
+    # 150 tokens ≈ 110 words ≈ ~25s of TTS audio (Wati 16/06 latency push).
+    # Coupe ~300-500ms par tour vs l'ancien 220 sans casser les reponses
+    # conversationnelles courtes (Charlotte/Isabelle) — pour les longues
+    # explications on s'appuie sur les RAG retrievals + l'interruption naturelle
+    # par le patient. Override via LLM_MAX_COMPLETION_TOKENS.
+    max_tokens = int(os.getenv("LLM_MAX_COMPLETION_TOKENS", "150"))
 
     if provider == "anthropic":
         try:
@@ -274,16 +300,57 @@ def _llm_for(agent: Optional[AxonAgent]):
                 "CLAUDE_API_KEY is set on the worker."
             )
         key_src = "ANTHROPIC_API_KEY" if os.getenv("ANTHROPIC_API_KEY") else "CLAUDE_API_KEY"
+        # Prompt caching toggle. caching="ephemeral" activates Anthropic prompt
+        # cache (system prompt + tools + history) → TTFT ~400-600ms, cached
+        # tokens billed at 0.1x. BUT on a real outbound call to Charlotte (Haiku
+        # 4.5, ~5500-token prompt) Claude returned an EMPTY completion with no
+        # error — caching is the prime suspect. Make it per-agent / env
+        # toggleable so we can A/B it: agents.metadata.call_tuning.anthropic_caching
+        # = "off" (or env ANTHROPIC_PROMPT_CACHING=off) disables it. Default
+        # stays "ephemeral" so nothing changes for agents that already work.
+        _caching_pref = "ephemeral"
+        try:
+            if agent is not None and isinstance(getattr(agent, "metadata", None), dict):
+                _ct = agent.metadata.get("call_tuning") or {}
+                if _ct.get("anthropic_caching") is not None:
+                    _caching_pref = str(_ct.get("anthropic_caching")).lower()
+        except Exception:
+            pass
+        _caching_pref = os.getenv("ANTHROPIC_PROMPT_CACHING", _caching_pref).lower()
+        _use_caching = _caching_pref not in ("off", "none", "false", "0", "disabled", "")
+        # OPT-IN LiveKit Inference for Claude. We tried auto-routing via
+        # "anthropic/<model>" but the LiveKit catalog id is NOT that — it 404s
+        # ("Error getting model definition") and every turn wastefully fails over
+        # to the direct API (orange error band in the console). So we only use
+        # the Inference path when an EXACT catalog id is supplied, via
+        # agents.metadata.call_tuning.anthropic_inference_model or env
+        # ANTHROPIC_INFERENCE_MODEL. With no override → direct Anthropic API
+        # (clean, ~2s TTFT, no 404s). Skipped entirely when _force_direct.
+        _inf_override = None
+        try:
+            if agent is not None and isinstance(getattr(agent, "metadata", None), dict):
+                _ct2 = agent.metadata.get("call_tuning") or {}
+                _inf_override = _ct2.get("anthropic_inference_model")
+        except Exception:
+            _inf_override = None
+        _inf_override = os.getenv("ANTHROPIC_INFERENCE_MODEL", _inf_override or "") or None
+        if not _force_direct and _inf_override:
+            try:
+                from livekit.agents import inference as _lk_inf
+                lk_model = str(_inf_override)
+                logger.info("LLM=anthropic via livekit-inference model=%s max_tokens=%d", lk_model, max_tokens)
+                return _build_llm_with_max_tokens(_lk_inf.LLM, max_tokens, model=lk_model)
+            except ImportError:
+                logger.warning("LiveKit Inference unavailable — falling back to direct Anthropic API")
         logger.info(
-            "LLM=anthropic model=%s key_src=%s key_len=%d key_prefix=%s max_tokens=%d",
+            "LLM=anthropic (direct) model=%s key_src=%s key_len=%d key_prefix=%s max_tokens=%d caching=%s",
             anth_model, key_src, len(anth_key), anth_key[:14], max_tokens,
+            ("ephemeral" if _use_caching else "off"),
         )
-        return _build_llm_with_max_tokens(
-            anthropic.LLM,
-            max_tokens,
-            model=anth_model,
-            api_key=anth_key,
-        )
+        anth_kwargs = {"model": anth_model, "api_key": anth_key}
+        if _use_caching:
+            anth_kwargs["caching"] = "ephemeral"
+        return _build_llm_with_max_tokens(anthropic.LLM, max_tokens, **anth_kwargs)
 
     if provider == "livekit":
         # LiveKit Inference — le LLM est servi par la passerelle LiveKit
@@ -315,11 +382,29 @@ def _llm_for(agent: Optional[AxonAgent]):
         )
 
     if provider == "openai":
+        oai_model = model if (model and model.startswith(("gpt", "o1", "o3", "o4", "chatgpt"))) else "gpt-4o-mini"
+        # Prefer the colocalized LiveKit Inference route for OpenAI models: SAME
+        # model, served from LiveKit Cloud next to the media servers, so TTFT
+        # drops from ~1300ms (direct api.openai.com from the EU) to ~500ms. This
+        # is transparent to the user — the UI only ever exposes "OpenAI"; the
+        # fast path is an internal optimisation. Falls back to the direct OpenAI
+        # API when Inference is unavailable (SDK missing) or explicitly disabled
+        # with LLM_USE_INFERENCE=false. Billed within the LiveKit plan's
+        # inference credits (no per-token surcharge vs the direct API).
+        if not _force_direct and os.getenv("LLM_USE_INFERENCE", "true").lower() in ("1", "true", "yes"):
+            try:
+                from livekit.agents import inference as _lk_inf
+                lk_model = f"openai/{oai_model}"
+                logger.info("LLM=openai via livekit-inference model=%s max_tokens=%d", lk_model, max_tokens)
+                return _build_llm_with_max_tokens(_lk_inf.LLM, max_tokens, model=lk_model)
+            except ImportError:
+                logger.warning(
+                    "LiveKit Inference unavailable (SDK missing) — falling back to direct OpenAI API"
+                )
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             raise RuntimeError("OpenAI selected but OPENAI_API_KEY is not set on the worker.")
-        oai_model = model if (model and model.startswith(("gpt", "o1", "o3", "o4", "chatgpt"))) else "gpt-4o-mini"
-        logger.info("LLM=openai model=%s key_len=%d max_tokens=%d", oai_model, len(api_key), max_tokens)
+        logger.info("LLM=openai (direct) model=%s key_len=%d max_tokens=%d", oai_model, len(api_key), max_tokens)
         return _build_llm_with_max_tokens(
             openai.LLM,
             max_tokens,
@@ -343,6 +428,125 @@ def _llm_for(agent: Optional[AxonAgent]):
         api_key=api_key,
         client=_shared_openai_client(base_url, api_key),
     )
+
+
+def _llm_for_resilient(agent: Optional[AxonAgent]):
+    """Build the agent's LLM wrapped in a FallbackAdapter so a single provider
+    hiccup (timeout, API error, or the transient empty completion we saw on a
+    real Claude call) never dead-airs the call — livekit-agents retries the
+    SAME turn on a secondary LLM.
+
+    Secondary selection keeps the model identity wherever possible:
+      • openai / anthropic primary  → same model via the DIRECT API (skips the
+        colocalized Inference path), so an Inference hiccup degrades to the
+        provider's own API instead of switching brand.
+      • deepseek / minimax primary  → cross-provider net via OpenAI/Inference.
+
+    Any failure to build the secondary (e.g. missing key) is non-fatal: we just
+    return the primary LLM, exactly as before.
+    """
+    primary = _llm_for(agent)
+    provider = (
+        os.getenv("LLM_PROVIDER_FORCE", "").strip().lower()
+        or (agent.llm_provider.lower() if agent and agent.llm_provider else "")
+        or os.getenv("LLM_PROVIDER", "deepseek").lower()
+    )
+    max_tokens = int(os.getenv("LLM_MAX_COMPLETION_TOKENS", "150"))
+    secondary = None
+    try:
+        if provider in ("openai", "anthropic"):
+            secondary = _llm_for(agent, _force_direct=True)
+        else:
+            from livekit.agents import inference as _lk_inf
+            secondary = _build_llm_with_max_tokens(_lk_inf.LLM, max_tokens, model="openai/gpt-4o-mini")
+    except Exception:
+        logger.warning("LLM fallback secondary build failed — primary only", exc_info=True)
+        secondary = None
+
+    if secondary is None:
+        return primary
+    try:
+        from livekit.agents import llm as _lk_llm
+        adapter = _lk_llm.FallbackAdapter([primary, secondary])
+        logger.info("LLM resilient: FallbackAdapter active (primary provider=%s + secondary)", provider or "deepseek")
+        return adapter
+    except Exception:
+        logger.warning("FallbackAdapter unavailable in this SDK — primary LLM only", exc_info=True)
+        return primary
+
+
+async def _warm_session_llm(llm, clog, instructions: str | None = None) -> None:
+    """Fire one throwaway micro-completion on the session's REAL llm so the
+    first patient turn doesn't pay a cold start.
+
+    Called right after the greeting or re-greeting finishes. At this point the
+    patient will reply in 5-15s, so the warmup runs while we wait for their
+    speech, without the timeout risk of warming during session.start(). Fire-
+    and-forget: best-effort, non-blocking (fails silently).
+
+    When `instructions` is provided we warm with the REAL system prompt as the
+    cache prefix (plus a 1-token user turn), instead of a 14-token throwaway.
+    This is what actually cuts the cold FIRST-turn latency: the inference node
+    has to do its first full-prompt prefill + decode against ~3-4k tokens, and
+    on a cold node that costs ~1s more than steady-state. Doing it here, during
+    the greeting dead-time, means the patient's first real answer lands on an
+    already-warm node + warm prompt cache. A bare 14-token warmup only primed
+    the socket, not the generation path, so the first real turn still paid it.
+
+    Disable with LLM_SESSION_WARMUP=off. Does NOT fix sustained provider-side
+    throttling ("inference is slower than realtime") — that's node capacity,
+    not a cold start."""
+    if os.getenv("LLM_SESSION_WARMUP", "on").lower() in ("off", "false", "0", "no", "disabled"):
+        return
+    try:
+        from livekit.agents.llm import ChatContext
+    except Exception:
+        return
+    try:
+        ctx = ChatContext.empty() if hasattr(ChatContext, "empty") else ChatContext()
+        # Prime with the real system prompt so the node warms the SAME prefix
+        # the first real turn will use (full prefill + cache write). Falls back
+        # to the socket-only warmup if instructions are absent or the API
+        # rejects a system role on this SDK version.
+        # REGRESSION REVERT (Wati 23/06): priming with the FULL system prompt
+        # (~3.8k tokens) made the first turn WORSE, not better. The LLM runs
+        # through the SHARED LiveKit Inference gateway, which was already
+        # logging "inference is slower than realtime" — firing a heavy warmup
+        # there can't pin a warm node for our turn, it just adds load to a
+        # saturating gateway. Back to the lightweight socket-only warmup.
+        # Re-enable the experiment explicitly with LLM_WARMUP_FULL_PROMPT=on.
+        primed_full = False
+        if instructions and os.getenv("LLM_WARMUP_FULL_PROMPT", "off").lower() in ("1", "true", "yes", "on"):
+            try:
+                ctx.add_message(role="system", content=instructions)
+                ctx.add_message(role="user", content="Reply with the single character: .")
+                primed_full = True
+            except Exception:
+                primed_full = False
+        if not primed_full:
+            try:
+                ctx.add_message(role="user", content="Reply with the single character: .")
+            except Exception:
+                from livekit.agents.llm import ChatMessage  # type: ignore
+                ctx.messages.append(ChatMessage(role="user", content="Reply with the single character: ."))  # type: ignore
+        _t0 = time.monotonic()
+        stream = llm.chat(chat_ctx=ctx)
+        async for chunk in stream:
+            # First token is all we need — the socket is now hot.
+            delta = getattr(chunk, "delta", None)
+            if delta is not None and getattr(delta, "content", None):
+                break
+        try:
+            await stream.aclose()
+        except Exception:
+            pass
+        clog.info(
+            "LLM warmup: %s primed in %.0fms",
+            "full-prompt (node+cache)" if primed_full else "socket-only",
+            (time.monotonic() - _t0) * 1000.0,
+        )
+    except Exception:
+        clog.debug("LLM warmup skipped (non-fatal)", exc_info=True)
 
 
 def _build_llm_with_max_tokens(cls, max_tokens: int, **kwargs):
@@ -369,7 +573,7 @@ def _build_llm_with_max_tokens(cls, max_tokens: int, **kwargs):
     return cls(**kwargs)
 
 
-def _stt_for(agent: Optional[AxonAgent]) -> assemblyai.STT:
+def _stt_for(agent: Optional[AxonAgent], tuning: Optional[dict] = None) -> assemblyai.STT:
     """AssemblyAI Universal Streaming STT — honors the per-agent language.
 
     Replaced Deepgram nova-3: AssemblyAI Universal Streaming targets
@@ -387,6 +591,32 @@ def _stt_for(agent: Optional[AxonAgent]) -> assemblyai.STT:
         250ms is aggressive but paired with quick-ack prompt trick.
     """
     import inspect
+
+    # Per-agent / per-campaign endpointing override (tuning) takes precedence
+    # over the global env default, which itself overrides the hard-coded value.
+    # Lets the TEST agent push end-of-turn detection faster (lower STT-delay /
+    # EOU) without touching prod, which carries no such tuning. CAREFUL: lower
+    # silence thresholds reduce latency but raise the risk of cutting a patient
+    # off mid-sentence.
+    _t = tuning or {}
+
+    def _tune_int(key: str, env: str, default: int) -> int:
+        v = _t.get(key)
+        if v is not None:
+            try:
+                return int(v)
+            except (TypeError, ValueError):
+                pass
+        return int(os.getenv(env, str(default)))
+
+    def _tune_float(key: str, env: str, default: float) -> float:
+        v = _t.get(key)
+        if v is not None:
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                pass
+        return float(os.getenv(env, str(default)))
 
     lang = (agent.language if agent and agent.language else "multi").lower()
     # Default: u3-rt-pro is AssemblyAI's lowest-latency real-time model and
@@ -412,10 +642,13 @@ def _stt_for(agent: Optional[AxonAgent]) -> assemblyai.STT:
         "base_url": os.getenv(
             "ASSEMBLYAI_BASE_URL", "wss://streaming.eu.assemblyai.com"
         ),
-        "end_of_turn_confidence_threshold": float(
-            os.getenv("ASSEMBLYAI_EOT_THRESHOLD", "0.3")
+        "end_of_turn_confidence_threshold": _tune_float(
+            "eot_threshold", "ASSEMBLYAI_EOT_THRESHOLD", 0.3
         ),
-        "min_turn_silence": int(os.getenv("ASSEMBLYAI_MIN_TURN_SILENCE", "100")),
+        # Reduced from 100ms to 75ms after LLM warmup + turn_detector work.
+        # Saves ~25ms per turn on STT EOU detection. Pairs with quick-ack
+        # prompt to avoid cutting off natural pauses (risk zone ~300-400ms).
+        "min_turn_silence": _tune_int("min_turn_silence", "ASSEMBLYAI_MIN_TURN_SILENCE", 75),
         # Skip the formatted-final pass (punctuation/casing). It adds ~1s of
         # end-of-turn latency for zero benefit — the LLM reads raw text fine.
         # Override with ASSEMBLYAI_FORMAT_TURNS=true if a clean transcript is
@@ -424,13 +657,16 @@ def _stt_for(agent: Optional[AxonAgent]) -> assemblyai.STT:
         in ("1", "true", "yes"),
         # Hard cap on how long AssemblyAI may wait before forcing a turn end,
         # even when it isn't fully confident. Bounds worst-case STT-delay.
-        "max_turn_silence": int(os.getenv("ASSEMBLYAI_MAX_TURN_SILENCE", "400")),
+        # Reduced from 400ms to 350ms for tighter bounding.
+        "max_turn_silence": _tune_int("max_turn_silence", "ASSEMBLYAI_MAX_TURN_SILENCE", 350),
     }
     # u3-rt-pro exclusives: continuous_partials + interruption_delay improve
     # responsiveness (faster commit on short answers + lower barge-in cost).
     if model == "u3-rt-pro":
         candidate["continuous_partials"] = True
-        candidate["interruption_delay"] = int(os.getenv("ASSEMBLYAI_INTERRUPTION_DELAY", "200"))
+        candidate["interruption_delay"] = _tune_int(
+            "interruption_delay", "ASSEMBLYAI_INTERRUPTION_DELAY", 200
+        )
     api_key = os.getenv("ASSEMBLYAI_API_KEY")
     if api_key:
         candidate["api_key"] = api_key
@@ -487,7 +723,381 @@ def _stt_for(agent: Optional[AxonAgent]) -> assemblyai.STT:
     raise last_exc
 
 
-def _tts_for(agent: Optional[AxonAgent], sample_rate: Optional[int] = None) -> cartesia.TTS:
+def _env_int(name: str, default: int) -> int:
+    """Read an int env var, tolerating empty/garbage by returning `default`.
+    Used for optional tuning knobs that must never crash TTS construction."""
+    try:
+        v = os.getenv(name)
+        return int(v) if v not in (None, "") else default
+    except (TypeError, ValueError):
+        return default
+
+
+def _tts_for(agent: Optional[AxonAgent], sample_rate: Optional[int] = None):
+    """Construit le plugin TTS adapté au voice_id de l'agent.
+
+    Routing (Wati 16/06 — apres la prouve que Replicate etait le bottleneck) :
+      • voice_id commençant par "elevenlabs:" → ElevenLabs DIRECT (WebSocket
+        streaming, ~75ms TTFB). Format : "elevenlabs:<famille>:<voice_id_eleven>"
+        ou "elevenlabs:<famille>:<nom>". Famille : flash | turbo | multilingual.
+      • voice_id commençant par "replicate:" → ReplicateTTS (ElevenLabs Flash/
+        Turbo + MiniMax Speech 02 Turbo/HD via la passerelle Replicate).
+        Garde pour MiniMax (pas de compte direct) et fallback ElevenLabs si
+        ELEVEN_API_KEY manque.
+      • sinon → cartesia.TTS, le chemin par défaut (prod).
+    """
+    try:
+        from replicate_tts import is_replicate_voice_id, ReplicateTTS
+    except ImportError:
+        is_replicate_voice_id = lambda _v: False
+        ReplicateTTS = None  # type: ignore[assignment]
+
+    try:
+        from minimax_tts import is_minimax_voice_id, MinimaxTTS
+    except ImportError:
+        is_minimax_voice_id = lambda _v: False
+        MinimaxTTS = None  # type: ignore[assignment]
+
+    _voice_for_routing = (
+        (agent.tts_voice_id if agent and agent.tts_voice_id else None)
+        or os.getenv("CARTESIA_VOICE_ID")
+    )
+
+    # ── MiniMax via the OFFICIAL LiveKit plugin (restored 19/06) ─────────────
+    # This is the integration that ORIGINALLY worked (pre-Cartesia): the
+    # official livekit-plugins-minimax-ai package talks to MiniMax directly and
+    # handles auth + GroupId internally, so it works with just MINIMAX_API_KEY
+    # (no separate MINIMAX_GROUP_ID needed). The hand-rolled minimax_tts.py
+    # (16/06) replaced it and produced "no audio" — we restore the plugin here.
+    # Format voice_id : "minimax:<model>:<voice>". audio_format="pcm" bypasses
+    # the chunked-MP3 decoder bug (livekit/livekit#3850, agents#3863).
+    if _voice_for_routing and _voice_for_routing.startswith("minimax:"):
+        try:
+            import inspect
+            from livekit.plugins import minimax as _minimax_plugin
+            _mm = _voice_for_routing.split(":", 2)
+            mm_model = (_mm[1] if len(_mm) >= 2 and _mm[1] else "speech-02-hd")
+            mm_voice = (_mm[2] if len(_mm) >= 3 and _mm[2] else None)
+            mm_emotion = (agent.tts_emotion if agent and agent.tts_emotion else None) or None
+            # "fluent" emotion only exists on speech-2.6-* — drop it otherwise.
+            if mm_emotion == "fluent" and not mm_model.startswith("speech-2.6"):
+                mm_emotion = None
+            _lang = (agent.language if agent and agent.language else "").lower()
+            mm_boost = {
+                "fr": "French", "en": "English", "es": "Spanish", "de": "German",
+                "it": "Italian", "pt": "Portuguese", "nl": "Dutch", "ar": "Arabic",
+            }.get(_lang) or os.getenv("MINIMAX_LANGUAGE_BOOST", "auto")
+            mm_kwargs = {
+                "voice": mm_voice,
+                "model": mm_model,
+                "emotion": mm_emotion,
+                "language_boost": mm_boost,
+                "speed": (float(agent.tts_speed) if agent and agent.tts_speed and agent.tts_speed != 1.0 else None),
+                "vol": (float(agent.tts_volume) if agent and agent.tts_volume and agent.tts_volume != 1.0 else None),
+                "pitch": (int(agent.tts_pitch) if agent and agent.tts_pitch else None),
+                "audio_format": "pcm",
+            }
+            # Version-safe: only keep kwargs the installed plugin accepts and
+            # that have a value (drops None) — no TypeErrors across plugin versions.
+            _mm_supported = set(inspect.signature(_minimax_plugin.TTS.__init__).parameters)
+            mm_kwargs = {k: v for k, v in mm_kwargs.items() if v is not None and k in _mm_supported}
+            logger.info("TTS=minimax-official model=%s voice=%s", mm_model, mm_voice)
+            try:
+                return _minimax_plugin.TTS(**mm_kwargs)
+            except TypeError:
+                mm_kwargs.pop("audio_format", None)
+                return _minimax_plugin.TTS(**mm_kwargs)
+        except Exception:
+            logger.exception(
+                "MiniMax official plugin init failed for voice_id=%s — falling back",
+                _voice_for_routing,
+            )
+
+    # ── ElevenLabs TELEPHONY — native ulaw_8000 adapter (Wati 22/06) ─────────
+    # On the SIP/PSTN leg the official livekit-plugins-elevenlabs plugin is the
+    # WRONG tool: it can't emit below pcm_16000, so LiveKit resamples 16k→8k on
+    # every frame. That resample + the 32 KB/s WebSocket is what produced the
+    # crackle ("froissement") and the mid-call screaming on real calls. Retell
+    # avoids both by asking ElevenLabs for ulaw_8000 directly (native Twilio
+    # codec, zero resampling) — which is exactly what elevenlabs_tts.py does.
+    # Telephony only (sample_rate ≤ 16000); web/preview keeps the plugin below.
+    if (
+        _voice_for_routing
+        and _voice_for_routing.startswith("elevenlabs:")
+        and sample_rate and int(sample_rate) <= 16000
+    ):
+        try:
+            from elevenlabs_tts import ElevenLabsTelephonyTTS
+            _el_speed = (
+                float(agent.tts_speed)
+                if agent and agent.tts_speed and agent.tts_speed != 1.0
+                else None
+            )
+            logger.info(
+                "TTS=elevenlabs-telephony voice_id=%s sample_rate=%s (native ulaw_8000)",
+                _voice_for_routing, sample_rate,
+            )
+            return ElevenLabsTelephonyTTS(
+                voice_id=_voice_for_routing,
+                speed=_el_speed,
+                stability=(agent.tts_stability if agent else None),
+                similarity_boost=(agent.tts_similarity_boost if agent else None),
+                style=(agent.tts_style if agent else None),
+                speaker_boost=(agent.tts_speaker_boost if agent else None),
+                language=(
+                    (agent.tts_language if agent and agent.tts_language else None)
+                ),
+                volume=(agent.tts_volume if agent else None),
+                optimize_streaming_latency=_env_int(
+                    "ELEVENLABS_STREAMING_LATENCY", 3
+                ),
+            )
+        except Exception:
+            logger.exception(
+                "elevenlabs telephony adapter failed for voice_id=%s — falling "
+                "back to the official plugin (pcm_16000)",
+                _voice_for_routing,
+            )
+            # fall through to the official-plugin path below
+
+    # ── ElevenLabs DIRECT (Wati 16/06) — official plugin, web/preview path ───
+    # Streaming WebSocket natif, TTFB ~75ms. Used for non-telephony (web sim,
+    # preview) where 16 kHz/mp3 is fine, and as the telephony fallback if the
+    # native ulaw_8000 adapter above ever fails to construct.
+    if _voice_for_routing and _voice_for_routing.startswith("elevenlabs:"):
+        try:
+            from livekit.plugins import elevenlabs as _elevenlabs
+            parts = _voice_for_routing.split(":", 2)
+            # Format attendu : elevenlabs:<famille>:<voice>
+            family = parts[1] if len(parts) >= 2 else "flash"
+            voice_ref = parts[2] if len(parts) >= 3 else "Rachel"
+            model_id = {
+                "flash": "eleven_flash_v2_5",
+                "turbo": "eleven_turbo_v2_5",
+                "multilingual": "eleven_multilingual_v2",
+            }.get(family, "eleven_flash_v2_5")
+            logger.info(
+                "TTS=elevenlabs-direct family=%s voice=%s model=%s",
+                family, voice_ref, model_id,
+            )
+            # Base kwargs that have always worked. Anything beyond this is
+            # additive and isolated in its own try/except so we NEVER fall
+            # back to Cartesia just because an advanced kwarg was rejected.
+            tts_kwargs: dict = {"voice_id": voice_ref, "model": model_id}
+            base_tts = _elevenlabs.TTS  # local alias
+
+            # Output encoding for the telephony (SIP/PSTN) leg (Wati 18/06).
+            # SYMPTOM : on a real outbound call charlotte-teste was SILENT —
+            # say() completed, TTS-TTFB=747ms logged, tts_chars=37, yet the
+            # patient heard nothing. ROOT CAUSE : the plugin was left at its
+            # default mp3_22050 output while the room is a SIP leg forced to
+            # 8000 Hz (auto-telephony). The 22 kHz mp3 → 8 kHz SIP path did
+            # not produce audible audio on the PSTN side.
+            # The plugin derives its sample_rate from the `encoding` string,
+            # so we must hand it a rate the ElevenLabs WebSocket actually
+            # honours. `pcm_8000` was NOT honoured by flash/turbo (commit
+            # 2043d56 : audio came out ~2.75× = chipmunk, the 22050/8000
+            # mislabel). `pcm_16000` IS honoured and gives LiveKit a clean
+            # integer 2:1 downsample to the 8 kHz leg — narrowband but
+            # audible and correct-speed. Off-telephony (web/preview, no
+            # sample_rate forced) keeps the default mp3 22050.
+            _is_telephony = bool(sample_rate and int(sample_rate) <= 16000)
+            # Telephony encoding. pcm_16000 is the PROVEN default (clean 2:1
+            # downsample to the 8 kHz SIP leg; pcm_8000 was rejected by
+            # flash/turbo → chipmunk 2.75× mislabel). Made env-overridable so
+            # Wati can A/B `ulaw_8000` (G.711 µ-law = the NATIVE PSTN codec,
+            # zero resampling) WITHOUT a redeploy if the intermittent
+            # sample-rate-mislabel "screaming" recurs — ulaw_8000 sidesteps the
+            # 22050-vs-requested-rate confusion entirely because µ-law carries
+            # its 8 kHz rate intrinsically.
+            _tel_encoding = (
+                (os.getenv("ELEVENLABS_TELEPHONY_ENCODING", "pcm_16000") or None)
+                if _is_telephony
+                else None
+            )
+            if _tel_encoding:
+                tts_kwargs["encoding"] = _tel_encoding
+                logger.info(
+                    "elevenlabs-direct: telephony encoding=%s (sample_rate=%s)",
+                    _tel_encoding, sample_rate,
+                )
+
+            # ── Telephony hardening (Wati 22/06) ────────────────────────────
+            # Two field-reported defects on the ElevenLabs SIP leg:
+            #   • "bruit de froissement" — crackle: the realtime audio buffer
+            #     underruns when synthesis can't keep up ("inference is slower
+            #     than realtime" in the worker logs). Clicks appear at the
+            #     frame joints.
+            #   • "la voix a hurlé" — the voice suddenly screamed: a classic
+            #     sample-rate mismatch. The most likely trigger is the WebSocket
+            #     reconnecting mid-call (idle/inactivity drop) and the new
+            #     stream coming back at a DIFFERENT output rate than the leg
+            #     expects, so the audio plays too fast = high-pitched scream.
+            #
+            # Fix: keep the WS alive for the whole call so it never silently
+            # reconnects to a reset encoding (inactivity_timeout high), and ask
+            # ElevenLabs to optimise streaming latency so frames arrive in time
+            # to keep the realtime buffer full. Both are isolated + signature-
+            # filtered: an older plugin that doesn't know a kwarg just ignores
+            # it, we NEVER fall back to Cartesia over an optional knob.
+            _harden: dict = {}
+            try:
+                _inact = float(os.getenv("ELEVENLABS_INACTIVITY_TIMEOUT", "300"))
+                if _inact > 0:
+                    _harden["inactivity_timeout"] = _inact
+            except (TypeError, ValueError):
+                pass
+            # optimize_streaming_latency 0-4 (3 = aggressive). Only on the
+            # telephony leg, where underruns are the problem; web/preview keeps
+            # the default (best quality) since it isn't realtime-buffer bound.
+            if _is_telephony:
+                try:
+                    _sl = int(os.getenv("ELEVENLABS_STREAMING_LATENCY", "3"))
+                    _harden["streaming_latency"] = _sl
+                except (TypeError, ValueError):
+                    pass
+            if _harden:
+                try:
+                    import inspect as _el_inspect
+                    _el_supported = set(
+                        _el_inspect.signature(base_tts.__init__).parameters
+                    )
+                    for _hk, _hv in _harden.items():
+                        if _hk in _el_supported:
+                            tts_kwargs[_hk] = _hv
+                        else:
+                            logger.info(
+                                "elevenlabs-direct: plugin has no %s kwarg — skipping",
+                                _hk,
+                            )
+                except Exception:
+                    logger.debug(
+                        "elevenlabs-direct: hardening signature-filter failed",
+                        exc_info=True,
+                    )
+
+            # Optional VoiceSettings (Wati 16/06). The plugin's VoiceSettings
+            # dataclass REQUIRES stability + similarity_boost (no defaults);
+            # style/speed/use_speaker_boost are optional. So we only build it
+            # when at least one knob is set, and we always provide stability +
+            # similarity_boost (real defaults match ElevenLabs API : 0.5 / 0.75).
+            vs_kwargs: dict = {}
+            if agent and agent.tts_stability is not None:
+                vs_kwargs["stability"] = float(agent.tts_stability)
+            if agent and agent.tts_similarity_boost is not None:
+                vs_kwargs["similarity_boost"] = float(agent.tts_similarity_boost)
+            if agent and agent.tts_style is not None:
+                vs_kwargs["style"] = float(agent.tts_style)
+            if agent and agent.tts_speaker_boost is not None:
+                vs_kwargs["use_speaker_boost"] = bool(agent.tts_speaker_boost)
+            if agent and agent.tts_speed and agent.tts_speed != 1.0:
+                vs_kwargs["speed"] = max(0.7, min(1.2, float(agent.tts_speed)))
+            if vs_kwargs:
+                # Fill required fields if the user only touched optional knobs.
+                vs_kwargs.setdefault("stability", 0.5)
+                vs_kwargs.setdefault("similarity_boost", 0.75)
+                try:
+                    voice_settings_cls = getattr(_elevenlabs, "VoiceSettings", None)
+                    if voice_settings_cls is not None:
+                        tts_kwargs["voice_settings"] = voice_settings_cls(**vs_kwargs)
+                except Exception:
+                    logger.exception(
+                        "elevenlabs VoiceSettings build failed (kwargs=%s) — using defaults",
+                        sorted(vs_kwargs),
+                    )
+                    tts_kwargs.pop("voice_settings", None)
+
+            # Force language code ONLY when the user explicitly set
+            # tts_language on the agent — do NOT infer from agent.language.
+            # Some plugin versions reject the kwarg or its value, and we
+            # don't want to break ElevenLabs init for the typical case.
+            if agent and agent.tts_language:
+                lang_kwargs = {**tts_kwargs, "language": agent.tts_language}
+                try:
+                    return base_tts(**lang_kwargs)
+                except Exception:
+                    logger.warning(
+                        "elevenlabs TTS rejected language=%s — retrying without",
+                        agent.tts_language,
+                    )
+
+            # The canonical init that always worked.
+            try:
+                return base_tts(**tts_kwargs)
+            except Exception:
+                # Last-ditch: strip voice_settings in case the plugin version
+                # rejects that argument, but KEEP the telephony encoding —
+                # dropping it is exactly what makes the SIP leg silent. Retry
+                # with encoding first, then fully bare as the final resort.
+                logger.warning(
+                    "elevenlabs TTS init with voice_settings failed — retrying bare"
+                )
+                if _tel_encoding:
+                    try:
+                        return base_tts(
+                            voice_id=voice_ref,
+                            model=model_id,
+                            encoding=_tel_encoding,
+                        )
+                    except Exception:
+                        logger.warning(
+                            "elevenlabs TTS bare+encoding=%s failed — retrying "
+                            "without encoding (SIP leg may be silent)",
+                            _tel_encoding,
+                        )
+                return base_tts(voice_id=voice_ref, model=model_id)
+        except ImportError:
+            logger.warning(
+                "elevenlabs plugin not installed — falling back to Replicate path"
+            )
+        except Exception:
+            logger.exception(
+                "elevenlabs direct init failed for voice_id=%s — falling back",
+                _voice_for_routing,
+            )
+
+    if ReplicateTTS is not None and is_replicate_voice_id(_voice_for_routing):
+        try:
+            _speed_for_replicate = (
+                float(agent.tts_speed)
+                if agent and agent.tts_speed and agent.tts_speed != 1.0
+                else None
+            )
+            return ReplicateTTS(
+                voice_id=_voice_for_routing,  # type: ignore[arg-type]
+                sample_rate=int(sample_rate) if sample_rate else 22050,
+                language=(
+                    (agent.tts_language if agent and agent.tts_language else None)
+                    or (agent.language if agent and agent.language else None)
+                ),
+                speed=_speed_for_replicate,
+                stability=(agent.tts_stability if agent else None),
+                similarity_boost=(agent.tts_similarity_boost if agent else None),
+                style=(agent.tts_style if agent else None),
+                speaker_boost=(agent.tts_speaker_boost if agent else None),
+                pitch=(agent.tts_pitch if agent and agent.tts_pitch else None),
+                emotion=(agent.tts_emotion if agent and agent.tts_emotion else None),
+                volume=(agent.tts_volume if agent and agent.tts_volume and agent.tts_volume != 1.0 else None),
+                english_normalization=(agent.tts_english_normalization if agent else None),
+            )
+        except Exception:
+            logger.exception(
+                "ReplicateTTS init failed for voice_id=%s — falling back to Cartesia",
+                _voice_for_routing,
+            )
+    return _cartesia_tts_for(agent, sample_rate)
+
+
+# Proven OCC English Cartesia voice (Charlotte-old). Used ONLY as the last-
+# resort voice when an ElevenLabs/Replicate/MiniMax agent falls back to Cartesia
+# and would otherwise hand Cartesia an unresolvable provider-prefixed voice_id
+# (→ "no audio frames" → silent call). Override with CARTESIA_VOICE_ID.
+_CARTESIA_FALLBACK_VOICE_ID = os.getenv(
+    "CARTESIA_FALLBACK_VOICE_ID", "d1d9c946-7cfc-4378-85a4-07d09827cb7e"
+)
+
+
+def _cartesia_tts_for(agent: Optional[AxonAgent], sample_rate: Optional[int] = None) -> cartesia.TTS:
     """Cartesia Sonic TTS — honors the per-agent voice/language/speed.
 
     Replaced MiniMax for lower TTFB: Cartesia Sonic targets ~90ms
@@ -505,10 +1115,15 @@ def _tts_for(agent: Optional[AxonAgent], sample_rate: Optional[int] = None) -> c
 
     lang = (agent.language if agent and agent.language else "multi").lower()
     # Cartesia language codes: ISO 639-1. "multi"/unset → None → Cartesia
-    # infers from the text. Override via env for global A/B testing.
-    cartesia_lang = os.getenv(
-        "CARTESIA_LANGUAGE",
-        None if lang in ("multi", "auto", "") else lang,
+    # infers from the text. Per-agent override (tts_language) wins; otherwise
+    # fall back to env (CARTESIA_LANGUAGE) and finally to agent.language.
+    forced = (agent.tts_language if agent and agent.tts_language else None)
+    cartesia_lang = (
+        forced
+        or os.getenv(
+            "CARTESIA_LANGUAGE",
+            None if lang in ("multi", "auto", "") else lang,
+        )
     )
 
     model = (
@@ -520,6 +1135,26 @@ def _tts_for(agent: Optional[AxonAgent], sample_rate: Optional[int] = None) -> c
         (agent.tts_voice_id if agent and agent.tts_voice_id else None)
         or os.getenv("CARTESIA_VOICE_ID")
     )
+    # Defensive (Wati 24/06) — the silent-call root cause. When an agent routed
+    # to ElevenLabs/Replicate/MiniMax FALLS BACK to Cartesia (e.g. ElevenLabs
+    # init/selection failed for this call), its tts_voice_id is a provider-
+    # prefixed id like "elevenlabs:turbo:R3I0jGceivkHLDdoBi9a" that Cartesia
+    # cannot resolve. Cartesia then pushes ZERO audio frames ("no audio frames
+    # were pushed for text: …") and the agent stays SILENT for the WHOLE call
+    # (tts_chars=0) while the LLM transcript still fills in — exactly the
+    # "agent muet / transcript faux" calls of 24/06. A colon-prefixed id is
+    # NEVER a valid Cartesia voice (Cartesia voices are bare UUIDs), so swap it
+    # for a real Cartesia voice (env override, else the proven OCC English
+    # voice) so the fallback actually SPEAKS instead of producing dead air.
+    if voice and ":" in str(voice):
+        _bad_voice = voice
+        voice = os.getenv("CARTESIA_VOICE_ID") or _CARTESIA_FALLBACK_VOICE_ID
+        logger.warning(
+            "cartesia fallback: agent voice_id %r is not a Cartesia voice "
+            "(ElevenLabs likely failed to init for this call) — using %r so the "
+            "agent isn't silent",
+            _bad_voice, voice,
+        )
 
     speed = (
         float(agent.tts_speed)
@@ -643,6 +1278,12 @@ def _build_save_contact_tool(
         CRM record. Call this as soon as you have confirmed values — don't wait
         until the end of the call. Safe to call multiple times; fields merge.
 
+        ⚠️ For callback requests: If the patient asks to be called back at a
+        SPECIFIC DATE/TIME (e.g., "rappelle-moi le 25 juin à 14h"), use
+        transfer_to_human(reason="...", callback_date="2026-06-25",
+        callback_time="14:00") instead. Do NOT use this tool for callback requests
+        with specific times — the transfer_to_human tool handles scheduling.
+
         Args:
             fields_json: A JSON object of field→value pairs to save. Use the
                 field keys defined for this campaign, e.g.
@@ -650,6 +1291,12 @@ def _build_save_contact_tool(
                  "nhs_wmp_status": "tier3", "patient_dob": "1985-04-12",
                  "allergies": "penicillin", "current_medications": "metformin"}.
                 Numbers as numbers, dates as YYYY-MM-DD strings.
+                Special qualification values:
+                  - "RDV CONFIRME" — appointment booked (use for confirmed bookings)
+                  - "RAPPEL" — patient wants a callback (use only for callbacks
+                    without specific times; specific-time callbacks → transfer_to_human)
+                  - "PAS INTERESSE" — patient explicitly not interested
+                  - "FAUX NUMERO" — ONLY if patient explicitly says "wrong number"
             display_name: Optional — the patient's full name if newly confirmed.
             email: Optional — the patient's email if newly confirmed.
             notes: Optional — a short free-text note to append about this call.
@@ -750,6 +1397,13 @@ class AxonVoiceAgent(Agent):
             kwargs["vad"] = vad
         super().__init__(**kwargs)
         self._greeting = greeting
+        # Keep the raw system prompt so the LLM warmup can prime the inference
+        # node with the REAL prompt prefix (not a 14-token throwaway) during the
+        # greeting dead-time — see _warm_session_llm. This is what cuts the cold
+        # first-turn latency (the patient's first real answer was paying ~1.8s
+        # TTFT vs ~0.6s on warm turns, because the node had never generated
+        # against this prompt yet).
+        self._instructions = instructions
         # Optional reference to the SIP participant already resolved by the
         # entrypoint via ctx.wait_for_participant(). on_enter uses this to
         # poll sip.callStatus directly instead of relying on room events
@@ -821,6 +1475,11 @@ class AxonVoiceAgent(Agent):
             text = f"{prefix}{self._greeting}" if prefix else self._greeting
             await self.session.say(text=text, allow_interruptions=False)
             logger.info("greeting: re-greet say() returned in %.2fs", _t.monotonic() - _b)
+            # Warm LLM connection after re-greeting, as with main greeting.
+            try:
+                asyncio.create_task(_warm_session_llm(self.session.llm, logger, self._instructions))
+            except Exception:
+                logger.debug("LLM post-regreeting warmup not scheduled (non-fatal)", exc_info=True)
         except Exception:
             logger.info(
                 "greeting: re-greet interrupted after %.2fs (likely hangup)",
@@ -997,44 +1656,86 @@ class AxonVoiceAgent(Agent):
             except Exception:
                 pass
 
-            last_logged_status: str | None = None
-            while _t.monotonic() - gate_start < max_gate:
+            # ── GREET-ON-VOICE early release (Wati 23/06) ──────────────────
+            # The dead-air problem: on lagging PSTN routes sip.callStatus
+            # flips to "active" 3-5s AFTER the patient actually picks up and
+            # starts talking. Real prod transcripts show patients saying
+            # "Hello?… Hello?" 2-3 times into silence before the gate frees.
+            # The patient's own VOICE is the most reliable "they're really on
+            # the line" signal we have, and it ALWAYS precedes the laggy
+            # callStatus update. So: if the session detects the patient
+            # speaking, release the gate immediately and greet. This is purely
+            # ADDITIVE — it can only free the gate EARLIER, never later — and
+            # leaves the callStatus path and the re-greet backstop untouched.
+            _voice_seen = {"v": False}
+
+            def _on_user_state(ev) -> None:  # noqa: ANN001
                 try:
-                    attrs = dict(getattr(sp, "attributes", None) or {})
-                    status = (attrs.get("sip.callStatus") or "").lower()
-                    if status != last_logged_status:
-                        logger.info(
-                            "greeting: SIP gate poll callStatus=%r at %.2fs",
-                            status,
-                            _t.monotonic() - gate_start,
-                        )
-                        last_logged_status = status
-                    if status == "active":
-                        logger.info(
-                            "greeting: SIP gate released (callStatus=active) after %.2fs",
-                            _t.monotonic() - gate_start,
-                        )
-                        break
-                    # Some LK SIP outbound flows omit the explicit "active"
-                    # transition and just clear the dialing/ringing flag.
-                    # If status leaves dialing/ringing/automation but isn't
-                    # "active", treat it as ready too.
-                    if status and status not in {"dialing", "ringing", "automation"}:
-                        logger.info(
-                            "greeting: SIP gate released (callStatus=%r) after %.2fs",
-                            status,
-                            _t.monotonic() - gate_start,
-                        )
-                        break
+                    if getattr(ev, "new_state", None) == "speaking":
+                        _voice_seen["v"] = True
                 except Exception:
-                    logger.debug("greeting: poll failed", exc_info=True)
-                await asyncio.sleep(0.2)
-            else:
-                logger.warning(
-                    "greeting: SIP gate timed out at %.1fs with last status=%r — greeting anyway",
-                    max_gate,
-                    last_logged_status,
-                )
+                    pass
+
+            _voice_handler_attached = False
+            try:
+                self.session.on("user_state_changed", _on_user_state)
+                _voice_handler_attached = True
+            except Exception:
+                logger.debug("greeting: could not attach user_state_changed listener", exc_info=True)
+
+            last_logged_status: str | None = None
+            try:
+                while _t.monotonic() - gate_start < max_gate:
+                    # Patient's voice beats the laggy callStatus — release now.
+                    if _voice_seen["v"]:
+                        logger.info(
+                            "greeting: SIP gate released EARLY on patient voice after %.2fs (last callStatus=%r)",
+                            _t.monotonic() - gate_start,
+                            last_logged_status,
+                        )
+                        break
+                    try:
+                        attrs = dict(getattr(sp, "attributes", None) or {})
+                        status = (attrs.get("sip.callStatus") or "").lower()
+                        if status != last_logged_status:
+                            logger.info(
+                                "greeting: SIP gate poll callStatus=%r at %.2fs",
+                                status,
+                                _t.monotonic() - gate_start,
+                            )
+                            last_logged_status = status
+                        if status == "active":
+                            logger.info(
+                                "greeting: SIP gate released (callStatus=active) after %.2fs",
+                                _t.monotonic() - gate_start,
+                            )
+                            break
+                        # Some LK SIP outbound flows omit the explicit "active"
+                        # transition and just clear the dialing/ringing flag.
+                        # If status leaves dialing/ringing/automation but isn't
+                        # "active", treat it as ready too.
+                        if status and status not in {"dialing", "ringing", "automation"}:
+                            logger.info(
+                                "greeting: SIP gate released (callStatus=%r) after %.2fs",
+                                status,
+                                _t.monotonic() - gate_start,
+                            )
+                            break
+                    except Exception:
+                        logger.debug("greeting: poll failed", exc_info=True)
+                    await asyncio.sleep(0.2)
+                else:
+                    logger.warning(
+                        "greeting: SIP gate timed out at %.1fs with last status=%r — greeting anyway",
+                        max_gate,
+                        last_logged_status,
+                    )
+            finally:
+                if _voice_handler_attached:
+                    try:
+                        self.session.off("user_state_changed", _on_user_state)
+                    except Exception:
+                        logger.debug("greeting: could not detach user_state_changed listener", exc_info=True)
 
         # ────────────────────────────────────────────────────────────────
         # GREET-ON-ANSWER (Wati 2026-06-12: "il faut qu'il dit son greeting
@@ -1074,6 +1775,24 @@ class AxonVoiceAgent(Agent):
             preroll = float(os.getenv("GREETING_PREROLL_SECONDS", "0.4"))
             if preroll > 0:
                 await asyncio.sleep(preroll)
+            # Wati 24/06 — ARM the opener-response budget BEFORE the greeting
+            # say(), not after. Root cause of the "How can I help you today?"
+            # hallucination on répondeur / early-answer calls (Rachel Brant,
+            # Christabel Probert 24/06): the canned greeting say() below is
+            # NON-interruptible and blocks ~2-3 s. On a voicemail / early-answer
+            # the callee audio ("Hi.", the répondeur's opener) reaches STT WHILE
+            # that say() is still awaiting — so on_user_turn_completed fired with
+            # _opener_replies_left STILL 0 (it used to be set only AFTER say()
+            # returned). With the budget at 0 the bare opener fell straight
+            # through to the LLM, which improvised "Hello! How can I help you
+            # today? Are you interested in exploring bariatric surgery…" — NOT
+            # Charlotte's scripted "Hello am I speaking with {{firstname}}?".
+            # Arming the budget first means an early "Hi."/"Hello?" re-fires the
+            # canned greeting (via _say_regreet) and suppresses the LLM reply,
+            # closing the race. _BARE_OPENER_RE only matches pure openers, so a
+            # real substantive "Yes, speaking" from someone who DID hear the
+            # greeting still goes to the LLM — no double-greeting for them.
+            self._opener_replies_left = 2
             _b = _t.monotonic()
             logger.info("greeting: say() begin (on-answer)")
             try:
@@ -1087,13 +1806,21 @@ class AxonVoiceAgent(Agent):
                     "greeting: say() interrupted after %.2fs (likely hangup)",
                     _t.monotonic() - _b,
                 )
-            # Arm the opener-response budget: every bare phone-opener
-            # ("Hello?") gets answered WITH the greeting — up to 3 times,
-            # politely varied (the Retell reference pattern). The first
-            # substantive utterance hands over to the LLM for good. No
-            # timers, no VAD disarm races — the 4 morning iterations all
-            # died on those.
-            self._opener_replies_left = 3
+            # Warm the LLM with the REAL system prompt NOW, while the patient is
+            # still picking up / about to answer. This is the on-answer path's
+            # cold-start fix: the patient's first substantive reply was paying
+            # ~1.8s TTFT because the inference node had never generated against
+            # this prompt; priming it during the dead-time drops the first real
+            # turn to steady-state (~0.6s). Fire-and-forget.
+            try:
+                asyncio.create_task(
+                    _warm_session_llm(self.session.llm, logger, self._instructions)
+                )
+            except Exception:
+                logger.debug("LLM on-answer warmup not scheduled (non-fatal)", exc_info=True)
+            # NOTE: the opener-response budget (_opener_replies_left = 2) is now
+            # armed BEFORE the greeting say() above (Wati 24/06 race fix), so it
+            # is intentionally NOT re-set here.
             return
 
         if sp is not None:
@@ -1139,6 +1866,13 @@ class AxonVoiceAgent(Agent):
         try:
             await self.session.say(text=self._greeting, allow_interruptions=True)
             logger.info("greeting: say() returned in %.2fs", _t.monotonic() - _b)
+            # Warm the LLM connection NOW, right after greeting finishes and
+            # BEFORE the patient replies. At this point the socket won't timeout
+            # before the 1st real turn (usually 5-15s away). Best-effort.
+            try:
+                asyncio.create_task(_warm_session_llm(self.session.llm, logger, self._instructions))
+            except Exception:
+                logger.debug("LLM post-greeting warmup not scheduled (non-fatal)", exc_info=True)
         except Exception:
             logger.info(
                 "greeting: say() interrupted after %.2fs (likely hangup)",
@@ -1169,8 +1903,10 @@ async def _watch_handoff(ctx: JobContext, session: AgentSession) -> None:
             logger.warning("handoff: agent %s not found", target)
             return
         try:
-            session.llm = _llm_for(axon_next)
-            session.tts = _tts_for(axon_next)
+            session.llm = _llm_for_resilient(axon_next)
+            session.tts = _tts_for(
+                axon_next, sample_rate=getattr(ctx, "_tts_sample_rate", None)
+            )
             logger.info("handoff: swapped persona -> %s (%s)", axon_next.id, axon_next.name)
         except Exception:
             logger.exception("handoff: hot-swap failed")
@@ -1336,8 +2072,10 @@ def _install_team_handoff_watcher(
             call_id=call_id,
         )
         try:
-            next_llm = _llm_for(axon_next)
-            next_tts = _tts_for(axon_next)
+            next_llm = _llm_for_resilient(axon_next)
+            next_tts = _tts_for(
+                axon_next, sample_rate=getattr(ctx, "_tts_sample_rate", None)
+            )
             # Belt-and-suspenders: also set on the session (no-op on some
             # versions, but harmless). The authoritative swap is the per-agent
             # tts/llm passed into the new Agent below.
@@ -1666,6 +2404,11 @@ def _install_call_hygiene(
     # "press hash" inside their first 10 s is implausible, so the window
     # stays safe against false REPONDEUR on humans.
     voicemail_detect_window = float(os.getenv("VOICEMAIL_DETECT_WINDOW_SECS", "10.0"))
+    # Maximum duration for a voicemail call after detection. Once voicemail
+    # is detected, we should cut the call quickly to avoid paying for long
+    # TTS on a voicemail announcement. Default 15s to handle various carrier
+    # greetings while still being much shorter than full message playback.
+    voicemail_max_duration = float(os.getenv("VOICEMAIL_MAX_DURATION_SECS", "15.0"))
 
     # Distress / safety phrases that MUST trigger immediate handoff in a
     # healthcare context. We listen across the WHOLE call (not just the first
@@ -1714,6 +2457,7 @@ def _install_call_hygiene(
         "call_started_at": _t.monotonic(),
         "goodbye_armed_at": None,  # monotonic ts when goodbye phrase was detected
         "hung_up": False,
+        "voicemail_detected_at": None,  # monotonic ts when voicemail was detected
         # The agent is considered 'active' (speaking / thinking) while
         # session.agent_state is "speaking" or "thinking". The idle watchdog
         # skips its hangup check while the agent is active so a long TTS
@@ -2054,6 +2798,7 @@ def _install_call_hygiene(
                 return
             if _voicemail_re.search(str(text)):
                 clog.info("call hygiene: voicemail detected via STT (t=%.1fs after first speech): %r", elapsed, str(text)[:120])
+                state["voicemail_detected_at"] = now_ts
                 asyncio.create_task(_hangup("voicemail detected via STT"))
                 return
             # STRUCTURAL HEURISTIC — monologue without our reply.
@@ -2084,6 +2829,7 @@ def _install_call_hygiene(
                     "(t=%.1fs, %d consecutive customer turns, %d words): %r",
                     elapsed, len(turns), total_words, " | ".join(turns)[:160],
                 )
+                state["voicemail_detected_at"] = now_ts
                 asyncio.create_task(_hangup("voicemail detected via monologue heuristic"))
         except Exception:
             clog.debug("call hygiene: voicemail STT check failed", exc_info=True)
@@ -2288,6 +3034,17 @@ def _install_call_hygiene(
                         f"idle {effective_idle:.0f}s — likely voicemail or dropped audio"
                     )
                     return
+                # Voicemail max-duration enforcement. Once voicemail is detected
+                # (either via STT regex or monologue heuristic), enforce a hard
+                # timeout so we don't pay for extended TTS on a voicemail greeting.
+                vm_detected_at = state.get("voicemail_detected_at")
+                if vm_detected_at is not None and (now - vm_detected_at) >= voicemail_max_duration:
+                    clog.info(
+                        "watchdog: voicemail call reached max duration (%.0fs)",
+                        voicemail_max_duration,
+                    )
+                    await _hangup(f"voicemail max duration ({voicemail_max_duration:.0f}s) exceeded")
+                    return
                 # Post-greeting / pre-user-speech voicemail catcher
                 # (Wati June 10 v7 — Joanne Houston 42 s, Winifred Jonathan
                 # 41 s). On UK carriers like EE/Three the network rings
@@ -2342,6 +3099,67 @@ def _install_call_hygiene(
         "call hygiene: armed (idle=%.0fs, goodbye_grace=%.0fs)",
         idle_timeout, goodbye_grace,
     )
+
+
+def _wire_track_diagnostics(ctx: JobContext, clog) -> None:
+    """Log inbound-audio track lifecycle so we can tell, in ONE test call,
+    whether the caller's audio actually reaches the agent.
+
+    Wati 18/06 — the puzzle: agent speaks fine but stt_secs=0.0 and zero STT
+    transcripts, yet the caller's audio is clearly present in LiveKit's
+    session recording. Two very different root causes produce that symptom:
+      (a) the agent never SUBSCRIBES to the caller's audio track (Agent-First
+          race — track publishes after RoomInput links), or
+      (b) the agent subscribes fine but the frames never reach AssemblyAI
+          (sample-rate / STT-node issue).
+    These lines disambiguate: if we see "track_subscribed kind=audio" for the
+    SIP participant, cause (a) is ruled out and it's (b). If we DON'T, it's (a).
+    """
+    room = getattr(ctx, "room", None)
+    if room is None:
+        return
+
+    def _is_sip(participant) -> bool:
+        try:
+            attrs = dict(getattr(participant, "attributes", None) or {})
+            ident = str(getattr(participant, "identity", "") or "")
+            return ident.startswith("pstn-") or any(
+                str(k).startswith("sip.") for k in attrs.keys()
+            )
+        except Exception:
+            return False
+
+    def _on_subscribed(track, publication, participant):
+        try:
+            clog.info(
+                "audio-path: track_subscribed kind=%s source=%s from identity=%s (sip=%s)",
+                getattr(track, "kind", "?"),
+                getattr(publication, "source", "?"),
+                getattr(participant, "identity", "?"),
+                _is_sip(participant),
+            )
+        except Exception:
+            clog.debug("track_subscribed log failed", exc_info=True)
+
+    def _on_published(publication, participant):
+        try:
+            clog.info(
+                "audio-path: track_published kind=%s from identity=%s (sip=%s) — awaiting subscribe",
+                getattr(publication, "kind", "?"),
+                getattr(participant, "identity", "?"),
+                _is_sip(participant),
+            )
+        except Exception:
+            clog.debug("track_published log failed", exc_info=True)
+
+    for ev_name, fn in (
+        ("track_subscribed", _on_subscribed),
+        ("track_published", _on_published),
+    ):
+        try:
+            room.on(ev_name, fn)
+        except Exception:
+            clog.debug("room.on(%s) unavailable", ev_name)
 
 
 def _wire_debug_logs(session: AgentSession, clog) -> None:
@@ -2676,7 +3494,22 @@ async def entrypoint(ctx: JobContext) -> None:
             pass
         return
 
-    await ctx.connect()
+    # Wati 18/06 — explicit SUBSCRIBE_ALL.
+    # Symptom we're chasing: outbound calls where the agent SPEAKS fine but
+    # hears nothing (stt_secs=0.0, zero STT transcripts) even though the
+    # caller's audio is visibly present in LiveKit's session recording. The
+    # "Agent First" sequencing means the agent joins the room and links its
+    # RoomInput to the SIP participant WHILE that participant is still
+    # 'dialing' — i.e. before it has published its audio track. If the room
+    # isn't explicitly subscribing to all tracks, the audio track that
+    # publishes a beat later (callStatus→active) can go unsubscribed, so its
+    # frames never reach the STT node. Forcing SUBSCRIBE_ALL guarantees the
+    # late-published inbound track is subscribed the moment it appears.
+    try:
+        await ctx.connect(auto_subscribe=AutoSubscribe.SUBSCRIBE_ALL)
+    except TypeError:
+        # Older/newer signature without the kwarg — fall back to default.
+        await ctx.connect()
 
     # Flow runtime path — if room metadata carries flow_id, drive the IVR
     # state machine instead of running a single-agent persona.
@@ -2684,6 +3517,10 @@ async def entrypoint(ctx: JobContext) -> None:
     call_id = call_id_from_metadata(ctx.room.metadata)
     # Per-call logger: every line carries [call_id=…] for traceability.
     clog = _logger_for_call(call_id)
+    # Audio-path diagnostics: logs when the caller's inbound audio track is
+    # published/subscribed, so a single test call tells us whether the agent
+    # actually receives the caller's audio (see _wire_track_diagnostics).
+    _wire_track_diagnostics(ctx, clog)
     if flow_id:
         clog.info("flow_id=%s detected — booting FlowRuntime", flow_id)
         runtime = FlowRuntime(call_id=call_id)
@@ -2791,6 +3628,86 @@ async def entrypoint(ctx: JobContext) -> None:
         "resolved agent_id=%s (room_meta=%s, p_attrs_keys=%s, p_meta=%s)",
         agent_id, bool(ctx.room.metadata), list(p_attrs.keys()), bool(p_meta),
     )
+
+    # ── Inbound capture + human-first routing (Wati 25/06) ──────────────────
+    # Genuine inbound PSTN calls arrive via the SIP trunk: LiveKit sets the
+    # native sip.phoneNumber (caller) / sip.trunkPhoneNumber (the number dialed)
+    # and NO X-LK-* headers (those are forwarded only on desk/outbound legs). So
+    # we detect inbound from the trunk attrs + absence of campaign markers — not
+    # X-LK-Direction, which is null for genuine inbound.
+    _sip_from = p_attrs.get("sip.phoneNumber")
+    _sip_to = p_attrs.get("sip.trunkPhoneNumber")
+    _dir_hdr = str(p_attrs.get("sip.h.x-lk-direction") or p_attrs.get("axon.direction") or "").lower()
+    _has_campaign = bool(
+        p_attrs.get("sip.h.x-lk-campaign-id") or p_attrs.get("axon.campaign_id")
+        or p_attrs.get("sip.h.x-lk-target-id") or p_attrs.get("axon.target_id")
+    )
+    _is_inbound = _dir_hdr in ("in", "inbound") or (
+        bool(_sip_from or _sip_to) and _dir_hdr != "out" and not _has_campaign
+    )
+    if _is_inbound:
+        # ── Direct-SIP path: no webhook called, no calls row yet ──────────────
+        # When the Twilio SIP trunk Origination URI points straight at LiveKit
+        # (the user's telephony-platform setup), voice-inbound is never called.
+        # We create the calls row here so the rest of the pipeline has a row to
+        # write to, and so Mon poste can ring via human_first.
+        if not call_id:
+            try:
+                from human_first import (
+                    _create_inbound_call_row,
+                    _lookup_inbound_agent_id,
+                    _norm_e164,
+                )
+                _sip_from_e164 = _norm_e164(_sip_from)
+                _sip_to_e164 = _norm_e164(_sip_to)
+                new_call_id = await asyncio.to_thread(
+                    _create_inbound_call_row,
+                    _sip_from_e164,
+                    _sip_to_e164,
+                    ctx.room.name,
+                )
+                if new_call_id:
+                    call_id = new_call_id
+                    clog = _logger_for_call(call_id)
+                    clog.info(
+                        "[inbound] created call row for direct-SIP path to=%s",
+                        _sip_to_e164,
+                    )
+                # Resolve Charlotte (or whichever persona) from the phone number
+                # when no X-LK-Agent-Id was forwarded (direct-SIP path).
+                if not agent_id and _sip_to_e164:
+                    resolved = await asyncio.to_thread(
+                        _lookup_inbound_agent_id, _sip_to_e164
+                    )
+                    if resolved:
+                        agent_id = resolved
+                        clog.info(
+                            "[inbound] resolved agent_id=%s from phone number %s",
+                            agent_id, _sip_to_e164,
+                        )
+            except Exception:
+                clog.exception("[inbound] direct-SIP row creation / agent resolution failed")
+
+        # ALWAYS (ungated): backfill from/to on the call row so the dashboard
+        # Entrants tab + per-number routing have the dialed/caller numbers.
+        # Only fills NULLs, so outbound rows are never touched.
+        if call_id:
+            try:
+                from human_first import capture_inbound_numbers
+                await capture_inbound_numbers(call_id, _sip_from, _sip_to, clog)
+            except Exception:
+                clog.exception("[inbound] number capture failed")
+            # Human-first ring — STRICTLY opt-in via HUMAN_FIRST_INBOUND. If an
+            # ONLINE human is assigned to the dialed number we ring them first; the
+            # AI yields (returns) when a human picks up.
+            if os.getenv("HUMAN_FIRST_INBOUND") == "1":
+                try:
+                    from human_first import try_human_first
+                    if await try_human_first(ctx, call_id, clog):
+                        return  # a human took the call — the AI does not greet
+                except Exception:
+                    clog.exception("[human-first] routine error — AI continues normally")
+
     # Resolve campaign_id now (same sip.h.* gotcha as agent_id: the real value
     # is in the forwarded SIP header attribute; `axon.campaign_id` is the broken
     # dispatch-rule mapping that yields the literal "X-LK-Campaign-Id").
@@ -2848,8 +3765,21 @@ async def entrypoint(ctx: JobContext) -> None:
         _load(_load_campaign_call_tuning, campaign_id),
     )
     campaign_tuning = campaign_tuning or {}
+    # Per-AGENT call-tuning fallback (agents.metadata.call_tuning). Lets a single
+    # agent — e.g. the TEST agent on outbound shortcut calls where campaign=None —
+    # carry latency/STT/turn-detection overrides without a campaign. Campaign
+    # tuning still wins on any key both set. Prod agents carry no such metadata,
+    # so this layer is a no-op for them (zero behaviour change).
+    _agent_tuning: dict = {}
+    if axon is not None and isinstance(getattr(axon, "metadata", None), dict):
+        _ct = axon.metadata.get("call_tuning")
+        if isinstance(_ct, dict):
+            _agent_tuning = _ct
+    if _agent_tuning:
+        campaign_tuning = {**_agent_tuning, **campaign_tuning}
+        clog.info("agent-level call-tuning merged (agents.metadata.call_tuning): %s", _agent_tuning)
     if campaign_tuning:
-        clog.info("campaign call-tuning: %s", campaign_tuning)
+        clog.info("effective call-tuning: %s", campaign_tuning)
     # Per-campaign LLM override — only applied when the matching API key is
     # present on the worker, so a typo'd provider can't kill a whole slot.
     _tun_provider = str(campaign_tuning.get("llm_provider") or "").lower()
@@ -2939,7 +3869,15 @@ async def entrypoint(ctx: JobContext) -> None:
     # blob of variables via participant attributes instead of going through a
     # campaign target row. These override anything from the target (so a
     # tester can poke specific values without touching the DB).
-    sim_raw = p_attrs.get("simulation_vars")
+    #
+    # KEY MISMATCH BUG (Wati 18/06): the browser sim (/api/token) sets the bare
+    # attribute `simulation_vars`, but the outbound phone path
+    # (/api/outbound-call) forwards it as `axon.simulation_vars` — the SIP
+    # convention for custom attributes. The worker only read the bare key, so a
+    # "Make outbound call" with a firstname filled in still rendered
+    # "{{firstname}}" because the name was sitting under the axon.* key the
+    # whole time. Read BOTH so the name lands whichever path placed the call.
+    sim_raw = p_attrs.get("simulation_vars") or p_attrs.get("axon.simulation_vars")
     if sim_raw:
         try:
             import json as _json_sim
@@ -2957,6 +3895,52 @@ async def entrypoint(ctx: JobContext) -> None:
         template_vars.setdefault("agent_name", axon.name)
     instructions = render_template(instructions, template_vars)
     greeting = render_template(greeting, template_vars)
+    # Safety net (Wati 18/06): never let a raw {{placeholder}} reach the
+    # caller. render_template intentionally leaves unknown tokens visible so
+    # missing campaign data is loud in logs — but on a test call placed
+    # without a firstname that meant the agent literally said
+    # "Hi, am I speaking with {{firstname}}?", which sounds broken. Strip any
+    # unresolved token from the spoken greeting and tidy the leftover spacing
+    # / punctuation so the line stays natural. (The proper fix for real calls
+    # is still to pass the name; this only guards the no-name case.)
+    if "{{" in greeting:
+        clog.warning(
+            "[call_id=%s] greeting had unresolved placeholders — stripping for the caller "
+            "(pass firstname to avoid this)", call_id,
+        )
+        greeting = re.sub(r"\s*\{\{[^}]*\}\}", "", greeting)
+        greeting = re.sub(r"\s{2,}", " ", greeting)
+        greeting = greeting.replace(" ?", "?").replace(" .", ".").replace(" ,", ",").strip()
+        # "Hi, am I speaking with?" → natural professional fallback.
+        greeting = re.sub(r"\bwith\s*\?", "with the right person?", greeting, flags=re.IGNORECASE)
+    # Authoring guard (Wati 22/06): the greeting was sometimes written with the
+    # BARE placeholder word — "Hi, am I speaking with firstname?" instead of
+    # "{{firstname}}". render_template never touches it (no braces) and the
+    # {{…}} strip above never fires, so on a real call the agent literally said
+    # "firstname". Single tokens "firstname"/"lastname" are never natural
+    # English, so it's safe to treat them as placeholders: recover the real
+    # value from the already-resolved template vars, else drop the stray word.
+    _bare_name_tokens = {
+        "firstname": template_vars.get("firstname"),
+        "lastname": template_vars.get("lastname"),
+    }
+    _placeholderish = {"firstname", "lastname", "name", "prenom", "prénom", "patient"}
+    for _tok, _val in _bare_name_tokens.items():
+        if not re.search(rf"\b{_tok}\b", greeting, flags=re.IGNORECASE):
+            continue
+        _clean = (str(_val).strip() if _val is not None else "")
+        if _clean and _clean.lower() not in _placeholderish:
+            greeting = re.sub(rf"\b{_tok}\b", _clean, greeting, flags=re.IGNORECASE)
+            clog.info("[call_id=%s] greeting: recovered bare '%s' → %r", call_id, _tok, _clean)
+        else:
+            clog.warning(
+                "[call_id=%s] greeting had bare placeholder '%s' with no real value — stripping",
+                call_id, _tok,
+            )
+            greeting = re.sub(rf"\s*\b{_tok}\b", "", greeting, flags=re.IGNORECASE)
+            greeting = re.sub(r"\s{2,}", " ", greeting)
+            greeting = greeting.replace(" ?", "?").replace(" .", ".").replace(" ,", ",").strip()
+            greeting = re.sub(r"\bwith\s*\?", "with the right person?", greeting, flags=re.IGNORECASE)
     if template_vars:
         clog.info(
             "[call_id=%s] template vars resolved (%d keys: %s)",
@@ -2975,7 +3959,28 @@ async def entrypoint(ctx: JobContext) -> None:
     # Reuse the VAD loaded once at worker startup (prewarm) instead of paying
     # the model-load cost on every single call — that load was part of the
     # delay before the agent could start listening/speaking.
-    vad = (ctx.proc.userdata.get("vad") if getattr(ctx, "proc", None) else None) or silero.VAD.load()
+    #
+    # Per-turn EOU latency lever (Wati 2026-06-23 latency research): with
+    # turn_detection="vad", Silero VAD's `min_silence_duration` is what ACTUALLY
+    # ends every turn — not the AssemblyAI min_turn_silence we tuned. Its default
+    # is 0.55s, so every turn waited ~550ms of trailing silence regardless of the
+    # STT config. When a call carries a `min_silence_duration` override (set via
+    # agents.metadata.call_tuning, so prod agents with no metadata are unaffected
+    # and keep the prewarmed default-0.55 VAD), load a fresh VAD at that value.
+    # 0.30 cuts ~250ms off EOU on every turn. The fresh-load cost is one-off at
+    # session start and does NOT affect the per-turn EOU we're optimising.
+    _prewarmed_vad = ctx.proc.userdata.get("vad") if getattr(ctx, "proc", None) else None
+    _tun_min_sil = campaign_tuning.get("min_silence_duration")
+    if _tun_min_sil is not None:
+        try:
+            _ms = float(_tun_min_sil)
+            vad = silero.VAD.load(min_silence_duration=_ms)
+            clog.info("VAD: per-call min_silence_duration=%.2fs (tuning override)", _ms)
+        except Exception:
+            clog.warning("VAD: min_silence_duration override %r invalid — using prewarmed VAD", _tun_min_sil, exc_info=True)
+            vad = _prewarmed_vad or silero.VAD.load()
+    else:
+        vad = _prewarmed_vad or silero.VAD.load()
 
     import inspect as _inspect
 
@@ -3017,12 +4022,12 @@ async def entrypoint(ctx: JobContext) -> None:
             _stt = None
     if _stt is None:
         try:
-            _stt = _stt_for(axon)
+            _stt = _stt_for(axon, tuning=campaign_tuning)
         except Exception:
             clog.exception("BUILD FAILED: STT (AssemblyAI). Check ASSEMBLYAI_API_KEY on Fly.")
             raise
     try:
-        _llm = _llm_for(axon)
+        _llm = _llm_for_resilient(axon)
     except Exception:
         clog.exception(
             "BUILD FAILED: LLM (provider=%s model=%s). Check the matching *_API_KEY on Fly.",
@@ -3032,7 +4037,36 @@ async def entrypoint(ctx: JobContext) -> None:
         raise
     try:
         _tun_sr = campaign_tuning.get("tts_sample_rate")
+        # Wati 16/06 — auto-telephony detection. Rooms named "out-*",
+        # "tel-*" or "in-*" carry a SIP/PSTN leg at 8kHz G.711. Force
+        # sample_rate=8000 unless an explicit campaign override exists,
+        # so the TTS produces narrowband-shaped audio (ElevenLabs pcm_8000
+        # / Cartesia 8kHz) instead of letting LiveKit do a lossy downsample
+        # from 22-44kHz. This is what got Charlotte's voice sounding
+        # "trop radiophonique" on a real call.
+        if not _tun_sr and _room_name and _room_name.startswith(("out-", "tel-", "in-")):
+            _tun_sr = 8000
+            clog.info("auto-telephony: forcing tts_sample_rate=8000 for room=%s", _room_name)
+        # Also detect SIP participant by attributes, in case the room name
+        # doesn't match the pattern (e.g. simulation mode with SIP participant).
+        if not _tun_sr and participant is not None:
+            has_sip_attrs = any(
+                str(k).startswith("sip.")
+                for k in (getattr(participant, "attributes", None) or {}).keys()
+            )
+            if has_sip_attrs:
+                _tun_sr = 8000
+                clog.info("auto-telephony: detected SIP participant — forcing tts_sample_rate=8000")
         _tts = _tts_for(axon, sample_rate=int(_tun_sr) if _tun_sr else None)
+        # Stash the resolved telephony sample_rate on ctx so multi-agent
+        # handoffs (Charlotte → Isabelle → Victoria) rebuild the swapped-in
+        # persona's TTS at the SAME 8 kHz. Without this, a handoff on a phone
+        # call would rebuild ElevenLabs without sample_rate → back to the
+        # resampled/crackly plugin path. Same stash pattern as ctx._call_id.
+        try:
+            ctx._tts_sample_rate = int(_tun_sr) if _tun_sr else None  # type: ignore[attr-defined]
+        except Exception:
+            pass
     except Exception:
         clog.exception("BUILD FAILED: TTS (Cartesia). Check CARTESIA_API_KEY on Fly.")
         raise
@@ -3052,16 +4086,15 @@ async def entrypoint(ctx: JobContext) -> None:
     # and fall back to the old kwargs otherwise. Either way, signature-filter
     # so unknown kwargs are dropped instead of crashing.
     #
-    # Default 0.55s — measured compromise. 0.10s was too aggressive (fragmented
-    # speech like "Megan, Claudia, Kenneth / 17 / 1993" got split into 3 turns,
-    # wedging the pipeline). 0.80s was safe but added ~250ms perceived lag on
-    # every turn (EOU climbed from ~1.4s to ~1.7s in production logs).
-    # 0.55s preserves fragmented-speech grouping for short pauses while
-    # cutting the average response time. Override via MIN_ENDPOINTING_DELAY.
+    # Default 0.55s → 0.35s (Wati 16/06) → 0.30s (post-warmup). With LLM
+    # connection warmup now keeping the inference socket alive post-greeting,
+    # we can be more aggressive with VAD endpointing without cold-start TTFT
+    # killing the perceived latency. 0.30s is still safe for natural pauses
+    # (~300ms pauses within a sentence are common). Risk zone remains ~350ms+.
     # Per-campaign override first (test-campaign latency experiments),
-    # then env, then the measured 0.55s production compromise.
+    # then env, then the aggressive-but-safe 0.30s default.
     _tun_endp = campaign_tuning.get("min_endpointing_delay")
-    min_endp = float(_tun_endp) if _tun_endp else float(os.getenv("MIN_ENDPOINTING_DELAY", "0.55"))
+    min_endp = float(_tun_endp) if _tun_endp else float(os.getenv("MIN_ENDPOINTING_DELAY", "0.30"))
 
     # min_interruption_duration (Wati 2026-06-12 latency review): how long
     # the patient must speak before the agent stops talking. The default
@@ -3075,36 +4108,47 @@ async def entrypoint(ctx: JobContext) -> None:
         else float(os.getenv("MIN_INTERRUPTION_DURATION", "0")) or None
     )
 
+    # ── INTERRUPTION FIX (Wati 2026-06-23) ─────────────────────────────────
+    # By default livekit-agents spins up its ML-based "AdaptiveInterruptionDetector"
+    # whenever the STT exposes streaming + aligned transcripts (AssemblyAI
+    # u3-rt-pro does). On an 8 kHz phone line that detector was SUPPRESSING
+    # normal-volume interruptions: a patient asking "What is the next step?" was
+    # classified as "not a real interruption" and the agent kept talking. Prod
+    # traces proved it — interruption_num_requests=1 for an entire call of
+    # repeated, increasingly loud attempts; the patient literally had to shout
+    # before it fired. This is STT-gated, NOT llm-gated, so it hit every agent
+    # (deepseek, openai, anthropic) identically.
+    #
+    # Fix: force interruption.mode="vad". That drops the ML classifier — any
+    # clear speech past min_interruption_duration (0.25s here) stops the agent
+    # immediately, like a normal call. This MUST go through the nested
+    # turn_handling dict: the deprecated flat-kwargs path (below) has no knob for
+    # the interruption mode, which is why the adaptive detector was always on.
     new_api_applied = False
     try:
-        from livekit.agents import TurnHandlingOptions  # type: ignore
-        try:
-            tho_params = set(_inspect.signature(TurnHandlingOptions.__init__).parameters)
-        except (ValueError, TypeError):
-            tho_params = set()
-        tho_candidate = {
-            "preemptive_generation": True,
-            "min_endpointing_delay": min_endp,
-            "allow_interruptions": True,
-            "turn_detection": chosen_turn_detector,
-        }
+        _session_params = set(_inspect.signature(AgentSession.__init__).parameters)
+    except (ValueError, TypeError):
+        _session_params = set()
+    if "turn_handling" in _session_params:
+        # TurnHandlingOptions is a TypedDict — a plain dict with these keys is
+        # accepted directly (and is forward/backward compatible: unknown keys on
+        # an older build are simply ignored rather than raising).
+        interruption_opts = {"mode": "vad", "enabled": True}
         if min_interruption:
-            tho_candidate["min_interruption_duration"] = min_interruption
-        tho_kwargs = {k: v for k, v in tho_candidate.items() if k in tho_params}
-        if tho_kwargs:
-            try:
-                _session_params = set(_inspect.signature(AgentSession.__init__).parameters)
-            except (ValueError, TypeError):
-                _session_params = set()
-            if "turn_handling" in _session_params:
-                session_kwargs["turn_handling"] = TurnHandlingOptions(**tho_kwargs)
-                new_api_applied = True
-                clog.info(
-                    "turn_handling: TurnHandlingOptions(turn_detection=%s, min_endpointing_delay=%.2f)",
-                    turn_detector_mode, min_endp,
-                )
-    except ImportError:
-        pass
+            interruption_opts["min_duration"] = min_interruption
+        turn_handling_cfg = {
+            "turn_detection": chosen_turn_detector,
+            "endpointing": {"min_delay": min_endp},
+            "interruption": interruption_opts,
+            "preemptive_generation": {"enabled": True},
+        }
+        session_kwargs["turn_handling"] = turn_handling_cfg
+        new_api_applied = True
+        clog.info(
+            "turn_handling: interruption.mode=vad (adaptive ML detector OFF), "
+            "turn_detection=%s, min_endpointing_delay=%.2f, min_interruption=%s",
+            turn_detector_mode, min_endp, min_interruption,
+        )
 
     if not new_api_applied:
         # Old API path. Pass only what this version's AgentSession accepts.
@@ -3191,6 +4235,7 @@ async def entrypoint(ctx: JobContext) -> None:
                 contact_id=target_vars.get("__contact_id__"),
                 call_id=call_id,
                 agent_handle_id=agent_handle_id,
+                language=(axon.language if axon else None),
             )
         except Exception:
             clog.exception("transfer_to_human tool build failed")
@@ -3198,6 +4243,25 @@ async def entrypoint(ctx: JobContext) -> None:
         if transfer_human_tool is not None:
             tools.append(transfer_human_tool)
             clog.info("transfer_to_human tool enabled")
+        # schedule_callback: when the patient asks the IA to call THEM back at a
+        # specific date/time (and is fine staying with the assistant), this tool
+        # stamps leads_rdv (RAPPEL + rappel_rdv) so the dialer's exact-time
+        # callback runner re-dials via Charlotte at that moment (08:00–21:00 UK).
+        # Distinct from transfer_to_human (which routes to a human). Fail-soft.
+        try:
+            from tools_schedule_callback import build_schedule_callback_tool
+            schedule_cb_tool = build_schedule_callback_tool(
+                org_id=(axon.org_id if axon else None),
+                call_id=call_id,
+                e164=None,  # endpoint resolves the patient phone from call_id
+                language=(axon.language if axon else None),
+            )
+        except Exception:
+            clog.exception("schedule_callback tool build failed")
+            schedule_cb_tool = None
+        if schedule_cb_tool is not None:
+            tools.append(schedule_cb_tool)
+            clog.info("schedule_callback tool enabled")
     else:
         # legacy path: env-only n8n tools
         if os.getenv("N8N_BASE_URL") and os.getenv("N8N_API_KEY"):
@@ -3215,12 +4279,62 @@ async def entrypoint(ctx: JobContext) -> None:
     _env_on_answer_ids = {
         s.strip() for s in os.getenv("GREETING_ON_ANSWER_CAMPAIGN_IDS", "").split(",") if s.strip()
     }
-    greet_on_answer = (
-        campaign_tuning.get("greeting_mode") == "on_answer"
-        or (campaign_id is not None and str(campaign_id) in _env_on_answer_ids)
+    # Wati 18/06 — the outbound shortcut ("Make outbound call" via
+    # /api/outbound-call → room "out-<call_id>") now uses SPEECH-FIRST,
+    # exactly like the production dialer. Don't re-flip to on-answer without
+    # reading this:
+    #
+    # on-answer greets the instant sip.callStatus flips to "active". On this
+    # Twilio trunk "active" fires during EARLY MEDIA (~0.2s, while the carrier
+    # still plays ringback) — NOT at the real human pickup (~12s later;
+    # confirmed by Wati hearing Twilio hold-music until 12s and the call
+    # arriving on the handset only then). So the greeting played into a
+    # dead/ringback leg every time: the callee picked up to silence, said
+    # "Hello?", which 8kHz STT misheard as "No" (conf 50.7%), and the LLM
+    # said goodbye and hung up (call 2f580644). Production NEVER hit this
+    # because it runs speech-first: it ignores the premature "active" and
+    # greets only after the callee's first real utterance — the only reliable
+    # pickup signal on a trunk that reports "active" on ringback. That also
+    # matches the Retell experience Wati described ("I pick up, say Hello,
+    # the agent answers within a second"). The earlier "13s of pickup
+    # silence" blamed on speech-first was in fact the real ring time — the
+    # callee simply hadn't answered yet; the agent was waiting correctly.
+    #
+    # on-answer remains available as an explicit opt-in (campaign metadata
+    # greeting_mode="on_answer" or GREETING_ON_ANSWER_CAMPAIGN_IDS) for
+    # trunks that DO signal a true answer — but the outbound shortcut no
+    # longer forces it.
+    _outbound_shortcut = bool(
+        _room_name and _room_name.startswith("out-") and not campaign_id
     )
-    if greet_on_answer:
-        clog.info("greeting mode: ON-ANSWER (experimental, campaign=%s)", campaign_id)
+    # Wati 22/06 — ON-ANSWER is now the DEFAULT everywhere: the agent greets
+    # the moment the callee answers (Retell-style) instead of waiting for the
+    # patient to speak first. Wati's manual test calls showed speech-first's
+    # "dead air until you say Hello" felt like high latency ("surtout quand je
+    # dis hello, ça prend du temps avant de répondre"). The historic ringback
+    # risk (greeting played into in-band ringback on UK mobile routes) is
+    # already mitigated INSIDE on_enter: it re-greets once if the patient's
+    # first speech lands suspiciously late, and the opener budget re-fires the
+    # greeting on a bare "Hello?" (= they didn't hear the first one). Escape
+    # hatches preserved: set GREETING_DEFAULT_MODE=speech_first to revert the
+    # global default without a redeploy, or pin a single campaign back to
+    # speech-first via campaigns.metadata.greeting_mode="speech_first".
+    _default_on_answer = (
+        os.getenv("GREETING_DEFAULT_MODE", "on_answer").lower() == "on_answer"
+    )
+    _mode_tuning = campaign_tuning.get("greeting_mode")
+    greet_on_answer = (
+        _mode_tuning == "on_answer"
+        or (campaign_id is not None and str(campaign_id) in _env_on_answer_ids)
+        or (_default_on_answer and _mode_tuning != "speech_first")
+    )
+    clog.info(
+        "greeting mode: %s (campaign=%s outbound_shortcut=%s default_on_answer=%s)",
+        "ON-ANSWER" if greet_on_answer else "SPEECH-FIRST",
+        campaign_id, _outbound_shortcut, _default_on_answer,
+    )
+
+    _greeting_wait = campaign_tuning.get("greeting_wait_secs")
 
     # Phrase d'intro scriptée (latence) — rendue avec les mêmes variables que
     # le greeting ({first_name}, etc.). Vide si la campagne ne la définit pas.
@@ -3240,7 +4354,7 @@ async def entrypoint(ctx: JobContext) -> None:
             greet_on_answer=greet_on_answer,
             quick_ack=bool(campaign_tuning.get("quick_ack")),
             confirm_reply=confirm_reply,
-            greeting_wait_secs=campaign_tuning.get("greeting_wait_secs"),
+            greeting_wait_secs=_greeting_wait,
             # Pass the SIP participant already resolved by
             # ctx.wait_for_participant() so on_enter can poll its
             # sip.callStatus directly. None for browser/desk sessions.
@@ -3531,7 +4645,7 @@ _LAST_JOB_MARKER = "/tmp/axon_last_job"
 _PROBE_INTERVAL_SECS = int(os.getenv("DISPATCH_PROBE_INTERVAL_SECS", "120"))
 _PROBE_STARTUP_DELAY_SECS = int(os.getenv("DISPATCH_PROBE_STARTUP_DELAY_SECS", "180"))
 _PROBE_JOIN_TIMEOUT_SECS = 20
-_PROBE_MAX_CONSECUTIVE_MISSES = 2
+_PROBE_MAX_CONSECUTIVE_MISSES = int(os.getenv("DISPATCH_PROBE_MAX_MISSES", "4"))
 
 
 def _marker_mtime(path: str) -> float:

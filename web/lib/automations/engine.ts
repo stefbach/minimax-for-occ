@@ -5,6 +5,7 @@ import { generateText, type AnthropicCred } from "./ai";
 import { sendEmail, createDraft, type GmailCred } from "./gmail";
 import { type RunCtx, loadCredential } from "./runtime";
 import { runOccStep } from "./steps-occ";
+import { sendWhatsAppTemplate, sendWhatsAppFreeform } from "./whatsapp-twilio";
 
 /**
  * Native Axon automation engine ("mini-n8n"), v2.
@@ -53,6 +54,173 @@ export interface WorkflowRow {
   trigger: TriggerConfig;
   steps: StepConfig[];
   last_run_at: string | null;
+  /** Management agent powering ai_email/ai_whatsapp/ai_update_row steps. */
+  agent_id?: string | null;
+  /** 'auto' = AI steps send immediately; 'review' = enqueue for approval. */
+  approval_mode?: "auto" | "review";
+}
+
+// ── Management-agent AI steps (ai_email / ai_whatsapp / ai_update_row) ──────
+// A "management" agent drafts the content per row from its directives, then
+// either sends immediately (approval_mode 'auto') or enqueues a pending action
+// for human approval ('review'). Distinct from the OCC `ai_brain` step (which
+// runs an Anthropic credential) — here the agent uses its own configured LLM.
+
+interface AgentBrain {
+  id: string;
+  llm_provider: string;
+  llm_model: string;
+  system_prompt: string;
+}
+
+async function loadAgentBrain(
+  app: ReturnType<typeof supabaseServer>,
+  orgId: string,
+  agentId: string,
+): Promise<AgentBrain | null> {
+  const { data } = await app
+    .from("agents")
+    .select("id, llm_provider, llm_model, system_prompt")
+    .eq("id", agentId)
+    .eq("org_id", orgId)
+    .maybeSingle();
+  if (!data) return null;
+  return {
+    id: data.id as string,
+    llm_provider: (data.llm_provider as string) ?? "deepseek",
+    llm_model: (data.llm_model as string) ?? "deepseek-v4-flash",
+    system_prompt: (data.system_prompt as string) ?? "",
+  };
+}
+
+function providerEndpoint(provider: string): { url: string; key: string | undefined; model_fallback: string } {
+  switch (provider) {
+    case "openai":
+      return { url: "https://api.openai.com/v1/chat/completions", key: process.env.OPENAI_API_KEY, model_fallback: "gpt-4o-mini" };
+    case "minimax":
+      return {
+        url: `${(process.env.MINIMAX_BASE_URL ?? "https://api.minimax.io/v1").replace(/\/+$/, "")}/chat/completions`,
+        key: process.env.MINIMAX_API_KEY,
+        model_fallback: "MiniMax-M2",
+      };
+    case "deepseek":
+    default:
+      return {
+        url: `${(process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com/v1").replace(/\/+$/, "")}/chat/completions`,
+        key: process.env.DEEPSEEK_API_KEY,
+        model_fallback: "deepseek-v4-flash",
+      };
+  }
+}
+
+function parseJsonLoose(text: string): Record<string, unknown> {
+  const t = (text ?? "").trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
+  try {
+    const v = JSON.parse(t);
+    return v && typeof v === "object" ? (v as Record<string, unknown>) : {};
+  } catch {
+    const m = t.match(/\{[\s\S]*\}/);
+    if (m) {
+      try { return JSON.parse(m[0]) as Record<string, unknown>; } catch { /* fall through */ }
+    }
+    throw new Error("réponse LLM non-JSON");
+  }
+}
+
+async function agentGenerateJson(agent: AgentBrain, instruction: string): Promise<Record<string, unknown>> {
+  const system = `${agent.system_prompt}\n\nTu réponds UNIQUEMENT avec un objet JSON valide, sans texte autour, sans bloc de code.`;
+  if (agent.llm_provider === "anthropic") {
+    const key = process.env.ANTHROPIC_API_KEY ?? process.env.CLAUDE_API_KEY;
+    if (!key) throw new Error("ANTHROPIC_API_KEY manquante pour l'agent");
+    const r = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
+      body: JSON.stringify({
+        model: agent.llm_model?.startsWith("claude") ? agent.llm_model : "claude-haiku-4-5-20251001",
+        max_tokens: 900,
+        system,
+        messages: [{ role: "user", content: instruction }],
+      }),
+      signal: AbortSignal.timeout(30000),
+    });
+    if (!r.ok) throw new Error(`Anthropic ${r.status}: ${(await r.text()).slice(0, 200)}`);
+    const j = (await r.json()) as { content?: Array<{ text?: string }> };
+    return parseJsonLoose(j.content?.map((c) => c.text ?? "").join("") ?? "");
+  }
+  const { url, key, model_fallback } = providerEndpoint(agent.llm_provider);
+  if (!key) throw new Error(`Clé API manquante pour le fournisseur ${agent.llm_provider}`);
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
+    body: JSON.stringify({
+      model: agent.llm_model || model_fallback,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: instruction },
+      ],
+      temperature: 0.4,
+      max_tokens: 900,
+      response_format: { type: "json_object" },
+    }),
+    signal: AbortSignal.timeout(30000),
+  });
+  if (!r.ok) throw new Error(`LLM ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  const j = (await r.json()) as { choices?: Array<{ message?: { content?: string } }> };
+  return parseJsonLoose(j.choices?.[0]?.message?.content ?? "");
+}
+
+function rowContextJson(ctx: Ctx): string {
+  const slim: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(ctx)) {
+    if (k.startsWith("_")) continue; // drop engine internals (_table, _now, …)
+    if (v == null) continue;
+    if (typeof v === "string" && v.length > 500) slim[k] = v.slice(0, 500);
+    else if (typeof v === "object") continue; // skip nested step outputs
+    else slim[k] = v;
+  }
+  return JSON.stringify(slim);
+}
+
+function normalizeWatiParams(
+  out: Record<string, unknown>,
+  slots?: Array<{ name: string; hint?: string }>,
+): Array<{ name: string; value: string }> {
+  const result: Array<{ name: string; value: string }> = [];
+  const raw = out.parameters ?? out.values;
+  if (Array.isArray(raw)) {
+    for (const p of raw) {
+      if (p && typeof p === "object" && "name" in (p as object)) {
+        const o = p as { name: unknown; value?: unknown };
+        result.push({ name: String(o.name), value: String(o.value ?? "") });
+      }
+    }
+  } else if (raw && typeof raw === "object") {
+    for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+      result.push({ name: k, value: String(v ?? "") });
+    }
+  }
+  if (result.length === 0 && slots) for (const s of slots) result.push({ name: s.name, value: "" });
+  return result;
+}
+
+async function enqueueAction(
+  rc: RunCtx,
+  channel: "email" | "whatsapp" | "update_row",
+  rowId: unknown,
+  table: string,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  await rc.app.from("org_workflow_actions").insert({
+    org_id: rc.orgId,
+    workflow_id: rc.workflowId ?? null,
+    run_id: rc.runId ?? null,
+    agent_id: rc.agent?.id ?? null,
+    channel,
+    table_name: table,
+    row_id: String(rowId ?? ""),
+    payload,
+    status: "pending",
+  });
 }
 
 export interface RunStats {
@@ -88,54 +256,29 @@ async function sendEmailSmtp(
   });
 }
 
+// WhatsApp now ships via Twilio Content templates (migrated off WATI). The
+// signature is unchanged so every call site switches over transparently: the
+// `cred`/`broadcastName` args are ignored, and the positional WATI parameters
+// (name "1", "2"…) map straight onto Twilio ContentVariables.
 async function sendWatiTemplate(
-  cred: Record<string, unknown>,
+  _cred: Record<string, unknown> | null,
   phone: string,
   templateName: string,
-  broadcastName: string,
+  _broadcastName: string,
   parameters: Array<{ name: string; value: string }>,
 ): Promise<void> {
-  const base = String(cred.base_url ?? "").replace(/\/+$/, "");
-  const token = String(cred.token ?? "");
-  if (!base || !token) throw new Error("WATI credential missing base_url/token");
-  const waNumber = phone.replace(/^\+/, "");
-  const r = await fetch(
-    `${base}/api/v1/sendTemplateMessage?whatsappNumber=${encodeURIComponent(waNumber)}`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: token.startsWith("Bearer ") ? token : `Bearer ${token}`,
-      },
-      body: JSON.stringify({ template_name: templateName, broadcast_name: broadcastName, parameters }),
-      signal: AbortSignal.timeout(15000),
-    },
-  );
-  if (!r.ok) {
-    const body = await r.text().catch(() => "");
-    throw new Error(`WATI ${r.status}: ${body.slice(0, 200)}`);
-  }
+  const variables: Record<string, string> = {};
+  for (const p of parameters) variables[p.name] = p.value;
+  await sendWhatsAppTemplate(phone, templateName, variables);
 }
 
 async function sendWatiSession(
-  cred: Record<string, unknown>,
+  _cred: Record<string, unknown> | null,
   phone: string,
   messageText: string,
 ): Promise<void> {
-  const base = String(cred.base_url ?? "").replace(/\/+$/, "");
-  const token = String(cred.token ?? "");
-  if (!base || !token) throw new Error("WATI credential missing base_url/token");
-  const waNumber = phone.replace(/^\+/, "");
-  const url = `${base}/api/v1/sendSessionMessage/${encodeURIComponent(waNumber)}?messageText=${encodeURIComponent(messageText)}`;
-  const r = await fetch(url, {
-    method: "POST",
-    headers: { Authorization: token.startsWith("Bearer ") ? token : `Bearer ${token}` },
-    signal: AbortSignal.timeout(15000),
-  });
-  if (!r.ok) {
-    const body = await r.text().catch(() => "");
-    throw new Error(`WATI session ${r.status}: ${body.slice(0, 200)}`);
-  }
+  // Free-form WhatsApp via Twilio (only delivers inside the 24h window).
+  await sendWhatsAppFreeform(phone, messageText);
 }
 
 async function sendTelegram(
@@ -230,7 +373,10 @@ async function executeStep(rc: RunCtx, step: StepConfig, ctx: Ctx): Promise<void
         return;
       }
       const cred = credId ? await loadCredential(rc, credId) : null;
-      if (!cred) {
+      // Email channels still need their Gmail/SMTP credential; WhatsApp now
+      // ships via Twilio (env creds), so it no longer requires the WATI cred.
+      const needsCred = step.type === "send_gmail" || step.type === "send_email_smtp";
+      if (needsCred && !cred) {
         rc.log("warn", `row ${rowId}: ${step.type} — credential missing`);
         rc.stats.skipped++;
         return;
@@ -251,7 +397,7 @@ async function executeStep(rc: RunCtx, step: StepConfig, ctx: Ctx): Promise<void
           rc.stats.skipped++;
           return;
         }
-        await sendEmailSmtp(cred, to, get("subject"), get("html"));
+        await sendEmailSmtp(cred!, to, get("subject"), get("html"));
         rc.log("info", `row ${rowId}: email sent to ${to}`);
       } else if (step.type === "send_wati_template") {
         const phone = get("phone").trim();
@@ -364,7 +510,7 @@ async function executeStep(rc: RunCtx, step: StepConfig, ctx: Ctx): Promise<void
       const targetId = String(step.workflow_id ?? "");
       const { data: target } = await rc.app
         .from("org_workflows")
-        .select("id, org_id, name, active, trigger, steps, last_run_at")
+        .select("id, org_id, name, active, trigger, steps, last_run_at, agent_id, approval_mode")
         .eq("id", targetId)
         .eq("org_id", rc.orgId)
         .maybeSingle();
@@ -387,6 +533,95 @@ async function executeStep(rc: RunCtx, step: StepConfig, ctx: Ctx): Promise<void
       return;
     }
 
+    // ── Management-agent steps: agent drafts content per row ───────────────
+    case "ai_email": {
+      const skipCol = step.skip_if_column as string | undefined;
+      if (skipCol && truthy(ctx[skipCol])) { rc.stats.skipped++; return; }
+      if (!rc.agent) { rc.log("warn", `row ${rowId}: ai_email — aucun agent de gestion lié`); rc.stats.skipped++; return; }
+      const to = get("to").trim();
+      if (!to.includes("@")) { rc.log("warn", `row ${rowId}: ai_email — email invalide (${to || "vide"})`); rc.stats.skipped++; return; }
+      const goal = step.goal ? String(step.goal) : "";
+      const out = await agentGenerateJson(
+        rc.agent,
+        `Rédige un email personnalisé pour ce contact selon tes directives.${goal ? ` Objectif : ${goal}.` : ""}\nDonnées de la fiche (JSON) : ${rowContextJson(ctx)}\nRéponds en JSON : {"subject": "...", "html": "<p>...</p>"} — corps en HTML simple.`,
+      );
+      const subject = String(out.subject ?? "").trim();
+      const html = String((out.html ?? out.body) ?? "").trim();
+      if (!subject || !html) { rc.log("warn", `row ${rowId}: ai_email — l'agent n'a pas produit d'email`); rc.stats.skipped++; return; }
+      if (rc.approvalMode === "review") {
+        await enqueueAction(rc, "email", rowId, table, { credential_id: credId, to, subject, html, mark_column: (step.mark_column as string) ?? null });
+        rc.log("info", `row ${rowId}: email rédigé, en attente de validation`);
+        rc.stats.actions++;
+      } else {
+        const cred = credId ? await loadCredential(rc, credId) : null;
+        if (!cred) { rc.log("warn", `row ${rowId}: ai_email — credential manquant`); rc.stats.skipped++; return; }
+        await sendEmailSmtp(cred, to, subject, html);
+        rc.stats.actions++;
+        const markCol = step.mark_column as string | undefined;
+        if (markCol && table) { await rc.ds.client.from(table).update({ [markCol]: true }).eq("id", rowId); ctx[markCol] = true; }
+        rc.log("info", `row ${rowId}: ai_email envoyé à ${to}`);
+      }
+      return;
+    }
+
+    case "ai_whatsapp": {
+      const skipCol = step.skip_if_column as string | undefined;
+      if (skipCol && truthy(ctx[skipCol])) { rc.stats.skipped++; return; }
+      if (!rc.agent) { rc.log("warn", `row ${rowId}: ai_whatsapp — aucun agent de gestion lié`); rc.stats.skipped++; return; }
+      const phone = get("phone").trim();
+      if (!phone) { rc.log("warn", `row ${rowId}: ai_whatsapp — pas de téléphone`); rc.stats.skipped++; return; }
+      const slotList = (step.param_slots as Array<{ name: string; hint?: string }>) ?? [];
+      const slots = slotList.map((s) => `${s.name}${s.hint ? ` (${s.hint})` : ""}`).join(", ") || "aucune";
+      const goal = step.goal ? String(step.goal) : "";
+      const out = await agentGenerateJson(
+        rc.agent,
+        `Remplis les variables du template WhatsApp « ${String(step.template_name)} » pour ce contact selon tes directives.${goal ? ` Objectif : ${goal}.` : ""}\nVariables attendues : ${slots}\nDonnées de la fiche (JSON) : ${rowContextJson(ctx)}\nRéponds en JSON : {"parameters": [{"name": "...", "value": "..."}]}`,
+      );
+      const parameters = normalizeWatiParams(out, slotList);
+      if (rc.approvalMode === "review") {
+        await enqueueAction(rc, "whatsapp", rowId, table, { credential_id: credId, phone, template_name: String(step.template_name), broadcast_prefix: (step.broadcast_prefix as string) ?? null, parameters, mark_column: (step.mark_column as string) ?? null });
+        rc.log("info", `row ${rowId}: WhatsApp préparé, en attente de validation`);
+        rc.stats.actions++;
+      } else {
+        const cred = credId ? await loadCredential(rc, credId) : null;
+        if (!cred) { rc.log("warn", `row ${rowId}: ai_whatsapp — credential manquant`); rc.stats.skipped++; return; }
+        const broadcast = `${(step.broadcast_prefix as string) ?? String(step.template_name)}_${rowId}`;
+        await sendWatiTemplate(cred, phone, String(step.template_name), broadcast, parameters);
+        rc.stats.actions++;
+        const markCol = step.mark_column as string | undefined;
+        if (markCol && table) { await rc.ds.client.from(table).update({ [markCol]: true }).eq("id", rowId); ctx[markCol] = true; }
+        rc.log("info", `row ${rowId}: ai_whatsapp envoyé à ${phone}`);
+      }
+      return;
+    }
+
+    case "ai_update_row": {
+      if (!rc.agent) { rc.log("warn", `row ${rowId}: ai_update_row — aucun agent de gestion lié`); rc.stats.skipped++; return; }
+      const cols = (step.columns as string[]) ?? [];
+      if (cols.length === 0) { rc.stats.skipped++; return; }
+      const goal = step.goal ? String(step.goal) : "";
+      const out = await agentGenerateJson(
+        rc.agent,
+        `Détermine les valeurs des colonnes suivantes pour cette fiche selon tes directives : ${cols.join(", ")}.${goal ? ` Objectif : ${goal}.` : ""}\nDonnées de la fiche (JSON) : ${rowContextJson(ctx)}\nRéponds en JSON : {"set": { <colonne>: <valeur> }} — uniquement ces colonnes.`,
+      );
+      const rawSet = (out.set && typeof out.set === "object" ? out.set : out) as Record<string, unknown>;
+      const patch: Record<string, unknown> = {};
+      for (const c of cols) if (c in rawSet) patch[c] = rawSet[c];
+      if (Object.keys(patch).length === 0) { rc.stats.skipped++; return; }
+      if (rc.approvalMode === "review") {
+        await enqueueAction(rc, "update_row", rowId, table, { set: patch });
+        rc.log("info", `row ${rowId}: mise à jour préparée, en attente de validation`);
+        rc.stats.actions++;
+      } else if (table) {
+        const { error } = await rc.ds.client.from(table).update(patch).eq("id", rowId);
+        if (error) throw new Error(error.message);
+        for (const [k, v] of Object.entries(patch)) ctx[k] = v;
+        rc.stats.actions++;
+        rc.log("info", `row ${rowId}: ai_update_row (${Object.keys(patch).join(", ")})`);
+      }
+      return;
+    }
+
     default: {
       // OCC compound steps (fetch_patient_context, gmail_ingest_documents,
       // screen_dossier, generate_documents, communicate, …) live in their own
@@ -404,7 +639,7 @@ function makeStats(): RunStats {
   return { matched: 0, actions: 0, skipped: 0, errors: 0, log: [] };
 }
 
-export async function runWorkflow(wf: WorkflowRow, input?: Ctx, depth = 0): Promise<RunStats> {
+export async function runWorkflow(wf: WorkflowRow, input?: Ctx, depth = 0, runId?: string | null): Promise<RunStats> {
   const app = supabaseServer();
   const stats = makeStats();
   const log = (level: "info" | "warn" | "error", msg: string) => {
@@ -423,6 +658,24 @@ export async function runWorkflow(wf: WorkflowRow, input?: Ctx, depth = 0): Prom
   }
 
   const rc: RunCtx = { orgId: wf.org_id, ds, app, creds: new Map(), stats, log, depth };
+
+  // Management-agent wiring: if any ai_* step is present, load the bound agent
+  // once and record the approval mode so executeStep can draft + send/enqueue.
+  rc.workflowId = wf.id;
+  rc.runId = runId ?? null;
+  rc.approvalMode = wf.approval_mode === "review" ? "review" : "auto";
+  const needsAgent = (wf.steps ?? []).some(
+    (s) => s.type === "ai_email" || s.type === "ai_whatsapp" || s.type === "ai_update_row",
+  );
+  if (needsAgent) {
+    if (wf.agent_id) {
+      rc.agent = await loadAgentBrain(app, wf.org_id, wf.agent_id);
+      if (!rc.agent) { log("error", `agent ${wf.agent_id} introuvable`); stats.errors++; }
+    } else {
+      log("error", "étapes IA présentes mais aucun agent de gestion lié au workflow");
+      stats.errors++;
+    }
+  }
 
   // Callable automation: run steps once over the supplied input context
   // (falling back to trigger.test_input so "Run now" can exercise sub-agents).
@@ -496,7 +749,7 @@ export async function runWorkflowAndRecord(wf: WorkflowRow, input?: Ctx): Promis
 
   let stats: RunStats;
   try {
-    stats = await runWorkflow(wf, input);
+    stats = await runWorkflow(wf, input, 0, runRow?.id as string | undefined);
   } catch (e) {
     stats = { ...makeStats(), errors: 1 };
     stats.log.push({ at: new Date().toISOString(), level: "error", msg: e instanceof Error ? e.message : String(e) });
@@ -528,7 +781,7 @@ export async function runDueWorkflows(): Promise<Array<{ id: string; name: strin
   const sb = supabaseServer();
   const { data: wfs } = await sb
     .from("org_workflows")
-    .select("id, org_id, name, active, trigger, steps, last_run_at")
+    .select("id, org_id, name, active, trigger, steps, last_run_at, agent_id, approval_mode")
     .eq("active", true);
   const out: Array<{ id: string; name: string; stats: RunStats }> = [];
   const now = Date.now();
@@ -546,3 +799,73 @@ export async function runDueWorkflows(): Promise<Array<{ id: string; name: strin
 }
 
 export { getPath };
+
+/**
+ * Execute one approved action from the review queue: send the AI-drafted
+ * email/WhatsApp (or apply the row update), mark the source row, and flip the
+ * action's status. Called by the approval API on "approve". Management-agent
+ * workflows scan the app DB, so credentials and rows both live there.
+ */
+export async function executeQueuedAction(
+  orgId: string,
+  actionId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const sb = supabaseServer();
+  const { data: action } = await sb
+    .from("org_workflow_actions")
+    .select("id, channel, table_name, row_id, payload, status")
+    .eq("id", actionId)
+    .eq("org_id", orgId)
+    .maybeSingle();
+  if (!action) return { ok: false, error: "action introuvable" };
+  if ((action.status as string) !== "pending") return { ok: false, error: `action déjà ${action.status}` };
+
+  const payload = (action.payload ?? {}) as Record<string, unknown>;
+  const channel = action.channel as string;
+  const table = action.table_name as string;
+  const rowId = action.row_id as string;
+
+  async function loadCred(id: string): Promise<Record<string, unknown> | null> {
+    const { data } = await sb
+      .from("org_credentials")
+      .select("kind, data")
+      .eq("id", id)
+      .eq("org_id", orgId)
+      .maybeSingle();
+    return data ? { kind: data.kind, ...(data.data as Record<string, unknown>) } : null;
+  }
+
+  try {
+    if (channel === "email") {
+      const cred = await loadCred(String(payload.credential_id ?? ""));
+      if (!cred) throw new Error("credential email introuvable");
+      await sendEmailSmtp(cred, String(payload.to ?? ""), String(payload.subject ?? ""), String(payload.html ?? ""));
+      if (payload.mark_column) await sb.from(table).update({ [String(payload.mark_column)]: true }).eq("id", rowId);
+    } else if (channel === "whatsapp") {
+      const cred = await loadCred(String(payload.credential_id ?? ""));
+      if (!cred) throw new Error("credential WhatsApp introuvable");
+      const tmpl = String(payload.template_name ?? "");
+      const broadcast = `${(payload.broadcast_prefix as string) ?? tmpl}_${rowId}`;
+      const params = Array.isArray(payload.parameters)
+        ? (payload.parameters as Array<{ name: string; value: string }>)
+        : [];
+      await sendWatiTemplate(cred, String(payload.phone ?? ""), tmpl, broadcast, params);
+      if (payload.mark_column) await sb.from(table).update({ [String(payload.mark_column)]: true }).eq("id", rowId);
+    } else if (channel === "update_row") {
+      const set = (payload.set ?? {}) as Record<string, unknown>;
+      if (Object.keys(set).length > 0) {
+        const { error } = await sb.from(table).update(set).eq("id", rowId);
+        if (error) throw new Error(error.message);
+      }
+    } else {
+      throw new Error(`canal inconnu: ${channel}`);
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    await sb.from("org_workflow_actions").update({ status: "failed", error: msg, decided_at: new Date().toISOString() }).eq("id", actionId);
+    return { ok: false, error: msg };
+  }
+
+  await sb.from("org_workflow_actions").update({ status: "sent", decided_at: new Date().toISOString() }).eq("id", actionId);
+  return { ok: true };
+}

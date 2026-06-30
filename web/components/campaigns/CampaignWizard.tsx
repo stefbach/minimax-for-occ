@@ -1,14 +1,19 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { DynamicEngineConfig, defaultEngineConfig, type EngineConfig } from "./DynamicEngineConfig";
 import { PreflightPanel } from "./PreflightPanel";
-import { preflightCampaign, isPreflightClear } from "@/lib/sentinel/preflight";
+import { preflightCampaign, isPreflightClear, blockingChecks } from "@/lib/sentinel/preflight";
+import { ScheduleChatPanel, type ScheduleChatContext, type FinalizeResult } from "./ScheduleChatPanel";
+import type { NormalizedSchedule } from "@/lib/campaigns/schedule-proposal";
 
 export interface AgentHandleOption {
   id: string;
   display_name: string;
+  /** 'ai' = the AI agent speaks; 'human' = a desk campaign that connects each
+   *  answered lead to this human agent's softphone (they must be online). */
+  kind?: "ai" | "human";
   llm_model: string | null;
   tts_voice_id: string | null;
   /** Wave 1 preflight: true when the referenced `agents.system_prompt` (or
@@ -66,6 +71,16 @@ export interface DataTableOption {
 interface Target {
   e164: string;
   name: string | null;
+}
+
+/** A Twilio Content template, as returned by /api/twilio/content-templates. */
+interface ContentTemplate {
+  sid: string;
+  friendly_name: string;
+  language: string | null;
+  variables: string[];
+  body: string | null;
+  type_keys: string[];
 }
 
 const DAYS = [
@@ -249,6 +264,194 @@ function parseCsv(text: string): Target[] {
   return out;
 }
 
+/**
+ * Picks a Twilio Content template (SMS or WhatsApp) from a dropdown, with a
+ * manual "saisir un SID" escape hatch — and a graceful fallback to a raw input
+ * when Twilio returned no templates (not configured / none approved). The
+ * selected template's body is previewed so the operator confirms the wording.
+ */
+function ContentSidPicker({
+  channel,
+  templates,
+  templatesLoaded,
+  value,
+  onChange,
+}: {
+  channel: string;
+  templates: ContentTemplate[];
+  templatesLoaded: boolean;
+  value: string;
+  onChange: (sid: string) => void;
+}) {
+  const known = templates.find((t) => t.sid === value) ?? null;
+  const noTemplates = templatesLoaded && templates.length === 0;
+  // Manual when the operator asked for it, or a value is set that isn't a known
+  // template (e.g. a legacy SID), or Twilio returned nothing.
+  const [manual, setManual] = useState<boolean>(Boolean(value) && templatesLoaded && !known);
+  const useManual = manual || noTemplates;
+
+  return (
+    <div style={{ display: "grid", gap: 6 }}>
+      {!useManual ? (
+        <>
+          <select
+            value={known ? value : ""}
+            onChange={(e) => {
+              if (e.target.value === "__manual__") {
+                setManual(true);
+                onChange("");
+              } else {
+                onChange(e.target.value);
+              }
+            }}
+          >
+            <option value="">{templatesLoaded ? "— choisir un modèle —" : "Chargement des modèles…"}</option>
+            {templates.map((t) => (
+              <option key={t.sid} value={t.sid}>
+                {t.friendly_name}
+                {t.language ? ` (${t.language})` : ""}
+                {t.variables.length ? ` · ${t.variables.length} var.` : ""}
+              </option>
+            ))}
+            <option value="__manual__">✏️ Autre — saisir un SID manuellement…</option>
+          </select>
+          {known?.body && (
+            <div className="muted" style={{ fontSize: 12, fontStyle: "italic", lineHeight: 1.45 }}>
+              « {known.body.length > 160 ? `${known.body.slice(0, 160)}…` : known.body} »
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          <input
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder="HX…"
+            style={{ fontFamily: "ui-monospace, monospace" }}
+          />
+          {!noTemplates && (
+            <button
+              type="button"
+              className="ghost"
+              style={{ justifySelf: "start", padding: "4px 10px", fontSize: 12 }}
+              onClick={() => {
+                setManual(false);
+                onChange("");
+              }}
+            >
+              ↩ Choisir dans la liste
+            </button>
+          )}
+        </>
+      )}
+      <div className="muted" style={{ fontSize: 12 }}>
+        {noTemplates ? (
+          `Aucun modèle ${channel} récupéré depuis Twilio — saisis le Content SID (HX…) à la main.`
+        ) : (
+          <>Modèle {channel} approuvé dans Twilio. La variable {"{{1}}"} reçoit le prénom du patient.</>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Human desk campaign "Qui appeler" picker: choose which leads the agent calls
+ * by qualification and/or by assignment (the `agent` column). Both write into
+ * engineConfig.selection (include_statuses + assigned_column/assigned_values)
+ * and combine with AND. Assignment values are often opaque ids, so each is
+ * shown with its lead count — the operator recognises a bucket by its size.
+ */
+function HumanLeadSelection({
+  facetQual,
+  facetAgent,
+  loaded,
+  selectedQuals,
+  selectedAssigned,
+  onToggleQual,
+  onToggleAssigned,
+}: {
+  facetQual: Array<{ value: string; count: number; label?: string }>;
+  facetAgent: Array<{ value: string; count: number; label?: string }>;
+  loaded: boolean;
+  selectedQuals: string[];
+  selectedAssigned: string[];
+  onToggleQual: (v: string) => void;
+  onToggleAssigned: (v: string) => void;
+}) {
+  const nothingSelected = selectedQuals.length === 0 && selectedAssigned.length === 0;
+  const chip = (on: boolean): React.CSSProperties => ({
+    padding: "6px 10px",
+    fontSize: 12,
+    borderColor: on ? "var(--accent)" : "var(--border)",
+  });
+  return (
+    <div style={{ display: "grid", gap: 14, background: "var(--bg-2)", border: "1px solid var(--border)", borderRadius: 10, padding: 14 }}>
+      <div>
+        <h4 style={{ margin: 0, fontSize: 14 }}>👤 Qui appeler — leads de l&apos;agent</h4>
+        <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+          Cible les leads par <strong>qualification</strong> et/ou par <strong>assignation</strong>. Les deux se combinent (ET).
+        </div>
+      </div>
+
+      {/* Par qualification */}
+      <div style={{ display: "grid", gap: 8 }}>
+        <label style={{ fontSize: 13, fontWeight: 600 }}>Par qualification</label>
+        {facetQual.length === 0 ? (
+          <div className="muted" style={{ fontSize: 12 }}>{loaded ? "Aucune qualification trouvée dans la table." : "Chargement…"}</div>
+        ) : (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {facetQual.map((f) => {
+              const on = selectedQuals.includes(f.value);
+              return (
+                <button key={f.value} type="button" className={on ? "" : "ghost"} style={chip(on)}
+                  onClick={() => onToggleQual(f.value)}>
+                  {f.value} <span style={{ opacity: 0.6 }}>· {f.count}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Par assignation (optionnel) */}
+      <details>
+        <summary style={{ cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
+          Filtrer aussi par assignation (optionnel)
+        </summary>
+        <div style={{ marginTop: 8 }}>
+          <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>
+            Restreindre aux leads assignés à un agent précis dans la table (colonne « agent »).
+            Chaque case = une valeur d&apos;assignation et son nombre de leads.
+          </div>
+          {facetAgent.length === 0 ? (
+            <div className="muted" style={{ fontSize: 12 }}>{loaded ? "Aucune assignation trouvée." : "Chargement…"}</div>
+          ) : (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {facetAgent.map((f) => {
+                const on = selectedAssigned.includes(f.value);
+                return (
+                  <button key={f.value} type="button" className={on ? "" : "ghost"} style={chip(on)}
+                    title={f.value} onClick={() => onToggleAssigned(f.value)}>
+                    {f.label ?? "Ancien agent"} <span style={{ opacity: 0.6 }}>· {f.count} leads</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </details>
+
+      {nothingSelected && loaded && (
+        <div style={{ fontSize: 12, color: "#b45309" }}>
+          ⚠️ Aucun filtre : la campagne appellera <strong>tous les leads éligibles</strong> de la table.
+          Choisis au moins une qualification ou une assignation pour ne cibler que les leads de l&apos;agent.
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function CampaignWizard({
   template = null,
   agents,
@@ -258,6 +461,7 @@ export function CampaignWizard({
   teams = [],
   contactLists = [],
   dataTables = [],
+  orgCategory = null,
 }: {
   template?: import("@/lib/campaign-templates").CampaignTemplate | null;
   agents: AgentHandleOption[];
@@ -267,6 +471,9 @@ export function CampaignWizard({
   teams?: TeamOption[];
   contactLists?: ContactListOption[];
   dataTables?: DataTableOption[];
+  /** Business vertical of the org — lets the scheduling assistant speak the
+   *  client's language (Hôtel, Restaurant, Clinique, Call Center, …). */
+  orgCategory?: string | null;
 }) {
   const router = useRouter();
 
@@ -298,7 +505,13 @@ export function CampaignWizard({
   // the lead's handle) OR a single Agent handle. Team takes precedence.
   const [teamId, setTeamId] = useState("");
   const selectedTeam = useMemo(() => teams.find((t) => t.id === teamId) ?? null, [teams, teamId]);
-  const [agentHandleId, setAgentHandleId] = useState(agents[0]?.id ?? "");
+  // Human-campaign template pre-selects a human handle so the desk flow shows
+  // immediately; otherwise default to the first agent (usually an AI).
+  const [agentHandleId, setAgentHandleId] = useState(
+    template?.prefer_human
+      ? (agents.find((a) => a.kind === "human")?.id ?? agents[0]?.id ?? "")
+      : (agents[0]?.id ?? ""),
+  );
   const effectiveHandleId = selectedTeam?.lead_agent_handle_id ?? agentHandleId;
   const [scriptId, setScriptId] = useState("");
   // Source for the campaign's targets: a data table (preferred — real table
@@ -360,12 +573,158 @@ export function CampaignWizard({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Pre-call message(s) sent ~lead_minutes before each call. SMS and WhatsApp
+  // are independent — either, both, or none. Stored in
+  // campaigns.metadata.precall_message = { enabled, lead_minutes, sms?, whatsapp? }.
+  const [precallSmsOn, setPrecallSmsOn] = useState(false);
+  const [precallSmsSid, setPrecallSmsSid] = useState("");
+  const [precallSmsFrom, setPrecallSmsFrom] = useState("");
+  const [precallWaOn, setPrecallWaOn] = useState(false);
+  const [precallWaSid, setPrecallWaSid] = useState("");
+  const [precallWaFrom, setPrecallWaFrom] = useState("");
+  const [precallLeadMin, setPrecallLeadMin] = useState(2);
+  const precallOn = precallSmsOn || precallWaOn;
+
+  // Twilio Content templates — fetched once so the SMS/WhatsApp pickers offer a
+  // dropdown of real, approved templates instead of a raw HX… SID field.
+  const [templates, setTemplates] = useState<ContentTemplate[]>([]);
+  const [templatesLoaded, setTemplatesLoaded] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/twilio/content-templates");
+        const json = (await res.json()) as { templates?: ContentTemplate[] };
+        if (!cancelled) setTemplates(Array.isArray(json.templates) ? json.templates : []);
+      } catch {
+        /* leave empty → pickers fall back to manual SID entry */
+      } finally {
+        if (!cancelled) setTemplatesLoaded(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Human-campaign "Qui appeler" facets: distinct qualification + assignment
+  // (agent) values with counts, so the operator targets leads by qualification
+  // and/or by who they're assigned to. Loaded only for human desk campaigns.
+  const [facetQual, setFacetQual] = useState<Array<{ value: string; count: number; label?: string }>>([]);
+  const [facetAgent, setFacetAgent] = useState<Array<{ value: string; count: number; label?: string }>>([]);
+  const [facetsLoaded, setFacetsLoaded] = useState(false);
+
   // Step navigation: 1 = Qui appelle, 2 = Qui appeler, 3 = Quand.
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  // Step 3 "Quand" is chat-first: the operator describes their cadence to the
+  // assistant. They can flip to the classic form to fine-tune by hand.
+  const [manualSchedule, setManualSchedule] = useState(false);
+  // Real distinct values of the selected table's status column — loaded so the
+  // scheduling assistant maps the operator's wording onto THIS client's exact
+  // stored values (works for any tenant: hôtel, resto, call center, …).
+  const [tableStatusValues, setTableStatusValues] = useState<string[]>([]);
+
+  const statusColumn = engineConfig?.selection.status_column ?? "";
+  useEffect(() => {
+    if (!dataTableId || !dynamicMode || !statusColumn) {
+      setTableStatusValues([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/campaigns/table-statuses?data_table_id=${encodeURIComponent(dataTableId)}&column=${encodeURIComponent(statusColumn)}`,
+        );
+        if (!res.ok) return;
+        const json = (await res.json()) as { values?: unknown };
+        if (!cancelled && Array.isArray(json.values)) {
+          setTableStatusValues(json.values.filter((v): v is string => typeof v === "string"));
+        }
+      } catch {
+        /* non-blocking: the assistant falls back to asking for statuses */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [dataTableId, dynamicMode, statusColumn]);
 
   const selectedAgent = agents.find((a) => a.id === agentHandleId) ?? null;
+  // Human-agent campaign: one human, one call at a time → force concurrency 1
+  // (otherwise the dialer would race several leads into the agent's desk room).
+  const isHumanCampaign = !teamId && selectedAgent?.kind === "human";
   const selectedNumber = numbers.find((n) => n.id === phoneNumberId) ?? null;
+
+  // Load qualification + assignment facets when configuring a human campaign on
+  // a data table (the only case the friendly "Qui appeler" pickers are shown).
+  useEffect(() => {
+    if (!isHumanCampaign || !dataTableId) {
+      setFacetQual([]);
+      setFacetAgent([]);
+      setFacetsLoaded(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/campaigns/table-facets?data_table_id=${encodeURIComponent(dataTableId)}&columns=qualification,agent`,
+        );
+        if (!res.ok) return;
+        const json = (await res.json()) as {
+          facets?: {
+            qualification?: Array<{ value: string; count: number; label?: string }>;
+            agent?: Array<{ value: string; count: number; label?: string }>;
+          };
+        };
+        if (cancelled) return;
+        setFacetQual(json.facets?.qualification ?? []);
+        setFacetAgent(json.facets?.agent ?? []);
+      } catch {
+        /* non-blocking */
+      } finally {
+        if (!cancelled) setFacetsLoaded(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isHumanCampaign, dataTableId]);
+
+  // Selection helpers for the human "Qui appeler" pickers — they write straight
+  // into engineConfig.selection (include_statuses + assigned_column/values).
+  const humanQuals = engineConfig?.selection.include_statuses ?? [];
+  const humanAssigned = engineConfig?.selection.assigned_values ?? [];
+  function toggleHumanQual(v: string) {
+    setEngineConfig((prev) => {
+      if (!prev) return prev;
+      const has = prev.selection.include_statuses.includes(v);
+      return {
+        ...prev,
+        selection: {
+          ...prev.selection,
+          status_column: prev.selection.status_column || "qualification",
+          include_statuses: has
+            ? prev.selection.include_statuses.filter((x) => x !== v)
+            : [...prev.selection.include_statuses, v],
+        },
+      };
+    });
+  }
+  function toggleHumanAssigned(v: string) {
+    setEngineConfig((prev) => {
+      if (!prev) return prev;
+      const cur = prev.selection.assigned_values ?? [];
+      const has = cur.includes(v);
+      const next = has ? cur.filter((x) => x !== v) : [...cur, v];
+      return {
+        ...prev,
+        selection: {
+          ...prev.selection,
+          assigned_column: next.length > 0 ? "agent" : null,
+          assigned_values: next,
+        },
+      };
+    });
+  }
 
   const csvTargets = useMemo(() => parseCsv(csvText), [csvText]);
   const pickedContacts = useMemo(
@@ -424,25 +783,23 @@ export function CampaignWizard({
     }
   }
 
-  async function submit() {
-    setError(null);
-    if (!name.trim()) {
-      setError("Le nom est requis.");
-      return;
-    }
+  // Build the payload and POST it. Returns a result object instead of touching
+  // UI state or navigating, so BOTH the manual "Créer" button and the chat's
+  // finalize_campaign tool can reuse the exact same creation path (single
+  // source of truth — same validation, same schedule/engine build).
+  async function doCreate(): Promise<{ ok: boolean; id?: string; error?: string }> {
+    if (!name.trim()) return { ok: false, error: "Le nom est requis." };
     if (!effectiveHandleId) {
-      setError(
-        selectedTeam
+      return {
+        ok: false,
+        error: selectedTeam
           ? "Cette team n'a pas d'agent lead actif. Définissez un lead dans Teams IA."
           : "Sélectionnez un agent IA (ou une team).",
-      );
-      return;
+      };
     }
     if (!phoneNumberId && !callerIdOverride) {
-      setError("Choisissez un numéro émetteur ou un caller-id.");
-      return;
+      return { ok: false, error: "Choisissez un numéro émetteur ou un caller-id." };
     }
-    setSubmitting(true);
     persistDraft();
 
     // Convert each range's start/end from the user-chosen timezone to UTC
@@ -477,6 +834,11 @@ export function CampaignWizard({
     const finalEngine = dynamicMode && dataTableId && engineConfig
       ? {
           ...engineConfig,
+          // The assignment filter is a human-campaign concept only — strip it
+          // from AI campaigns so a stale selection can't narrow them.
+          selection: isHumanCampaign
+            ? engineConfig.selection
+            : { ...engineConfig.selection, assigned_column: null, assigned_values: [] },
           slots: {
             ...engineConfig.slots,
             days,
@@ -505,8 +867,23 @@ export function CampaignWizard({
           engine: finalEngine,
           phone_number_id: phoneNumberId || null,
           caller_id_e164: callerIdOverride.trim() || null,
+          precall_message: (() => {
+            const sms = precallSmsOn && precallSmsSid.trim()
+              ? { content_sid: precallSmsSid.trim(), from: precallSmsFrom.trim() || null }
+              : null;
+            const whatsapp = precallWaOn && precallWaSid.trim()
+              ? { content_sid: precallWaSid.trim(), from: precallWaFrom.trim() || null }
+              : null;
+            if (!sms && !whatsapp) return null;
+            return {
+              enabled: true,
+              lead_minutes: Math.max(1, Math.min(15, precallLeadMin || 2)),
+              ...(sms ? { sms } : {}),
+              ...(whatsapp ? { whatsapp } : {}),
+            };
+          })(),
           schedule,
-          max_concurrency: maxConcurrency,
+          max_concurrency: isHumanCampaign ? 1 : maxConcurrency,
           max_attempts: maxAttempts,
           retry_delay_min: retryDelayMin,
           amd_enabled: amdEnabled,
@@ -514,18 +891,106 @@ export function CampaignWizard({
         }),
       });
       const json = await res.json();
-      if (!res.ok) {
-        throw new Error(json?.error ?? `HTTP ${res.status}`);
-      }
-      try {
-        window.sessionStorage.removeItem(STORAGE_KEY);
-      } catch {
-        /* ignore */
-      }
-      router.push(`/campaigns/${json.id}`);
+      if (!res.ok) return { ok: false, error: json?.error ?? `HTTP ${res.status}` };
+      return { ok: true, id: json.id as string };
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erreur inconnue");
+      return { ok: false, error: err instanceof Error ? err.message : "Erreur inconnue" };
+    }
+  }
+
+  // Manual "Créer en brouillon" button.
+  async function submit() {
+    setError(null);
+    setSubmitting(true);
+    const r = await doCreate();
+    if (!r.ok) {
+      setError(r.error ?? "Erreur inconnue");
       setSubmitting(false);
+      return;
+    }
+    try {
+      window.sessionStorage.removeItem(STORAGE_KEY);
+    } catch {
+      /* ignore */
+    }
+    router.push(`/campaigns/${r.id}`);
+  }
+
+  // Called by the scheduling chatbot's finalize_campaign tool on the operator's
+  // explicit "go". Gated on steps 1-2 + preflight so the conversational path is
+  // exactly as safe as the manual button. Returns a result string the agent
+  // relays back into the conversation.
+  async function finalizeFromChat(): Promise<FinalizeResult> {
+    if (!step1Valid) {
+      return { ok: false, error: "Complète d'abord « Qui appelle » (numéro émetteur) à l'étape 1." };
+    }
+    if (!step2Valid) {
+      return { ok: false, error: "Choisis d'abord la base de contacts (ou des cibles) à l'étape « Qui appeler »." };
+    }
+    if (!preflightClear) {
+      const blockers = blockingChecks(preflightResult).map((c) => c.label);
+      return {
+        ok: false,
+        error: blockers.length
+          ? `Blocage(s) à corriger avant de créer : ${blockers.join(" ; ")}.`
+          : "Des blocages subsistent dans le récap de vérification — corrige-les avant de créer.",
+      };
+    }
+    setError(null);
+    setSubmitting(true);
+    const r = await doCreate();
+    if (!r.ok) {
+      setError(r.error ?? "Erreur inconnue");
+      setSubmitting(false);
+      return r;
+    }
+    try {
+      window.sessionStorage.removeItem(STORAGE_KEY);
+    } catch {
+      /* ignore */
+    }
+    router.push(`/campaigns/${r.id}`);
+    return r;
+  }
+
+  // Apply a schedule the chatbot proposed to the live wizard state. The recap
+  // (section 6) then reflects exactly what the operator is about to confirm.
+  function applyChatProposal(s: NormalizedSchedule) {
+    setDays(s.days);
+    setTimezone(s.timezone);
+    setHourRanges(s.hour_ranges.map((r) => ({ start: r.start, end: r.end })));
+    if (s.max_concurrency != null) setMaxConcurrency(s.max_concurrency);
+    if (s.max_attempts != null) setMaxAttempts(s.max_attempts);
+    if (s.retry_delay_min != null) setRetryDelayMin(s.retry_delay_min);
+    // Continuous-campaign extras only apply when a data table drives the engine.
+    if (dynamicMode && dataTableId) {
+      setEngineConfig((prev) => {
+        if (!prev) return prev;
+        const next: EngineConfig = {
+          ...prev,
+          selection: {
+            ...prev.selection,
+            include_statuses: s.include_statuses ?? prev.selection.include_statuses,
+          },
+          volume: {
+            ...prev.volume,
+            max_new_per_day: s.max_new_per_day ?? prev.volume.max_new_per_day,
+            wave_size: s.wave_size ?? prev.volume.wave_size,
+          },
+        };
+        // Map cumulative relance markers ([1,3,5]) onto the detected phases'
+        // wait_business_days (deltas: 1,2,2), capped to however many phases the
+        // table actually exposes.
+        const markers = s.relance_days_after_first;
+        if (markers && markers.length > 0 && prev.cadence.phases.length > 0) {
+          const phases = prev.cadence.phases.slice(0, markers.length).map((ph, i) => ({
+            ...ph,
+            wait_business_days: i === 0 ? markers[0] : markers[i] - markers[i - 1],
+          }));
+          next.cadence = { ...prev.cadence, enabled: true, phases };
+        }
+        return next;
+      });
     }
   }
 
@@ -557,10 +1022,13 @@ export function CampaignWizard({
           ranges: hourRanges,
         },
       },
-      max_concurrency: maxConcurrency,
+      max_concurrency: isHumanCampaign ? 1 : maxConcurrency,
       max_attempts: maxAttempts,
       retry_delay_min: retryDelayMin,
       amd_enabled: amdEnabled,
+      // Human desk campaigns have no AI prompt/voice — tell preflight to skip
+      // those AI-only blockers, otherwise a human campaign can never be created.
+      is_human_agent: isHumanCampaign,
       // The wizard doesn't have the raw agent row — pass a derived snapshot
       // built from the AgentHandleOption (page-loader fetched `has_prompt`
       // and `tts_voice_id` already). When the prompt is non-empty we feed a
@@ -588,6 +1056,32 @@ export function CampaignWizard({
   ]);
 
   const preflightClear = isPreflightClear(preflightResult);
+
+  // Context handed to the scheduling chatbot. Intentionally derived from STABLE
+  // campaign facts only (mode + table) — NOT from the live timezone/engine —
+  // so that applying a proposal doesn't change this object's identity and tear
+  // down the in-flight conversation.
+  const scheduleChatContext: ScheduleChatContext = useMemo(() => {
+    const cols = selectedDataTable?.columns ?? [];
+    const statusCol =
+      cols.find((c) => /qualif|status|statut|stage/i.test(c.key))?.key ?? null;
+    const relancePhases = cols.filter((c) =>
+      /^(date_j\d+|appel_j\d+|phase\d+_called_at|relance_\d+_date|j\d+_called_at)$/i.test(c.key),
+    ).length;
+    return {
+      mode: dynamicMode && dataTableId ? "dynamic" : "static",
+      default_timezone: TPL_DEFAULTS.timezone,
+      table_label: selectedDataTable?.label ?? null,
+      status_column: statusCol,
+      status_values: tableStatusValues,
+      detected_relance_phases: selectedDataTable ? relancePhases : null,
+      concurrency_limit: PLAN_CONCURRENCY_LIMIT,
+      org_category: orgCategory,
+      is_human_campaign: isHumanCampaign,
+      human_agent_name: isHumanCampaign ? (selectedAgent?.display_name ?? null) : null,
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dynamicMode, dataTableId, selectedDataTable, tableStatusValues, orgCategory, isHumanCampaign, selectedAgent]);
 
   const STEPS: { n: 1 | 2 | 3; label: string; icon: string }[] = [
     { n: 1, label: "Qui appelle ?", icon: "🎙" },
@@ -758,16 +1252,27 @@ export function CampaignWizard({
                 <label>Agent</label>
                 <select value={agentHandleId} onChange={(e) => setAgentHandleId(e.target.value)}>
                   {agents.map((a) => (
-                    <option key={a.id} value={a.id}>{a.display_name}</option>
+                    <option key={a.id} value={a.id}>
+                      {a.kind === "human" ? "👤 " : "🤖 "}{a.display_name}{a.kind === "human" ? " (humain)" : ""}
+                    </option>
                   ))}
                 </select>
-                {selectedAgent && (
+                {selectedAgent && (selectedAgent.kind === "human" ? (
+                  <div className="muted" style={{ fontSize: 12, marginTop: 8, lineHeight: 1.5 }}>
+                    👤 <strong>Campagne agent humain.</strong> Depuis{" "}
+                    <a href="/desk" target="_blank" rel="noreferrer" style={{ color: "var(--accent-2)" }}>Mon poste</a>,
+                    {" "}<strong>{selectedAgent.display_name}</strong> active la campagne&nbsp;: le système{" "}
+                    <strong>présente le prochain lead</strong> (et envoie le SMS/WhatsApp si activé ci-dessous),
+                    puis <strong>l&apos;agent clique pour appeler</strong> lui-même. Après chaque appel, il qualifie
+                    et le <strong>lead suivant s&apos;affiche</strong>. Le système n&apos;appelle jamais tout seul.
+                  </div>
+                ) : (
                   <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
                     Modèle : <span className="kbd">{selectedAgent.llm_model ?? "—"}</span>
                     {" · "}
                     Voix : <span className="kbd">{selectedAgent.tts_voice_id ?? "—"}</span>
                   </div>
-                )}
+                ))}
               </div>
             )}
 
@@ -944,18 +1449,33 @@ export function CampaignWizard({
               )}
 
               {selectedDataTable && dynamicMode && engineConfig && (
-                <DynamicEngineConfig
-                  columns={selectedDataTable.columns}
-                  phoneColumn={selectedDataTable.phone_column}
-                  value={engineConfig}
-                  onChange={setEngineConfig}
-                  // Créneaux are configured once in step 3 (single source of
-                  // truth — no more dual UI between engine + planning). Same
-                  // for the multi-day relances (J1/J3/J5) — those are timing
-                  // logic and belong with step 3 "Quand", not "Qui appeler".
-                  hideSlots
-                  section="no-cadence"
-                />
+                isHumanCampaign ? (
+                  // Human desk campaign: a friendly target picker (qualification
+                  // and/or assignment) instead of the full engine form — the
+                  // operator just chooses which leads this agent calls.
+                  <HumanLeadSelection
+                    facetQual={facetQual}
+                    facetAgent={facetAgent}
+                    loaded={facetsLoaded}
+                    selectedQuals={humanQuals}
+                    selectedAssigned={humanAssigned}
+                    onToggleQual={toggleHumanQual}
+                    onToggleAssigned={toggleHumanAssigned}
+                  />
+                ) : (
+                  <DynamicEngineConfig
+                    columns={selectedDataTable.columns}
+                    phoneColumn={selectedDataTable.phone_column}
+                    value={engineConfig}
+                    onChange={setEngineConfig}
+                    // Créneaux are configured once in step 3 (single source of
+                    // truth — no more dual UI between engine + planning). Same
+                    // for the multi-day relances (J1/J3/J5) — those are timing
+                    // logic and belong with step 3 "Quand", not "Qui appeler".
+                    hideSlots
+                    section="no-cadence"
+                  />
+                )
               )}
             </div>
           )}
@@ -1044,10 +1564,81 @@ export function CampaignWizard({
           )}
         </div>
       </section>
+
+      {/* 5. Message avant l'appel (SMS et/ou WhatsApp) */}
+      <section className="card">
+        <h3>5. Message avant l&apos;appel{" "}
+          <span className="muted" style={{ fontWeight: 400, fontSize: 13 }}>(optionnel)</span>
+        </h3>
+        <div className="muted" style={{ fontSize: 12, marginTop: -6, marginBottom: 10 }}>
+          Coche <strong>SMS</strong> et/ou <strong>WhatsApp</strong> pour prévenir le patient
+          <strong> avant chaque appel</strong> (il reconnaît le numéro et décroche plus facilement).
+          Le <em>moment</em> de l&apos;envoi (combien de minutes avant) se règle à l&apos;étape « Quand&nbsp;? ».
+        </div>
+        <div style={{ display: "grid", gap: 12 }}>
+          {/* SMS */}
+          <div style={{ border: `1px solid ${precallSmsOn ? "var(--accent)" : "var(--border)"}`, borderRadius: 8, padding: 12, background: precallSmsOn ? "var(--accent-soft)" : "var(--bg-2)" }}>
+            <label style={{ display: "flex", gap: 8, alignItems: "center", cursor: "pointer", margin: 0, fontWeight: 600 }}>
+              <input type="checkbox" checked={precallSmsOn} onChange={(e) => setPrecallSmsOn(e.target.checked)} style={{ width: "auto" }} />
+              💬 SMS
+            </label>
+            {precallSmsOn && (
+              <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
+                <div>
+                  <label>Modèle SMS</label>
+                  <ContentSidPicker channel="SMS" templates={templates} templatesLoaded={templatesLoaded} value={precallSmsSid} onChange={setPrecallSmsSid} />
+                </div>
+                <div>
+                  <label>Numéro d&apos;envoi SMS</label>
+                  <input value={precallSmsFrom} onChange={(e) => setPrecallSmsFrom(e.target.value)} placeholder="défaut : numéro de la campagne" />
+                </div>
+                {!precallSmsSid.trim() && <div style={{ fontSize: 12, color: "#b45309" }}>⚠️ Renseigne le Content SID, sinon le SMS ne partira pas.</div>}
+              </div>
+            )}
+          </div>
+          {/* WhatsApp */}
+          <div style={{ border: `1px solid ${precallWaOn ? "var(--accent)" : "var(--border)"}`, borderRadius: 8, padding: 12, background: precallWaOn ? "var(--accent-soft)" : "var(--bg-2)" }}>
+            <label style={{ display: "flex", gap: 8, alignItems: "center", cursor: "pointer", margin: 0, fontWeight: 600 }}>
+              <input type="checkbox" checked={precallWaOn} onChange={(e) => setPrecallWaOn(e.target.checked)} style={{ width: "auto" }} />
+              🟢 WhatsApp
+            </label>
+            {precallWaOn && (
+              <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
+                <div>
+                  <label>Modèle WhatsApp</label>
+                  <ContentSidPicker channel="WhatsApp" templates={templates} templatesLoaded={templatesLoaded} value={precallWaSid} onChange={setPrecallWaSid} />
+                </div>
+                <div>
+                  <label>Numéro d&apos;envoi WhatsApp</label>
+                  <input value={precallWaFrom} onChange={(e) => setPrecallWaFrom(e.target.value)} placeholder="numéro WhatsApp Business Twilio" />
+                  <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>Doit être un numéro activé WhatsApp Business chez Twilio.</div>
+                </div>
+                {!precallWaSid.trim() && <div style={{ fontSize: 12, color: "#b45309" }}>⚠️ Renseigne le Content SID, sinon le WhatsApp ne partira pas.</div>}
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
       </>)}
 
       {/* ─── STEP 3: Quand ? ──────────────────────────────────────────── */}
       {currentStep === 3 && (<>
+      {/* Pre-call message timing — only shown when SMS/WhatsApp was enabled in
+          step 2, so the "Quand ?" step asks for the moment of sending. */}
+      {precallOn && (
+        <section className="card" style={{ borderLeft: "4px solid var(--accent)", marginBottom: 8 }}>
+          <h3>💬 Message avant l&apos;appel — quand l&apos;envoyer&nbsp;?</h3>
+          <div className="muted" style={{ fontSize: 13, marginTop: -4, marginBottom: 8 }}>
+            Tu as activé {precallSmsOn && precallWaOn ? "SMS + WhatsApp" : precallSmsOn ? "le SMS" : "le WhatsApp"}.
+            À combien de minutes <strong>avant chaque appel</strong> faut-il l&apos;envoyer&nbsp;?
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <input type="number" min={1} max={15} value={precallLeadMin}
+              onChange={(e) => setPrecallLeadMin(Number(e.target.value))} style={{ width: 100 }} />
+            <span>minute(s) avant l&apos;appel</span>
+          </div>
+        </section>
+      )}
       {/* Always-visible mode banner so the operator knows exactly what their
           créneau settings will produce. Without this the wizard silently
           picked static or dynamic based on whether a data table was selected
@@ -1086,9 +1677,49 @@ export function CampaignWizard({
         </div>
       </section>
 
-      {/* 5. Planning */}
+      {/* 5a. Chat-first scheduling — the operator describes their cadence and
+          the assistant fills the planning + creates the draft on "go". */}
+      {!manualSchedule && (
+        <section className="card" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+            <div>
+              <h3 style={{ margin: 0 }}>5. Quand ? — discute avec l&apos;assistant</h3>
+              <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                Explique ton rythme d&apos;appels en langage naturel. L&apos;assistant remplit la
+                planification (récap ci-dessous) et crée la campagne en brouillon quand tu dis « go ».
+              </div>
+            </div>
+            <button
+              type="button"
+              className="ghost"
+              onClick={() => setManualSchedule(true)}
+              style={{ whiteSpace: "nowrap", padding: "6px 12px" }}
+            >
+              ✏️ Régler à la main
+            </button>
+          </div>
+          <ScheduleChatPanel
+            context={scheduleChatContext}
+            onProposal={applyChatProposal}
+            onFinalize={finalizeFromChat}
+          />
+        </section>
+      )}
+
+      {/* 5b. Manual planning form — fallback for fine-tuning by hand. */}
+      {manualSchedule && (
       <section className="card">
-        <h3>5. Créneaux & cadence</h3>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+          <h3 style={{ margin: 0 }}>5. Créneaux &amp; cadence</h3>
+          <button
+            type="button"
+            className="ghost"
+            onClick={() => setManualSchedule(false)}
+            style={{ padding: "6px 12px", whiteSpace: "nowrap" }}
+          >
+            💬 Revenir au chat
+          </button>
+        </div>
         <div className="muted" style={{ fontSize: 12, marginTop: -6, marginBottom: 10 }}>
           Jours, plage horaire et cadence d&apos;appel — une seule source de vérité.
         </div>
@@ -1321,6 +1952,7 @@ export function CampaignWizard({
           </div>
         )}
       </section>
+      )}
 
       {/* Sentinel Wave 1: preflight panel above the recap. */}
       <PreflightPanel result={preflightResult} />

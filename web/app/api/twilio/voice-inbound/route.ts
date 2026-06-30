@@ -39,7 +39,7 @@ export async function POST(req: Request) {
 
   if (!to) {
     return twiml(
-      `<Say>Numéro de destination manquant.</Say><Reject/>`,
+      `<Say>Destination number missing.</Say><Reject/>`,
       404,
     );
   }
@@ -56,7 +56,7 @@ export async function POST(req: Request) {
   // alpha entries some carriers send back).
   const { data: numberRow, error: numErr } = await sb
     .from("phone_numbers")
-    .select("id, org_id, e164, active, flow_id, queue_id")
+    .select("id, org_id, e164, active, inbound_enabled, flow_id, queue_id, agent_handle_id")
     .ilike("e164", to)
     .maybeSingle();
 
@@ -66,8 +66,20 @@ export async function POST(req: Request) {
 
   if (!numberRow || !numberRow.active) {
     return twiml(
-      `<Say>Numéro non disponible.</Say><Reject/>`,
+      `<Say>Number not available.</Say><Reject/>`,
       404,
+    );
+  }
+
+  // ── Inbound activation gate (Wati 25/06) ────────────────────────────────
+  // A number must have inbound EXPLICITLY enabled before any AI/queue answers
+  // it. Default is OFF (false) so Charlotte never picks up until the manager
+  // flips the toggle on after testing. No real PSTN inbound is live yet, so
+  // turning every number OFF here is safe.
+  if (!(numberRow as { inbound_enabled?: boolean }).inbound_enabled) {
+    return twiml(
+      `<Say language="en-GB">Thank you for calling. We are unable to take your call right now. Please try again later.</Say><Hangup/>`,
+      200,
     );
   }
 
@@ -150,7 +162,7 @@ export async function POST(req: Request) {
       `/api/twilio/queue-wait?lang=${encodeURIComponent(queueLang)}`,
     );
     return twiml(
-      `<Say language="fr-FR">Bonjour, un agent va vous répondre.</Say>` +
+      `<Say>Hello, an agent will be with you shortly.</Say>` +
         `<Enqueue waitUrl="${escapeXml(waitUrl)}" waitUrlMethod="POST">${escapeXml(queueName)}</Enqueue>`,
     );
   }
@@ -159,7 +171,60 @@ export async function POST(req: Request) {
   // The legacy /api/twilio-voice route bridges the call to the LiveKit
   // SIP trunk where an IA agent picks up. Mirroring rather than copying
   // keeps a single source of truth for the SIP wiring.
-  const aiUrl = absoluteUrl(req, "/api/twilio-voice");
+  //
+  // Resolve the AI agent assigned to this inbound number, if any. The
+  // phone_numbers.agent_handle_id → agent_handles.ai_agent_id chain lets an
+  // org point each inbound number at a dedicated reception agent (e.g.
+  // "Charlotte - Entrant", whose greeting/prompt are written for someone who
+  // called US) instead of falling back to the worker's generic multilingual
+  // default. We also stamp direction=in so the agent knows it's an inbound
+  // leg. Backward compatible: numbers with no agent_handle_id forward neither
+  // param, so today's "everything to the IA default" behaviour is preserved.
+  let inboundAgentId: string | null = null;
+  if (numberRow.agent_handle_id) {
+    const { data: handleRow } = await sb
+      .from("agent_handles")
+      .select("ai_agent_id")
+      .eq("id", numberRow.agent_handle_id)
+      .eq("org_id", numberRow.org_id)
+      .maybeSingle();
+    inboundAgentId = (handleRow?.ai_agent_id as string | null) ?? null;
+  }
+
+  // Pre-create the calls row so that:
+  //  a) Mon poste (Softphone) sees the inbound call immediately via its
+  //     poll + realtime subscription (human_first.py will stamp the human
+  //     agent_handle_id once it picks an available agent to ring).
+  //  b) /api/twilio-voice can look up the row by twilio_call_sid and
+  //     forward X-LK-Call-Id to LiveKit, which agent.py uses for
+  //     qualification writes, transcript storage, and dashboard data.
+  if (callSid) {
+    const { data: existingCall } = await sb
+      .from("calls")
+      .select("id")
+      .eq("twilio_call_sid", callSid)
+      .maybeSingle();
+    if (!existingCall) {
+      await sb.from("calls").insert({
+        org_id: numberRow.org_id,
+        direction: "in",
+        state: "ringing",
+        from_e164: from || null,
+        to_e164: to,
+        phone_number_id: numberRow.id,
+        twilio_call_sid: callSid,
+        metadata: {
+          source: "twilio_inbound",
+          ai_routed: true,
+          ...(inboundAgentId ? { agent_id: inboundAgentId } : {}),
+        },
+      });
+    }
+  }
+
+  const aiParams = new URLSearchParams({ direction: "in" });
+  if (inboundAgentId) aiParams.set("agent_id", inboundAgentId);
+  const aiUrl = absoluteUrl(req, `/api/twilio-voice?${aiParams.toString()}`);
   return twiml(`<Redirect method="POST">${escapeXml(aiUrl)}</Redirect>`);
 }
 

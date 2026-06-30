@@ -8,120 +8,125 @@
  * and dropped any live call mid-sentence.
  *
  * Key invariant: ONE <Softphone /> element, always mounted at the layout
- * level. We toggle the parent wrapper's visual mode via CSS (sticky bar
- * vs. fixed drawer); the Softphone itself is always rendered in the same
- * JSX slot under a stable key, so React's reconciler keeps the same
- * fiber across every toggle. Twilio Device + calls list survive intact.
+ * level. React keeps the same fiber for it across every route change so
+ * the Twilio Device + calls list survive intact.
  *
- * DeskWorkstation no longer renders its own <Softphone />. It dispatches a
- * `axon:softphone:expand` event on mount, which we listen for here so
- * navigating to /desk feels the same as before — the drawer slides open
- * automatically.
+ * Wati 2026-06-15: the "Mon poste" UX was reworked. The shell used to
+ * render the softphone in a fixed right-side drawer that slid in on top
+ * of the page. Wati wanted the full poste UI (clavier + statut + notes
+ * + appels récents) baked DIRECTLY into the /desk page, with the
+ * top-right "Mon poste" pill just navigating there instead of opening
+ * a drawer. We now:
+ *
+ *   - keep the <Softphone /> mounted at the layout level (call
+ *     persistence unchanged),
+ *   - portal it into a slot div (#desk-softphone-slot) that the /desk
+ *     page renders inline at the top of its grid when the user is on
+ *     /desk,
+ *   - render it hidden (display:none) into a fallback container on every
+ *     other page so the Twilio Device stays alive but takes no space,
+ *   - swap the floating pill for a plain link to /desk; hidden when the
+ *     user is already on that page.
  */
 
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { Softphone } from "./Softphone";
 
-const EXPAND_EVENT = "axon:softphone:expand";
+/** Stable id of the DOM node the /desk page renders so we know where to
+ *  portal the live Softphone element. Exported so DeskWorkstation can
+ *  reference the same constant — keeps the contract obvious. */
+export const DESK_SOFTPHONE_SLOT_ID = "desk-softphone-slot";
 
-/** Programmatic expander — DeskWorkstation calls this on mount so opening
- *  /desk automatically reveals the full softphone view. */
+/** Kept for backwards compat: legacy code paths still call this to "open"
+ *  the softphone. With the drawer gone there's nothing to open, so the
+ *  helper is a no-op. We keep the export so existing imports keep
+ *  type-checking and any future need to refocus the softphone has a
+ *  natural hook. */
 export function dispatchSoftphoneExpand() {
-  if (typeof window === "undefined") return;
-  window.dispatchEvent(new Event(EXPAND_EVENT));
+  /* no-op since Wati 2026-06-15 — drawer removed */
 }
 
 export function PersistentSoftphoneShell() {
-  const [expanded, setExpanded] = useState(false);
+  const pathname = usePathname();
+  // /desk and /desk/<sub-route> are both treated as the agent's poste.
+  // Everywhere else, the softphone sits hidden but mounted.
+  const onDesk = pathname === "/desk" || pathname?.startsWith("/desk/");
 
+  // Target DOM node for the inline slot. We resolve it AFTER the children
+  // (the /desk page) have rendered so the slot is in the tree. A small
+  // poll covers the gap between layout effect on this shell and the
+  // child page committing — Next renders client components in document
+  // order so usually it's there on the first check.
+  const [slotEl, setSlotEl] = useState<HTMLElement | null>(null);
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const handler = () => setExpanded(true);
-    window.addEventListener(EXPAND_EVENT, handler);
-    return () => window.removeEventListener(EXPAND_EVENT, handler);
-  }, []);
-
-  // ESC closes the drawer.
-  useEffect(() => {
-    if (!expanded || typeof window === "undefined") return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setExpanded(false);
+    if (!onDesk) {
+      setSlotEl(null);
+      return;
+    }
+    let cancelled = false;
+    const tryGrab = () => {
+      if (cancelled) return;
+      const el = document.getElementById(DESK_SOFTPHONE_SLOT_ID);
+      if (el) {
+        setSlotEl(el);
+      } else {
+        // Re-check on the next animation frame until the page mounts the
+        // slot. Bounded to a handful of frames so we don't keep polling
+        // forever on pages that don't expose one.
+        requestAnimationFrame(tryGrab);
+      }
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [expanded]);
+    tryGrab();
+    return () => {
+      cancelled = true;
+    };
+  }, [onDesk, pathname]);
 
+  // The hidden fallback container: stays in the DOM on every route so the
+  // Softphone has a stable mount point, and just gets `display: none` so
+  // it doesn't take space. When the portal target appears, React moves
+  // the Softphone there without unmounting it.
   return (
     <>
-      {/* Backdrop overlay — always in the DOM but only visible when expanded.
-          Pointer events disabled when hidden so it doesn't intercept clicks. */}
-      <div
-        aria-hidden
-        onClick={() => setExpanded(false)}
-        style={{
-          position: "fixed",
-          inset: 0,
-          background: "rgba(0,0,0,0.4)",
-          zIndex: 59,
-          opacity: expanded ? 1 : 0,
-          pointerEvents: expanded ? "auto" : "none",
-          transition: "opacity 0.15s",
-        }}
-      />
+      {/* Inline slot — when the user is on /desk we portal the Softphone
+          into the page's #desk-softphone-slot div. */}
+      {slotEl && createPortal(<Softphone />, slotEl)}
 
-      {/* Drawer — ALWAYS in the DOM at the same JSX position. Visibility +
-          positioning toggled via CSS only, so React never tears the
-          Softphone subtree down. */}
-      <div
-        className="softphone-shell"
-        role={expanded ? "dialog" : "region"}
-        aria-modal={expanded ? "true" : undefined}
-        aria-label="Softphone"
-        aria-hidden={!expanded}
-        style={{
-          position: "fixed",
-          top: 0,
-          right: 0,
-          bottom: 0,
-          width: "min(720px, 95vw)",
-          background: "var(--bg)",
-          boxShadow: "-8px 0 32px rgba(0,0,0,0.3)",
-          overflow: "auto",
-          zIndex: 60,
-          padding: 16,
-          transform: expanded ? "translateX(0)" : "translateX(100%)",
-          transition: "transform 0.18s ease-out",
-        }}
-      >
+      {/* Hidden fallback mount — keeps the Softphone alive on every other
+          route. We only render it here when we DON'T have an inline slot,
+          so the same JSX element is never mounted twice. */}
+      {!slotEl && (
         <div
+          aria-hidden
           style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            marginBottom: 14,
+            position: "fixed",
+            // Off-screen but rendered, so Twilio Device + LiveKit Room can
+            // initialise and answer calls without grabbing focus. display:
+            // none would tear down media elements on some browsers, so we
+            // stick with the off-screen trick used by most modal toolkits.
+            top: 0,
+            left: -99999,
+            width: 1,
+            height: 1,
+            overflow: "hidden",
+            pointerEvents: "none",
+            opacity: 0,
           }}
         >
-          <h2 style={{ margin: 0, fontSize: 16 }}>Mon poste</h2>
-          <button
-            className="ghost"
-            onClick={() => setExpanded(false)}
-            aria-label="Fermer (Échap)"
-            style={{ padding: "5px 10px", fontSize: 13 }}
-          >
-            ✕ Fermer
-          </button>
+          <Softphone />
         </div>
-        <Softphone />
-      </div>
+      )}
 
-      {/* Compact pill — fixed in the top-right corner, always visible,
-          shows current presence + active call status and acts as the
-          "Étendre" button when the drawer is closed. */}
-      {!expanded && (
-        <button
-          type="button"
-          onClick={() => setExpanded(true)}
-          aria-label="Ouvrir le softphone"
+      {/* Floating "Mon poste" pill — top-right of every page EXCEPT
+          /desk itself (since the user is already there). Plain link to
+          /desk, no drawer, no event dispatch. */}
+      {!onDesk && (
+        <Link
+          href="/desk"
+          aria-label="Go to my desk"
           style={{
             position: "fixed",
             top: 12,
@@ -134,16 +139,16 @@ export function PersistentSoftphoneShell() {
             fontSize: 13,
             fontWeight: 600,
             color: "var(--text)",
-            cursor: "pointer",
-            display: "flex",
+            textDecoration: "none",
+            display: "inline-flex",
             alignItems: "center",
             gap: 8,
             boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
           }}
         >
           <span aria-hidden style={{ fontSize: 14 }}>☎</span>
-          <span>Mon poste</span>
-        </button>
+          <span>My desk</span>
+        </Link>
       )}
     </>
   );

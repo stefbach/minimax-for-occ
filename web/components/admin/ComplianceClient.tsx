@@ -45,7 +45,7 @@ export function ComplianceClient() {
 
   const addOne = useCallback(async () => {
     if (!E164_RE.test(e164.trim())) {
-      setError("Numéro invalide. Format E.164 attendu (ex: +33612345678).");
+      setError("Invalid number. E.164 format required (e.g. +33612345678).");
       return;
     }
     setBusy(true);
@@ -74,7 +74,7 @@ export function ComplianceClient() {
       .map((s) => s.trim())
       .filter(Boolean);
     if (lines.length === 0) {
-      setError("Collez au moins un numéro.");
+      setError("Paste at least one number.");
       return;
     }
     const entries = lines.map((line) => {
@@ -105,7 +105,7 @@ export function ComplianceClient() {
 
   const removeOne = useCallback(
     async (id: string) => {
-      if (!confirm("Retirer ce numéro de la liste DNC ?")) return;
+      if (!confirm("Remove this number from the DNC list?")) return;
       try {
         const r = await fetch(`/api/admin/dnc/${id}`, { method: "DELETE" });
         if (!r.ok) {
@@ -123,7 +123,7 @@ export function ComplianceClient() {
   return (
     <div>
       <div className="card" style={{ marginBottom: 18 }}>
-        <h3 style={{ marginTop: 0 }}>Ajouter un numéro</h3>
+        <h3 style={{ marginTop: 0 }}>Add a number</h3>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
           <input
             type="tel"
@@ -135,23 +135,23 @@ export function ComplianceClient() {
           />
           <input
             type="text"
-            placeholder="Motif (optionnel)"
+            placeholder="Reason (optional)"
             value={reason}
             onChange={(e) => setReason(e.target.value)}
             style={{ minWidth: 240, flex: 1 }}
             disabled={busy}
           />
           <button onClick={() => void addOne()} disabled={busy || !e164.trim()}>
-            {busy ? "…" : "Ajouter"}
+            {busy ? "…" : "Add"}
           </button>
           <button className="ghost" onClick={() => setBulkOpen((v) => !v)} disabled={busy}>
-            {bulkOpen ? "Fermer l'import" : "Import en masse"}
+            {bulkOpen ? "Close import" : "Bulk import"}
           </button>
         </div>
         {bulkOpen && (
           <div style={{ marginTop: 12 }}>
             <textarea
-              placeholder={"Un numéro par ligne (E.164).\nFormat avancé : +33612345678  motif"}
+              placeholder={"One number per line (E.164).\nAdvanced format: +33612345678  reason"}
               value={bulkText}
               onChange={(e) => setBulkText(e.target.value)}
               rows={6}
@@ -160,7 +160,7 @@ export function ComplianceClient() {
             />
             <div style={{ marginTop: 8 }}>
               <button onClick={() => void addBulk()} disabled={busy || !bulkText.trim()}>
-                {busy ? "Import…" : "Importer"}
+                {busy ? "Importing…" : "Import"}
               </button>
             </div>
           </div>
@@ -175,24 +175,24 @@ export function ComplianceClient() {
 
       <div className="card">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <h3 style={{ margin: 0 }}>Liste DNC ({rows.length})</h3>
+          <h3 style={{ margin: 0 }}>DNC list ({rows.length})</h3>
           <button className="ghost" onClick={() => void refresh()} disabled={loading}>
-            Rafraîchir
+            Refresh
           </button>
         </div>
         {loading ? (
-          <p className="muted" style={{ marginTop: 12 }}>Chargement…</p>
+          <p className="muted" style={{ marginTop: 12 }}>Loading…</p>
         ) : rows.length === 0 ? (
           <p className="muted" style={{ marginTop: 12, margin: 0 }}>
-            Aucun numéro bloqué pour l&apos;instant.
+            No blocked numbers yet.
           </p>
         ) : (
           <table className="list" style={{ marginTop: 12 }}>
             <thead>
               <tr>
-                <th>Numéro</th>
-                <th>Motif</th>
-                <th>Ajouté</th>
+                <th>Number</th>
+                <th>Reason</th>
+                <th>Added</th>
                 <th></th>
               </tr>
             </thead>
@@ -206,7 +206,7 @@ export function ComplianceClient() {
                   </td>
                   <td>
                     <button className="ghost" onClick={() => void removeOne(r.id)}>
-                      Retirer
+                      Remove
                     </button>
                   </td>
                 </tr>

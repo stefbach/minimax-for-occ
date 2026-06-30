@@ -36,9 +36,9 @@ export default async function TeamsPage() {
     <>
       <div className="page-header">
         <div>
-          <h1>Teams IA</h1>
+          <h1>AI Teams</h1>
           <div className="subtitle">
-            {teams.length} team{teams.length === 1 ? "" : "s"} · des agents qui peuvent se passer la parole en cours d&apos;appel (swarm)
+            {teams.length} team{teams.length === 1 ? "" : "s"} · agents that can hand off to each other during a call (swarm)
           </div>
         </div>
         <HelpButton contextKey="teams" />

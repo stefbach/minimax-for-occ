@@ -91,7 +91,8 @@ function toSummary(parsed: ParsedPersona, file: string, root: string): PersonaSu
   const n8n = Array.isArray(fm.n8n_bindings_suggested)
     ? fm.n8n_bindings_suggested.map(String)
     : [];
-  const description = shortDescription(parsed.body);
+  const description =
+    typeof fm.description === "string" ? fm.description : shortDescription(parsed.body);
   return {
     slug,
     title,

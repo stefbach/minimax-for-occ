@@ -86,7 +86,7 @@ export async function POST(
 
   if (steps.length === 0) {
     return twiml(
-      `<Say language="fr-FR">Ce flux n'a aucune étape configurée.</Say><Hangup/>`,
+      `<Say>This flow has no steps configured.</Say><Hangup/>`,
     );
   }
 
@@ -95,7 +95,7 @@ export async function POST(
   if (flow.start_step_id) start = steps.find((s) => s.id === flow.start_step_id);
   if (!start) start = steps[0];
 
-  if (!start) return rejectTwiml("Étape de départ introuvable.", 404);
+  if (!start) return rejectTwiml("Start step not found.", 404);
 
   // Voice + language from flow.metadata if present.
   const meta = (flow.metadata ?? {}) as Record<string, unknown>;

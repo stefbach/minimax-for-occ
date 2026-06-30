@@ -21,8 +21,11 @@ type Row = {
   duration_secs: number | null;
   disposition: string | null;
   to_e164: string | null;
-  metadata: { qualification?: string | null; agent_stage?: number | null; analysis_skipped?: string | null; source?: string } | null;
+  metadata: { qualification?: string | null; qualification_source?: string | null; agent_stage?: number | null; analysis_skipped?: string | null; source?: string } | null;
 };
+
+// Must stay in sync with qualifyCall() in analysis-runner.ts.
+const TRUSTED_QUAL_SOURCES = new Set(["twilio_amd", "manual_softphone", "human"]);
 
 // Mirror analysis-runner's AGENT_STAGE_MIN_SECS: only long-enough calls are
 // candidates for agent-stage detection (a transfer never happens in seconds).
@@ -63,10 +66,13 @@ async function countCandidates(
     .filter((r) => callInLeadsScope(r.to_e164, scope))
     .filter((r) => callMatchesSystem(r.metadata?.source, system))
     .filter((r) => {
-      // A call we've already attempted but couldn't analyse (no evidence) is
-      // terminal — never a candidate again.
       if (r.metadata?.analysis_skipped) return false;
-      const needsQual = bucketForCall(r) === "autre";
+      const qSrc = r.metadata?.qualification_source ?? "";
+      const isExplicitQual = !!r.metadata?.qualification && TRUSTED_QUAL_SOURCES.has(qSrc);
+      const isAiAutoQual = qSrc === "ai_auto" && bucketForCall(r) !== "autre";
+      // Re-qualify if no trusted source has classified it yet (includes in-call
+      // agent labels written without a qualification_source, e.g. wrong "rdv_confirme").
+      const needsQual = !isExplicitQual && !isAiAutoQual;
       const needsStage = r.metadata?.agent_stage == null && (r.duration_secs ?? 0) >= AGENT_STAGE_MIN_SECS;
       return needsQual || needsStage;
     })

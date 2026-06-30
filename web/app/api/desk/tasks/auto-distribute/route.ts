@@ -46,7 +46,7 @@ export async function POST(req: Request) {
   const dayEnd = endOfDayUtc(new Date()).toISOString();
   const { data: pending, error: pErr } = await admin
     .from("human_callback_tasks")
-    .select("id, assigned_to, created_at")
+    .select("id, assigned_to, created_at, e164")
     .eq("org_id", orgId)
     .is("assigned_to", null)
     .eq("status", "pending")
@@ -151,6 +151,9 @@ export async function POST(req: Request) {
 
   // Persist the updates. We do them sequentially — round-robin is small
   // (dozens to low hundreds in v1) and Postgres can absorb it.
+  const taskById = new Map(
+    (pending as { id: string; e164?: string | null }[]).map((t) => [t.id, t]),
+  );
   for (const u of updates) {
     await admin
       .from("human_callback_tasks")
@@ -162,6 +165,14 @@ export async function POST(req: Request) {
       })
       .eq("id", u.id)
       .eq("org_id", orgId);
+    // Sync assigned_to → leads_rdv.agent for platform-wide coherence.
+    const phone = taskById.get(u.id)?.e164 ?? null;
+    if (phone) {
+      try {
+        await admin.from("leads_rdv" as never).update({ agent: u.user })
+          .eq("numero_telephone", phone);
+      } catch { /* non-fatal */ }
+    }
   }
 
   // Stamp the run.

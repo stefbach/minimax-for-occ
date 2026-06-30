@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useT } from "@/lib/i18n";
 
 /**
  * CreateListModal — the "+ Créer une base" flow.
@@ -79,6 +80,7 @@ function slugify(s: string): string {
 }
 
 export function CreateListModal({ onClose, onCreated }: Props) {
+  const t = useT();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [picked, setPicked] = useState<Set<string>>(
@@ -192,12 +194,12 @@ export function CreateListModal({ onClose, onCreated }: Props) {
         }}
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-          <h2 style={{ margin: 0 }}>Créer une base de contacts</h2>
+          <h2 style={{ margin: 0 }}>{t("Créer une base de contacts")}</h2>
           <button type="button" className="ghost" onClick={onClose}>✕</button>
         </div>
 
         <div>
-          <label>Nom de la base</label>
+          <label>{t("Nom de la base")}</label>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -210,7 +212,7 @@ export function CreateListModal({ onClose, onCreated }: Props) {
         </div>
 
         <div>
-          <label>Description (optionnel)</label>
+          <label>{t("Description (optionnel)")}</label>
           <input
             value={description}
             onChange={(e) => setDescription(e.target.value)}
@@ -219,7 +221,7 @@ export function CreateListModal({ onClose, onCreated }: Props) {
         </div>
 
         <div>
-          <label>Colonnes pré-définies</label>
+          <label>{t("Colonnes pré-définies")}</label>
           <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 8 }}>
             Cochez les colonnes que vos contacts auront. Téléphone et email sont toujours pris en compte automatiquement.
           </div>
@@ -256,7 +258,7 @@ export function CreateListModal({ onClose, onCreated }: Props) {
         </div>
 
         <div>
-          <label>Colonnes personnalisées</label>
+          <label>{t("Colonnes personnalisées")}</label>
           <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 8 }}>
             Ajoutez des colonnes qui ne sont pas dans la liste ci-dessus.
           </div>
@@ -301,7 +303,7 @@ export function CreateListModal({ onClose, onCreated }: Props) {
               </div>
             ))}
             <button type="button" className="ghost" onClick={addCustom} style={{ justifySelf: "start" }}>
-              + Ajouter une colonne
+              + {t("Ajouter une colonne")}
             </button>
           </div>
         </div>
@@ -313,9 +315,9 @@ export function CreateListModal({ onClose, onCreated }: Props) {
         )}
 
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-          <button type="button" className="ghost" onClick={onClose}>Annuler</button>
+          <button type="button" className="ghost" onClick={onClose}>{t("Annuler")}</button>
           <button type="submit" disabled={busy}>
-            {busy ? "Création…" : "Créer la base"}
+            {busy ? t("Création…") : t("Créer la base")}
           </button>
         </div>
       </form>

@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Optional
 
 import httpx
@@ -45,6 +45,24 @@ class AxonAgent:
     # When set, the worker uses this URL instead of Twilio's default jingle while
     # the call is on hold. Resolved lazily from Supabase at session start.
     hold_music_url: Optional[str] = None
+    # Advanced TTS knobs (Wati 16/06). None = "use provider default".
+    #   ElevenLabs : tts_stability, tts_similarity_boost, tts_style, tts_speaker_boost
+    #   Cartesia   : tts_language (force ISO code)
+    #   MiniMax    : tts_english_normalization
+    tts_stability: Optional[float] = None
+    tts_similarity_boost: Optional[float] = None
+    tts_style: Optional[float] = None
+    tts_speaker_boost: Optional[bool] = None
+    tts_language: Optional[str] = None
+    tts_english_normalization: Optional[bool] = None
+    # Free-form per-agent JSON (agents.metadata). Used to carry call-tuning
+    # overrides (latency/STT/turn-detection) on a single agent — e.g. the test
+    # agent — without needing a campaign. Read by the worker as a fallback layer
+    # under campaigns.metadata so an agent can be tuned in isolation.
+    #   metadata.call_tuning = { "stt_provider": "...", "min_turn_silence": 60,
+    #                            "max_turn_silence": 280, "eot_threshold": 0.3,
+    #                            "min_endpointing_delay": 0.35, ... }
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 DEFAULT_PROMPT = (
@@ -178,6 +196,13 @@ def load_agent(agent_id: str) -> Optional[AxonAgent]:
         tts_pitch=int(a.get("tts_pitch") or 0),
         voice_style=(a.get("voice_style") or None),
         hold_music_url=hold_music_url,
+        tts_stability=(float(a["tts_stability"]) if a.get("tts_stability") is not None else None),
+        tts_similarity_boost=(float(a["tts_similarity_boost"]) if a.get("tts_similarity_boost") is not None else None),
+        tts_style=(float(a["tts_style"]) if a.get("tts_style") is not None else None),
+        tts_speaker_boost=(bool(a["tts_speaker_boost"]) if a.get("tts_speaker_boost") is not None else None),
+        tts_language=(a.get("tts_language") or None),
+        tts_english_normalization=(bool(a["tts_english_normalization"]) if a.get("tts_english_normalization") is not None else None),
+        metadata=(a.get("metadata") if isinstance(a.get("metadata"), dict) else {}),
     )
 
 

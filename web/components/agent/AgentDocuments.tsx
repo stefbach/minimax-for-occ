@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from "react";
 import type { RagDocument } from "@/lib/types";
+import { useT } from "@/lib/i18n";
 
 export function AgentDocuments({ agentId }: { agentId: string }) {
+  const t = useT();
   const [docs, setDocs] = useState<RagDocument[]>([]);
   const [source, setSource] = useState("");
   const [content, setContent] = useState("");
@@ -70,13 +72,13 @@ export function AgentDocuments({ agentId }: { agentId: string }) {
   }
 
   async function delChunk(id: string) {
-    if (!confirm("Supprimer ce fragment ?")) return;
+    if (!confirm(t("Supprimer ce fragment ?"))) return;
     await fetch(`/api/agents/${agentId}/documents?doc_id=${id}`, { method: "DELETE" });
     refresh();
   }
 
   async function delSource(name: string) {
-    if (!confirm(`Supprimer toutes les chunks de "${name}" ?`)) return;
+    if (!confirm(`${t("Supprimer toutes les chunks de")} "${name}" ?`)) return;
     await fetch(`/api/agents/${agentId}/documents?source=${encodeURIComponent(name)}`, { method: "DELETE" });
     refresh();
   }
@@ -90,15 +92,15 @@ export function AgentDocuments({ agentId }: { agentId: string }) {
   return (
     <div style={{ display: "grid", gap: 16 }}>
       <div className="card">
-        <h3 style={{ marginTop: 0 }}>Ajouter du contenu</h3>
+        <h3 style={{ marginTop: 0 }}>{t("Ajouter du contenu")}</h3>
         <form onSubmit={onUpload} style={{ display: "grid", gap: 10 }}>
           <div className="form-row">
             <div>
-              <label>Nom de la source</label>
+              <label>{t("Nom de la source")}</label>
               <input value={source} onChange={(e) => setSource(e.target.value)} placeholder="faq-tibok.txt" />
             </div>
             <div>
-              <label>Ou importer un fichier .txt / .md</label>
+              <label>{t("Ou importer un fichier .txt / .md")}</label>
               <input
                 type="file"
                 accept=".txt,.md,.markdown,text/plain,text/markdown"
@@ -108,12 +110,12 @@ export function AgentDocuments({ agentId }: { agentId: string }) {
             </div>
           </div>
           <div>
-            <label>Contenu (texte brut, sera découpé et embeddé)</label>
+            <label>{t("Contenu (texte brut, sera découpé et embeddé)")}</label>
             <textarea rows={6} value={content} onChange={(e) => setContent(e.target.value)} />
           </div>
           <div>
             <button type="submit" disabled={busy || !content.trim() || !source.trim()}>
-              {busy ? "Embedding…" : "Indexer"}
+              {busy ? "Embedding…" : t("Indexer")}
             </button>
           </div>
         </form>
@@ -122,15 +124,15 @@ export function AgentDocuments({ agentId }: { agentId: string }) {
 
       <div className="card" style={{ padding: 0, overflow: "hidden" }}>
         <div style={{ padding: 16 }}>
-          <h3 style={{ margin: 0 }}>Corpus indexé ({docs.length} fragment{docs.length === 1 ? "" : "s"})</h3>
+          <h3 style={{ margin: 0 }}>{t("Corpus indexé")} ({docs.length} {docs.length === 1 ? t("fragment") : t("fragments")})</h3>
         </div>
         {Object.keys(grouped).length === 0 ? (
           <div style={{ padding: 16, color: "var(--muted)", borderTop: "1px solid var(--border)" }}>
-            Aucun document. Ajoutez du texte ci-dessus.
+            {t("Aucun document. Ajoutez du texte ci-dessus.")}
           </div>
         ) : (
           <table className="list">
-            <thead><tr><th>Source</th><th>Fragments</th><th>Aperçu</th><th></th></tr></thead>
+            <thead><tr><th>Source</th><th>{t("Fragments")}</th><th>{t("Aperçu")}</th><th></th></tr></thead>
             <tbody>
               {Object.entries(grouped).map(([name, chunks]) => (
                 <tr key={name}>
@@ -141,7 +143,7 @@ export function AgentDocuments({ agentId }: { agentId: string }) {
                   </td>
                   <td style={{ textAlign: "right" }}>
                     <button className="danger" style={{ padding: "5px 9px" }} onClick={() => delSource(name)}>
-                      Supprimer
+                      {t("Supprimer")}
                     </button>
                   </td>
                 </tr>

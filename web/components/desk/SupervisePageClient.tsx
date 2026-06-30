@@ -33,9 +33,10 @@ export function SupervisePageClient() {
   // Patient drawer opens when the manager clicks a contact name in either
   // section (À assigner / Déjà assignés). Wati June 10 — same CRM-style
   // detail used on /mes-patients.
-  const [openContact, setOpenContact] = useState<{ id: string; name: string | null; e164: string | null; headline?: string } | null>(null);
+  const [openContact, setOpenContact] = useState<{ id: string | null; name: string | null; e164: string | null; headline?: string } | null>(null);
   // Wati June 10 v2: filter by qualification (RAPPEL, A PASSER A L'HUMAIN, …).
   const [qualFilter, setQualFilter] = useState<string>("all");
+  const [assigneeFilter, setAssigneeFilter] = useState<string>("all");
 
   const refresh = useCallback(async () => {
     setErr(null);
@@ -86,8 +87,13 @@ export function SupervisePageClient() {
   }
 
   const filteredTasks = useMemo(
-    () => qualFilter === "all" ? tasks : tasks.filter((t) => (t.qualification ?? "") === qualFilter),
-    [tasks, qualFilter],
+    () => tasks.filter((t) => {
+      if (qualFilter !== "all" && (t.qualification ?? "") !== qualFilter) return false;
+      if (assigneeFilter === "__pool__" && t.assigned_to) return false;
+      if (assigneeFilter !== "all" && assigneeFilter !== "__pool__" && t.assigned_to !== assigneeFilter) return false;
+      return true;
+    }),
+    [tasks, qualFilter, assigneeFilter],
   );
   const unassignedTasks = useMemo(() => filteredTasks.filter((t) => !t.assigned_to), [filteredTasks]);
   const assignedTasks = useMemo(() => filteredTasks.filter((t) => !!t.assigned_to), [filteredTasks]);
@@ -102,6 +108,12 @@ export function SupervisePageClient() {
   );
 
   const activeAgents = useMemo(() => agents.filter((a) => a.is_active), [agents]);
+  // Assignee filter options: active agents + any (inactive) agent still holding
+  // an open task, so the supervisor can filter the board by who owns the lead.
+  const assigneeOptions = useMemo(() => {
+    const assignedIds = new Set(tasks.map((t) => t.assigned_to).filter(Boolean) as string[]);
+    return agents.filter((a) => a.is_active || assignedIds.has(a.user_id));
+  }, [agents, tasks]);
 
   return (
     <div style={{ display: "grid", gap: 14 }}>
@@ -115,6 +127,16 @@ export function SupervisePageClient() {
             ))}
           </select>
         </label>
+        <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13 }}>
+          <span className="muted">{t("Assigné à")}</span>
+          <select value={assigneeFilter} onChange={(e) => setAssigneeFilter(e.target.value)} style={{ fontSize: 13 }}>
+            <option value="all">{t("Toutes")}</option>
+            <option value="__pool__">— {t("Pool")} —</option>
+            {assigneeOptions.map((a) => (
+              <option key={a.user_id} value={a.user_id}>{a.display_name}</option>
+            ))}
+          </select>
+        </label>
         <div className="grid-kpi" style={{ display: "flex", gap: 18, flexWrap: "wrap" }}>
           <Kpi label={t("À assigner")} value={counts.unassigned} />
           <Kpi label={t("Assignés")} value={counts.assigned} />
@@ -125,6 +147,22 @@ export function SupervisePageClient() {
           <CreateTaskButton onCreated={refresh} defaultDate={isoToday()} />
           <button className="ghost" onClick={refresh}>{t("Rafraîchir")}</button>
         </div>
+      </div>
+
+      <div
+        className="card"
+        style={{
+          padding: "8px 12px",
+          fontSize: 12,
+          color: "var(--muted)",
+          display: "flex",
+          gap: 8,
+          alignItems: "flex-start",
+          borderStyle: "dashed",
+        }}
+      >
+        <span aria-hidden>ℹ️</span>
+        <span>{t("Ce tableau ne liste que les leads en attente d'un humain. L'option « Agent IA » du menu d'assignation clôture la tâche et la retire d'ici — le lead repart automatiquement dans le dialer. Il n'y a donc rien à filtrer sous « Agent IA ».")}</span>
       </div>
 
       {err && (
@@ -143,7 +181,7 @@ export function SupervisePageClient() {
         allAgents={agents}
         onReassign={reassign}
         onOpenContact={(t) => {
-          if (t.contact.id) {
+          if (t.contact.id || t.contact.e164) {
             setOpenContact({
               id: t.contact.id,
               name: t.contact.display_name,
@@ -166,7 +204,7 @@ export function SupervisePageClient() {
         allAgents={agents}
         onReassign={reassign}
         onOpenContact={(t) => {
-          if (t.contact.id) {
+          if (t.contact.id || t.contact.e164) {
             setOpenContact({
               id: t.contact.id,
               name: t.contact.display_name,
@@ -280,13 +318,13 @@ function TaskSection({
               sliced.map((task) => (
                 <tr key={task.id} style={{ borderTop: "1px solid var(--border)" }}>
                   <Td>
-                    {task.contact.id ? (
+                    {(task.contact.id || task.contact.e164) ? (
                       <button
                         onClick={() => onOpenContact(task)}
                         className="ghost"
                         style={{ padding: 0, border: "none", background: "transparent", color: "var(--accent)", textDecoration: "underline", cursor: "pointer", textAlign: "left", fontSize: 13 }}
                       >
-                        {task.contact.display_name ?? "—"}
+                        {task.contact.display_name ?? task.contact.e164 ?? "—"}
                       </button>
                     ) : (
                       task.contact.display_name ?? "—"
@@ -301,7 +339,7 @@ function TaskSection({
                   <Td style={{ maxWidth: 280 }}>
                     <span className="muted" style={{ fontSize: 12 }}>{truncate(task.transfer_reason, 80) ?? "—"}</span>
                   </Td>
-                  <Td><span className="muted" style={{ fontSize: 12 }}>{formatRelative(task.scheduled_for)}</span></Td>
+                  <Td><span className="muted" style={{ fontSize: 12 }}>{formatRelative(task.scheduled_for, t)}</span></Td>
                   <Td>
                     <span className="tag" style={{ fontSize: 11 }}>{task.status}</span>
                   </Td>
@@ -312,6 +350,7 @@ function TaskSection({
                       onChange={(e) => onReassign(task.id, e.target.value || null)}
                     >
                       <option value="">— {t("Pool")} —</option>
+                      <option value="__AI__">🤖 {t("Agent IA")}</option>
                       {activeAgents.map((a) => (
                         <option key={a.user_id} value={a.user_id}>{a.display_name}</option>
                       ))}
@@ -486,17 +525,17 @@ function formatTime(iso: string): string {
   if (!Number.isFinite(t)) return iso;
   return new Date(t).toLocaleString();
 }
-function formatRelative(iso: string): string {
-  const t = Date.parse(iso);
-  if (!Number.isFinite(t)) return iso;
-  const d = new Date(t);
+function formatRelative(iso: string, t: (s: string) => string): string {
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return iso;
+  const d = new Date(ms);
   const todayMs = startOfTodayLocalMs();
   const taskDayMs = startOfDayLocalMs(d);
   const dayDelta = Math.round((taskDayMs - todayMs) / 86400000);
   const hhmm = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  if (dayDelta < 0) return `${d.toLocaleDateString()} ${hhmm} (en retard)`;
-  if (dayDelta === 0) return `Aujourd'hui ${hhmm}`;
-  if (dayDelta === 1) return `Demain ${hhmm}`;
+  if (dayDelta < 0) return `${d.toLocaleDateString()} ${hhmm} (${t("en retard")})`;
+  if (dayDelta === 0) return `${t("Aujourd'hui")} ${hhmm}`;
+  if (dayDelta === 1) return `${t("Demain")} ${hhmm}`;
   return `${d.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" })} ${hhmm}`;
 }
 function startOfTodayLocalMs(): number {

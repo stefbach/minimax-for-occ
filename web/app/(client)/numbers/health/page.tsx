@@ -118,36 +118,36 @@ export default async function NumbersHealthPage() {
     <>
       <div className="page-header">
         <div>
-          <h1>Santé des numéros</h1>
+          <h1>Number health</h1>
           <div className="subtitle">
-            Volume 30j, dormance et taux de réponse sur l&apos;ensemble des numéros provisionnés.
+            30-day volume, dormancy and answer rate across all provisioned numbers.
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <Link href="/numbers" className="button" style={{ textDecoration: "none" }}>
-            ← Retour aux numéros
+            ← Back to numbers
           </Link>
           <HelpButton contextKey="numbers.health" />
         </div>
       </div>
 
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
-        <StatCard label="Total numéros" value={total} />
-        <StatCard label="Actifs (volume)" value={active} hint=">= 5 appels / 30j" />
-        <StatCard label="Faible volume" value={lowVol} hint="< 5 appels / 30j" />
-        <StatCard label="Dormants" value={dormant} hint="aucun appel >30j" />
-        <StatCard label="Jamais utilisés" value={never} />
-        <StatCard label="Appels 30j" value={calls30d} />
-        <StatCard label="Taux de réponse" value={`${answerRate}%`} hint={`${answered30d} décrochés`} />
-        <StatCard label="Webhooks à configurer" value={unconfiguredHooks} />
+        <StatCard label="Total numbers" value={total} />
+        <StatCard label="Active (volume)" value={active} hint=">= 5 calls / 30d" />
+        <StatCard label="Low volume" value={lowVol} hint="< 5 calls / 30d" />
+        <StatCard label="Dormant" value={dormant} hint="no call >30d" />
+        <StatCard label="Never used" value={never} />
+        <StatCard label="Calls 30d" value={calls30d} />
+        <StatCard label="Answer rate" value={`${answerRate}%`} hint={`${answered30d} answered`} />
+        <StatCard label="Webhooks to configure" value={unconfiguredHooks} />
       </div>
 
       {/* Histogram */}
       <div className="card" style={{ marginBottom: 16 }}>
-        <h3 style={{ marginTop: 0 }}>Appels par jour (30 derniers jours)</h3>
+        <h3 style={{ marginTop: 0 }}>Calls per day (last 30 days)</h3>
         {daily.length === 0 || maxDaily === 0 ? (
           <div className="muted" style={{ fontSize: 13 }}>
-            Aucun appel sur les 30 derniers jours.
+            No calls in the last 30 days.
           </div>
         ) : (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(30, 1fr)", gap: 2, alignItems: "end", height: 100 }}>
@@ -173,19 +173,19 @@ export default async function NumbersHealthPage() {
       {/* Top 10 */}
       <div className="card" style={{ marginBottom: 16, padding: 0, overflow: "hidden" }}>
         <div style={{ padding: 12, borderBottom: "1px solid var(--border, #eee)" }}>
-          <h3 style={{ margin: 0 }}>Top 10 numéros (volume 30j)</h3>
+          <h3 style={{ margin: 0 }}>Top 10 numbers (30d volume)</h3>
         </div>
         {top10.length === 0 ? (
-          <div style={{ padding: 16, color: "var(--muted)" }}>Aucune donnée.</div>
+          <div style={{ padding: 16, color: "var(--muted)" }}>No data.</div>
         ) : (
           <table className="list">
             <thead>
               <tr>
                 <th>#</th>
-                <th>Numéro</th>
-                <th>Pays</th>
-                <th>Appels 30j</th>
-                <th>Réponse %</th>
+                <th>Number</th>
+                <th>Country</th>
+                <th>Calls 30d</th>
+                <th>Answer %</th>
                 <th>Volume</th>
               </tr>
             </thead>
@@ -213,20 +213,20 @@ export default async function NumbersHealthPage() {
       {/* Dormants */}
       <div className="card" style={{ padding: 0, overflow: "hidden" }}>
         <div style={{ padding: 12, borderBottom: "1px solid var(--border, #eee)" }}>
-          <h3 style={{ margin: 0 }}>Numéros dormants (&gt; 30j sans appel)</h3>
+          <h3 style={{ margin: 0 }}>Dormant numbers (&gt; 30d without a call)</h3>
           <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-            Candidats à la libération pour réduire les frais Twilio mensuels.
+            Release candidates to reduce monthly Twilio costs.
           </div>
         </div>
         {dormantList.length === 0 ? (
-          <div style={{ padding: 16, color: "var(--muted)" }}>Aucun numéro dormant — bravo.</div>
+          <div style={{ padding: 16, color: "var(--muted)" }}>No dormant numbers — great job.</div>
         ) : (
           <table className="list">
             <thead>
               <tr>
-                <th>Numéro</th>
-                <th>Pays</th>
-                <th>Dernier appel</th>
+                <th>Number</th>
+                <th>Country</th>
+                <th>Last call</th>
                 <th>Compliance</th>
                 <th>Webhook</th>
                 <th></th>

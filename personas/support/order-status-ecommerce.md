@@ -1,6 +1,6 @@
 ---
 slug: order-status-ecommerce
-title: Suivi de commande e-commerce
+title: E-commerce order tracking
 industry: support
 language: fr
 voice_suggestion: female_friendly_28s
@@ -14,6 +14,7 @@ n8n_bindings_suggested:
   - create_return_label
   - escalate_to_logistics
 handoff_team_suggested: cx-logistics-team
+description: "Solution-oriented e-commerce support agent. Looks up orders, checks shipment status, creates return labels and escalates to logistics when needed."
 ---
 
 ## Identity

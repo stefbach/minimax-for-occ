@@ -2,15 +2,17 @@ import { NextResponse } from "next/server";
 import { requestOrgId } from "@/lib/request-org";
 import { nhsLegacyClient } from "@/lib/nhs-legacy";
 import {
-  NHS_DOCS, buildPatient, DOSSIER_SELECT,
+  NHS_DOCS, buildPatient, buildPatientFromLead, DOSSIER_SELECT,
   type DossierRow, type LeadRow, type NhsPatient,
 } from "@/lib/nhs-patients";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Patient detail — port of the legacy /api/nhs-patients/[id]: dossier +
-// lead, the 11-document checklist and the communications timeline.
+// Patient detail — the [id] param is now the LEAD ID (not the dossier ID).
+// We fetch the lead first, then optionally overlay the dossier. Patients
+// without a dossier still get a full detail page (empty doc checklist,
+// communications timeline from leads_rdv fields only).
 
 export type NhsPatientDetail = {
   patient: NhsPatient;
@@ -18,12 +20,11 @@ export type NhsPatientDetail = {
   timeline: Array<{
     kind: "call" | "email" | "whatsapp" | "doc" | "response";
     date: string;
-    title_key: string; // i18n FR label key (matches lib/i18n.tsx entries)
+    title_key: string;
     detail: string | null;
   }>;
 };
 
-// Legacy timeline keys → FR labels used as i18n keys in the new app.
 const TIMELINE_LABELS = {
   initialCall: "Appel initial",
   initialEmail: "Email explicatif envoyé",
@@ -38,44 +39,46 @@ export async function GET(
   ctx: { params: Promise<{ id: string }> },
 ) {
   await requestOrgId(request);
-  const { id } = await ctx.params;
+  const { id } = await ctx.params; // this is a LEAD ID
   const legacy = nhsLegacyClient();
   try {
-    const { data: dossier, error: dErr } = await legacy
-      .from("axon_nhs_dossiers_ro")
-      .select(DOSSIER_SELECT)
-      .eq("id", id)
-      .maybeSingle();
-    if (dErr) throw dErr;
-    if (!dossier) return NextResponse.json({ error: "Dossier introuvable" }, { status: 404 });
-    const d = dossier as unknown as DossierRow;
-    if (!d.lead_id) return NextResponse.json({ error: "Dossier sans lead" }, { status: 400 });
-
+    // 1. Fetch lead (required — all patients start here)
     const { data: leadRow, error: lErr } = await legacy
       .from("leads_rdv")
       .select(
         'id, nom, email, numero_telephone, patient_dob, email_sent, whatsapp_sent, relance_email_sent, relance_whatsapp_sent, relance_email_date, last_response_date, last_call_datetime, last_updated, first_mail:"1st_mail"',
       )
-      .eq("id", d.lead_id)
+      .eq("id", id)
       .maybeSingle();
     if (lErr) throw lErr;
     if (!leadRow) return NextResponse.json({ error: "Lead introuvable" }, { status: 404 });
     const l = leadRow as unknown as LeadRow & { first_mail: string | null };
 
-    const threeDaysAgo = new Date(Date.now() - 3 * 86400_000);
-    const patient = buildPatient(d, l, threeDaysAgo);
+    // 2. Fetch dossier by lead_id (optional — may not exist yet)
+    const { data: dossierRow } = await legacy
+      .from("axon_nhs_dossiers_ro")
+      .select(DOSSIER_SELECT)
+      .eq("lead_id", id)
+      .maybeSingle();
+    const d = dossierRow ? (dossierRow as unknown as DossierRow) : null;
 
+    const threeDaysAgo = new Date(Date.now() - 3 * 86400_000);
+    const patient: NhsPatient = d
+      ? buildPatient(d, l, threeDaysAgo)
+      : buildPatientFromLead(l, threeDaysAgo);
+
+    // 3. Doc checklist — all pending when no dossier exists
     const documents = NHS_DOCS.map((doc) => ({
       key: doc.key,
       required: doc.required,
-      received: d[doc.key] === "received",
+      received: d ? d[doc.key] === "received" : false,
     }));
 
+    // 4. Communications timeline from leads_rdv fields (+ dossier analysis if any)
     const timeline: NhsPatientDetail["timeline"] = [];
     if (l.last_call_datetime) {
       timeline.push({ kind: "call", date: l.last_call_datetime, title_key: TIMELINE_LABELS.initialCall, detail: null });
     }
-    // The legacy "1st_mail" column carries the J0 send timestamp.
     if (l.email_sent && l.first_mail) {
       timeline.push({ kind: "email", date: l.first_mail, title_key: TIMELINE_LABELS.initialEmail, detail: null });
     }
@@ -88,7 +91,7 @@ export async function GET(
     if (l.last_response_date) {
       timeline.push({ kind: "response", date: l.last_response_date, title_key: TIMELINE_LABELS.response, detail: null });
     }
-    if (d.last_analysed_at) {
+    if (d?.last_analysed_at) {
       timeline.push({
         kind: "doc",
         date: d.last_analysed_at,

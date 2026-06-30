@@ -112,13 +112,13 @@ export function TransferModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <h3 style={{ margin: 0 }}>Transférer l&apos;appel</h3>
+          <h3 style={{ margin: 0 }}>Transfer call</h3>
           <button className="ghost" onClick={onClose}>
-            Fermer
+            Close
           </button>
         </div>
         <p className="muted" style={{ marginTop: 6 }}>
-          Sélectionnez un agent IA ou un humain disponible.
+          Select an AI agent or an available human agent.
         </p>
 
         {error && (
@@ -128,7 +128,7 @@ export function TransferModal({
         )}
 
         {targets.length === 0 ? (
-          <p className="muted">Aucune cible disponible.</p>
+          <p className="muted">No available targets.</p>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {targets.map((h) => (
@@ -148,11 +148,11 @@ export function TransferModal({
                 <span>
                   <strong style={{ fontSize: 13 }}>{h.display_name}</strong>
                   <span className="muted" style={{ marginLeft: 8, fontSize: 12 }}>
-                    {h.kind === "ai" ? "IA" : "humain · disponible"}
+                    {h.kind === "ai" ? "AI" : "human · available"}
                   </span>
                 </span>
                 <span className="tag">
-                  {busy === h.id ? "…" : "Transférer"}
+                  {busy === h.id ? "…" : "Transfer"}
                 </span>
               </button>
             ))}

@@ -43,7 +43,7 @@ export default async function FlowsPage() {
         <div>
           <h1>Flows / IVR</h1>
           <div className="subtitle">
-            {flows.length} flow{flows.length === 1 ? "" : "s"} · constructeur visuel drag-drop
+            {flows.length} flow{flows.length === 1 ? "" : "s"} · drag-and-drop visual builder
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -54,20 +54,20 @@ export default async function FlowsPage() {
 
       {!hasSupabase() ? (
         <div className="card">
-          <h3>Supabase non configuré</h3>
+          <h3>Supabase not configured</h3>
           <p className="muted">
-            Allez dans <Link href="/settings">Paramètres</Link> ou définissez{" "}
-            <span className="kbd">SUPABASE_URL</span> et{" "}
+            Go to <Link href="/settings">Settings</Link> or set{" "}
+            <span className="kbd">SUPABASE_URL</span> and{" "}
             <span className="kbd">SUPABASE_SERVICE_ROLE_KEY</span>.
           </p>
         </div>
       ) : flows.length === 0 ? (
         <div className="card">
-          <h3>Aucun flow pour le moment</h3>
+          <h3>No flows yet</h3>
           <p className="muted">
-            Cliquez « + Nouveau flow » pour ouvrir l&apos;éditeur visuel. Glissez-déposez les
-            étapes (welcome, menu DTMF, gather speech, AI agent, transfer…) et reliez-les pour
-            définir le scénario d&apos;appel.
+            Click &lsquo;+ New flow&rsquo; to open the visual editor. Drag and drop steps
+            (welcome, DTMF menu, gather speech, AI agent, transfer…) and connect them to
+            define the call scenario.
           </p>
         </div>
       ) : (
@@ -75,10 +75,10 @@ export default async function FlowsPage() {
           <table className="list">
             <thead>
               <tr>
-                <th>Nom</th>
-                <th>Étapes</th>
+                <th>Name</th>
+                <th>Steps</th>
                 <th>Start</th>
-                <th>Mis à jour</th>
+                <th>Updated</th>
                 <th></th>
               </tr>
             </thead>
@@ -101,9 +101,9 @@ export default async function FlowsPage() {
                   </td>
                   <td>
                     {f.start_step_id ? (
-                      <span className="tag good">défini</span>
+                      <span className="tag good">set</span>
                     ) : (
-                      <span className="tag">à définir</span>
+                      <span className="tag">not set</span>
                     )}
                   </td>
                   <td style={{ color: "var(--muted)" }}>
@@ -112,7 +112,7 @@ export default async function FlowsPage() {
                   <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                     <Link href={`/flows/${f.id}/edit`}>
                       <button className="ghost" style={{ padding: "6px 10px" }}>
-                        Ouvrir
+                        Open
                       </button>
                     </Link>
                   </td>

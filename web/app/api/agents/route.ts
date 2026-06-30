@@ -31,6 +31,7 @@ export async function POST(req: Request) {
       org_id: orgId,
       name: body.name,
       description: body.description ?? null,
+      purpose: body.purpose === "management" ? "management" : "telephony",
       language: body.language ?? "multi",
       llm_provider: body.llm_provider ?? "deepseek",
       llm_model: body.llm_model ?? "deepseek-v4-flash",
@@ -40,9 +41,15 @@ export async function POST(req: Request) {
       tts_volume: body.tts_volume ?? 1.0,
       tts_pitch: body.tts_pitch ?? 0,
       tts_model: body.tts_model || (body.tts_voice_id ? "speech-02-hd" : null),
+      tts_stability: body.tts_stability ?? null,
+      tts_similarity_boost: body.tts_similarity_boost ?? null,
+      tts_style: body.tts_style ?? null,
+      tts_speaker_boost: body.tts_speaker_boost ?? null,
+      tts_language: body.tts_language ?? null,
+      tts_english_normalization: body.tts_english_normalization ?? null,
       voice_style: body.voice_style ?? null,
       system_prompt: body.system_prompt ?? "",
-      greeting: body.greeting ?? "Bonjour, je vous écoute.",
+      greeting: body.greeting ?? "Hello, how can I help you?",
       rag_enabled: body.rag_enabled ?? false,
       rag_top_k: body.rag_top_k ?? 4,
       metadata: body.metadata ?? {},
@@ -51,22 +58,24 @@ export async function POST(req: Request) {
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Every AI agent needs a matching agent_handle (kind='ai') — that's what
-  // campaigns, queues and call routing select from. Without this the agent
-  // is invisible to the rest of the platform. Create it here so the UI flow
-  // (which only POSTs to /api/agents) stays one step.
-  const { error: handleErr } = await sb
-    .from("agent_handles")
-    .insert({
-      org_id: orgId,
-      kind: "ai",
-      ai_agent_id: data.id,
-      display_name: data.name,
-    });
-  if (handleErr) {
-    // Don't fail the whole creation — the agent row exists. Surface in logs;
-    // a backfill can reconcile. But log loudly since it breaks campaign use.
-    console.error("[agents] agent created but handle insert failed:", handleErr.message);
+  // Telephony agents need a matching agent_handle (kind='ai') — that's what
+  // campaigns, queues and call routing select from. MANAGEMENT agents get NO
+  // handle on purpose: they run automations (workflows), never calls, so they
+  // must stay invisible to campaign pickers and the LiveKit voice worker.
+  if (data.purpose !== "management") {
+    const { error: handleErr } = await sb
+      .from("agent_handles")
+      .insert({
+        org_id: orgId,
+        kind: "ai",
+        ai_agent_id: data.id,
+        display_name: data.name,
+      });
+    if (handleErr) {
+      // Don't fail the whole creation — the agent row exists. Surface in logs;
+      // a backfill can reconcile. But log loudly since it breaks campaign use.
+      console.error("[agents] agent created but handle insert failed:", handleErr.message);
+    }
   }
 
   return NextResponse.json(data, { status: 201 });
