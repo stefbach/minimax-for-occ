@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { AnalyticsResponse } from "@/app/api/dashboard/analytics/route";
 import { AlertTriangle, CalendarCheck, Clock, DollarSign, Flame, Lightbulb, Phone, Sparkles, Target } from "lucide-react";
 import { appendGlobalFilters, globalFiltersKey, DEFAULT_GLOBAL_FILTERS, type GlobalFilters } from "@/lib/global-filters";
+import { useT } from "@/lib/i18n";
 
 function fmtDuration(secs: number): string {
   const m = Math.floor(secs / 60);
@@ -36,6 +37,7 @@ function heatCellStyle(rate: number, total: number): { background: string; color
 }
 
 export function StatsTab({ from, to, direction, leadsSource = "prod", system = "all", global = DEFAULT_GLOBAL_FILTERS, campaignId }: { from: string; to: string; direction: string; leadsSource?: "prod" | "test"; system?: "all" | "retell" | "axon"; global?: GlobalFilters; campaignId?: string }) {
+  const t = useT();
   const [data, setData] = useState<AnalyticsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
