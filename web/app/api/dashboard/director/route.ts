@@ -188,7 +188,6 @@ export async function GET(request: Request) {
   let rows = ((data ?? []) as unknown as CallRow[]).filter(
     (r) =>
       !ACTIVE.has(r.state ?? "")
-      && r.state !== "failed"
       && !isPhantomCall(r)
       && callInLeadsScope(r.to_e164 ?? null, scope)
       && (callInLeadsScope(r.to_e164 ?? null, campaignScope) || (r.metadata as any)?.campaign_id === campaignId)
