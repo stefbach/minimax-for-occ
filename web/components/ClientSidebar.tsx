@@ -123,6 +123,8 @@ export function ClientSidebar() {
   const [loadedRole, setLoadedRole] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  // Collapsed groups — set of group names folded by the user. Persisted in localStorage.
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   // Mobile drawer state — only meaningful below MOBILE_BREAKPOINT; ignored
   // by the CSS on desktop where the sidebar is permanently visible.
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -131,11 +133,24 @@ export function ClientSidebar() {
   useEffect(() => {
     const stored = localStorage.getItem("sidebar-collapsed");
     if (stored === "1") setCollapsed(true);
+    try {
+      const storedGroups = localStorage.getItem("sidebar-collapsed-groups");
+      if (storedGroups) setCollapsedGroups(new Set(JSON.parse(storedGroups)));
+    } catch { /* ignore */ }
   }, []);
   useEffect(() => {
     document.documentElement.dataset.sidebarCollapsed = collapsed ? "1" : "0";
     localStorage.setItem("sidebar-collapsed", collapsed ? "1" : "0");
   }, [collapsed]);
+
+  const toggleGroup = (group: string) => {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(group)) next.delete(group); else next.add(group);
+      localStorage.setItem("sidebar-collapsed-groups", JSON.stringify([...next]));
+      return next;
+    });
+  };
 
   // Close the drawer whenever the route changes — otherwise a user who taps a
   // nav link sees the overlay linger on top of the destination page.
@@ -331,23 +346,40 @@ export function ClientSidebar() {
         <ThemeLangSwitcher />
       </div>
 
-      {GROUP_ORDER.filter((g) => groups[g]?.length).map((group) => (
-        <div key={group} style={{ marginTop: 6 }}>
-          <div
-            className="sidebar-group-label"
-            style={{
-              fontSize: 10,
-              color: "var(--muted-2)",
-              textTransform: "uppercase",
-              letterSpacing: 1,
-              padding: "10px 12px 4px",
-            }}
-          >
-            {t(group)}
+      {GROUP_ORDER.filter((g) => groups[g]?.length).map((group) => {
+        const isGroupCollapsed = collapsedGroups.has(group);
+        return (
+          <div key={group} style={{ marginTop: 6 }}>
+            <button
+              type="button"
+              onClick={() => toggleGroup(group)}
+              className="sidebar-group-label"
+              aria-expanded={!isGroupCollapsed}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                width: "100%",
+                fontSize: 10,
+                color: "var(--muted-2)",
+                textTransform: "uppercase",
+                letterSpacing: 1,
+                padding: "10px 12px 4px",
+                background: "transparent",
+                border: "none",
+                cursor: "pointer",
+                minHeight: "unset",
+                fontFamily: "inherit",
+                fontWeight: 600,
+              }}
+            >
+              <span>{t(group)}</span>
+              <span style={{ fontSize: 10, opacity: 0.6, transition: "transform 0.15s", transform: isGroupCollapsed ? "rotate(-90deg)" : "none" }}>▾</span>
+            </button>
+            {!isGroupCollapsed && groups[group].map(renderLink)}
           </div>
-          {groups[group].map(renderLink)}
-        </div>
-      ))}
+        );
+      })}
 
       {/* ─── Avancé (collapsible) ─── */}
       {advanced.length > 0 && (
