@@ -243,7 +243,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
     drill: Omit<DrillFilters, "from" | "to" | "direction" | "leads_source"> | null;
   };
   const tiles: Tile[] = [
-    { label: t("Leads uniques"), value: k.uniqueLeads.toLocaleString(), icon: "👤", displayIcon: <Users size={15} />, tone: "var(--info)", pctLabel: `${k.totalCalls.toLocaleString()} ${t("appels")}`, drill: {} },
+    { label: t("Leads uniques"), value: k.uniqueLeads.toLocaleString(), icon: "👤", displayIcon: <Users size={15} />, tone: "var(--info)", pctLabel: pct(k.uniqueLeads), drill: {} },
     { label: t("Décrochés"), value: `${k.answeredUniqueContacts.toLocaleString()} · ${k.answeredPct.toFixed(0)}%`, icon: "✅", displayIcon: <CheckCircle2 size={15} />, tone: "var(--good)", drill: { answered: "yes" } },
     // Cost is an aggregate over usage_events, not a call subset → no drill.
     // Drill = every call in the period (each one contributed to the spend),
