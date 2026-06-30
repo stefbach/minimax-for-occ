@@ -85,7 +85,6 @@ const EN: Record<string, string> = {
   // ── LeadsTab ──
   "Erreur": "Error",
   "Tous les leads": "All leads",
-  "des appels": "of calls",
   "Appels décrochés": "Answered calls",
   "Appels décrochés — leads uniques": "Answered calls — unique leads",
   "Taux de contact": "Contact rate",
@@ -94,7 +93,6 @@ const EN: Record<string, string> = {
   "tentatives moyennes avant réponse": "avg. attempts before answer",
   "Analyse décroché — Qualifié par l'IA": "Answered call analysis — AI-qualified",
   "sur X appels décrochés": "of X answered calls",
-  "Pas intéressé": "Not interested",
   "Rappel demandé": "Callback requested",
   "RDV confirmés (décrochés)": "Booked appts (answered)",
   "À vérifier": "To review",
