@@ -61,6 +61,7 @@ export async function GET(req: Request) {
     .select("id,state,started_at,answered_at,duration_secs,disposition,metadata")
     .eq("org_id", org_id)
     .gte("started_at", earliest)
+    .neq("state", "failed")
     .order("started_at", { ascending: true })
     .limit(8000);
 
