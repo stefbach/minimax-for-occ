@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { AlertTriangle, BarChart2, Building2, ClipboardList, Home, Phone, PhoneIncoming, Radio, Sparkles, Users } from "lucide-react";
+import { AlertTriangle, BarChart2, Building2, ClipboardList, Home, MessageSquare, Phone, PhoneIncoming, Radio, Sparkles, Users } from "lucide-react";
 import type { DashboardOverviewResponse } from "@/app/api/dashboard/overview/route";
 import type { NhsPatientsResponse } from "@/app/api/dashboard/nhs-suivi/patients/route";
 import { KpiGrid } from "./KpiGrid";
@@ -21,19 +21,21 @@ import { AiInsightsTab } from "./AiInsightsTab";
 import { LeadsTab } from "./LeadsTab";
 import { NhsSuiviTab } from "./NhsSuiviTab";
 import { ErrorsAlertsTab } from "./ErrorsAlertsTab";
+import { PrecallSmsTab } from "./PrecallSmsTab";
 import { PeriodBar, presetToRange, DEFAULT_FILTERS, type Period, type Filters } from "./PeriodBar";
 import { SyncTwilioButton } from "./SyncTwilioButton";
 import { ReportButton } from "./ReportButton";
 import { ApiStatusPill } from "./ApiStatusPill";
 import { useT } from "@/lib/i18n";
 
-type TabId = "overview" | "stats" | "leads" | "logs" | "entrants" | "live" | "errors" | "ai" | "nhs";
+type TabId = "overview" | "stats" | "leads" | "logs" | "entrants" | "live" | "errors" | "ai" | "nhs" | "sms";
 const ALL_TABS: { id: TabId; label: string; icon: ReactNode }[] = [
   { id: "overview", label: "Vue d'ensemble", icon: <Home size={15} /> },
   { id: "stats", label: "Statistiques", icon: <BarChart2 size={15} /> },
   { id: "leads", label: "Leads", icon: <Users size={15} /> },
   { id: "logs", label: "Call Logs", icon: <ClipboardList size={15} /> },
   { id: "entrants", label: "Entrants", icon: <PhoneIncoming size={15} /> },
+  { id: "sms", label: "SMS pré-appel", icon: <MessageSquare size={15} /> },
   { id: "live", label: "Live", icon: <Radio size={15} /> },
   { id: "errors", label: "Erreurs & Alertes", icon: <AlertTriangle size={15} /> },
   { id: "ai", label: "AI Insights", icon: <Sparkles size={15} /> },
@@ -364,7 +366,7 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
         {tab !== "nhs" && tab !== "overview" && (() => {
           const active = TABS.find((x) => x.id === tab);
           if (!active) return null;
-          const periodScoped = tab === "stats" || tab === "logs" || tab === "entrants" || tab === "ai" || tab === "leads";
+          const periodScoped = tab === "stats" || tab === "logs" || tab === "entrants" || tab === "ai" || tab === "leads" || tab === "sms";
           return (
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
               <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
@@ -452,6 +454,13 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
           <>
             <PeriodBar period={period} filters={filters} onPeriod={setPeriod} onFilters={setFilters} />
             <LeadsTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} system={filters.system} global={filters} refreshKey={refreshKey} orgId={orgId} campaignId={filters.campaignId} />
+          </>
+        )}
+
+        {tab === "sms" && (
+          <>
+            <PeriodBar period={period} filters={filters} onPeriod={setPeriod} onFilters={setFilters} />
+            <PrecallSmsTab from={period.from} to={period.to} global={filters} />
           </>
         )}
 
