@@ -146,11 +146,13 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
     });
     try {
       type Row = { id: string; to_e164?: string | null };
-      type Resp = Row[] | { rows: Row[] };
+      type Resp = Row[] | { calls?: Row[]; rows?: Row[] };
       const parse = async (res: Response): Promise<Row[]> => {
         if (!res.ok) return [];
         const j = (await res.json()) as Resp;
-        return Array.isArray(j) ? j : (j.rows ?? []);
+        if (Array.isArray(j)) return j;
+        const obj = j as { calls?: Row[]; rows?: Row[] };
+        return obj.calls ?? obj.rows ?? [];
       };
       const [phRows, piRows] = await Promise.all([
         fetch(`/api/dashboard/calls-drill?${base}&qualification=passer_humain`, { cache: "no-store" }).then(parse),
