@@ -95,7 +95,14 @@ export function countDocs(d: DossierRow): { received: number; required: number }
   const required = NHS_DOCS.filter((x) => x.required).length;
   for (const doc of NHS_DOCS) {
     if (!doc.required) continue;
-    if (d[doc.key] === "received") received++;
+    const v = d[doc.key];
+    // Accept "received", filenames from migration, or any truthy non-absent value
+    const present =
+      v === true ||
+      (typeof v === "string" &&
+        v.trim() !== "" &&
+        !/^(false|no|non|0|pending|missing)$/i.test(v.trim()));
+    if (present) received++;
   }
   return { received, required };
 }

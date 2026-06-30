@@ -171,19 +171,23 @@ export async function GET(request: Request) {
   };
 
   // ── Step 6: dossier-based counts (clinic docs, NHS tracking) ──────────
-  // Use hardcoded NHS report data (clinic manager's actual counts) when automation
-  // workflow is inactive and no dossier data is available.
-  const hasAutomationData = allLeads.some((l) => dossierByLeadId.has(String(l.id)));
+  // Use hardcoded NHS report data (clinic manager's actual counts) unless there
+  // is actual live submission tracking data in dossiers. The automation creates
+  // dossiers and updates doc_* fields, but never writes nhs_submission_status —
+  // so checking dossier existence alone would permanently suppress the report.
+  const hasLiveSubmissionData = [...dossierByLeadId.values()].some(
+    (d) => d.nhs_submission_status != null || d.nhs_submission_date != null,
+  );
   const clinicDocs = { medical_report: 0, undue_delay_letter: 0, s2_provider_declaration: 0, medical_estimate: 0 };
-  const tracking = hasAutomationData ?
-    { submitted: 0, in_review: 0, accepted: 0, rejected: 0 } :
-    {
-      submitted: NHS_REPORT_TOTAL_SUBMITTED,
-      in_review: NHS_REPORT.pending_nhs.patients.length,
-      accepted: NHS_REPORT.approved.patients.length,
-      rejected: NHS_REPORT.rejected.patients.length,
-    };
-  let readyToSubmit = hasAutomationData ? 0 : NHS_REPORT.to_submit.patients.length;
+  const tracking = hasLiveSubmissionData
+    ? { submitted: 0, in_review: 0, accepted: 0, rejected: 0 }
+    : {
+        submitted: NHS_REPORT_TOTAL_SUBMITTED,
+        in_review: NHS_REPORT.pending_nhs.patients.length,
+        accepted: NHS_REPORT.approved.patients.length,
+        rejected: NHS_REPORT.rejected.patients.length,
+      };
+  let readyToSubmit = hasLiveSubmissionData ? 0 : NHS_REPORT.to_submit.patients.length;
   let submittedThisMonth = 0;
   for (const { d, patient } of entries) {
     if (!d) continue; // no dossier yet — skip clinic/NHS counts
