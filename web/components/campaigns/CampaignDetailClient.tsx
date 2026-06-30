@@ -305,7 +305,7 @@ export function CampaignDetailClient({
 
       {/* Pre-call SMS / WhatsApp */}
       {(() => {
-        const pm = (campaign.metadata as { precall_message?: { enabled?: boolean; lead_minutes?: number; sms?: { content_sid?: string | null; from?: string | null }; whatsapp?: { content_sid?: string | null } } } | null)?.precall_message;
+        const pm = (campaign.metadata as { precall_message?: { enabled?: boolean; lead_minutes?: number; sms?: { content_sid?: string | null; from?: string | null; template_name?: string | null }; whatsapp?: { content_sid?: string | null } } } | null)?.precall_message;
         if (!pm?.enabled) return null;
         const channels: string[] = [];
         if (pm.sms?.content_sid) channels.push("SMS");
@@ -320,8 +320,9 @@ export function CampaignDetailClient({
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
               {pm.sms?.content_sid && (
                 <div>
-                  <div className="muted" style={{ fontSize: 12 }}>SMS — Content SID</div>
-                  <div style={{ fontSize: 13, fontFamily: "monospace", wordBreak: "break-all" }}>{pm.sms.content_sid}</div>
+                  <div className="muted" style={{ fontSize: 12 }}>SMS — Template</div>
+                  <div style={{ fontSize: 13 }}>{pm.sms.template_name ?? pm.sms.content_sid}</div>
+                  {pm.sms.template_name && <div className="muted" style={{ fontSize: 11, fontFamily: "monospace", marginTop: 2 }}>{pm.sms.content_sid}</div>}
                   {pm.sms.from && <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>From : {pm.sms.from}</div>}
                 </div>
               )}

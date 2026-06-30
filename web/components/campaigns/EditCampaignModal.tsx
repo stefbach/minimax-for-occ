@@ -22,7 +22,7 @@ interface Phase {
 interface PrecallMessage {
   enabled?: boolean;
   lead_minutes?: number;
-  sms?: { content_sid?: string | null; from?: string | null } | null;
+  sms?: { content_sid?: string | null; from?: string | null; template_name?: string | null } | null;
   whatsapp?: { content_sid?: string | null; from?: string | null } | null;
 }
 
@@ -146,6 +146,7 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
   const [precallEnabled, setPrecallEnabled] = useState(pm0.enabled ?? false);
   const [precallLeadMin, setPrecallLeadMin] = useState(pm0.lead_minutes ?? 2);
   const [precallSmsContentSid, setPrecallSmsContentSid] = useState(pm0.sms?.content_sid ?? "");
+  const [precallSmsTemplateName, setPrecallSmsTemplateName] = useState(pm0.sms?.template_name ?? "");
   const [precallSmsFrom, setPrecallSmsFrom] = useState(pm0.sms?.from ?? "");
   const [precallWaContentSid, setPrecallWaContentSid] = useState(pm0.whatsapp?.content_sid ?? "");
 
@@ -277,7 +278,7 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
         },
       };
       const precallMessage: PrecallMessage = { enabled: precallEnabled, lead_minutes: precallLeadMin };
-      if (precallSmsContentSid) precallMessage.sms = { content_sid: precallSmsContentSid, from: precallSmsFrom || null };
+      if (precallSmsContentSid) precallMessage.sms = { content_sid: precallSmsContentSid, template_name: precallSmsTemplateName || null, from: precallSmsFrom || null };
       if (precallWaContentSid) precallMessage.whatsapp = { content_sid: precallWaContentSid, from: null };
       const metadata = { ...(initial.metadata ?? {}), engine: engineMerged, precall_message: precallMessage };
 
@@ -709,13 +710,21 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
                 </div>
                 <div style={{ display: "grid", gap: 6 }}>
                   <label style={{ fontSize: 12, fontWeight: 600 }}>SMS</label>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
                     <div>
                       <label style={{ fontSize: 12 }}>Content SID (HX…)</label>
                       <input
                         value={precallSmsContentSid}
                         onChange={(e) => setPrecallSmsContentSid(e.target.value.trim())}
                         placeholder="HX248b9be8…"
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 12 }}>Nom du template</label>
+                      <input
+                        value={precallSmsTemplateName}
+                        onChange={(e) => setPrecallSmsTemplateName(e.target.value.trim())}
+                        placeholder="ex: v2precall_sms_campaign"
                       />
                     </div>
                     <div>
