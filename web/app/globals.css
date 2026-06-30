@@ -931,3 +931,67 @@ html[data-theme="light"] .mk-node-brain em { color: #c026d3; }
   .mk-face-flow { stroke-width: 2.4; }
   .mk-face-node-label { font-size: 22px; }
 }
+
+/* ── Mobile (≤ 480px) ── */
+@media (max-width: 480px) {
+  .mk-header {
+    padding: 10px 16px;
+    gap: 6px;
+  }
+  .mk-nav { display: none; }
+  .mk-header-actions { gap: 8px; }
+
+  .mk-hero {
+    padding: 88px 16px 44px;
+    align-items: center;
+  }
+  .mk-hero-copy {
+    margin-left: 0;
+    max-width: 100%;
+    padding-bottom: 0;
+  }
+  .mk-overline { font-size: 11px; }
+  .mk-display { font-size: clamp(28px, 8vw, 36px); line-height: 1.1; }
+  .mk-h2 { font-size: clamp(22px, 6.5vw, 30px); }
+  .mk-lede { font-size: 15px; }
+
+  .mk-cta-row {
+    flex-direction: column;
+    gap: 10px;
+  }
+  .mk-cta-row a,
+  .mk-cta-row > button {
+    width: 100%;
+  }
+  .mk-cta-row a button,
+  .mk-cta-row > button {
+    width: 100%;
+    justify-content: center;
+    text-align: center;
+  }
+
+  .mk-chip-row {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .mk-chip { font-size: 11px; padding: 4px 10px; }
+
+  .mk-section { padding: 60px 16px 20px; }
+  .mk-final { padding-bottom: 56px; }
+
+  .mk-duo { gap: 14px; }
+  .mk-card { padding: 18px 16px; }
+  .mk-card ul { padding-left: 16px; }
+
+  .mk-stack { gap: 14px; }
+
+  .mk-footer {
+    padding: 20px 16px;
+    flex-direction: column;
+    gap: 6px;
+    text-align: center;
+  }
+
+  /* Keep scene visible but shorter on small phones */
+  .mk-hero { min-height: 85vh; }
+}
