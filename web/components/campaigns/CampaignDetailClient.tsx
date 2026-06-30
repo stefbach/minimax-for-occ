@@ -303,6 +303,39 @@ export function CampaignDetailClient({
         </div>
       </div>
 
+      {/* Pre-call SMS / WhatsApp */}
+      {(() => {
+        const pm = (campaign.metadata as { precall_message?: { enabled?: boolean; lead_minutes?: number; sms?: { content_sid?: string | null; from?: string | null }; whatsapp?: { content_sid?: string | null } } } | null)?.precall_message;
+        if (!pm?.enabled) return null;
+        const channels: string[] = [];
+        if (pm.sms?.content_sid) channels.push("SMS");
+        if (pm.whatsapp?.content_sid) channels.push("WhatsApp");
+        if (channels.length === 0) return null;
+        return (
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+              <h2 style={{ fontSize: 16, margin: 0 }}>Pre-call {channels.join(" + ")}</h2>
+              <span className="tag accent">{pm.lead_minutes ?? 2} min avant l&apos;appel</span>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+              {pm.sms?.content_sid && (
+                <div>
+                  <div className="muted" style={{ fontSize: 12 }}>SMS — Content SID</div>
+                  <div style={{ fontSize: 13, fontFamily: "monospace", wordBreak: "break-all" }}>{pm.sms.content_sid}</div>
+                  {pm.sms.from && <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>From : {pm.sms.from}</div>}
+                </div>
+              )}
+              {pm.whatsapp?.content_sid && (
+                <div>
+                  <div className="muted" style={{ fontSize: 12 }}>WhatsApp — Content SID</div>
+                  <div style={{ fontSize: 13, fontFamily: "monospace", wordBreak: "break-all" }}>{pm.whatsapp.content_sid}</div>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
       {campaign.mode === "dynamic" && campaign.engine && (
         <div className="card" style={{ marginBottom: 16 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
