@@ -198,7 +198,8 @@ export async function POST(
       "RAPPEL":      "PAS DE REPONSE",   // no meaningful contact → cadence retries
       "A RAPPELER":  "PAS DE REPONSE",
     };
-    patch.qualification = QUAL_REMAP[callQual!] ?? callQual!;
+    const qualUpper = (callQual ?? "").trim().toUpperCase();
+    patch.qualification = QUAL_REMAP[qualUpper] ?? qualUpper;
   }
   if (isExplicit && has("last_qualification_update")) {
     patch.last_qualification_update = endedAt;

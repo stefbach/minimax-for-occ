@@ -227,8 +227,9 @@ def save_to_data_table(
                 "A RAPPELER":  "PAS DE REPONSE",
             }
             q = clean.get("qualification")
-            if q in _QUAL_REMAP:
-                clean["qualification"] = _QUAL_REMAP[q]
+            if q:
+                q_upper = str(q).strip().upper()
+                clean["qualification"] = _QUAL_REMAP.get(q_upper, q_upper)
             # Always bump updated_at if the column exists.
             if "updated_at" in valid_cols:
                 from datetime import datetime, timezone
