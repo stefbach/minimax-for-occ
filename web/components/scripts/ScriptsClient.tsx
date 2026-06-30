@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
+import { useT } from "@/lib/i18n";
 import { ScriptEditor, type ScriptGraph, type AgentHandleLite, emptyGraph, toGraph } from "./ScriptEditor";
 
 // VoicePanel pulls in the LiveKit browser SDK — load it client-only.
@@ -50,6 +51,7 @@ type ScriptDetail = ScriptRow & {
 const MISSIONS = ["qualification", "closing", "rappel", "sav", "autre"];
 
 export function ScriptsClient({ handles = [] }: { handles?: AgentHandleLite[] }) {
+  const t = useT();
   const [scripts, setScripts] = useState<ScriptRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

@@ -34,6 +34,7 @@ import { createPortal } from "react-dom";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Softphone } from "./Softphone";
+import { useT } from "@/lib/i18n";
 
 /** Stable id of the DOM node the /desk page renders so we know where to
  *  portal the live Softphone element. Exported so DeskWorkstation can
@@ -50,6 +51,7 @@ export function dispatchSoftphoneExpand() {
 }
 
 export function PersistentSoftphoneShell() {
+  const t = useT();
   const pathname = usePathname();
   // /desk and /desk/<sub-route> are both treated as the agent's poste.
   // Everywhere else, the softphone sits hidden but mounted.
@@ -126,7 +128,7 @@ export function PersistentSoftphoneShell() {
       {!onDesk && (
         <Link
           href="/desk"
-          aria-label="Go to my desk"
+          aria-label={t("Aller à mon poste")}
           style={{
             position: "fixed",
             top: 12,
@@ -147,7 +149,7 @@ export function PersistentSoftphoneShell() {
           }}
         >
           <span aria-hidden style={{ fontSize: 14 }}>☎</span>
-          <span>My desk</span>
+          <span>{t("Mon poste")}</span>
         </Link>
       )}
     </>

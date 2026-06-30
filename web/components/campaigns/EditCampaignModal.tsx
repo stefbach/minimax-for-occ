@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useT } from "@/lib/i18n";
 
 // Full edit modal: lets the user inspect AND tweak every campaign field —
 // both the "safe" tweaks (name / days / ranges / concurrency / AMD) and

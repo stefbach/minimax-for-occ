@@ -23,6 +23,7 @@ import "@xyflow/react/dist/style.css";
 
 import type { ScriptGraph, ScriptNode, AgentHandleLite } from "./ScriptEditor";
 import { agentColor } from "./ScriptEditor";
+import { useT } from "@/lib/i18n";
 
 function uid(prefix: string): string {
   return `${prefix}${Math.random().toString(36).slice(2, 9)}`;
@@ -56,6 +57,7 @@ type BranchData = {
 const HANDLE_STYLE = { width: 10, height: 10, background: "var(--accent)" } as const;
 
 function StepNode({ id, data, selected }: NodeProps) {
+  const t = useT();
   const d = data as StepData;
   const color = agentColor(d.agent_handle_id);
   const aiHandles = d.handles.filter((h) => h.kind === "ai");
@@ -81,7 +83,7 @@ function StepNode({ id, data, selected }: NodeProps) {
       <Handle type="target" position={Position.Top} style={HANDLE_STYLE} />
       {d.agent_handle_id && (
         <div
-          title={`${d.agent_kind === "human" ? "Humain" : "IA"} — ${d.agent_label}`}
+          title={`${d.agent_kind === "human" ? t("Humain") : "IA"} — ${d.agent_label}`}
           style={{
             display: "inline-flex", alignItems: "center", gap: 4,
             padding: "2px 8px", borderRadius: 999, fontSize: 11, fontWeight: 600,
@@ -98,13 +100,13 @@ function StepNode({ id, data, selected }: NodeProps) {
           className="nodrag"
           value={d.title}
           onChange={(e) => d.onChange(id, { title: e.target.value })}
-          placeholder="Titre de l'étape"
+          placeholder={t("Titre de l'étape")}
           style={{ flex: 1, fontSize: 12, fontWeight: 600 }}
         />
         <button
           className="nodrag ghost"
           onClick={() => d.onDelete(id)}
-          title="Supprimer l'étape"
+          title={t("Supprimer l'étape")}
           style={{ padding: "2px 6px", fontSize: 11, color: "var(--bad)" }}
         >
           ✕
@@ -115,7 +117,7 @@ function StepNode({ id, data, selected }: NodeProps) {
         rows={3}
         value={d.content}
         onChange={(e) => d.onChange(id, { content: e.target.value })}
-        placeholder="Ce que l'agent dit / fait…"
+        placeholder={t("Ce que l'agent dit / fait…")}
         style={{ fontSize: 12, resize: "none" }}
       />
       <select
@@ -123,9 +125,9 @@ function StepNode({ id, data, selected }: NodeProps) {
         value={d.agent_handle_id ?? ""}
         onChange={(e) => d.onChange(id, { agent_handle_id: e.target.value || null })}
         style={{ fontSize: 11 }}
-        title="Agent qui prend cette étape (null = celui de la campagne)"
+        title={t("Agent qui prend cette étape (null = celui de la campagne)")}
       >
-        <option value="">⤴ Hériter de la campagne</option>
+        <option value="">{t("⤴ Hériter de la campagne")}</option>
         {aiHandles.length > 0 && (
           <optgroup label="🤖 IA">
             {aiHandles.map((h) => (
@@ -134,7 +136,7 @@ function StepNode({ id, data, selected }: NodeProps) {
           </optgroup>
         )}
         {humanHandles.length > 0 && (
-          <optgroup label="👤 Humains">
+          <optgroup label={t("👤 Humains")}>
             {humanHandles.map((h) => (
               <option key={h.id} value={h.id}>{h.display_name}</option>
             ))}
@@ -157,6 +159,7 @@ function BranchEdge({
   data,
   markerEnd,
 }: EdgeProps) {
+  const t = useT();
   const d = data as BranchData;
   const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
@@ -188,13 +191,13 @@ function BranchEdge({
           <input
             value={d?.condition ?? ""}
             onChange={(e) => d.onChange(id, e.target.value)}
-            placeholder="Si…"
+            placeholder={t("Si…")}
             style={{ fontSize: 11, width: 120 }}
           />
           <button
             className="ghost"
             onClick={() => d.onDelete(id)}
-            title="Supprimer la branche"
+            title={t("Supprimer la branche")}
             style={{ padding: "0 5px", fontSize: 11, color: "var(--bad)" }}
           >
             ✕
@@ -222,6 +225,7 @@ export function VisualScriptEditor({
   onChange: (next: ScriptGraph) => void;
   handles?: AgentHandleLite[];
 }) {
+  const t = useT();
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<StepData>>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge<BranchData>>([]);
 
@@ -234,10 +238,10 @@ export function VisualScriptEditor({
     if (!hid) return { label: null, kind: null };
     const h = handlesRef.current.find((x) => x.id === hid);
     return {
-      label: h?.display_name ?? "Agent supprimé",
+      label: h?.display_name ?? t("Agent supprimé"),
       kind: (h?.kind ?? null) as "ai" | "human" | null,
     };
-  }, []);
+  }, [t]);
 
   const patchNode = useCallback(
     (id: string, patch: Partial<ScriptNode>) => {
@@ -387,10 +391,10 @@ export function VisualScriptEditor({
     <div style={{ display: "grid", gap: 8 }}>
       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
         <button onClick={addNode} style={{ padding: "6px 12px", fontSize: 13 }}>
-          + Ajouter une étape
+          + {t("Ajouter une étape")}
         </button>
         <span className="muted" style={{ fontSize: 11 }}>
-          Glissez une étape pour la déplacer · tirez d&apos;un point à l&apos;autre pour créer une branche · éditez la condition sur la flèche.
+          {t("Glissez une étape pour la déplacer · tirez d'un point à l'autre pour créer une branche · éditez la condition sur la flèche.")}
         </span>
       </div>
       <div

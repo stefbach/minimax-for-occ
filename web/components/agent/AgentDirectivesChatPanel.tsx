@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, lastAssistantMessageIsCompleteWithToolCalls } from "ai";
+import { useT } from "@/lib/i18n";
 
 export interface DirectivesProposal {
   system_prompt: string;
@@ -35,6 +36,7 @@ export function AgentDirectivesChatPanel({
   onProposal: (p: DirectivesProposal) => void;
   onFinalize: () => Promise<FinalizeAgentResult>;
 }) {
+  const t = useT();
   const [input, setInput] = useState("");
 
   const onProposalRef = useRef(onProposal);
@@ -113,12 +115,11 @@ export function AgentDirectivesChatPanel({
       <div className="chat-log" style={{ flex: 1, minHeight: 0 }}>
         {messages.length === 0 && (
           <div style={{ color: "var(--muted)", padding: 8, fontSize: 13, lineHeight: 1.6 }}>
-            Describe what this management agent should do. For example:
+            {t("Décrivez ce que cet agent de gestion doit faire. Par exemple :")}
             <br />
-            <em>&quot;Follow up by email and WhatsApp with patients in no-show status, warm tone,
-            offer to rebook their appointment, and update the record when done.&quot;</em>
+            <em>&quot;{t("Effectuer un suivi par email et WhatsApp avec les patients en statut no-show, ton chaleureux, proposer de replanifier leur rendez-vous et mettre à jour le dossier une fois fait.")}&quot;</em>
             <br />
-            When you&apos;re happy with the directives, say <strong>&quot;go&quot;</strong> and I&apos;ll create the agent.
+            {t("Quand vous êtes satisfait des directives, dites")} <strong>&quot;go&quot;</strong> {t("et je créerai l'agent.")}
           </div>
         )}
         {messages.map((m) => {
@@ -146,7 +147,7 @@ export function AgentDirectivesChatPanel({
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Ex.: follow up no-shows by email + WhatsApp…"
+          placeholder={t("Ex. : suivi des no-shows par email + WhatsApp…")}
           disabled={isLoading}
         />
         <button type="submit" disabled={isLoading || !input.trim()}>

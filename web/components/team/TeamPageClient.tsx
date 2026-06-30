@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { TeamList } from "./TeamList";
+import { useT } from "@/lib/i18n";
 
 /**
  * Client wrapper for the /team page. Owns the "open invite modal" signal so
@@ -9,6 +10,7 @@ import { TeamList } from "./TeamList";
  * "+ Invite" button still feels instant.
  */
 export function TeamPageClient() {
+  const t = useT();
   const [openSignal, setOpenSignal] = useState(0);
   return (
     <>

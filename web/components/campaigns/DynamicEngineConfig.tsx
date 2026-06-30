@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useT } from "@/lib/i18n";
 
 /**
  * DynamicEngineConfig — the client-configurable rules for a "continuous"
@@ -175,6 +176,7 @@ interface Props {
 }
 
 export function DynamicEngineConfig({ columns, value, onChange, hideSlots = false, section = "all" }: Props) {
+  const t = useT();
   const [statusInput, setStatusInput] = useState("");
   const textCols = columns.filter((c) => c.type === "text");
   const dateCols = columns.filter((c) => c.type === "date" || c.type === "datetime");
@@ -204,20 +206,20 @@ export function DynamicEngineConfig({ columns, value, onChange, hideSlots = fals
       {section !== "cadence-only" && (<>
       {/* ── Qui appeler ── */}
       <div style={box}>
-        <h4 style={h4}>Filtres : quels contacts cibler ?</h4>
+        <h4 style={h4}>{t("Filtres : quels contacts cibler ?")}</h4>
         <div className="form-row">
           <div>
-            <label>Colonne « statut »</label>
+            <label>{t("Colonne « statut »")}</label>
             <select
               value={value.selection.status_column}
               onChange={(e) => set("selection", { ...value.selection, status_column: e.target.value })}
             >
-              <option value="">— choisir —</option>
+              <option value="">{t("— choisir —")}</option>
               {textCols.map((c) => <option key={c.key} value={c.key}>{c.label} ({c.key})</option>)}
             </select>
           </div>
           <div>
-            <label>Filtre numéro : commence par</label>
+            <label>{t("Filtre numéro : commence par")}</label>
             <input
               value={value.selection.phone_starts_with}
               onChange={(e) => set("selection", { ...value.selection, phone_starts_with: e.target.value })}
@@ -226,7 +228,7 @@ export function DynamicEngineConfig({ columns, value, onChange, hideSlots = fals
           </div>
         </div>
         <div>
-          <label>Statuts à appeler</label>
+          <label>{t("Statuts à appeler")}</label>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
             {value.selection.include_statuses.map((s) => (
               <span key={s} className="tag" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
@@ -236,7 +238,7 @@ export function DynamicEngineConfig({ columns, value, onChange, hideSlots = fals
               </span>
             ))}
             {value.selection.include_statuses.length === 0 && (
-              <span style={{ fontSize: 12, color: "var(--muted)" }}>Aucun → tous les contacts seront éligibles.</span>
+              <span style={{ fontSize: 12, color: "var(--muted)" }}>{t("Aucun → tous les contacts seront éligibles.")}</span>
             )}
           </div>
           <div style={{ display: "flex", gap: 6 }}>
@@ -244,9 +246,9 @@ export function DynamicEngineConfig({ columns, value, onChange, hideSlots = fals
               value={statusInput}
               onChange={(e) => setStatusInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addStatus(); } }}
-              placeholder="ex: NOUVEAU DOSSIER (Entrée pour ajouter)"
+              placeholder={t("ex: NOUVEAU DOSSIER (Entrée pour ajouter)")}
             />
-            <button type="button" className="ghost" onClick={addStatus}>Ajouter</button>
+            <button type="button" className="ghost" onClick={addStatus}>{t("Ajouter")}</button>
           </div>
         </div>
       </div>
@@ -255,27 +257,27 @@ export function DynamicEngineConfig({ columns, value, onChange, hideSlots = fals
       {section !== "no-cadence" && (<>
       {/* ── Relances ── */}
       <div style={box}>
-        <h4 style={h4}>Relances (suite d&apos;appels)</h4>
+        <h4 style={h4}>{t("Relances (suite d'appels)")}</h4>
         <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
           <input type="checkbox" checked={value.cadence.enabled}
             onChange={(e) => set("cadence", { ...value.cadence, enabled: e.target.checked })}
             style={{ width: "auto" }} />
-          Activer les relances multi-jours (J+X)
+          {t("Activer les relances multi-jours (J+X)")}
         </label>
 
         {value.cadence.enabled && (
           <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
             <div className="form-row">
               <div>
-                <label>Colonne « rappel programmé » (prioritaire)</label>
+                <label>{t("Colonne « rappel programmé » (prioritaire)")}</label>
                 <select value={value.callback.datetime_column}
                   onChange={(e) => set("callback", { ...value.callback, datetime_column: e.target.value, enabled: Boolean(e.target.value) })}>
-                  <option value="">— aucune —</option>
+                  <option value="">{t("— aucune —")}</option>
                   {dateCols.map((c) => <option key={c.key} value={c.key}>{c.label} ({c.key})</option>)}
                 </select>
               </div>
               <div>
-                <label>Valeur de statut « rappel »</label>
+                <label>{t("Valeur de statut « rappel »")}</label>
                 <input value={value.callback.status_value}
                   onChange={(e) => set("callback", { ...value.callback, status_value: e.target.value })}
                   placeholder="RAPPEL" />
@@ -283,15 +285,15 @@ export function DynamicEngineConfig({ columns, value, onChange, hideSlots = fals
             </div>
 
             <div>
-              <label>Phases de relance</label>
+              <label>{t("Phases de relance")}</label>
               <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>
-                Chaque phase note la date d&apos;appel et le nombre de tentatives dans VOS colonnes.
+                {t("Chaque phase note la date d'appel et le nombre de tentatives dans VOS colonnes.")}
                 {value.cadence.phases.length > 0 &&
                   value.cadence.phases.every((p) =>
                     /^date_j\d+$|^j\d+_called_at$|^appel_j\d+$|^phase\d+_called_at$|^relance_\d+_date$/i.test(p.date_column),
                   ) && (
                     <span style={{ marginLeft: 6, color: "var(--good)" }}>
-                      ✓ Colonnes auto-détectées d&apos;après les noms de ta table.
+                      ✓ {t("Colonnes auto-détectées d'après les noms de ta table.")}
                     </span>
                   )}
               </div>
@@ -302,15 +304,15 @@ export function DynamicEngineConfig({ columns, value, onChange, hideSlots = fals
                       onChange={(e) => set("cadence", { ...value.cadence, phases: value.cadence.phases.map((x, j) => j === i ? { ...x, name: e.target.value } : x) })} />
                     <select value={p.date_column}
                       onChange={(e) => set("cadence", { ...value.cadence, phases: value.cadence.phases.map((x, j) => j === i ? { ...x, date_column: e.target.value } : x) })}>
-                      <option value="">colonne date…</option>
+                      <option value="">{t("colonne date…")}</option>
                       {dateCols.map((c) => <option key={c.key} value={c.key}>{c.key}</option>)}
                     </select>
                     <select value={p.attempts_column}
                       onChange={(e) => set("cadence", { ...value.cadence, phases: value.cadence.phases.map((x, j) => j === i ? { ...x, attempts_column: e.target.value } : x) })}>
-                      <option value="">colonne tentatives…</option>
+                      <option value="">{t("colonne tentatives…")}</option>
                       {numCols.map((c) => <option key={c.key} value={c.key}>{c.key}</option>)}
                     </select>
-                    <input type="number" value={p.wait_business_days} title="Jours ouvrés d'attente avant cette phase"
+                    <input type="number" value={p.wait_business_days} title={t("Jours ouvrés d'attente avant cette phase")}
                       onChange={(e) => set("cadence", { ...value.cadence, phases: value.cadence.phases.map((x, j) => j === i ? { ...x, wait_business_days: Number(e.target.value) } : x) })} />
                     <button type="button" className="ghost" style={{ padding: "6px 10px" }}
                       onClick={() => set("cadence", { ...value.cadence, phases: value.cadence.phases.filter((_, j) => j !== i) })}>✕</button>
@@ -318,14 +320,14 @@ export function DynamicEngineConfig({ columns, value, onChange, hideSlots = fals
                 ))}
                 <button type="button" className="ghost" style={{ justifySelf: "start" }}
                   onClick={() => set("cadence", { ...value.cadence, phases: [...value.cadence.phases, { name: `J${value.cadence.phases.length * 2 + 1}`, date_column: "", attempts_column: "", wait_business_days: value.cadence.phases.length * 2 }] })}>
-                  + Ajouter une phase
+                  + {t("Ajouter une phase")}
                 </button>
               </div>
             </div>
 
             <div className="form-row">
               <div>
-                <label>Max tentatives par phase</label>
+                <label>{t("Max tentatives par phase")}</label>
                 <input type="number" value={value.cadence.max_attempts_per_phase}
                   onChange={(e) => set("cadence", { ...value.cadence, max_attempts_per_phase: Number(e.target.value) })} />
               </div>
@@ -333,7 +335,7 @@ export function DynamicEngineConfig({ columns, value, onChange, hideSlots = fals
                 <input type="checkbox" checked={value.cadence.business_days_only}
                   onChange={(e) => set("cadence", { ...value.cadence, business_days_only: e.target.checked })}
                   style={{ width: "auto" }} />
-                <span style={{ fontSize: 13 }}>Jours ouvrés uniquement</span>
+                <span style={{ fontSize: 13 }}>{t("Jours ouvrés uniquement")}</span>
               </div>
             </div>
           </div>
@@ -345,9 +347,9 @@ export function DynamicEngineConfig({ columns, value, onChange, hideSlots = fals
       {/* ── Créneaux ── */}
       {!hideSlots && (
       <div style={box}>
-        <h4 style={h4}>Créneaux (quand appeler)</h4>
+        <h4 style={h4}>{t("Créneaux (quand appeler)")}</h4>
         <div>
-          <label>Jours actifs</label>
+          <label>{t("Jours actifs")}</label>
           <div style={{ display: "flex", gap: 6 }}>
             {DAYS.map((d) => (
               <button key={d.n} type="button"
@@ -363,7 +365,7 @@ export function DynamicEngineConfig({ columns, value, onChange, hideSlots = fals
         </div>
         <div className="form-row">
           <div>
-            <label>Heures de tir</label>
+            <label>{t("Heures de tir")}</label>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
               {value.slots.hours.map((h, i) => (
                 <span key={i} style={{ display: "inline-flex", gap: 4, alignItems: "center" }}>
@@ -374,13 +376,13 @@ export function DynamicEngineConfig({ columns, value, onChange, hideSlots = fals
                 </span>
               ))}
               <button type="button" className="ghost" style={{ padding: "4px 10px" }}
-                onClick={() => set("slots", { ...value.slots, hours: [...value.slots.hours, "13:00"] })}>+ heure</button>
+                onClick={() => set("slots", { ...value.slots, hours: [...value.slots.hours, "13:00"] })}>+ {t("heure")}</button>
             </div>
           </div>
           <div>
-            <label>Fuseau horaire</label>
+            <label>{t("Fuseau horaire")}</label>
             <select value={value.slots.timezone} onChange={(e) => set("slots", { ...value.slots, timezone: e.target.value })}>
-              {TIMEZONES.map((t) => <option key={t} value={t}>{t}</option>)}
+              {TIMEZONES.map((tz) => <option key={tz} value={tz}>{tz}</option>)}
             </select>
           </div>
         </div>
@@ -389,17 +391,17 @@ export function DynamicEngineConfig({ columns, value, onChange, hideSlots = fals
 
       {/* ── Volume ── */}
       <div style={box}>
-        <h4 style={h4}>Combien de nouveaux contacts par créneau&nbsp;?</h4>
+        <h4 style={h4}>{t("Combien de nouveaux contacts par créneau ?")}</h4>
         <div className="form-row">
           <div>
-            <label>Nouveaux contacts max par créneau</label>
+            <label>{t("Nouveaux contacts max par créneau")}</label>
             <input type="number" value={value.volume.max_new_per_day}
               onChange={(e) => set("volume", { ...value.volume, max_new_per_day: Number(e.target.value) })} />
             <div className="muted" style={{ fontSize: 11, marginTop: 4, lineHeight: 1.5 }}>
-              Combien de contacts <strong>jamais encore appelés</strong> on lance à chaque créneau.
-              {" "}Avec tes {Math.max(1, (value.slots.hours ?? []).length)} créneau{(value.slots.hours ?? []).length > 1 ? "x" : ""}, ça fait jusqu&apos;à{" "}
-              <strong>{value.volume.max_new_per_day * Math.max(1, (value.slots.hours ?? []).length)} nouveaux/jour</strong>.
-              {" "}Les relances (rappels J+X) partent en plus, sans limite.
+              {t("Combien de contacts")} <strong>{t("jamais encore appelés")}</strong> {t("on lance à chaque créneau.")}
+              {" "}{t("Avec tes")} {Math.max(1, (value.slots.hours ?? []).length)} {t("créneau")}{(value.slots.hours ?? []).length > 1 ? "x" : ""}, {t("ça fait jusqu'à")}{" "}
+              <strong>{value.volume.max_new_per_day * Math.max(1, (value.slots.hours ?? []).length)} {t("nouveaux/jour")}</strong>.
+              {" "}{t("Les relances (rappels J+X) partent en plus, sans limite.")}
             </div>
           </div>
         </div>

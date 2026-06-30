@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useT } from "@/lib/i18n";
 
 // Inline actions on each campaign row.
 //
@@ -25,6 +26,7 @@ interface Props {
 type Busy = null | "pause" | "resume" | "cancel" | "delete" | "duplicate";
 
 export function CampaignRowActions({ id, name, state }: Props) {
+  const t = useT();
   const router = useRouter();
   const [busy, setBusy] = useState<Busy>(null);
 
@@ -101,9 +103,8 @@ export function CampaignRowActions({ id, name, state }: Props) {
     if (busy) return;
     if (
       !confirm(
-        `Permanently DELETE "${name}"?\n\n` +
-          `This removes the campaign AND all its targets. ` +
-          `Calls already made remain in the log.`,
+        t("Supprimer définitivement") + ` "${name}" ?\n\n` +
+          t("Cela supprime la campagne ET toutes ses cibles. Les appels déjà passés restent dans le journal."),
       )
     ) {
       return;
@@ -144,7 +145,7 @@ export function CampaignRowActions({ id, name, state }: Props) {
       {/* Duplicate — copies config into a new paused campaign (no targets) */}
       <button
         type="button"
-        title="Duplicate this campaign"
+        title={t("Dupliquer cette campagne")}
         onClick={duplicate}
         disabled={busy !== null}
         style={{ ...btn, color: "var(--info)", ...disabled(busy !== null) }}
@@ -155,7 +156,7 @@ export function CampaignRowActions({ id, name, state }: Props) {
       {/* Edit — links to the campaign detail page */}
       <Link
         href={`/campaigns/${id}`}
-        title="View / edit campaign"
+        title={t("Voir / modifier la campagne")}
         style={btn}
       >
         ✎
@@ -165,9 +166,9 @@ export function CampaignRowActions({ id, name, state }: Props) {
       {isPaused ? (
         <button
           type="button"
-          title="Resume campaign"
+          title={t("Reprendre la campagne")}
           onClick={() =>
-            patchState("running", "resume", `Resume campaign "${name}"?`)
+            patchState("running", "resume", t("Reprendre la campagne") + ` "${name}" ?`)
           }
           disabled={busy !== null}
           style={{ ...btn, color: "var(--good)", ...disabled(busy !== null) }}
@@ -179,14 +180,14 @@ export function CampaignRowActions({ id, name, state }: Props) {
           type="button"
           title={
             isRunning
-              ? "Pause (reversible — can be resumed)"
-              : "Only available for running/scheduled campaigns"
+              ? t("Mettre en pause (réversible — peut être reprise)")
+              : t("Disponible uniquement pour les campagnes en cours ou planifiées")
           }
           onClick={() =>
             patchState(
               "paused",
               "pause",
-              `Pause "${name}"? Active calls will finish, new ones stop. You can resume at any time.`,
+              t("Mettre en pause") + ` "${name}" ? ` + t("Les appels en cours se terminent, les nouveaux s'arrêtent. Vous pouvez reprendre à tout moment."),
             )
           }
           disabled={!isRunning || busy !== null}
@@ -201,15 +202,14 @@ export function CampaignRowActions({ id, name, state }: Props) {
         type="button"
         title={
           isTerminal
-            ? "Already completed / cancelled"
-            : "Cancel permanently (irreversible)"
+            ? t("Déjà terminée / annulée")
+            : t("Annuler définitivement (irréversible)")
         }
         onClick={() =>
           patchState(
             "cancelled",
             "cancel",
-            `Permanently CANCEL "${name}"? The campaign stops and cannot be resumed. ` +
-              `(To stop temporarily, use ⏸ Pause instead.)`,
+            t("Annuler définitivement") + ` "${name}" ? ` + t("La campagne s'arrête et ne peut plus être reprise. (Pour stopper temporairement, utilisez ⏸ Pause.)"),
           )
         }
         disabled={isTerminal || busy !== null}
@@ -225,7 +225,7 @@ export function CampaignRowActions({ id, name, state }: Props) {
       {/* Delete */}
       <button
         type="button"
-        title="Delete permanently (cascades targets)"
+        title={t("Supprimer définitivement (supprime aussi les cibles)")}
         onClick={remove}
         disabled={busy !== null}
         style={{

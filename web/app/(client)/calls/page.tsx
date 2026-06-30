@@ -8,6 +8,7 @@ import {
   type SupervisionMode,
 } from "@/components/supervision/SupervisionRoom";
 import { HelpButton } from "@/components/help/HelpButton";
+import { useT } from "@/lib/i18n";
 
 type AgentHandle = {
   id: string;
@@ -65,6 +66,7 @@ function callPeer(c: CallRow): string {
 }
 
 export default function CallsPage() {
+  const t = useT();
   const [calls, setCalls] = useState<CallRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -162,28 +164,28 @@ export default function CallsPage() {
     <div>
       <div className="page-header">
         <div>
-          <h1>{"Calls — live supervision"}</h1>
+          <h1>{t("Appels — supervision en direct")}</h1>
           <div className="subtitle">
-            {"Real-time view of ongoing calls. Listen, whisper, intervene."}
+            {t("Vue en temps réel des appels en cours. Écouter, souffler, intervenir.")}
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <button className="ghost" onClick={() => void refresh()}>
-            {"Refresh"}
+            {t("Actualiser")}
           </button>
           <HelpButton contextKey="calls" />
         </div>
       </div>
 
       <div className="grid cols-3 calls-kpis">
-        <KpiCard label={"Ringing"} value={counts.ringing} tone="accent" />
-        <KpiCard label={"In progress"} value={counts.in_progress} tone="good" />
-        <KpiCard label={"Queued"} value={counts.queued} tone="muted" />
+        <KpiCard label={t("Sonnerie")} value={counts.ringing} tone="accent" />
+        <KpiCard label={t("En cours")} value={counts.in_progress} tone="good" />
+        <KpiCard label={t("En file")} value={counts.queued} tone="muted" />
       </div>
       <div className="grid cols-3 calls-kpis" style={{ marginTop: 10 }}>
-        <KpiCard label={"Wrap-up"} value={counts.wrap_up} tone="muted" />
-        <KpiCard label={"Active total"} value={active.length} tone="accent" />
-        <KpiCard label={"Ended (24h)"} value={ended.length} tone="muted" />
+        <KpiCard label={t("Post-appel")} value={counts.wrap_up} tone="muted" />
+        <KpiCard label={t("Total actifs")} value={active.length} tone="accent" />
+        <KpiCard label={t("Terminés (24h)")} value={ended.length} tone="muted" />
       </div>
 
       {supervision && (
@@ -197,12 +199,12 @@ export default function CallsPage() {
       )}
 
       <div className="card calls-grid" style={{ marginTop: 22 }}>
-        <h3>{"Active calls"}</h3>
-        {loading && <p className="muted">{"Loading…"}</p>}
-        {error && <p style={{ color: "var(--bad)" }}>{"Error:"} {error}</p>}
+        <h3>{t("Appels actifs")}</h3>
+        {loading && <p className="muted">{t("Chargement…")}</p>}
+        {error && <p style={{ color: "var(--bad)" }}>{t("Erreur :")} {error}</p>}
         {!loading && !error && active.length === 0 && (
           <p className="muted" style={{ margin: 0 }}>
-            {"No active calls at the moment."}
+            {t("Aucun appel actif pour le moment.")}
           </p>
         )}
         {active.length > 0 && (
@@ -210,12 +212,12 @@ export default function CallsPage() {
             <table className="list">
               <thead>
                 <tr>
-                  <th>{"From"}</th>
-                  <th>{"To"}</th>
-                  <th>{"Status"}</th>
-                  <th>{"Agent"}</th>
-                  <th>{"Duration"}</th>
-                  <th>{"Actions"}</th>
+                  <th>{t("De")}</th>
+                  <th>{t("Vers")}</th>
+                  <th>{t("Statut")}</th>
+                  <th>{t("Agent")}</th>
+                  <th>{t("Durée")}</th>
+                  <th>{t("Actions")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -246,30 +248,30 @@ export default function CallsPage() {
                         <button
                           className="ghost"
                           onClick={() => void startSupervision(c.id, "listen")}
-                          title={"Silent listen"}
+                          title={t("Écoute silencieuse")}
                         >
-                          {"Listen"}
+                          {t("Écouter")}
                         </button>
                         <button
                           className="ghost"
                           onClick={() => void startSupervision(c.id, "whisper")}
-                          title={"Whisper to agent"}
+                          title={t("Souffler à l'agent")}
                         >
-                          {"Whisper"}
+                          {t("Souffler")}
                         </button>
                         <button
                           className="ghost"
                           onClick={() => void startSupervision(c.id, "barge")}
-                          title={"Barge into call"}
+                          title={t("Intervenir dans l'appel")}
                         >
-                          {"Barge in"}
+                          {t("Intervenir")}
                         </button>
                         <Link
                           href={`/calls/${c.id}`}
                           className="tag"
                           style={{ textDecoration: "none" }}
                         >
-                          {"Details"}
+                          {t("Détails")}
                         </Link>
                       </div>
                     </td>
@@ -287,24 +289,24 @@ export default function CallsPage() {
           onClick={() => setHistoryOpen((v) => !v)}
           style={{ width: "100%", textAlign: "left" }}
         >
-          {historyOpen ? "▾" : "▸"} {"Last 24h history"} ({ended.length})
+          {historyOpen ? "▾" : "▸"} {t("Historique des dernières 24h")} ({ended.length})
         </button>
         {historyOpen && (
           <div style={{ marginTop: 12, overflowX: "auto" }}>
             {ended.length === 0 ? (
               <p className="muted" style={{ margin: 0 }}>
-                {"No ended calls in this period."}
+                {t("Aucun appel terminé sur cette période.")}
               </p>
             ) : (
               <table className="list">
                 <thead>
                   <tr>
-                    <th>{"Peer"}</th>
-                    <th>{"Direction"}</th>
-                    <th>{"Status"}</th>
-                    <th>{"Agent"}</th>
-                    <th>{"Duration"}</th>
-                    <th>{"Ended"}</th>
+                    <th>{t("Correspondant")}</th>
+                    <th>{t("Direction")}</th>
+                    <th>{t("Statut")}</th>
+                    <th>{t("Agent")}</th>
+                    <th>{t("Durée")}</th>
+                    <th>{t("Terminé")}</th>
                     <th></th>
                   </tr>
                 </thead>
@@ -312,7 +314,7 @@ export default function CallsPage() {
                   {ended.map((c) => (
                     <tr key={c.id}>
                       <td>{callPeer(c)}</td>
-                      <td>{c.direction === "in" ? "Inbound" : "Outbound"}</td>
+                      <td>{c.direction === "in" ? t("Entrant") : t("Sortant")}</td>
                       <td>
                         <span className="tag">{c.state}</span>
                       </td>
@@ -335,7 +337,7 @@ export default function CallsPage() {
                       </td>
                       <td>
                         <Link href={`/calls/${c.id}`} className="tag">
-                          {"Details"}
+                          {t("Détails")}
                         </Link>
                       </td>
                     </tr>

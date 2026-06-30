@@ -13,6 +13,7 @@ import {
 } from "@livekit/components-react";
 import { ConnectionState } from "livekit-client";
 import { SimulationLauncher } from "./SimulationLauncher";
+import { useT } from "@/lib/i18n";
 
 type Conn = { token: string; url: string; room: string };
 
@@ -34,6 +35,7 @@ interface HealthReport {
 const AGENT_JOIN_TIMEOUT_MS = 15_000;
 
 function DiagnosticBanner({ report, onRetry }: { report: HealthReport; onRetry: () => void }) {
+  const t = useT();
   const failed = report.checks.filter((c) => c.status === "fail");
   return (
     <div
@@ -47,10 +49,10 @@ function DiagnosticBanner({ report, onRetry }: { report: HealthReport; onRetry: 
       }}
     >
       <div style={{ fontWeight: 600, marginBottom: 8, color: "#ff8080" }}>
-        ⚠️ The voice agent could not start
+        ⚠️ {t("L'agent vocal n'a pas pu démarrer")}
       </div>
       <div style={{ color: "var(--muted)", marginBottom: 12 }}>
-        Automatic diagnostic:
+        {t("Diagnostic automatique :")}
       </div>
       <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "grid", gap: 6 }}>
         {report.checks.map((c) => (
@@ -69,32 +71,33 @@ function DiagnosticBanner({ report, onRetry }: { report: HealthReport; onRetry: 
       </ul>
       {failed.length > 0 && (
         <div style={{ marginTop: 12, padding: 8, background: "rgba(0,0,0,0.2)", borderRadius: 4, fontSize: 13 }}>
-          <strong>Action required:</strong>{" "}
+          <strong>{t("Action requise")} :</strong>{" "}
           {failed[0].service === "MiniMax" && failed[0].message.includes("Crédit") && (
-            <>recharge MiniMax credit at <a href="https://platform.minimax.io" target="_blank" rel="noreferrer">platform.minimax.io</a></>
+            <>{t("rechargez le crédit MiniMax sur")} <a href="https://platform.minimax.io" target="_blank" rel="noreferrer">platform.minimax.io</a></>
           )}
           {failed[0].service === "DeepSeek" && failed[0].message.includes("Crédit") && (
-            <>recharge DeepSeek credit at <a href="https://platform.deepseek.com" target="_blank" rel="noreferrer">platform.deepseek.com</a></>
+            <>{t("rechargez le crédit DeepSeek sur")} <a href="https://platform.deepseek.com" target="_blank" rel="noreferrer">platform.deepseek.com</a></>
           )}
           {failed[0].service === "Config agent" && (
-            <>complete the agent configuration (voice, model, LLM)</>
+            <>{t("complétez la configuration de l'agent (voix, modèle, LLM)")}</>
           )}
           {failed[0].message.includes("invalide") && (
-            <>check the {failed[0].service} API key in environment variables</>
+            <>{t("vérifiez la clé API")} {failed[0].service} {t("dans les variables d'environnement")}</>
           )}
           {failed[0].message.includes("injoignable") && (
-            <>service {failed[0].service} unavailable, try again later</>
+            <>{t("service")} {failed[0].service} {t("indisponible, réessayez plus tard")}</>
           )}
         </div>
       )}
       <button onClick={onRetry} style={{ marginTop: 12 }}>
-        Retry
+        {t("Réessayer")}
       </button>
     </div>
   );
 }
 
 function AssistantView({ agentId, onAgentJoinTimeout }: { agentId: string; onAgentJoinTimeout: () => void }) {
+  const t = useT();
   const { state, audioTrack } = useVoiceAssistant();
   const participants = useRemoteParticipants();
   const connectionState = useConnectionState();
@@ -115,9 +118,9 @@ function AssistantView({ agentId, onAgentJoinTimeout }: { agentId: string; onAge
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12, alignItems: "center" }}>
       <div style={{ color: "var(--muted)", fontSize: 13 }}>
-        Status: {state}
+        {t("Statut")} : {state}
         {!agentPresent && connectionState === ConnectionState.Connected && (
-          <span style={{ marginLeft: 8, color: "#ffa500" }}>— waiting for agent…</span>
+          <span style={{ marginLeft: 8, color: "#ffa500" }}>— {t("en attente de l'agent…")}</span>
         )}
       </div>
       <div style={{ width: "100%", height: 96 }}>
@@ -146,6 +149,7 @@ export function VoicePanel({
    *  into the prompt — including multi-agent handoffs. */
   scriptId?: string | null;
 }) {
+  const t = useT();
   const [conn, setConn] = useState<Conn | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -217,7 +221,7 @@ export function VoicePanel({
         {health && <DiagnosticBanner report={health} onRetry={retry} />}
         {healthLoading && (
           <div style={{ color: "var(--muted)", fontSize: 13 }}>
-            Running diagnostic…
+            {t("Diagnostic en cours…")}
           </div>
         )}
         {hasPromptContent ? (
@@ -230,18 +234,18 @@ export function VoicePanel({
         ) : (
           <>
             <p style={{ color: "var(--muted)", margin: 0 }}>
-              Click to join the LiveKit room. The worker will be dispatched and load this agent's config.
+              {t("Cliquez pour rejoindre la salle LiveKit. Le worker sera dispatché et chargera la configuration de cet agent.")}
             </p>
             <div style={{ display: "flex", gap: 8 }}>
               <button onClick={() => connect()} disabled={loading}>
-                {loading ? "Connecting…" : "Start voice session"}
+                {loading ? t("Connexion…") : t("Démarrer la session vocale")}
               </button>
             </div>
           </>
         )}
         <div style={{ display: "flex", gap: 8 }}>
           <button onClick={runHealthCheck} disabled={healthLoading} style={{ background: "transparent", border: "1px solid var(--muted)", color: "var(--text)" }}>
-            {healthLoading ? "Diagnosing…" : "Test services"}
+            {healthLoading ? t("Diagnostic…") : t("Tester les services")}
           </button>
         </div>
         {error && <div style={{ color: "#ff8080" }}>{error}</div>}
@@ -259,7 +263,7 @@ export function VoicePanel({
       onDisconnected={() => setConn(null)}
     >
       <RoomAudioRenderer />
-      <StartAudio label="Enable audio" />
+      <StartAudio label={t("Activer l'audio")} />
       <AssistantView agentId={agentId} onAgentJoinTimeout={onAgentJoinTimeout} />
     </LiveKitRoom>
   );

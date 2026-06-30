@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+import { useT } from "@/lib/i18n";
 
 type Handle = {
   id: string;
@@ -27,6 +28,7 @@ export function HandoffCard({
   currentAgentHandleId: string | null;
   onChanged: () => void;
 }) {
+  const t = useT();
   const [handles, setHandles] = useState<Handle[]>([]);
   const [presence, setPresence] = useState<Map<string, string>>(new Map());
   const [selectedAi, setSelectedAi] = useState<string>("");
@@ -87,7 +89,7 @@ export function HandoffCard({
         });
         const data = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(data.error ?? `HTTP ${r.status}`);
-        setMsg({ kind: "ok", text: "Transfert effectué." });
+        setMsg({ kind: "ok", text: t("Transfert effectué.") });
         onChanged();
       } catch (e) {
         setMsg({
@@ -98,7 +100,7 @@ export function HandoffCard({
         setBusy(null);
       }
     },
-    [callId, onChanged],
+    [callId, onChanged, t],
   );
 
   const transferPstn = useCallback(async () => {
@@ -113,7 +115,7 @@ export function HandoffCard({
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(data.error ?? `HTTP ${r.status}`);
-      setMsg({ kind: "ok", text: "Transfert PSTN demandé." });
+      setMsg({ kind: "ok", text: t("Transfert PSTN demandé.") });
       setE164("");
       onChanged();
     } catch (e) {
@@ -121,14 +123,13 @@ export function HandoffCard({
     } finally {
       setBusy(null);
     }
-  }, [callId, e164, onChanged]);
+  }, [callId, e164, onChanged, t]);
 
   return (
     <div className="card" style={{ marginBottom: 18 }}>
-      <h3>Transfert / Handoff</h3>
+      <h3>{t("Transfert / Handoff")}</h3>
       <p className="muted" style={{ marginTop: 0 }}>
-        Réorienter l&apos;appel vers un agent IA, un humain disponible ou un numéro
-        externe.
+        {t("Réorienter l'appel vers un agent IA, un humain disponible ou un numéro externe.")}
       </p>
 
       {msg && (
@@ -146,14 +147,14 @@ export function HandoffCard({
       <div style={{ display: "grid", gap: 14, gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))" }}>
         <div>
           <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>
-            Vers un agent IA
+            {t("Vers un agent IA")}
           </div>
           <select
             value={selectedAi}
             onChange={(e) => setSelectedAi(e.target.value)}
             style={{ width: "100%", marginBottom: 8 }}
           >
-            <option value="">— Choisir un agent IA —</option>
+            <option value="">{t("— Choisir un agent IA —")}</option>
             {aiHandles.map((h) => (
               <option key={h.id} value={h.id}>
                 {h.display_name}
@@ -164,23 +165,23 @@ export function HandoffCard({
             disabled={!selectedAi || busy !== null}
             onClick={() => void handoff(selectedAi, "ai")}
           >
-            {busy === "ai" ? "Transfert…" : "Transférer vers cet agent IA"}
+            {busy === "ai" ? t("Transfert…") : t("Transférer vers cet agent IA")}
           </button>
         </div>
 
         <div>
           <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>
-            Vers un agent humain (disponible)
+            {t("Vers un agent humain (disponible)")}
           </div>
           <select
             value={selectedHuman}
             onChange={(e) => setSelectedHuman(e.target.value)}
             style={{ width: "100%", marginBottom: 8 }}
           >
-            <option value="">— Choisir un humain disponible —</option>
+            <option value="">{t("— Choisir un humain disponible —")}</option>
             {humanHandlesAvailable.map((h) => (
               <option key={h.id} value={h.id}>
-                {h.display_name} · disponible
+                {h.display_name} · {t("disponible")}
               </option>
             ))}
           </select>
@@ -188,18 +189,18 @@ export function HandoffCard({
             disabled={!selectedHuman || busy !== null}
             onClick={() => void handoff(selectedHuman, "human")}
           >
-            {busy === "human" ? "Transfert…" : "Transférer"}
+            {busy === "human" ? t("Transfert…") : t("Transférer")}
           </button>
           {humanHandlesAvailable.length === 0 && (
             <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>
-              Aucun humain disponible.
+              {t("Aucun humain disponible.")}
             </div>
           )}
         </div>
 
         <div>
           <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>
-            Vers un numéro externe (PSTN)
+            {t("Vers un numéro externe (PSTN)")}
           </div>
           <input
             type="tel"
@@ -212,7 +213,7 @@ export function HandoffCard({
             disabled={!e164 || busy !== null}
             onClick={() => void transferPstn()}
           >
-            {busy === "pstn" ? "Transfert…" : "Transférer (PSTN)"}
+            {busy === "pstn" ? t("Transfert…") : t("Transférer (PSTN)")}
           </button>
         </div>
       </div>

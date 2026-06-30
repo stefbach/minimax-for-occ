@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useT } from "@/lib/i18n";
 
 export interface WebhookRow {
   id: string;
@@ -25,6 +26,7 @@ export function OrgWebhooksPanel({
   initial: WebhookRow[];
   dataTables: DataTableOption[];
 }) {
+  const t = useT();
   const [rows, setRows] = useState<WebhookRow[]>(initial);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -69,7 +71,7 @@ export function OrgWebhooksPanel({
       reset();
       setOpen(false);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Error");
+      setError(e instanceof Error ? e.message : t("Erreur"));
     } finally {
       setBusy(false);
     }
@@ -88,25 +90,25 @@ export function OrgWebhooksPanel({
   }
 
   async function remove(row: WebhookRow) {
-    if (!confirm(`Delete webhook "${row.name}"?`)) return;
+    if (!confirm(t("Supprimer le webhook") + ` "${row.name}" ?`)) return;
     setRows((r) => r.filter((x) => x.id !== row.id));
     await fetch(`/api/webhooks?id=${row.id}`, { method: "DELETE" }).catch(() => {});
   }
 
   const tableLabel = (id: string | null) =>
-    id ? dataTables.find((dt) => dt.id === id)?.label ?? "Unknown table" : "All tables";
+    id ? dataTables.find((dt) => dt.id === id)?.label ?? t("Table inconnue") : t("Toutes les tables");
 
   return (
     <section style={{ marginBottom: 22 }}>
       <div className="page-header" style={{ marginTop: 0 }}>
         <div>
-          <h2 style={{ fontSize: 16, margin: 0 }}>Outgoing triggers (post-call)</h2>
+          <h2 style={{ fontSize: 16, margin: 0 }}>{t("Déclencheurs sortants (post-appel)")}</h2>
           <div className="muted" style={{ fontSize: 13 }}>
-            When the agent records a qualification during a call, Axon calls the n8n webhook URL of your workflow (e.g. send an email + WhatsApp after an appointment).
+            {t("Lorsque l'agent enregistre une qualification durant un appel, Axon appelle l'URL webhook n8n de votre workflow (ex. envoyer un email + WhatsApp après un rendez-vous).")}
           </div>
         </div>
         <button onClick={() => setOpen((v) => !v)} className={open ? "ghost" : undefined}>
-          {open ? "Cancel" : "+ Add trigger"}
+          {open ? t("Annuler") : t("+ Ajouter un déclencheur")}
         </button>
       </div>
 
@@ -120,11 +122,11 @@ export function OrgWebhooksPanel({
         <div className="card" style={{ marginBottom: 12 }}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <div>
-              <label>Name</label>
-              <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Email + WhatsApp post-appointment" />
+              <label>{t("Nom")}</label>
+              <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t("Email + WhatsApp post-rendez-vous")} />
             </div>
             <div>
-              <label>n8n webhook URL</label>
+              <label>{t("URL webhook n8n")}</label>
               <input
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
@@ -133,11 +135,11 @@ export function OrgWebhooksPanel({
               />
             </div>
             <div>
-              <label>Watched column</label>
+              <label>{t("Colonne surveillée")}</label>
               <input value={watchColumn} onChange={(e) => setWatchColumn(e.target.value)} placeholder="qualification" />
             </div>
             <div>
-              <label>Trigger values (comma-separated, empty = any value)</label>
+              <label>{t("Valeurs déclenchantes (séparées par des virgules, vide = toute valeur)")}</label>
               <input
                 value={matchValues}
                 onChange={(e) => setMatchValues(e.target.value)}
@@ -145,9 +147,9 @@ export function OrgWebhooksPanel({
               />
             </div>
             <div>
-              <label>Table</label>
+              <label>{t("Table")}</label>
               <select value={dataTableId} onChange={(e) => setDataTableId(e.target.value)}>
-                <option value="">All tables</option>
+                <option value="">{t("Toutes les tables")}</option>
                 {dataTables.map((dt) => (
                   <option key={dt.id} value={dt.id}>{dt.label}</option>
                 ))}
@@ -156,7 +158,7 @@ export function OrgWebhooksPanel({
           </div>
           <div style={{ marginTop: 12 }}>
             <button onClick={create} disabled={busy || !name || !url}>
-              {busy ? "Saving…" : "Save trigger"}
+              {busy ? t("Enregistrement…") : t("Enregistrer le déclencheur")}
             </button>
           </div>
         </div>
@@ -165,7 +167,7 @@ export function OrgWebhooksPanel({
       {rows.length === 0 ? (
         <div className="card">
           <p className="muted" style={{ margin: 0 }}>
-            No triggers yet. Add one to link a qualification (e.g. appointment confirmed) to an n8n workflow.
+            {t("Aucun déclencheur pour l'instant. Ajoutez-en un pour lier une qualification (ex. rendez-vous confirmé) à un workflow n8n.")}
           </p>
         </div>
       ) : (
@@ -173,11 +175,11 @@ export function OrgWebhooksPanel({
           <table className="list">
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Column</th>
-                <th>Values</th>
-                <th>Table</th>
-                <th>Active</th>
+                <th>{t("Nom")}</th>
+                <th>{t("Colonne")}</th>
+                <th>{t("Valeurs")}</th>
+                <th>{t("Table")}</th>
+                <th>{t("Actif")}</th>
                 <th></th>
               </tr>
             </thead>
@@ -191,18 +193,18 @@ export function OrgWebhooksPanel({
                   <td><span className="kbd">{r.watch_column}</span></td>
                   <td>
                     {r.match_values.length === 0
-                      ? <span className="muted" style={{ fontSize: 12 }}>any value</span>
+                      ? <span className="muted" style={{ fontSize: 12 }}>{t("toute valeur")}</span>
                       : r.match_values.map((v) => <span key={v} className="tag" style={{ marginRight: 4 }}>{v}</span>)}
                   </td>
                   <td className="muted" style={{ fontSize: 12 }}>{tableLabel(r.data_table_id)}</td>
                   <td>
                     <button className="subtle" style={{ padding: "3px 8px" }} onClick={() => toggle(r)}>
-                      {r.active ? "Active" : "Inactive"}
+                      {r.active ? t("Actif") : t("Inactif")}
                     </button>
                   </td>
                   <td style={{ textAlign: "right" }}>
                     <button className="danger" style={{ padding: "3px 8px" }} onClick={() => remove(r)}>
-                      Delete
+                      {t("Supprimer")}
                     </button>
                   </td>
                 </tr>
