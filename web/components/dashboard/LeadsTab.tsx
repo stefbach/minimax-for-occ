@@ -129,6 +129,8 @@ export function LeadsTab({ from, to, direction, leadsSource, system, global, ref
 
   useEffect(() => {
     fetchData();
+    const id = setInterval(fetchData, 10_000);
+    return () => clearInterval(id);
   }, [fetchData, refreshKey]);
 
   const loadLive = useCallback(async () => {
