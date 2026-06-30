@@ -329,20 +329,20 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
         style={{ width: "min(760px, 100%)", marginTop: 30, display: "grid", gap: 14 }}
       >
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
-          <h3 style={{ margin: 0 }}>Edit campaign</h3>
+          <h3 style={{ margin: 0 }}>{t("Modifier la campagne")}</h3>
           <button className="ghost" onClick={onClose} style={{ padding: "2px 8px" }}>×</button>
         </div>
 
         {/* ─── Identity ──────────────────────────────────────────────── */}
         <section>
-          <h4 style={{ margin: "0 0 8px 0", fontSize: 14 }}>Identity</h4>
+          <h4 style={{ margin: "0 0 8px 0", fontSize: 14 }}>{t("Identité")}</h4>
           <div style={{ display: "grid", gap: 8 }}>
             <div>
-              <label style={{ fontSize: 12 }}>Name</label>
+              <label style={{ fontSize: 12 }}>{t("Nom")}</label>
               <input value={name} onChange={(e) => setName(e.target.value)} />
             </div>
             <div>
-              <label style={{ fontSize: 12 }}>Description</label>
+              <label style={{ fontSize: 12 }}>{t("Description")}</label>
               <textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
@@ -356,8 +356,8 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
         {/* ─── Contact source ────────────────────────────────────────── */}
         <section>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-            <h4 style={{ margin: "0 0 8px 0", fontSize: 14 }}>Contact source</h4>
-            {!isUnlocked("data_table") && unlockBtn("data_table", "Contact source")}
+            <h4 style={{ margin: "0 0 8px 0", fontSize: 14 }}>{t("Source de contacts")}</h4>
+            {!isUnlocked("data_table") && unlockBtn("data_table", t("Source de contacts"))}
           </div>
           <select
             value={dataTableId}
@@ -365,7 +365,7 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
             disabled={!isUnlocked("data_table")}
             style={{ width: "100%" }}
           >
-            <option value="">— None —</option>
+            <option value="">{t("— Aucune —")}</option>
             {tables.map((t) => (
               <option key={t.id} value={t.id}>
                 {t.label} ({t.physical_table})
@@ -378,33 +378,33 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
         {/* ─── Who calls ─────────────────────────────────────────────── */}
         <section>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-            <h4 style={{ margin: "0 0 8px 0", fontSize: 14 }}>Who calls</h4>
-            {!isUnlocked("agent") && unlockBtn("agent", "Agent / Team")}
+            <h4 style={{ margin: "0 0 8px 0", fontSize: 14 }}>{t("Qui appelle")}</h4>
+            {!isUnlocked("agent") && unlockBtn("agent", t("Agent / Équipe"))}
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
             <div>
-              <label style={{ fontSize: 12 }}>Main agent</label>
+              <label style={{ fontSize: 12 }}>{t("Agent principal")}</label>
               <select
                 value={agentHandleId}
                 onChange={(e) => setAgentHandleId(e.target.value)}
                 disabled={!isUnlocked("agent")}
                 style={{ width: "100%" }}
               >
-                <option value="">— None —</option>
+                <option value="">{t("— Aucun —")}</option>
                 {agents.map((a) => (
                   <option key={a.id} value={a.id}>{a.display_name}</option>
                 ))}
               </select>
             </div>
             <div>
-              <label style={{ fontSize: 12 }}>Team (swarm)</label>
+              <label style={{ fontSize: 12 }}>{t("Équipe (parcours)")}</label>
               <select
                 value={agentTeamId}
                 onChange={(e) => setAgentTeamId(e.target.value)}
                 disabled={!isUnlocked("agent")}
                 style={{ width: "100%" }}
               >
-                <option value="">— None —</option>
+                <option value="">{t("— Aucune —")}</option>
                 {teams.map((t) => (
                   <option key={t.id} value={t.id}>{t.name}</option>
                 ))}
@@ -417,8 +417,8 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
         {/* ─── Caller ID ─────────────────────────────────────────────── */}
         <section>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-            <h4 style={{ margin: "0 0 8px 0", fontSize: 14 }}>Caller ID</h4>
-            {!isUnlocked("phone") && unlockBtn("phone", "Caller ID")}
+            <h4 style={{ margin: "0 0 8px 0", fontSize: 14 }}>{t("Numéro affiché")}</h4>
+            {!isUnlocked("phone") && unlockBtn("phone", t("Numéro affiché"))}
           </div>
           <select
             value={phoneNumberId}
@@ -426,7 +426,7 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
             disabled={!isUnlocked("phone")}
             style={{ width: "100%" }}
           >
-            <option value="">— None —</option>
+            <option value="">{t("— Aucun —")}</option>
             {numbers.map((n) => (
               <option key={n.id} value={n.id}>
                 {n.e164} {n.label ? `(${n.label})` : ""}
@@ -438,10 +438,10 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
 
         {/* ─── When to call ──────────────────────────────────────────── */}
         <section>
-          <h4 style={{ margin: "0 0 8px 0", fontSize: 14 }}>When to call</h4>
+          <h4 style={{ margin: "0 0 8px 0", fontSize: 14 }}>{t("Quand appeler")}</h4>
           <div style={{ display: "grid", gap: 10 }}>
             <div>
-              <label style={{ fontSize: 12 }}>Allowed days</label>
+              <label style={{ fontSize: 12 }}>{t("Jours autorisés")}</label>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                 {DAYS.map((d) => {
                   const active = days.includes(d.id);
@@ -461,7 +461,7 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
             </div>
 
             <div>
-              <label style={{ fontSize: 12 }}>Time ranges (UI — UTC)</label>
+              <label style={{ fontSize: 12 }}>{t("Plages horaires (interface — UTC)")}</label>
               <div style={{ display: "grid", gap: 6 }}>
                 {ranges.map((r, i) => (
                   <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -474,7 +474,7 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
                   </div>
                 ))}
                 <button type="button" className="ghost" onClick={addRange} style={{ padding: "4px 10px", alignSelf: "flex-start", fontSize: 12 }}>
-                  + Add a time range
+                  + {t("Ajouter une plage horaire")}
                 </button>
               </div>
             </div>
@@ -482,9 +482,9 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
             <div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
                 <label style={{ fontSize: 12 }}>
-                  Engine call slots (actual call times, in {slotsTz})
+                  {t("Créneaux moteur (heures réelles d'appel, en")} {slotsTz})
                 </label>
-                {!isUnlocked("slots") && unlockBtn("slots", "Call slots")}
+                {!isUnlocked("slots") && unlockBtn("slots", t("Créneaux d'appel"))}
               </div>
               <div style={{ display: "grid", gap: 6 }}>
                 {slotHours.map((h, i) => (
@@ -503,7 +503,7 @@ export function EditCampaignModal({ campaignId, initial, onClose }: Props) {
                 ))}
                 {isUnlocked("slots") && (
                   <button type="button" className="ghost" onClick={addSlotHour} style={{ padding: "4px 10px", alignSelf: "flex-start", fontSize: 12 }}>
-                    + Add a slot
+                    + {t("Ajouter un créneau")}
                   </button>
                 )}
               </div>
