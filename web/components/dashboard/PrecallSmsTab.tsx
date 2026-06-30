@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useT } from "@/lib/i18n";
 import { normalizeQualification } from "@/lib/qualification";
@@ -74,10 +74,11 @@ function passesGlobal(r: SmsRow, gf?: GlobalFilters): boolean {
   return true;
 }
 
-type StatusFilter = "all" | "answered" | "no_answer" | "voicemail" | "pending" | "failed";
+type StatusFilter = "all" | "called" | "answered" | "no_answer" | "voicemail" | "pending" | "failed";
 
 const STATUS_FILTERS: { id: StatusFilter; label: string }[] = [
   { id: "all", label: "Tous" },
+  { id: "called", label: "Appelés" },
   { id: "answered", label: "Décrochés (humain)" },
   { id: "no_answer", label: "Sans réponse" },
   { id: "voicemail", label: "Répondeur" },
@@ -113,6 +114,12 @@ export function PrecallSmsTab({ from, to, global }: { from: string; to: string; 
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [search, setSearch] = useState("");
+  const tableRef = useRef<HTMLDivElement>(null);
+
+  function drillTo(filter: StatusFilter) {
+    setStatusFilter(filter);
+    setTimeout(() => tableRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  }
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -156,6 +163,7 @@ export function PrecallSmsTab({ from, to, global }: { from: string; to: string; 
     const q = search.trim().toLowerCase();
     return scoped.filter((r) => {
       if (statusFilter === "failed" && r.status !== "failed") return false;
+      if (statusFilter === "called" && (!r.call_id || r.status === "failed")) return false;
       if (statusFilter === "answered" && r.answered !== "answered") return false;
       if (statusFilter === "no_answer" && r.answered !== "no_answer") return false;
       if (statusFilter === "voicemail" && r.answered !== "voicemail") return false;
@@ -182,38 +190,63 @@ export function PrecallSmsTab({ from, to, global }: { from: string; to: string; 
 
   return (
     <>
-      {/* KPI cards */}
+      {/* KPI cards — cliquables pour filtrer la liste ci-dessous */}
       <div className="grid-kpi" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))" }}>
-        <div className="card" style={{ padding: 14 }}>
+        <button type="button" className="card" onClick={() => drillTo("all")}
+          style={{ padding: 14, textAlign: "left", font: "inherit", color: "inherit", cursor: "pointer",
+            transition: "transform 120ms, box-shadow 120ms",
+            ...(statusFilter === "all" ? { borderColor: "var(--accent)" } : {}) }}
+          onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "0 6px 16px rgba(0,0,0,0.08)"; }}
+          onMouseLeave={e => { e.currentTarget.style.transform = ""; e.currentTarget.style.boxShadow = ""; }}>
           <div className="muted" style={{ fontSize: 11, textTransform: "uppercase" }}>{t("SMS envoyés")}</div>
           <div style={{ fontSize: 26, fontWeight: 700, marginTop: 4 }}>{kpis.sent}</div>
           <div className="muted" style={{ fontSize: 11 }}>{t("sur la période")}</div>
-        </div>
-        <div className="card" style={{ padding: 14 }}>
+        </button>
+        <button type="button" className="card" onClick={() => drillTo("called")}
+          style={{ padding: 14, textAlign: "left", font: "inherit", color: "inherit", cursor: "pointer",
+            transition: "transform 120ms, box-shadow 120ms",
+            ...(statusFilter === "called" ? { borderColor: "var(--info)" } : {}) }}
+          onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "0 6px 16px rgba(0,0,0,0.08)"; }}
+          onMouseLeave={e => { e.currentTarget.style.transform = ""; e.currentTarget.style.boxShadow = ""; }}>
           <div className="muted" style={{ fontSize: 11, textTransform: "uppercase" }}>{t("Appels passés après SMS")}</div>
           <div style={{ fontSize: 26, fontWeight: 700, marginTop: 4, color: "var(--info)" }}>{kpis.called}</div>
           <div className="muted" style={{ fontSize: 11 }}>
             {kpis.sent ? Math.round((kpis.called / kpis.sent) * 100) : 0}% {t("des envois")}
           </div>
-        </div>
-        <div className="card" style={{ padding: 14 }}>
+        </button>
+        <button type="button" className="card" onClick={() => drillTo("answered")}
+          style={{ padding: 14, textAlign: "left", font: "inherit", color: "inherit", cursor: "pointer",
+            transition: "transform 120ms, box-shadow 120ms",
+            ...(statusFilter === "answered" ? { borderColor: "var(--good)" } : {}) }}
+          onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "0 6px 16px rgba(0,0,0,0.08)"; }}
+          onMouseLeave={e => { e.currentTarget.style.transform = ""; e.currentTarget.style.boxShadow = ""; }}>
           <div className="muted" style={{ fontSize: 11, textTransform: "uppercase" }}>{t("Décroché — leads uniques")}</div>
           <div style={{ fontSize: 26, fontWeight: 700, marginTop: 4, color: "var(--good)" }}>✅ {kpis.answeredLeads}</div>
           <div className="muted" style={{ fontSize: 11 }}>{t("leads distincts ayant décroché")}</div>
-        </div>
-        <div className="card" style={{ padding: 14 }}>
+        </button>
+        <button type="button" className="card" onClick={() => drillTo("answered")}
+          style={{ padding: 14, textAlign: "left", font: "inherit", color: "inherit", cursor: "pointer",
+            transition: "transform 120ms, box-shadow 120ms",
+            ...(statusFilter === "answered" ? { borderColor: "var(--good)" } : {}) }}
+          onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "0 6px 16px rgba(0,0,0,0.08)"; }}
+          onMouseLeave={e => { e.currentTarget.style.transform = ""; e.currentTarget.style.boxShadow = ""; }}>
           <div className="muted" style={{ fontSize: 11, textTransform: "uppercase" }}>{t("Décroché — par appels")}</div>
           <div style={{ fontSize: 26, fontWeight: 700, marginTop: 4, color: "var(--good)" }}>✅ {kpis.answered}</div>
           <div className="muted" style={{ fontSize: 11 }}>
             {kpis.called ? Math.round((kpis.answered / kpis.called) * 100) : 0}% {t("des appels")}
             {kpis.voicemail > 0 ? ` · 📵 ${kpis.voicemail} ${t("répondeur")}` : ""}
           </div>
-        </div>
-        <div className="card" style={{ padding: 14, borderColor: kpis.failed > 0 ? "var(--bad)" : undefined }}>
+        </button>
+        <button type="button" className="card" onClick={() => drillTo("failed")}
+          style={{ padding: 14, textAlign: "left", font: "inherit", color: "inherit", cursor: "pointer",
+            transition: "transform 120ms, box-shadow 120ms",
+            borderColor: kpis.failed > 0 ? (statusFilter === "failed" ? "var(--bad)" : "var(--bad)") : undefined }}
+          onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "0 6px 16px rgba(0,0,0,0.08)"; }}
+          onMouseLeave={e => { e.currentTarget.style.transform = ""; e.currentTarget.style.boxShadow = ""; }}>
           <div className="muted" style={{ fontSize: 11, textTransform: "uppercase" }}>{t("Échecs d'envoi")}</div>
           <div style={{ fontSize: 26, fontWeight: 700, marginTop: 4, color: kpis.failed > 0 ? "var(--bad)" : undefined }}>{kpis.failed}</div>
           <div className="muted" style={{ fontSize: 11 }}>{t("SMS non partis")}</div>
-        </div>
+        </button>
       </div>
 
       {/* Filters */}
@@ -237,7 +270,7 @@ export function PrecallSmsTab({ from, to, global }: { from: string; to: string; 
       {error && <div className="card" style={{ borderColor: "var(--bad)", color: "var(--bad)" }}>{error}</div>}
 
       {/* Table */}
-      <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+      <div ref={tableRef} className="card" style={{ padding: 0, overflow: "hidden" }}>
         <table className="list" style={{ fontSize: 13 }}>
           <thead>
             <tr>
