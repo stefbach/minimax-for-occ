@@ -69,37 +69,37 @@ export function secondsToBillableMinutes(seconds: number): number {
   return Math.ceil(seconds / 60);
 }
 
-/** Per-unit rate card, in cents. Override via env (CALL/LLM/TTS/STT_*_CENTS)
+/** Per-unit rate card, in cents. Override via env (CALL/LLM/TTS/STT/LIVEKIT_*_CENTS)
  *  so each deployment can match its real provider invoices. The QUANTITIES are
  *  measured (real Twilio minutes, real LLM tokens, real TTS chars, real STT
- *  minutes) — only these rates are configurable estimates.
+ *  minutes) — only these rates are configurable.
  *
- *  Calibrated on OCC's ACTUAL provider plans (June 2026):
- *    LiveKit    — free tier → no per-minute platform charge; the
- *                 call_minutes event therefore models TWILIO's bill only.
- *    Twilio     — ~$0.03/min UK mobile (Elastic SIP Trunking, single
- *                 Trunking-Terminating leg).
- *    Cartesia   — Pro $5/mo incl. 100K credits (1 credit/TTS char);
- *                 overage $65/M credits = 6.5¢/1k chars. Priced at the
- *                 overage rate since production volume blows past the
- *                 included credits within days; the $5 base is a fixed
- *                 overhead, not per-call.
- *    DeepSeek   — v4-flash measured blended (95-97% prompt-cache hits)
- *                 = $0.04-0.05 per MILLION tokens ≈ 0.005¢/1k.
- *    AssemblyAI — free plan today → 0. When the free credit runs out,
- *                 list is $0.15/hour = 0.25¢/min: set
- *                 RATE_STT_MIN_CENTS=0.25 at that point.
- *    Fly.io     — ~$5/mo fixed machines, not per-call (excluded). */
+ *  Calibrated on OCC's REAL production stack + invoices (July 2026), verified
+ *  against the live agents table and the provider billing portals:
+ *    Twilio     — telephony; reconciled to the ACTUAL billed price per call by
+ *                 the sync-twilio cron (call_minutes event holds the real cost).
+ *    AssemblyAI — STT, Universal-3 Pro streaming = $0.45/hour = 0.75¢/min.
+ *    ElevenLabs — TTS (Flash/Turbo), API rate $0.05 / 1000 chars = 5¢/1k.
+ *                 (The prod agents' tts_voice_id starts with "elevenlabs:".)
+ *    LiveKit    — PAID "Ship" plan. Blended ≈ 1.7¢ per agent-session minute
+ *                 from the real June invoice (~$224 / ~13.3k min: $50 base +
+ *                 $0.01/min session overage + $0.004/min SIP + observability).
+ *                 The LLM (OpenAI gpt-4.1-mini for calls, Anthropic for post-
+ *                 call) runs through LiveKit Inference and is INCLUDED in this
+ *                 plan — so llm_tokens are shown for info only and priced at 0
+ *                 to avoid double-counting the LiveKit line.
+ *    Fly.io     — ~fixed monthly machines, not per-call (excluded). */
 export const COST_RATES = {
   call_minute_cents: Number(process.env.RATE_CALL_MIN_CENTS ?? 2),
-  llm_1k_tokens_cents: Number(process.env.RATE_LLM_1K_CENTS ?? 0.005),
-  // Cartesia Pro $5/mo includes 100K credits/month (1 credit = 1 char).
-  // OCC's June 10 daily volume is ~30K chars → we stay well inside the
-  // included pool, so per-event cost is 0 cents. Once a tenant goes
-  // past 100K/month we'd switch this to 6.5 (the overage rate
-  // $65/M credits) — keep it env-overridable for that day.
-  tts_1k_chars_cents: Number(process.env.RATE_TTS_1K_CENTS ?? 0),
-  stt_minute_cents: Number(process.env.RATE_STT_MIN_CENTS ?? 0),
+  // LLM served via LiveKit Inference → cost is bundled in the LiveKit plan.
+  // Kept at 0 so the LLM card is informational (tokens) without double-counting.
+  llm_1k_tokens_cents: Number(process.env.RATE_LLM_1K_CENTS ?? 0),
+  // ElevenLabs Flash/Turbo API: $0.05 per 1,000 characters.
+  tts_1k_chars_cents: Number(process.env.RATE_TTS_1K_CENTS ?? 5),
+  // AssemblyAI Universal-3 Pro streaming: $0.45/hour = 0.75¢/min.
+  stt_minute_cents: Number(process.env.RATE_STT_MIN_CENTS ?? 0.75),
+  // LiveKit "Ship" plan blended per-agent-session-minute (see comment above).
+  livekit_minute_cents: Number(process.env.RATE_LIVEKIT_MIN_CENTS ?? 1.7),
 } as const;
 
 /** Destination-aware Twilio call rate (cents per BILLED minute, i.e. minutes

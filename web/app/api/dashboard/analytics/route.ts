@@ -8,6 +8,7 @@ import { fetchAllPaged, type Rangeable } from "@/lib/supabase-page";
 import { callMatchesSystem, parseCallSystem } from "@/lib/call-system";
 import { slotForDate, SLOT_WINDOWS } from "@/lib/call-slots";
 import { isPhantomCall, isSoftphoneTestLeg } from "@/lib/call-quality";
+import { COST_RATES } from "@/lib/billing";
 import {
   parseGlobalFilters, hasActiveGlobalFilters, matchesGlobalFilters,
   buildLeadFilterIndex, buildAttemptIndex, eligibilityForPhone, EMPTY_LEAD_INDEX,
@@ -300,15 +301,30 @@ export async function GET(request: Request) {
   let totalCents = 0;
   const costByCall = new Map<string, number>(); // call_id → cents, for the cost panel
   const costByDay = new Map<string, number>();   // YYYY-MM-DD → cents
+  // Price-book recompute at READ time (not the cost frozen in usage_events at
+  // insert). A rate correction in lib/billing.ts then applies to history AND
+  // future. Twilio is the exception — its call_minutes cost is the REAL billed
+  // price (reconciled by sync-twilio), so we trust the stored value. LLM runs
+  // through LiveKit Inference (bundled in the LiveKit plan) → priced at 0 here
+  // to avoid double-counting; tokens are still surfaced for information.
+  const eventCents = (u: UsageRow): number => {
+    const qty = Number(u.quantity) || 0;
+    switch (u.event_type) {
+      case "call_minutes": return Number(u.cost_cents) || 0;         // Twilio, real
+      case "tts_chars":    return (qty / 1000) * COST_RATES.tts_1k_chars_cents;
+      case "stt_minutes":  return qty * COST_RATES.stt_minute_cents;
+      case "llm_tokens":   return 0;                                  // bundled in LiveKit
+      default:             return Number(u.cost_cents) || 0;
+    }
+  };
   for (const u of usage) {
-    // Explicitly exclude legacy Retell AI costs — they predate the current
-    // LiveKit/Twilio stack and are not relevant to current cost reporting.
+    // Legacy Retell AI costs predate the current LiveKit/Twilio stack — exclude.
     if (u.event_type === "retell_call") continue;
     const cid = u.metadata?.call_id;
     // Drop events that belong to filtered-out calls. Untagged events
     // (no call_id) only count when no filter is active.
     if (cid ? !inScopeIds.has(cid) : scope !== null) continue;
-    const cents = Number(u.cost_cents) || 0;
+    const cents = eventCents(u);
     totalCents += cents;
     if (cid) costByCall.set(cid, (costByCall.get(cid) ?? 0) + cents);
     const k = u.event_type as keyof typeof breakdown;
@@ -320,6 +336,25 @@ export async function GET(request: Request) {
     if (u.occurred_at) {
       const day = u.occurred_at.slice(0, 10); // "YYYY-MM-DD"
       costByDay.set(day, (costByDay.get(day) ?? 0) + cents);
+    }
+  }
+
+  // LiveKit is a PAID plan whose cost scales with agent-session minutes but is
+  // NOT recorded in usage_events. Estimate it per in-scope call from the call
+  // duration × the blended per-minute rate (calibrated on the real invoice).
+  // The LLM inference is included in this LiveKit cost (see lib/billing.ts).
+  for (const r of rows) {
+    const secs = Number(r.duration_secs) || 0;
+    if (secs <= 0) continue;
+    const mins = Math.ceil(secs / 60);
+    const lkCents = mins * COST_RATES.livekit_minute_cents;
+    breakdown.livekit += lkCents;
+    qtyByType.livekit += mins;
+    totalCents += lkCents;
+    costByCall.set(r.id, (costByCall.get(r.id) ?? 0) + lkCents);
+    if (r.started_at) {
+      const day = new Date(r.started_at).toISOString().slice(0, 10);
+      costByDay.set(day, (costByDay.get(day) ?? 0) + lkCents);
     }
   }
   const costReal = Math.round((totalCents / 100) * 100) / 100; // → dollars, 2dp
@@ -600,12 +635,14 @@ export async function GET(request: Request) {
   // Provider breakdown — 5 fixed rows always present (even if $0) so the UI
   // can always render all cards without conditional logic.
   // LiveKit is on the free tier and shows $0.00; Retell (legacy) is excluded.
+  // Labels reflect OCC's REAL production stack (verified against the agents
+  // table + provider invoices), not the code's historical defaults.
   const PROVIDERS: { event_type: string; label: string; color: string; unit: string; scale: number }[] = [
-    { event_type: "call_minutes", label: "Twilio Voice", color: "#2563eb", unit: "min", scale: 1 },
-    { event_type: "llm_tokens",   label: "AI (DeepSeek)", color: "#7c3aed", unit: "k tokens", scale: 1000 },
-    { event_type: "tts_chars",    label: "Text-to-Speech", color: "#059669", unit: "k chars", scale: 1000 },
-    { event_type: "stt_minutes",  label: "Speech-to-Text", color: "#d97706", unit: "min", scale: 1 },
-    { event_type: "livekit",      label: "LiveKit", color: "#0ea5e9", unit: "min", scale: 1 },
+    { event_type: "call_minutes", label: "Twilio · Téléphonie", color: "#2563eb", unit: "min", scale: 1 },
+    { event_type: "stt_minutes",  label: "AssemblyAI · STT", color: "#d97706", unit: "min", scale: 1 },
+    { event_type: "tts_chars",    label: "ElevenLabs · TTS", color: "#059669", unit: "k chars", scale: 1000 },
+    { event_type: "livekit",      label: "LiveKit · Infra + LLM", color: "#0ea5e9", unit: "min", scale: 1 },
+    { event_type: "llm_tokens",   label: "LLM · OpenAI / Anthropic", color: "#7c3aed", unit: "k tokens", scale: 1000 },
   ];
   const by_provider: ProviderRow[] = PROVIDERS.map((p) => {
     const cents = breakdown[p.event_type as keyof typeof breakdown] ?? 0;
