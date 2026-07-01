@@ -38,7 +38,7 @@ async function gate(): Promise<
   | { ok: false; res: NextResponse }
 > {
   if (!hasSupabase()) {
-    return { ok: false, res: NextResponse.json({ error: "Supabase non configuré" }, { status: 500 }) };
+    return { ok: false, res: NextResponse.json({ error: "Supabase not configured" }, { status: 500 }) };
   }
   const user = await currentUser();
   if (!user) return { ok: false, res: NextResponse.json({ error: "unauthorized" }, { status: 401 }) };
@@ -87,7 +87,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "email invalide" }, { status: 400 });
   }
   if (!ALLOWED_ROLES.has(role)) {
-    return NextResponse.json({ error: "rôle invalide" }, { status: 400 });
+    return NextResponse.json({ error: "invalid role" }, { status: 400 });
   }
 
   const sb = supabaseServer();
@@ -107,7 +107,7 @@ export async function POST(req: Request) {
       .maybeSingle();
     if (existingMembership) {
       return NextResponse.json(
-        { error: "Cet utilisateur est déjà membre de l'organisation." },
+        { error: "This user is already a member of the organisation." },
         { status: 409 },
       );
     }
@@ -126,7 +126,7 @@ export async function POST(req: Request) {
   if (existingInvite) {
     return NextResponse.json(
       {
-        error: "Une invitation est déjà en attente pour cet email.",
+        error: "An invitation is already pending for this email.",
         token: existingInvite.token,
         accept_url: buildAcceptUrl(req, existingInvite.token as string),
         id: existingInvite.id,

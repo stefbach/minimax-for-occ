@@ -25,7 +25,7 @@ const MANAGER_ROLES = new Set(["super_admin", "owner", "admin"]);
 
 export async function POST(req: Request) {
   if (!hasSupabase()) {
-    return NextResponse.json({ error: "Supabase non configuré" }, { status: 500 });
+    return NextResponse.json({ error: "Supabase not configured" }, { status: 500 });
   }
   const orgId = await currentOrgIdForServer();
   const callerRole = await currentRoleInOrg(orgId);
@@ -52,7 +52,7 @@ export async function POST(req: Request) {
   let visibleModules: ModuleId[] | null = null;
   if (body.visible_modules !== undefined && body.visible_modules !== null) {
     if (!Array.isArray(body.visible_modules)) {
-      return NextResponse.json({ error: "visible_modules doit être un tableau" }, { status: 400 });
+      return NextResponse.json({ error: "visible_modules must be an array" }, { status: 400 });
     }
     const cleaned: ModuleId[] = [];
     for (const m of body.visible_modules) {
@@ -65,20 +65,20 @@ export async function POST(req: Request) {
   }
 
   if (!email || !password || !role) {
-    return NextResponse.json({ error: "email, password et rôle requis" }, { status: 400 });
+    return NextResponse.json({ error: "email, password and role required" }, { status: 400 });
   }
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
     return NextResponse.json({ error: "email invalide" }, { status: 400 });
   }
   if (password.length < 8) {
-    return NextResponse.json({ error: "le mot de passe doit faire au moins 8 caractères" }, { status: 400 });
+    return NextResponse.json({ error: "password must be at least 8 characters" }, { status: 400 });
   }
   if (!ALLOWED_ROLES.has(role)) {
-    return NextResponse.json({ error: `rôle invalide: ${role}` }, { status: 400 });
+    return NextResponse.json({ error: `invalid role: ${role}` }, { status: 400 });
   }
   // Only owners can create another owner. Admins can't promote to owner.
   if (role === "owner" && callerRole !== "owner" && callerRole !== "super_admin") {
-    return NextResponse.json({ error: "seul un owner peut créer un autre owner" }, { status: 403 });
+    return NextResponse.json({ error: "only an owner can create another owner" }, { status: 403 });
   }
 
   const sb = supabaseServer();
@@ -111,7 +111,7 @@ export async function POST(req: Request) {
   } else if (createErr) {
     return NextResponse.json({ error: createErr.message }, { status: 500 });
   }
-  if (!userId) return NextResponse.json({ error: "création du compte échouée" }, { status: 500 });
+  if (!userId) return NextResponse.json({ error: "account creation failed" }, { status: 500 });
 
   // 2) Profile upsert.
   await sb
@@ -137,7 +137,7 @@ export async function POST(req: Request) {
   if (existing) {
     return NextResponse.json(
       {
-        error: "déjà membre de cette organisation",
+        error: "already a member of this organisation",
         existing_role: (existing as { role: string }).role,
       },
       { status: 409 },

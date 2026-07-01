@@ -24,6 +24,7 @@
     "@twilio/voice-sdk": "^2.13.0",
     "@xyflow/react": "^12.3.5",
     "ai": "^6.0.0",
+    "exceljs": "^4.4.0",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.8",
     "livekit-client": "^2.18.0",

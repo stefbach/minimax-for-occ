@@ -58,7 +58,8 @@ export function AiInsightsTab({
       id: e.id, started_at: e.started_at, direction: e.direction,
       duration_secs: e.duration_secs, answered: e.answered,
       qualification: e.qualification as QualBucket,
-      contact_name: e.name, agent_name: null, phone: e.phone, disposition: null, assignee: null,
+      contact_name: e.name, agent_name: null, phone: e.phone, disposition: null,
+      assignee: null,
     });
   };
 

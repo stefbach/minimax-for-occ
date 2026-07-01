@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useT } from "@/lib/i18n";
 
 type DncRow = {
   id: string;
@@ -13,6 +14,7 @@ type DncRow = {
 const E164_RE = /^\+\d{6,15}$/;
 
 export function ComplianceClient() {
+  const t = useT();
   const [rows, setRows] = useState<DncRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -45,7 +47,7 @@ export function ComplianceClient() {
 
   const addOne = useCallback(async () => {
     if (!E164_RE.test(e164.trim())) {
-      setError("Numéro invalide. Format E.164 attendu (ex: +33612345678).");
+      setError(t("Numéro invalide. Format E.164 requis (ex. +33612345678)."));
       return;
     }
     setBusy(true);
@@ -66,7 +68,7 @@ export function ComplianceClient() {
     } finally {
       setBusy(false);
     }
-  }, [e164, reason, refresh]);
+  }, [e164, reason, refresh, t]);
 
   const addBulk = useCallback(async () => {
     const lines = bulkText
@@ -74,7 +76,7 @@ export function ComplianceClient() {
       .map((s) => s.trim())
       .filter(Boolean);
     if (lines.length === 0) {
-      setError("Collez au moins un numéro.");
+      setError(t("Collez au moins un numéro."));
       return;
     }
     const entries = lines.map((line) => {
@@ -101,11 +103,11 @@ export function ComplianceClient() {
     } finally {
       setBusy(false);
     }
-  }, [bulkText, refresh]);
+  }, [bulkText, refresh, t]);
 
   const removeOne = useCallback(
     async (id: string) => {
-      if (!confirm("Retirer ce numéro de la liste DNC ?")) return;
+      if (!confirm(t("Retirer ce numéro de la liste DNC ?"))) return;
       try {
         const r = await fetch(`/api/admin/dnc/${id}`, { method: "DELETE" });
         if (!r.ok) {
@@ -117,13 +119,13 @@ export function ComplianceClient() {
         setError(e instanceof Error ? e.message : String(e));
       }
     },
-    [refresh],
+    [refresh, t],
   );
 
   return (
     <div>
       <div className="card" style={{ marginBottom: 18 }}>
-        <h3 style={{ marginTop: 0 }}>Ajouter un numéro</h3>
+        <h3 style={{ marginTop: 0 }}>{t("Ajouter un numéro")}</h3>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
           <input
             type="tel"
@@ -135,23 +137,23 @@ export function ComplianceClient() {
           />
           <input
             type="text"
-            placeholder="Motif (optionnel)"
+            placeholder={t("Motif (optionnel)")}
             value={reason}
             onChange={(e) => setReason(e.target.value)}
             style={{ minWidth: 240, flex: 1 }}
             disabled={busy}
           />
           <button onClick={() => void addOne()} disabled={busy || !e164.trim()}>
-            {busy ? "…" : "Ajouter"}
+            {busy ? "…" : t("Ajouter")}
           </button>
           <button className="ghost" onClick={() => setBulkOpen((v) => !v)} disabled={busy}>
-            {bulkOpen ? "Fermer l'import" : "Import en masse"}
+            {bulkOpen ? t("Fermer l'import") : t("Import en masse")}
           </button>
         </div>
         {bulkOpen && (
           <div style={{ marginTop: 12 }}>
             <textarea
-              placeholder={"Un numéro par ligne (E.164).\nFormat avancé : +33612345678  motif"}
+              placeholder={t("Un numéro par ligne (E.164).\nFormat avancé : +33612345678  motif")}
               value={bulkText}
               onChange={(e) => setBulkText(e.target.value)}
               rows={6}
@@ -160,7 +162,7 @@ export function ComplianceClient() {
             />
             <div style={{ marginTop: 8 }}>
               <button onClick={() => void addBulk()} disabled={busy || !bulkText.trim()}>
-                {busy ? "Import…" : "Importer"}
+                {busy ? t("Import en cours…") : t("Importer")}
               </button>
             </div>
           </div>
@@ -175,24 +177,24 @@ export function ComplianceClient() {
 
       <div className="card">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <h3 style={{ margin: 0 }}>Liste DNC ({rows.length})</h3>
+          <h3 style={{ margin: 0 }}>{t("Liste DNC")} ({rows.length})</h3>
           <button className="ghost" onClick={() => void refresh()} disabled={loading}>
-            Rafraîchir
+            {t("Actualiser")}
           </button>
         </div>
         {loading ? (
-          <p className="muted" style={{ marginTop: 12 }}>Chargement…</p>
+          <p className="muted" style={{ marginTop: 12 }}>{t("Chargement…")}</p>
         ) : rows.length === 0 ? (
           <p className="muted" style={{ marginTop: 12, margin: 0 }}>
-            Aucun numéro bloqué pour l&apos;instant.
+            {t("Aucun numéro bloqué pour l'instant.")}
           </p>
         ) : (
           <table className="list" style={{ marginTop: 12 }}>
             <thead>
               <tr>
-                <th>Numéro</th>
-                <th>Motif</th>
-                <th>Ajouté</th>
+                <th>{t("Numéro")}</th>
+                <th>{t("Motif")}</th>
+                <th>{t("Ajouté le")}</th>
                 <th></th>
               </tr>
             </thead>
@@ -206,7 +208,7 @@ export function ComplianceClient() {
                   </td>
                   <td>
                     <button className="ghost" onClick={() => void removeOne(r.id)}>
-                      Retirer
+                      {t("Retirer")}
                     </button>
                   </td>
                 </tr>

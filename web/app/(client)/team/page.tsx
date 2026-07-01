@@ -14,7 +14,7 @@ export default async function TeamPage() {
   if (!hasSupabase()) {
     return (
       <div className="card" style={{ borderColor: "var(--bad)" }}>
-        Supabase non configuré.
+        Supabase not configured.
       </div>
     );
   }

@@ -10,6 +10,7 @@ import {
 } from "@/components/supervision/SupervisionRoom";
 import { HandoffCard } from "@/components/calls/HandoffCard";
 import { HelpButton } from "@/components/help/HelpButton";
+import { useT } from "@/lib/i18n";
 
 type AgentHandle = {
   id: string;
@@ -106,6 +107,7 @@ function fmtDuration(secs: number | null, fallbackStart?: string, fallbackEnd?: 
 }
 
 export default function CallDetailPage() {
+  const t = useT();
   const params = useParams<{ id: string }>();
   const id = params?.id ?? "";
 
@@ -167,10 +169,10 @@ export default function CallDetailPage() {
       const r = await fetch(`/api/calls/${id}/summary`, { method: "POST" });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error ?? `HTTP ${r.status}`);
-      setActionMsg("Résumé généré.");
+      setActionMsg(t("Résumé généré."));
       await refresh();
     } catch (e) {
-      setActionMsg(`Erreur résumé : ${e instanceof Error ? e.message : String(e)}`);
+      setActionMsg(`${t("Erreur résumé :")} ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setSummaryBusy(false);
     }
@@ -188,10 +190,10 @@ export default function CallDetailPage() {
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error ?? `HTTP ${r.status}`);
       const okCount = (d.results ?? []).filter((x: { ok: boolean }) => x.ok).length;
-      setActionMsg(`Analyses lancées : ${okCount}/${(d.results ?? []).length} OK.`);
+      setActionMsg(`${t("Analyses lancées :")} ${okCount}/${(d.results ?? []).length} OK.`);
       await refresh();
     } catch (e) {
-      setActionMsg(`Erreur analyse : ${e instanceof Error ? e.message : String(e)}`);
+      setActionMsg(`${t("Erreur analyse :")} ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setAnalyzeBusy(false);
     }
@@ -286,11 +288,11 @@ export default function CallDetailPage() {
     return (
       <div>
         <div className="page-header">
-          <h1>Appel</h1>
+          <h1>{t("Appel")}</h1>
           <HelpButton contextKey="calls" />
         </div>
         <div className="card">
-          <p className="muted">Chargement…</p>
+          <p className="muted">{t("Chargement…")}</p>
         </div>
       </div>
     );
@@ -300,13 +302,13 @@ export default function CallDetailPage() {
     return (
       <div>
         <div className="page-header">
-          <h1>Appel</h1>
+          <h1>{t("Appel")}</h1>
           <HelpButton contextKey="calls" />
         </div>
         <div className="card">
-          <p style={{ color: "var(--bad)" }}>{error ?? "Appel introuvable."}</p>
+          <p style={{ color: "var(--bad)" }}>{error ?? t("Appel introuvable.")}</p>
           <Link href="/calls" className="tag">
-            ← Retour à la liste
+            {t("← Retour à la liste")}
           </Link>
         </div>
       </div>
@@ -320,15 +322,15 @@ export default function CallDetailPage() {
       <div className="page-header">
         <div>
           <Link href="/calls" className="muted" style={{ fontSize: 13 }}>
-            ← Appels
+            {t("← Appels")}
           </Link>
           <h1 style={{ marginTop: 6 }}>
-            {call.direction === "in" ? "Entrant" : "Sortant"} · {call.from_e164 ?? "—"} → {call.to_e164 ?? "—"}
+            {call.direction === "in" ? t("Entrant") : t("Sortant")} · {call.from_e164 ?? "—"} → {call.to_e164 ?? "—"}
           </h1>
           <div className="subtitle" style={{ display: "flex", gap: 10, alignItems: "center" }}>
             <span className={stateClass(call.state)}>{call.state}</span>
-            <span>Durée : <span className="kbd">{fmtDuration(call.duration_secs, call.started_at, call.ended_at)}</span></span>
-            <span>Agent : {call.agent_handles?.display_name ?? "—"}</span>
+            <span>{t("Durée")} : <span className="kbd">{fmtDuration(call.duration_secs, call.started_at, call.ended_at)}</span></span>
+            <span>{t("Agent")} : {call.agent_handles?.display_name ?? "—"}</span>
           </div>
         </div>
         <HelpButton contextKey="calls" />
@@ -336,20 +338,20 @@ export default function CallDetailPage() {
 
       {isLive && (
         <div className="card" style={{ marginBottom: 18 }}>
-          <h2 style={{ margin: 0, fontSize: 18 }}>Supervision</h2>
+          <h2 style={{ margin: 0, fontSize: 18 }}>{t("Supervision")}</h2>
           <p className="muted" style={{ marginTop: 0 }}>
-            Rejoignez la salle pour écouter, souffler à l&apos;agent, ou intervenir.
+            {t("Rejoignez la salle pour écouter, souffler à l'agent, ou intervenir.")}
           </p>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <button onClick={() => void startSupervision("listen")}>Écouter</button>
+            <button onClick={() => void startSupervision("listen")}>{t("Écouter")}</button>
             <button className="ghost" onClick={() => void startSupervision("whisper")}>
-              Souffler
+              {t("Souffler")}
             </button>
             <button className="ghost" onClick={() => void startSupervision("barge")}>
-              Intervenir
+              {t("Intervenir")}
             </button>
             <Link className="ghost" href={`/calls/${id}/supervise`} style={{ marginLeft: "auto" }}>
-              Superviser (vue dédiée) →
+              {t("Superviser (vue dédiée) →")}
             </Link>
           </div>
         </div>
@@ -378,11 +380,11 @@ export default function CallDetailPage() {
         <div className="panel">
           <header>
             <h2>Timeline</h2>
-            <div className="meta">{events.length} évènement(s)</div>
+            <div className="meta">{events.length} {events.length === 1 ? t("évènement") : t("évènements")}</div>
           </header>
           <div className="chat-log" style={{ minHeight: 240 }}>
             {events.length === 0 ? (
-              <p className="muted" style={{ margin: 0 }}>Aucun évènement.</p>
+              <p className="muted" style={{ margin: 0 }}>{t("Aucun évènement.")}</p>
             ) : (
               events.map((ev) => (
                 <div key={ev.id} className="chat-msg assistant">
@@ -406,29 +408,29 @@ export default function CallDetailPage() {
         <div className="panel">
           <header>
             <h2>Transcript</h2>
-            <div className="meta">{transcripts.length} tour(s)</div>
+            <div className="meta">{transcripts.length} {transcripts.length === 1 ? t("tour") : t("tours")}</div>
           </header>
           <div className="chat-log" style={{ minHeight: 240, maxHeight: 480, overflowY: "auto" }}>
             {transcripts.length === 0 ? (
-              <p className="muted" style={{ margin: 0 }}>Transcript en attente.</p>
+              <p className="muted" style={{ margin: 0 }}>{t("Transcript en attente.")}</p>
             ) : (
-              transcripts.map((t) => (
-                <div key={t.id} className={`chat-msg ${t.speaker === "customer" ? "user" : "assistant"}`}>
+              transcripts.map((tr) => (
+                <div key={tr.id} className={`chat-msg ${tr.speaker === "customer" ? "user" : "assistant"}`}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                    <strong style={{ fontSize: 12 }}>{t.speaker}</strong>
+                    <strong style={{ fontSize: 12 }}>{tr.speaker}</strong>
                     <span className="muted" style={{ fontSize: 11 }}>
-                      {new Date(t.started_at).toLocaleTimeString()}
-                      {t.language ? ` · ${t.language}` : ""}
+                      {new Date(tr.started_at).toLocaleTimeString()}
+                      {tr.language ? ` · ${tr.language}` : ""}
                     </span>
                   </div>
-                  <div style={{ marginTop: 4 }}>{t.text}</div>
+                  <div style={{ marginTop: 4 }}>{tr.text}</div>
                 </div>
               ))
             )}
           </div>
           {call.recording_url && (
             <a className="tag" href={call.recording_url} target="_blank" rel="noreferrer" style={{ marginTop: 8, display: "inline-block" }}>
-              Enregistrement
+              {t("Enregistrement")}
             </a>
           )}
         </div>
@@ -436,13 +438,13 @@ export default function CallDetailPage() {
 
       <div className="card" style={{ marginTop: 18 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <h2 style={{ margin: 0, fontSize: 18 }}>Résumé LLM</h2>
+          <h2 style={{ margin: 0, fontSize: 18 }}>{t("Résumé LLM")}</h2>
           <div style={{ display: "flex", gap: 8 }}>
             <button className="ghost" onClick={generateSummary} disabled={summaryBusy}>
-              {summaryBusy ? "Génération…" : call.summary ? "Régénérer" : "Générer le résumé"}
+              {summaryBusy ? t("Génération…") : call.summary ? t("Régénérer") : t("Générer le résumé")}
             </button>
             <button className="ghost" onClick={runAnalyses} disabled={analyzeBusy}>
-              {analyzeBusy ? "Analyse…" : "Lancer les analyses"}
+              {analyzeBusy ? t("Analyse…") : t("Lancer les analyses")}
             </button>
           </div>
         </div>
@@ -453,21 +455,21 @@ export default function CallDetailPage() {
           <p style={{ marginTop: 10, whiteSpace: "pre-wrap" }}>{call.summary}</p>
         ) : (
           <p className="muted" style={{ marginTop: 10 }}>
-            Aucun résumé disponible.
+            {t("Aucun résumé disponible.")}
           </p>
         )}
         {call.summary_generated_at && (
           <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
-            généré le {new Date(call.summary_generated_at).toLocaleString()}
+            {t("généré le")} {new Date(call.summary_generated_at).toLocaleString()}
           </div>
         )}
       </div>
 
       <div className="card" style={{ marginTop: 18 }}>
-        <h2 style={{ marginTop: 0, fontSize: 18 }}>Analyses LLM ({analyses.length})</h2>
+        <h2 style={{ marginTop: 0, fontSize: 18 }}>{t("Analyses LLM")} ({analyses.length})</h2>
         {analyses.length === 0 ? (
           <p className="muted" style={{ margin: 0 }}>
-            Aucune analyse pour cet appel. Configurez des policies puis cliquez « Lancer les analyses ».
+            {t("Aucune analyse pour cet appel. Configurez des policies puis cliquez « Lancer les analyses ».")}
           </p>
         ) : (
           <div style={{ display: "grid", gap: 12 }}>
@@ -493,17 +495,17 @@ export default function CallDetailPage() {
       </div>
 
       <div className="card" style={{ marginTop: 18 }}>
-        <h2 style={{ marginTop: 0, fontSize: 18 }}>Alertes générées ({alerts.length})</h2>
+        <h2 style={{ marginTop: 0, fontSize: 18 }}>{t("Alertes générées")} ({alerts.length})</h2>
         {alerts.length === 0 ? (
-          <p className="muted" style={{ margin: 0 }}>Aucune alerte.</p>
+          <p className="muted" style={{ margin: 0 }}>{t("Aucune alerte.")}</p>
         ) : (
           <table className="list">
             <thead>
               <tr>
-                <th>Sév.</th>
-                <th>Message</th>
-                <th>Statut</th>
-                <th>Créée</th>
+                <th>{t("Sév.")}</th>
+                <th>{t("Message")}</th>
+                <th>{t("Statut")}</th>
+                <th>{t("Créée")}</th>
               </tr>
             </thead>
             <tbody>
@@ -513,7 +515,7 @@ export default function CallDetailPage() {
                   <td>{a.message}</td>
                   <td>
                     <span className={a.acked ? "tag" : "tag accent"}>
-                      {a.acked ? "ack" : "non lu"}
+                      {a.acked ? "ack" : t("non lu")}
                     </span>
                   </td>
                   <td className="muted" style={{ fontSize: 12 }}>

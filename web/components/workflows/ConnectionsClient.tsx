@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useT } from "@/lib/i18n";
 
 interface Credential {
   id: string;
@@ -21,6 +22,7 @@ const KIND_LABEL: Record<string, string> = {
  * never sent back to the browser.
  */
 export function ConnectionsClient() {
+  const t = useT();
   const [creds, setCreds] = useState<Credential[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
@@ -63,7 +65,7 @@ export function ConnectionsClient() {
     setErr(null);
     setOk(null);
     if (!name.trim()) {
-      setErr("Donne un nom à cette connexion (ex. « Email OCC »).");
+      setErr(t('Donnez un nom à cette connexion (ex. "Email OCC").'));
       return;
     }
     const data =
@@ -82,7 +84,7 @@ export function ConnectionsClient() {
         setErr(j.error ?? `HTTP ${r.status}`);
         return;
       }
-      setOk(`Connexion « ${name.trim()} » enregistrée.`);
+      setOk(t("Connexion") + ` "${name.trim()}" ` + t("enregistrée."));
       setPass("");
       setToken("");
       await refresh();
@@ -96,11 +98,10 @@ export function ConnectionsClient() {
   return (
     <div style={{ display: "grid", gap: 16, maxWidth: 760 }}>
       <section className="card">
-        <h3 style={{ marginTop: 0 }}>Connexions enregistrées</h3>
+        <h3 style={{ marginTop: 0 }}>{t("Connexions enregistrées")}</h3>
         {creds.length === 0 ? (
           <p className="muted" style={{ margin: 0 }}>
-            Aucune connexion. Ajoute ton email (SMTP) et/ou ton WhatsApp (WATI) ci-dessous —
-            tes agents de gestion les utiliseront pour envoyer.
+            {t("Aucune connexion pour l'instant. Ajoutez votre email (SMTP) et/ou WhatsApp (WATI) ci-dessous — vos agents de gestion les utiliseront pour envoyer des messages.")}
           </p>
         ) : (
           <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.8 }}>
@@ -108,7 +109,7 @@ export function ConnectionsClient() {
               <li key={c.id}>
                 <strong>{c.name}</strong> · {KIND_LABEL[c.kind] ?? c.kind}{" "}
                 <span className="muted" style={{ fontSize: 12 }}>
-                  ✓ {c.fields_set.length} champ{c.fields_set.length > 1 ? "s" : ""} configuré{c.fields_set.length > 1 ? "s" : ""}
+                  ✓ {c.fields_set.length} {t("champ")}{c.fields_set.length > 1 ? "s" : ""} {t("configuré")}{c.fields_set.length > 1 ? "s" : ""}
                 </span>
               </li>
             ))}
@@ -117,18 +118,18 @@ export function ConnectionsClient() {
       </section>
 
       <section className="card">
-        <h3 style={{ marginTop: 0 }}>Ajouter / mettre à jour une connexion</h3>
+        <h3 style={{ marginTop: 0 }}>{t("Ajouter / mettre à jour une connexion")}</h3>
         <form onSubmit={save} style={{ display: "grid", gap: 12 }}>
           <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1fr 1fr" }}>
             <div>
-              <label>Type</label>
+              <label>{t("Type")}</label>
               <select value={kind} onChange={(e) => setKind(e.target.value as "smtp" | "wati")}>
                 <option value="smtp">✉️ Email (SMTP)</option>
                 <option value="wati">💬 WhatsApp (WATI)</option>
               </select>
             </div>
             <div>
-              <label>Nom de la connexion *</label>
+              <label>{t("Nom de la connexion")} *</label>
               <input value={name} onChange={(e) => setName(e.target.value)} placeholder={kind === "smtp" ? "Email OCC" : "WhatsApp OCC"} />
             </div>
           </div>
@@ -137,37 +138,37 @@ export function ConnectionsClient() {
             <div style={{ display: "grid", gap: 12 }}>
               <div style={{ display: "grid", gap: 12, gridTemplateColumns: "2fr 1fr" }}>
                 <div>
-                  <label>Serveur SMTP</label>
+                  <label>{t("Serveur SMTP")}</label>
                   <input value={host} onChange={(e) => setHost(e.target.value)} placeholder="smtp.gmail.com" />
                 </div>
                 <div>
-                  <label>Port</label>
+                  <label>{t("Port")}</label>
                   <input value={port} onChange={(e) => setPort(e.target.value)} placeholder="465" />
                 </div>
               </div>
               <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1fr 1fr" }}>
                 <div>
-                  <label>Identifiant (email)</label>
-                  <input value={user} onChange={(e) => setUser(e.target.value)} placeholder="contact@clinique.com" />
+                  <label>{t("Nom d'utilisateur (email)")}</label>
+                  <input value={user} onChange={(e) => setUser(e.target.value)} placeholder="contact@clinic.com" />
                 </div>
                 <div>
-                  <label>Mot de passe (app password)</label>
+                  <label>{t("Mot de passe (mot de passe d'application)")}</label>
                   <input type="password" value={pass} onChange={(e) => setPass(e.target.value)} placeholder="••••••••" />
                 </div>
               </div>
               <div>
-                <label>Expéditeur affiché (optionnel)</label>
-                <input value={from} onChange={(e) => setFrom(e.target.value)} placeholder="Clinique OCC <contact@clinique.com>" />
+                <label>{t("Expéditeur affiché (optionnel)")}</label>
+                <input value={from} onChange={(e) => setFrom(e.target.value)} placeholder="OCC Clinic <contact@clinic.com>" />
               </div>
             </div>
           ) : (
             <div style={{ display: "grid", gap: 12 }}>
               <div>
-                <label>URL de base WATI</label>
+                <label>{t("URL de base WATI")}</label>
                 <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://live-server-xxxx.wati.io" />
               </div>
               <div>
-                <label>Token WATI</label>
+                <label>{t("Token WATI")}</label>
                 <input type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder="Bearer eyJ…" />
               </div>
             </div>
@@ -177,12 +178,11 @@ export function ConnectionsClient() {
           {ok && <div style={{ color: "var(--good)", fontSize: 13 }}>{ok}</div>}
           <div>
             <button type="submit" disabled={busy}>
-              {busy ? "Enregistrement…" : "Enregistrer la connexion"}
+              {busy ? t("Enregistrement…") : t("Enregistrer la connexion")}
             </button>
           </div>
           <div className="muted" style={{ fontSize: 12 }}>
-            🔒 Les secrets sont stockés côté serveur et ne sont jamais réaffichés. Pour les modifier,
-            ré-enregistre la connexion sous le même nom.
+            🔒 {t("Les secrets sont stockés côté serveur et ne sont plus affichés par la suite. Pour les mettre à jour, ré-enregistrez la connexion sous le même nom.")}
           </div>
         </form>
       </section>

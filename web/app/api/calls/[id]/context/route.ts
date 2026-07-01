@@ -24,7 +24,7 @@ export async function GET(
   ctx: { params: Promise<{ id: string }> },
 ) {
   if (!hasSupabase()) {
-    return NextResponse.json({ error: "Supabase non configuré" }, { status: 500 });
+    return NextResponse.json({ error: "Supabase not configured" }, { status: 500 });
   }
   const { id } = await ctx.params;
   const orgId = await requestOrgId(req);

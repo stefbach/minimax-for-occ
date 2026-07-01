@@ -2,14 +2,15 @@
 
 // Activity report generation — port of the legacy OCC dashboard's "Générer un
 // rapport" feature. Aggregates the period's calls into daily or weekly rows
-// and renders a PDF (jsPDF + autotable, lazy-loaded) or a semicolon-CSV that
-// opens cleanly in French Excel. All processing is client-side over the rows
-// already exposed by /api/calls, so no new server surface is needed.
+// and renders a PDF (jsPDF + autotable, lazy-loaded) or a proper XLSX workbook
+// with multiple sheets. All processing is client-side over the rows already
+// exposed by /api/calls, so no new server surface is needed.
 
+import * as XLSX from "xlsx";
 import { bucketForCall, QUAL_BUCKETS } from "@/lib/qualification";
 
 export type ReportFrequency = "daily" | "weekly";
-export type ReportFormat = "pdf" | "csv";
+export type ReportFormat = "pdf" | "csv" | "xlsx";
 
 // The subset of /api/calls fields the report needs.
 export type ReportCall = {
@@ -45,6 +46,26 @@ export type ReportData = {
   };
   qualification: { label: string; count: number; percent: number }[];
   bestSlotOverall: string;
+};
+
+export type PatientRow = {
+  nom: string | null;
+  email: string | null;
+  numero_telephone: string | null;
+  patient_dob: string | null;
+  poids: number | null;
+  taille: number | null;
+  bmi: number | null;
+  other_chronic_conditions: string | null;
+  current_phase: string | null;
+  call_count: number | null;
+  qualification: string | null;
+  last_call_datetime: string | null;
+};
+
+export type PatientSections = {
+  rdvConfirme: PatientRow[];
+  passerHumain: PatientRow[];
 };
 
 const DAYS_FR = ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"];
@@ -250,7 +271,41 @@ function escapeCsv(v: string | number): string {
   return s;
 }
 
-export function generateCsv(data: ReportData, frequency: ReportFrequency): Blob {
+function calcAge(dob: string | null): string {
+  if (!dob) return "";
+  const birth = new Date(dob);
+  if (isNaN(birth.getTime())) return "";
+  const today = new Date();
+  let age = today.getFullYear() - birth.getFullYear();
+  const m = today.getMonth() - birth.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+  return String(age);
+}
+
+function patientCsvSection(title: string, patients: PatientRow[]): string[] {
+  if (patients.length === 0) return [];
+  const lines: string[] = ["", escapeCsv(title)];
+  lines.push("Nom complet;Email;Téléphone;Âge;Poids (kg);Taille (cm);IMC;Comorbidités;Palier;Total appels;Qualification;Dernier appel");
+  for (const p of patients) {
+    lines.push([
+      escapeCsv(p.nom ?? ""),
+      escapeCsv(p.email ?? ""),
+      escapeCsv(p.numero_telephone ?? ""),
+      calcAge(p.patient_dob),
+      p.poids ?? "",
+      p.taille ?? "",
+      p.bmi ?? "",
+      escapeCsv(p.other_chronic_conditions ?? ""),
+      escapeCsv(p.current_phase ?? ""),
+      p.call_count ?? 0,
+      escapeCsv(p.qualification ?? ""),
+      p.last_call_datetime ? new Date(p.last_call_datetime).toLocaleDateString("fr-FR") : "",
+    ].join(";"));
+  }
+  return lines;
+}
+
+export function generateCsv(data: ReportData, frequency: ReportFrequency, patients?: PatientSections): Blob {
   const lines: string[] = [];
   lines.push("Rapport d'activité — Appels");
   lines.push(`Période;${escapeCsv(data.periodLabel)}`);
@@ -282,8 +337,110 @@ export function generateCsv(data: ReportData, frequency: ReportFrequency): Blob 
       `$${r.costDollars.toFixed(2)}`, escapeCsv(r.bestSlot),
     ].join(";"));
   }
+  if (patients) {
+    lines.push(...patientCsvSection("=== RDV CONFIRMÉ (" + patients.rdvConfirme.length + " patients) ===", patients.rdvConfirme));
+    lines.push(...patientCsvSection("=== À PASSER À L'HUMAIN (" + patients.passerHumain.length + " patients) ===", patients.passerHumain));
+  }
   // BOM so Excel opens UTF-8 accents correctly.
   return new Blob(["﻿" + lines.join("\n")], { type: "text/csv;charset=utf-8" });
+}
+
+// ─── XLSX report ───────────────────────────────────────────────────────────
+
+const PATIENT_HEADERS = [
+  "Full name", "Email", "Phone", "Age", "Weight (kg)", "Height (cm)",
+  "BMI", "Comorbidities", "Programme tier", "Total calls", "Qualification", "Last call",
+];
+
+function patientRows(patients: PatientRow[]): (string | number)[][] {
+  return patients.map((p) => [
+    p.nom ?? "",
+    p.email ?? "",
+    p.numero_telephone ?? "",
+    calcAge(p.patient_dob),
+    p.poids ?? "",
+    p.taille ?? "",
+    p.bmi ?? "",
+    p.other_chronic_conditions ?? "",
+    p.current_phase ?? "",
+    p.call_count ?? 0,
+    p.qualification ?? "",
+    p.last_call_datetime
+      ? new Date(p.last_call_datetime).toLocaleDateString("en-GB")
+      : "",
+  ]);
+}
+
+function makeSheet(data: (string | number)[][], colWidths: number[]): XLSX.WorkSheet {
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  ws["!cols"] = colWidths.map((w) => ({ wch: w }));
+  // Freeze the header row
+  ws["!freeze"] = { xSplit: 0, ySplit: 1 };
+  return ws;
+}
+
+export function generateXlsx(data: ReportData, frequency: ReportFrequency, patients?: PatientSections): Blob {
+  const wb = XLSX.utils.book_new();
+  const generatedAt = new Date().toLocaleString("en-GB");
+  const freqLabel = frequency === "daily" ? "Daily" : "Weekly";
+  const periodCol = frequency === "daily" ? "Day" : "Week";
+
+  // ── Single sheet with all sections ─────────────────────────────────────
+  const rows: (string | number)[][] = [
+    // Header
+    [`Activity Report — Calls`],
+    ["Period", data.periodLabel],
+    ["Frequency", freqLabel],
+    ["Generated", generatedAt],
+    [],
+    // KPIs
+    ["── KEY PERFORMANCE INDICATORS ──"],
+    ["Metric", "Value"],
+    ["Total calls", data.totals.totalCalls],
+    ["Answered calls", data.totals.answered],
+    ["Answer rate", `${data.totals.answerRate.toFixed(1)}%`],
+    ["Confirmed appointments", data.totals.rdvConfirmed],
+    ["Conversion rate", `${data.totals.conversionRate.toFixed(1)}%`],
+    ["Total cost ($)", `$${data.totals.costDollars.toFixed(2)}`],
+    ["Best time slot", data.bestSlotOverall || "—"],
+    [],
+    // Qualification breakdown
+    ["── QUALIFICATION BREAKDOWN ──"],
+    ["Qualification", "Calls", "Percentage"],
+    ...data.qualification.map((q): (string | number)[] => [q.label, q.count, `${q.percent.toFixed(1)}%`]),
+    [],
+    // Period breakdown
+    [`── ${freqLabel.toUpperCase()} BREAKDOWN ──`],
+    [periodCol, "Calls", "Answered", "Answer rate", "Appts", "Conv. rate", "Cost ($)", "Best slot"],
+    ...data.rows.map((r): (string | number)[] => [
+      r.period, r.totalCalls, r.answered,
+      `${r.answerRate.toFixed(1)}%`, r.rdvConfirmed,
+      `${r.conversionRate.toFixed(1)}%`, `$${r.costDollars.toFixed(2)}`, r.bestSlot || "—",
+    ]),
+  ];
+
+  // Patient sections
+  if (patients && patients.rdvConfirme.length > 0) {
+    rows.push([], [`── CONFIRMED APPOINTMENTS (${patients.rdvConfirme.length} patients) ──`]);
+    rows.push(PATIENT_HEADERS);
+    rows.push(...patientRows(patients.rdvConfirme));
+  }
+  if (patients && patients.passerHumain.length > 0) {
+    rows.push([], [`── NEEDS HUMAN FOLLOW-UP (${patients.passerHumain.length} patients) ──`]);
+    rows.push(PATIENT_HEADERS);
+    rows.push(...patientRows(patients.passerHumain));
+  }
+
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws["!cols"] = [
+    { wch: 30 }, { wch: 28 }, { wch: 14 }, { wch: 12 },
+    { wch: 10 }, { wch: 14 }, { wch: 12 }, { wch: 20 },
+    { wch: 12 }, { wch: 10 }, { wch: 22 }, { wch: 14 },
+  ];
+  XLSX.utils.book_append_sheet(wb, ws, "Report");
+
+  const raw = XLSX.write(wb, { type: "array", bookType: "xlsx" }) as number[];
+  return new Blob([new Uint8Array(raw)], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
 }
 
 // ─── Download helpers ───────────────────────────────────────────────────────

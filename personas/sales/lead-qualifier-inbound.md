@@ -1,6 +1,6 @@
 ---
 slug: lead-qualifier-inbound
-title: Qualification de leads entrants
+title: Inbound lead qualification
 industry: sales
 language: fr
 voice_suggestion: female_friendly_28s
@@ -13,6 +13,7 @@ n8n_bindings_suggested:
   - book_demo
   - route_to_ae
 handoff_team_suggested: sales-ae-team
+description: "Structured inbound qualifier. Uses BANT methodology — asks open questions, reformulates, scores leads and routes warm prospects to the AE team."
 ---
 
 ## Identity

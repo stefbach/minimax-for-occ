@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Brand } from "./brand/Brand";
+import { useT } from "@/lib/i18n";
 
 interface NavItem {
   href: string;
@@ -13,20 +14,21 @@ interface NavItem {
 
 const NAV: NavItem[] = [
   // ── Platform ──
-  { href: "/admin",          label: "Vue d'ensemble",       icon: "▣", group: "Platform" },
+  { href: "/admin",          label: "Overview",             icon: "▣", group: "Platform" },
   { href: "/admin/orgs",     label: "Clients",              icon: "◯", group: "Platform" },
-  { href: "/admin/copilot",  label: "Copilote Super Admin", icon: "✦", group: "Platform" },
+  { href: "/admin/copilot",  label: "Super Admin Copilot",  icon: "✦", group: "Platform" },
 
-  // ── Ops Plateforme ──
-  { href: "/admin/inbound",    label: "Connecteurs entrants", icon: "⇩", group: "Ops Plateforme" },
-  { href: "/admin/compliance", label: "Conformité (DNC)",     icon: "⊘", group: "Ops Plateforme" },
-  { href: "/admin/gdpr",       label: "RGPD",                 icon: "⚖", group: "Ops Plateforme" },
+  // ── Platform Ops ──
+  { href: "/admin/inbound",    label: "Inbound connectors", icon: "⇩", group: "Platform Ops" },
+  { href: "/admin/compliance", label: "Compliance (DNC)",   icon: "⊘", group: "Platform Ops" },
+  { href: "/admin/gdpr",       label: "GDPR",               icon: "⚖", group: "Platform Ops" },
 
-  // ── Facturation Axon ──
-  { href: "/admin/billing",  label: "Facturation",            icon: "€", group: "Facturation Axon" },
+  // ── Axon Billing ──
+  { href: "/admin/billing",  label: "Billing",              icon: "€", group: "Axon Billing" },
 ];
 
 export function AdminSidebar() {
+  const t = useT();
   const pathname = usePathname() ?? "/";
 
   const groups: Record<string, NavItem[]> = {};
@@ -79,10 +81,10 @@ export function AdminSidebar() {
           href="/"
           className="nav-link"
           style={{ fontSize: 12, color: "var(--muted-2)" }}
-          aria-label="Quitter mode admin"
+          aria-label={t("Quitter le mode admin")}
         >
           <span aria-hidden="true" style={{ width: 16, opacity: 0.7 }}>←</span>
-          <span>Quitter mode admin</span>
+          <span>{t("Quitter le mode admin")}</span>
         </Link>
         <div style={{ padding: "10px 12px", color: "var(--muted-2)", fontSize: 11 }}>
           Axon Admin · v2

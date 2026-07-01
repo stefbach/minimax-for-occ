@@ -1,5 +1,6 @@
 import { hasSupabase } from "@/lib/supabase";
 import { MyCalendarClient } from "@/components/desk/MyCalendarClient";
+import { MyCalendarPageHeader } from "@/components/desk/MyCalendarPageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -13,14 +14,7 @@ export default function MyCalendarPage() {
   }
   return (
     <div>
-      <div className="page-header">
-        <div>
-          <h1>Mon calendrier</h1>
-          <div className="subtitle">
-            Mes rappels et suivis à venir, groupés par jour.
-          </div>
-        </div>
-      </div>
+      <MyCalendarPageHeader />
       <MyCalendarClient />
     </div>
   );

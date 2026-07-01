@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useT } from "@/lib/i18n";
 import { BarChart } from "./BarChart";
 import { KpiTile } from "./KpiTile";
 import { Pie } from "./Pie";
@@ -92,6 +93,7 @@ const DISPOSITION_COLORS = [
 type AgentSort = "calls" | "aht";
 
 export function AnalyticsClient({ initial, initialRange }: Props) {
+  const t = useT();
   const [range, setRange] = useState<Range>(initialRange);
   const [data, setData] = useState<Overview>(initial);
   const [loading, setLoading] = useState(false);
@@ -186,7 +188,7 @@ export function AnalyticsClient({ initial, initialRange }: Props) {
         <RangePicker value={range} onChange={setRange} />
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           {loading ? (
-            <span className="tag">chargement…</span>
+            <span className="tag">{t("chargement…")}</span>
           ) : error ? (
             <span className="tag" style={{ color: "var(--bad)", borderColor: "var(--bad)" }}>
               {error}
@@ -198,7 +200,7 @@ export function AnalyticsClient({ initial, initialRange }: Props) {
               className="subtle"
               onClick={() => setExportOpen((v) => !v)}
             >
-              Exporter en CSV ▾
+              {t("Exporter en CSV")} ▾
             </button>
             {exportOpen ? (
               <div
@@ -224,7 +226,7 @@ export function AnalyticsClient({ initial, initialRange }: Props) {
                   style={{ justifyContent: "flex-start", textAlign: "left" }}
                   onClick={() => onExport("calls")}
                 >
-                  Appels (calls)
+                  {t("Appels (calls)")}
                 </button>
                 <button
                   type="button"
@@ -232,7 +234,7 @@ export function AnalyticsClient({ initial, initialRange }: Props) {
                   style={{ justifyContent: "flex-start", textAlign: "left" }}
                   onClick={() => onExport("targets")}
                 >
-                  Cibles de campagne
+                  {t("Cibles de campagne")}
                 </button>
               </div>
             ) : null}
@@ -245,38 +247,38 @@ export function AnalyticsClient({ initial, initialRange }: Props) {
         className="grid"
         style={{ gridTemplateColumns: "repeat(5, minmax(0, 1fr))" }}
       >
-        <KpiTile label="Appels" value={NF.format(totals.calls)} />
+        <KpiTile label={t("Appels")} value={NF.format(totals.calls)} />
         <KpiTile
-          label="% Réponse"
+          label={t("% Réponse")}
           value={PCT.format(answeredRate)}
           accent="good"
-          hint={`${NF.format(totals.answered)} répondus`}
+          hint={`${NF.format(totals.answered)} ${t("répondus")}`}
         />
         <KpiTile
-          label="DMT"
+          label={t("DMT")}
           value={fmtDuration(totals.avg_duration_secs)}
           accent="info"
-          hint="durée moyenne"
+          hint={t("durée moyenne")}
         />
         <KpiTile
-          label="Taux d'abandon"
+          label={t("Taux d'abandon")}
           value={PCT.format(abandonRate)}
           accent="bad"
-          hint={`${NF.format(totals.abandoned)} abandonnés`}
+          hint={`${NF.format(totals.abandoned)} ${t("abandonnés")}`}
         />
         <KpiTile
-          label="Transferts"
+          label={t("Transferts")}
           value={NF.format(totals.transferred)}
           accent="warn"
-          hint={`${NF.format(totals.voicemail)} messageries`}
+          hint={`${NF.format(totals.voicemail)} ${t("messageries")}`}
         />
       </div>
 
       {/* Volume by hour + by day */}
       <div className="grid cols-2">
         <div className="card">
-          <h3>Volume par heure</h3>
-          <div className="muted">24 créneaux UTC</div>
+          <h3>{t("Volume par heure")}</h3>
+          <div className="muted">{t("24 créneaux UTC")}</div>
           <div style={{ marginTop: 12 }}>
             <BarChart
               data={hourData}
@@ -289,8 +291,8 @@ export function AnalyticsClient({ initial, initialRange }: Props) {
           </div>
         </div>
         <div className="card">
-          <h3>Volume par jour</h3>
-          <div className="muted">sur la plage sélectionnée</div>
+          <h3>{t("Volume par jour")}</h3>
+          <div className="muted">{t("sur la plage sélectionnée")}</div>
           <div style={{ marginTop: 12 }}>
             <BarChart
               data={dayData}
@@ -311,8 +313,8 @@ export function AnalyticsClient({ initial, initialRange }: Props) {
           style={{ display: "flex", gap: 16, alignItems: "center" }}
         >
           <div>
-            <h3>Dispositions</h3>
-            <div className="muted">répartition des résultats</div>
+            <h3>{t("Dispositions")}</h3>
+            <div className="muted">{t("répartition des résultats")}</div>
             <Pie segments={dispositionSegments} ariaLabel="Dispositions des appels" />
           </div>
           <div
@@ -325,7 +327,7 @@ export function AnalyticsClient({ initial, initialRange }: Props) {
             }}
           >
             {dispositionSegments.length === 0 ? (
-              <span className="muted">Aucune donnée.</span>
+              <span className="muted">{t("Aucune donnée.")}</span>
             ) : null}
             {dispositionSegments.map((s) => (
               <div
@@ -352,22 +354,22 @@ export function AnalyticsClient({ initial, initialRange }: Props) {
           </div>
         </div>
         <div className="card">
-          <h3>Files d'attente</h3>
-          <div className="muted">temps d'attente moyen avant prise en charge</div>
+          <h3>{t("Files d'attente")}</h3>
+          <div className="muted">{t("temps d'attente moyen avant prise en charge")}</div>
           <div style={{ marginTop: 12, overflowX: "auto" }}>
             <table className="list">
               <thead>
                 <tr>
-                  <th>File</th>
-                  <th style={{ textAlign: "right" }}>Appels</th>
-                  <th style={{ textAlign: "right" }}>Attente moy.</th>
+                  <th>{t("File")}</th>
+                  <th style={{ textAlign: "right" }}>{t("Appels (calls)")}</th>
+                  <th style={{ textAlign: "right" }}>{t("Attente moy.")}</th>
                 </tr>
               </thead>
               <tbody>
                 {data.by_queue.length === 0 ? (
                   <tr>
                     <td colSpan={3} className="muted" style={{ color: "var(--muted)" }}>
-                      Aucune file utilisée sur la période.
+                      {t("Aucune file utilisée sur la période.")}
                     </td>
                   </tr>
                 ) : (
@@ -397,8 +399,8 @@ export function AnalyticsClient({ initial, initialRange }: Props) {
           }}
         >
           <div>
-            <h3>Performance par agent</h3>
-            <div className="muted">humains et agents IA confondus</div>
+            <h3>{t("Performance par agent")}</h3>
+            <div className="muted">{t("humains et agents IA confondus")}</div>
           </div>
           <div style={{ display: "flex", gap: 6 }}>
             <button
@@ -407,7 +409,7 @@ export function AnalyticsClient({ initial, initialRange }: Props) {
               onClick={() => setAgentSort("calls")}
               style={{ padding: "6px 10px", fontSize: 13 }}
             >
-              Trier par appels
+              {t("Trier par appels")}
             </button>
             <button
               type="button"
@@ -415,7 +417,7 @@ export function AnalyticsClient({ initial, initialRange }: Props) {
               onClick={() => setAgentSort("aht")}
               style={{ padding: "6px 10px", fontSize: 13 }}
             >
-              Trier par DMT
+              {t("Trier par DMT")}
             </button>
           </div>
         </div>
@@ -423,17 +425,17 @@ export function AnalyticsClient({ initial, initialRange }: Props) {
           <table className="list">
             <thead>
               <tr>
-                <th>Agent</th>
-                <th>Type</th>
-                <th style={{ textAlign: "right" }}>Appels</th>
-                <th style={{ textAlign: "right" }}>DMT</th>
+                <th>{t("Agent")}</th>
+                <th>{t("Type")}</th>
+                <th style={{ textAlign: "right" }}>{t("Appels (calls)")}</th>
+                <th style={{ textAlign: "right" }}>{t("DMT")}</th>
               </tr>
             </thead>
             <tbody>
               {sortedAgents.length === 0 ? (
                 <tr>
                   <td colSpan={4} style={{ color: "var(--muted)" }}>
-                    Aucun appel attribué à un agent sur la période.
+                    {t("Aucun appel attribué à un agent sur la période.")}
                   </td>
                 </tr>
               ) : (
@@ -444,7 +446,7 @@ export function AnalyticsClient({ initial, initialRange }: Props) {
                       <span
                         className={`tag ${a.kind === "ai" ? "accent" : "good"}`}
                       >
-                        {a.kind === "ai" ? "IA" : "humain"}
+                        {a.kind === "ai" ? t("IA") : t("humain")}
                       </span>
                     </td>
                     <td style={{ textAlign: "right" }}>{NF.format(a.calls)}</td>
@@ -461,24 +463,24 @@ export function AnalyticsClient({ initial, initialRange }: Props) {
 
       {/* Campaigns */}
       <div className="card">
-        <h3>Campagnes</h3>
-        <div className="muted">taux de réussite par campagne</div>
+        <h3>{t("Campagnes")}</h3>
+        <div className="muted">{t("taux de réussite par campagne")}</div>
         <div style={{ marginTop: 12, overflowX: "auto" }}>
           <table className="list">
             <thead>
               <tr>
-                <th>Campagne</th>
-                <th style={{ textAlign: "right" }}>Cibles</th>
-                <th style={{ textAlign: "right" }}>Réussies</th>
-                <th style={{ textAlign: "right" }}>Échecs</th>
-                <th style={{ minWidth: 220 }}>Taux de réussite</th>
+                <th>{t("Campagne")}</th>
+                <th style={{ textAlign: "right" }}>{t("Cibles")}</th>
+                <th style={{ textAlign: "right" }}>{t("Réussies")}</th>
+                <th style={{ textAlign: "right" }}>{t("Échecs")}</th>
+                <th style={{ minWidth: 220 }}>{t("Taux de réussite")}</th>
               </tr>
             </thead>
             <tbody>
               {data.by_campaign.length === 0 ? (
                 <tr>
                   <td colSpan={5} style={{ color: "var(--muted)" }}>
-                    Aucune campagne avec cibles.
+                    {t("Aucune campagne avec cibles.")}
                   </td>
                 </tr>
               ) : (

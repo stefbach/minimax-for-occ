@@ -77,7 +77,7 @@ export const scheduleProposalSchema = z.object({
   wave_size: z.number().int().min(1).optional()
     .describe("DYNAMIQUE only — taille d'une wave d'appels."),
   relance_days_after_first: z.array(z.number().int().min(0)).max(10).optional()
-    .describe("DYNAMIQUE only — jours (ouvrés) après le 1er appel pour chaque relance, ex. [1,3,5]."),
+    .describe("DYNAMIQUE only — délais cumulatifs (jours ouvrés) pour chaque phase. Toujours commencer par 0 (J1 démarre immédiatement). Ex: [0,2,4] = J1 immédiat, J3 après 2j ouvrés, J5 après 2j de plus. Pour J1/J3/J5 envoyer 3 valeurs."),
 });
 
 export type ScheduleProposal = z.infer<typeof scheduleProposalSchema>;

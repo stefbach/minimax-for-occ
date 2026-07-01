@@ -43,9 +43,9 @@ export default async function ContactsHub() {
     <>
       <div className="page-header">
         <div>
-          <h1>CRM / Tables de contacts</h1>
+          <h1>CRM / Contact tables</h1>
           <div className="subtitle">
-            {tables.length} table{tables.length === 1 ? "" : "s"} de données
+            {tables.length} data table{tables.length === 1 ? "" : "s"}
           </div>
         </div>
         <HelpButton contextKey="contacts" />

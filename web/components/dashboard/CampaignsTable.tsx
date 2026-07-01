@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useT } from "@/lib/i18n";
 import type { CampaignRow } from "@/app/api/dashboard/overview/route";
 
 function stateTone(state: string): string {
@@ -23,36 +24,37 @@ function fmtRelative(iso: string | null): string {
   const d = new Date(iso);
   const diffMs = Date.now() - d.getTime();
   const min = Math.round(diffMs / 60000);
-  if (min < 1) return "à l'instant";
-  if (min < 60) return `il y a ${min} min`;
+  if (min < 1) return "just now";
+  if (min < 60) return `${min} min ago`;
   const h = Math.round(min / 60);
-  if (h < 24) return `il y a ${h} h`;
+  if (h < 24) return `${h}h ago`;
   const days = Math.round(h / 24);
-  return `il y a ${days} j`;
+  return `${days}d ago`;
 }
 
 export function CampaignsTable({ rows }: { rows: CampaignRow[] }) {
+  const t = useT();
   return (
     <div className="card" style={{ padding: 0, overflow: "hidden" }}>
       <div style={{ padding: "14px 16px", borderBottom: "1px solid var(--border)" }}>
-        <h3 style={{ margin: 0, fontSize: 14 }}>Campagnes récentes</h3>
+        <h3 style={{ margin: 0, fontSize: 14 }}>{t("Campagnes récentes")}</h3>
         <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
-          {rows.length} campagne(s)
+          {rows.length} {t("campagne")}{rows.length === 1 ? "" : "s"}
         </div>
       </div>
       {rows.length === 0 ? (
         <div style={{ padding: 18, color: "var(--muted)", fontSize: 13 }}>
-          Aucune campagne. Créez-en une depuis la page Campagnes.
+          {t("Aucune campagne pour l'instant. Créez-en une depuis la page Campagnes.")}
         </div>
       ) : (
         <table className="list">
           <thead>
             <tr>
-              <th>Nom</th>
-              <th>État</th>
-              <th>Cibles</th>
-              <th>Progression</th>
-              <th>Dernière activité</th>
+              <th>{t("Nom")}</th>
+              <th>{t("Statut")}</th>
+              <th>{t("Cibles")}</th>
+              <th>{t("Progression")}</th>
+              <th>{t("Dernière activité")}</th>
             </tr>
           </thead>
           <tbody>

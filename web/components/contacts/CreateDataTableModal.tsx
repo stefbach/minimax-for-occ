@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useT } from "@/lib/i18n";
 
 /**
  * CreateDataTableModal — creates a REAL Postgres table for the tenant.
@@ -76,6 +77,7 @@ interface Props {
 }
 
 export function CreateDataTableModal({ onClose, onCreated }: Props) {
+  const t = useT();
   const [label, setLabel] = useState("");
   const [physical, setPhysical] = useState("");
   const [physicalEdited, setPhysicalEdited] = useState(false);
@@ -99,7 +101,7 @@ export function CreateDataTableModal({ onClose, onCreated }: Props) {
     setError(null);
     const phys = (physicalEdited ? physical : slug(label)).trim();
     if (!/^[a-z][a-z0-9_]{2,62}$/.test(phys)) {
-      setError("Nom technique invalide (a-z, 0-9, _, min 3 caractères, commence par une lettre).");
+      setError(t("Nom technique invalide (a-z, 0-9, _, min 3 caractères, commence par une lettre)."));
       return;
     }
     const presetCols = PRESETS.filter((p) => picked.has(p.key));
@@ -131,7 +133,7 @@ export function CreateDataTableModal({ onClose, onCreated }: Props) {
         }),
       });
       const body = await r.json();
-      if (!r.ok) { setError(body.error ?? `Échec (${r.status})`); return; }
+      if (!r.ok) { setError(body.error ?? t(`Échec (${r.status})`)); return; }
       onCreated(body.id);
     } finally {
       setBusy(false);
@@ -142,17 +144,17 @@ export function CreateDataTableModal({ onClose, onCreated }: Props) {
     <div onClick={onClose} style={overlay}>
       <form onClick={(e) => e.stopPropagation()} onSubmit={submit} className="card" style={modal}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-          <h2 style={{ margin: 0 }}>Créer une table de contacts</h2>
+          <h2 style={{ margin: 0 }}>{t("Créer une table de contacts")}</h2>
           <button type="button" className="ghost" onClick={onClose}>✕</button>
         </div>
 
         <div className="form-row">
           <div>
-            <label>Nom affiché</label>
+            <label>{t("Nom affiché")}</label>
             <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Leads RDV (test)" autoFocus />
           </div>
           <div>
-            <label>Nom technique (table SQL)</label>
+            <label>{t("Nom technique (table SQL)")}</label>
             <input
               value={physicalEdited ? physical : slug(label)}
               onChange={(e) => { setPhysicalEdited(true); setPhysical(slug(e.target.value)); }}
@@ -160,29 +162,28 @@ export function CreateDataTableModal({ onClose, onCreated }: Props) {
               style={{ fontFamily: "monospace", fontSize: 13 }}
             />
             <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
-              C&apos;est le nom que verront vos automations n8n.
+              {t("C'est le nom que verront vos automations n8n.")}
             </div>
           </div>
         </div>
 
         <div>
-          <label>Colonnes pré-définies</label>
+          <label>{t("Colonnes pré-définies")}</label>
           <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 8 }}>
-            Cochez celles dont vous avez besoin. La colonne <span className="kbd">téléphone</span> est
-            obligatoire (pour appeler).
+            {t("Cochez celles dont vous avez besoin. La colonne")} <span className="kbd">{t("téléphone")}</span> {t("est obligatoire (pour appeler).")}
           </div>
           <div style={{ display: "grid", gap: 12 }}>
             {PRESET_GROUPS.map((group) => (
               <div key={group.title}>
                 <div style={{ fontSize: 12, fontWeight: 600, color: "var(--muted)", marginBottom: 4 }}>
-                  {group.title}
+                  {t(group.title)}
                 </div>
                 <div style={presetGrid}>
                   {group.cols.map((p) => (
                     <label key={p.key} style={presetItem}>
                       <input type="checkbox" checked={picked.has(p.key)} onChange={() => toggle(p.key)}
                         disabled={p.key === "numero_telephone"} style={{ width: "auto" }} />
-                      <span>{p.label}</span>
+                      <span>{t(p.label)}</span>
                       <span className="kbd" style={{ fontSize: 10, marginLeft: "auto" }}>{p.type}</span>
                     </label>
                   ))}
@@ -193,30 +194,30 @@ export function CreateDataTableModal({ onClose, onCreated }: Props) {
         </div>
 
         <div>
-          <label>Colonnes personnalisées</label>
+          <label>{t("Colonnes personnalisées")}</label>
           <div style={{ display: "grid", gap: 8 }}>
             {customs.map((c, i) => (
               <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 120px auto", gap: 6 }}>
-                <input value={c.label} placeholder="Libellé"
+                <input value={c.label} placeholder={t("Libellé")}
                   onChange={(e) => setCustoms((p) => p.map((x, j) => j === i ? { ...x, label: e.target.value, key: x.key || slug(e.target.value) } : x))} />
                 <input value={c.key} placeholder="cle_technique" style={{ fontFamily: "monospace", fontSize: 12 }}
                   onChange={(e) => setCustoms((p) => p.map((x, j) => j === i ? { ...x, key: slug(e.target.value) } : x))} />
                 <select value={c.type} style={{ width: "auto" }}
                   onChange={(e) => setCustoms((p) => p.map((x, j) => j === i ? { ...x, type: e.target.value as ColumnType } : x))}>
-                  <option value="text">texte</option>
-                  <option value="number">nombre</option>
-                  <option value="date">date</option>
-                  <option value="datetime">date+heure</option>
-                  <option value="boolean">booléen</option>
-                  <option value="email">email</option>
-                  <option value="json">json</option>
+                  <option value="text">{t("texte")}</option>
+                  <option value="number">{t("nombre")}</option>
+                  <option value="date">{t("date")}</option>
+                  <option value="datetime">{t("date+heure")}</option>
+                  <option value="boolean">{t("booléen")}</option>
+                  <option value="email">{t("email")}</option>
+                  <option value="json">{t("json")}</option>
                 </select>
                 <button type="button" className="ghost" onClick={() => setCustoms((p) => p.filter((_, j) => j !== i))} style={{ padding: "6px 10px" }}>✕</button>
               </div>
             ))}
             <button type="button" className="ghost" style={{ justifySelf: "start" }}
               onClick={() => setCustoms((p) => [...p, { key: "", label: "", type: "text" }])}>
-              + Ajouter une colonne
+              + {t("Ajouter une colonne")}
             </button>
           </div>
         </div>
@@ -224,8 +225,8 @@ export function CreateDataTableModal({ onClose, onCreated }: Props) {
         {error && <div style={errBox}>{error}</div>}
 
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-          <button type="button" className="ghost" onClick={onClose}>Annuler</button>
-          <button type="submit" disabled={busy}>{busy ? "Création…" : "Créer la table"}</button>
+          <button type="button" className="ghost" onClick={onClose}>{t("Annuler")}</button>
+          <button type="submit" disabled={busy}>{busy ? t("Création…") : t("Créer la table")}</button>
         </div>
       </form>
     </div>

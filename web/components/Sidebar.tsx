@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { Brand } from "./brand/Brand";
 import { OrgSwitcher } from "./OrgSwitcher";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+import { useT } from "@/lib/i18n";
 
 type Role = "super_admin" | "admin" | "manager" | "supervisor" | "agent";
 
@@ -23,43 +24,44 @@ const NAV: NavItem[] = [
   // ── Overview ──
   { href: "/dashboard", label: "Dashboard",         icon: "▣", group: "Overview", roles: ["super_admin","admin","manager","supervisor"] },
   { href: "/analytics", label: "Analytics",         icon: "▤", group: "Overview", roles: ["super_admin","admin","manager","supervisor"] },
-  { href: "/desk",      label: "Mon poste",         icon: "⌂", group: "Overview" },
+  { href: "/desk",      label: "My desk",           icon: "⌂", group: "Overview" },
 
   // ── Operations ──
-  { href: "/calls",     label: "Appels (live)",     icon: "☎", group: "Operations", roles: ["super_admin","admin","manager","supervisor"] },
-  { href: "/queues",    label: "Files d'attente",   icon: "≡", group: "Operations", roles: ["super_admin","admin","manager","supervisor"] },
-  { href: "/campaigns", label: "Campagnes",         icon: "⇈", group: "Operations", roles: ["super_admin","admin","manager"] },
-  { href: "/alerts",    label: "Alertes",           icon: "!", group: "Operations", roles: ["super_admin","admin","manager","supervisor"] },
+  { href: "/calls",     label: "Calls (live)",      icon: "☎", group: "Operations", roles: ["super_admin","admin","manager","supervisor"] },
+  { href: "/queues",    label: "Queues",            icon: "≡", group: "Operations", roles: ["super_admin","admin","manager","supervisor"] },
+  { href: "/campaigns", label: "Campaigns",         icon: "⇈", group: "Operations", roles: ["super_admin","admin","manager"] },
+  { href: "/alerts",    label: "Alerts",            icon: "!", group: "Operations", roles: ["super_admin","admin","manager","supervisor"] },
 
   // ── Builder ──
-  { href: "/agents",    label: "Agents IA",         icon: "◇", group: "Builder", roles: ["super_admin","admin","manager"] },
-  { href: "/agents/library", label: "Bibliothèque persona", icon: "⊕", group: "Builder", roles: ["super_admin","admin","manager"] },
-  { href: "/teams",     label: "Teams IA",          icon: "⌬", group: "Builder", roles: ["super_admin","admin","manager"] },
+  { href: "/agents",    label: "AI Agents",         icon: "◇", group: "Builder", roles: ["super_admin","admin","manager"] },
+  { href: "/agents/library", label: "Persona library",    icon: "⊕", group: "Builder", roles: ["super_admin","admin","manager"] },
+  { href: "/teams",     label: "AI Teams",          icon: "⌬", group: "Builder", roles: ["super_admin","admin","manager"] },
   { href: "/scripts",   label: "Scripts",           icon: "✎", group: "Builder", roles: ["super_admin","admin","manager"] },
   { href: "/voices",    label: "Voice Studio",      icon: "♪", group: "Builder", roles: ["super_admin","admin","manager"] },
   { href: "/flows",     label: "Flows / IVR",       icon: "❖", group: "Builder", roles: ["super_admin","admin","manager"] },
   { href: "/workflows", label: "Workflows n8n",     icon: "⇄", group: "Builder", roles: ["super_admin","admin","manager"] },
   { href: "/documents", label: "Documents (RAG)",   icon: "≣", group: "Builder", roles: ["super_admin","admin","manager"] },
-  { href: "/analyses",  label: "Analyses LLM",      icon: "∑", group: "Builder", roles: ["super_admin","admin","manager"] },
+  { href: "/analyses",  label: "LLM Analysis",      icon: "∑", group: "Builder", roles: ["super_admin","admin","manager"] },
 
   // ── CRM ──
   { href: "/contacts",  label: "Contacts",          icon: "◐", group: "CRM" },
-  { href: "/numbers",   label: "Numéros",           icon: "✆", group: "CRM", roles: ["super_admin","admin","manager"] },
-  { href: "/numbers/health", label: "Santé numéros", icon: "♥", group: "CRM", roles: ["super_admin","admin","manager"] },
+  { href: "/numbers",   label: "Numbers",           icon: "✆", group: "CRM", roles: ["super_admin","admin","manager"] },
+  { href: "/numbers/health", label: "Number health", icon: "♥", group: "CRM", roles: ["super_admin","admin","manager"] },
 
   // ── Admin ──
   { href: "/admin",          label: "Administration",       icon: "★", group: "Admin", roles: ["super_admin","admin"] },
-  { href: "/admin/copilot",  label: "Copilote Super Admin", icon: "✦", group: "Admin", roles: ["super_admin"] },
-  { href: "/admin/inbound",  label: "Connecteurs entrants", icon: "⇩", group: "Admin", roles: ["super_admin","admin"] },
-  { href: "/admin/billing",  label: "Facturation",          icon: "€", group: "Admin", roles: ["super_admin","admin"] },
-  { href: "/admin/compliance", label: "Conformité (DNC)",   icon: "⊘", group: "Admin", roles: ["super_admin","admin","manager"] },
-  { href: "/settings",       label: "Paramètres",           icon: "⚙", group: "Admin", roles: ["super_admin","admin","manager"] },
+  { href: "/admin/copilot",  label: "Super Admin Copilot",  icon: "✦", group: "Admin", roles: ["super_admin"] },
+  { href: "/admin/inbound",  label: "Inbound connectors",   icon: "⇩", group: "Admin", roles: ["super_admin","admin"] },
+  { href: "/admin/billing",  label: "Billing",              icon: "€", group: "Admin", roles: ["super_admin","admin"] },
+  { href: "/admin/compliance", label: "Compliance (DNC)",   icon: "⊘", group: "Admin", roles: ["super_admin","admin","manager"] },
+  { href: "/settings",       label: "Settings",             icon: "⚙", group: "Admin", roles: ["super_admin","admin","manager"] },
 
   // ── Help (accessible to everyone) ──
-  { href: "/help",           label: "Guide",                icon: "?", group: "Aide" },
+  { href: "/help",           label: "Guide",                icon: "?", group: "Help" },
 ];
 
 export function Sidebar() {
+  const t = useT();
   const pathname = usePathname() ?? "/";
   const [role, setRole] = useState<Role | null>(null);
   const [loadedRole, setLoadedRole] = useState(false);
@@ -111,7 +113,7 @@ export function Sidebar() {
               padding: "10px 12px 4px",
             }}
           >
-            {group}
+            {t(group)}
           </div>
           {items.map((n) => {
             const active =
@@ -127,7 +129,7 @@ export function Sidebar() {
                 aria-current={active ? "page" : undefined}
               >
                 <span aria-hidden="true" style={{ width: 16, opacity: 0.7 }}>{n.icon}</span>
-                <span>{n.label}</span>
+                <span>{t(n.label)}</span>
               </Link>
             );
           })}
@@ -137,7 +139,7 @@ export function Sidebar() {
       <div style={{ marginTop: "auto" }}>
         {loadedRole && role && (
           <div style={{ padding: "6px 12px", fontSize: 10, color: "var(--muted-2)" }}>
-            rôle : <span className="kbd" style={{ fontSize: 10 }}>{role}</span>
+            {t("rôle :")} <span className="kbd" style={{ fontSize: 10 }}>{role}</span>
           </div>
         )}
         <OrgSwitcher />

@@ -73,7 +73,7 @@ export function QueuesClient({ initial, handles }: { initial: QueueRow[]; handle
     setBusy(false);
     if (!r.ok) {
       const j = await r.json().catch(() => ({}));
-      setError(j.error ?? "Erreur");
+      setError(j.error ?? "Error");
       return;
     }
     setName(""); setDescription("");
@@ -81,7 +81,7 @@ export function QueuesClient({ initial, handles }: { initial: QueueRow[]; handle
   }
 
   async function delQueue(id: string) {
-    if (!confirm("Supprimer cette file et tous ses membres ?")) return;
+    if (!confirm("Delete this queue and all its members?")) return;
     await fetch(`/api/queues/${id}`, { method: "DELETE" });
     refresh();
     if (expanded === id) setExpanded(null);
@@ -105,49 +105,49 @@ export function QueuesClient({ initial, handles }: { initial: QueueRow[]; handle
   return (
     <div style={{ display: "grid", gap: 16 }}>
       <div className="card">
-        <h3 style={{ marginTop: 0 }}>Créer une file</h3>
+        <h3 style={{ marginTop: 0 }}>Create a queue</h3>
         <form onSubmit={createQueue} style={{ display: "grid", gap: 10 }}>
           <div className="form-row">
             <div>
-              <label>Nom</label>
-              <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Conciergerie · niveau 1" required />
+              <label>Name</label>
+              <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Concierge · level 1" required />
             </div>
             <div>
-              <label>Stratégie de routage</label>
+              <label>Routing strategy</label>
               <select value={strategy} onChange={(e) => setStrategy(e.target.value as QueueRow["strategy"])}>
-                <option value="longest_idle">longest_idle (agent libre depuis le plus longtemps)</option>
+                <option value="longest_idle">longest_idle (agent idle the longest goes first)</option>
                 <option value="round_robin">round_robin (rotation)</option>
-                <option value="broadcast">broadcast (sonne tous en même temps)</option>
+                <option value="broadcast">broadcast (ring all at once)</option>
               </select>
             </div>
           </div>
           <div className="form-row">
             <div>
               <label>Description</label>
-              <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Ex: appels chambre client" />
+              <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="E.g. room service calls" />
             </div>
             <div>
-              <label>Attente max (secondes)</label>
+              <label>Max wait (seconds)</label>
               <input type="number" min={30} max={3600} value={maxWait} onChange={(e) => setMaxWait(Number(e.target.value))} />
             </div>
           </div>
           <label style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <input type="checkbox" style={{ width: 18 }} checked={fallbackVm} onChange={(e) => setFallbackVm(e.target.checked)} />
-            Basculer en messagerie si dépassement
+            Fall back to voicemail if wait exceeded
           </label>
           {error && <div style={{ color: "var(--bad)", fontSize: 13 }}>{error}</div>}
           <div>
-            <button type="submit" disabled={busy || !name}>{busy ? "…" : "Créer la file"}</button>
+            <button type="submit" disabled={busy || !name}>{busy ? "…" : "Create queue"}</button>
           </div>
         </form>
       </div>
 
       <div className="card" style={{ padding: 0, overflow: "hidden" }}>
         {queues.length === 0 ? (
-          <div style={{ padding: 16, color: "var(--muted)" }}>Aucune file pour l&apos;instant.</div>
+          <div style={{ padding: 16, color: "var(--muted)" }}>No queues yet.</div>
         ) : (
           <table className="list">
-            <thead><tr><th>Nom</th><th>Stratégie</th><th>Max attente</th><th>Voicemail</th><th></th></tr></thead>
+            <thead><tr><th>Name</th><th>Strategy</th><th>Max wait</th><th>Voicemail</th><th></th></tr></thead>
             <tbody>
               {queues.map((q) => (
                 <>
@@ -157,8 +157,8 @@ export function QueuesClient({ initial, handles }: { initial: QueueRow[]; handle
                         className="ghost"
                         style={{ padding: "4px 8px", marginRight: 8 }}
                         onClick={() => setExpanded(expanded === q.id ? null : q.id)}
-                        title="Voir / éditer les membres"
-                        aria-label={expanded === q.id ? `Réduire la file ${q.name}` : `Voir les membres de ${q.name}`}
+                        title="View / edit members"
+                        aria-label={expanded === q.id ? `Collapse queue ${q.name}` : `View members of ${q.name}`}
                         aria-expanded={expanded === q.id}
                       >
                         <span aria-hidden="true">{expanded === q.id ? "▾" : "▸"}</span>
@@ -168,18 +168,18 @@ export function QueuesClient({ initial, handles }: { initial: QueueRow[]; handle
                     </td>
                     <td><span className="tag">{q.strategy}</span></td>
                     <td>{q.max_wait_secs ?? "—"} s</td>
-                    <td>{q.fallback_voicemail ? <span className="tag good">oui</span> : <span className="tag">non</span>}</td>
+                    <td>{q.fallback_voicemail ? <span className="tag good">yes</span> : <span className="tag">no</span>}</td>
                     <td style={{ textAlign: "right" }}>
-                      <button className="danger" style={{ padding: "5px 9px" }} onClick={() => delQueue(q.id)}>Supprimer</button>
+                      <button className="danger" style={{ padding: "5px 9px" }} onClick={() => delQueue(q.id)}>Delete</button>
                     </td>
                   </tr>
                   {expanded === q.id && (
                     <tr>
                       <td colSpan={5} style={{ background: "var(--bg-2)", padding: 14 }}>
                         <div style={{ display: "grid", gap: 10 }}>
-                          <div style={{ fontSize: 12, color: "var(--muted)" }}>Membres affectés à cette file (priorité ascendante = passe en premier)</div>
+                          <div style={{ fontSize: 12, color: "var(--muted)" }}>Members assigned to this queue (lower priority = served first)</div>
                           {(members[q.id] ?? []).length === 0 ? (
-                            <div style={{ color: "var(--muted)", fontSize: 13 }}>Aucun agent assigné.</div>
+                            <div style={{ color: "var(--muted)", fontSize: 13 }}>No agents assigned.</div>
                           ) : (
                             <div style={{ display: "grid", gap: 6 }}>
                               {(members[q.id] ?? []).map((m) => (
@@ -187,9 +187,9 @@ export function QueuesClient({ initial, handles }: { initial: QueueRow[]; handle
                                   <div>
                                     <span className="tag" style={{ marginRight: 8 }}>{m.agent_handle?.kind}</span>
                                     <strong>{m.agent_handle?.display_name ?? "—"}</strong>
-                                    <span style={{ color: "var(--muted)", fontSize: 12, marginLeft: 8 }}>priorité {m.priority}</span>
+                                    <span style={{ color: "var(--muted)", fontSize: 12, marginLeft: 8 }}>priority {m.priority}</span>
                                   </div>
-                                  <button className="danger" style={{ padding: "4px 8px" }} onClick={() => removeMember(q.id, m.id)}>Retirer</button>
+                                  <button className="danger" style={{ padding: "4px 8px" }} onClick={() => removeMember(q.id, m.id)}>Remove</button>
                                 </div>
                               ))}
                             </div>
@@ -200,7 +200,7 @@ export function QueuesClient({ initial, handles }: { initial: QueueRow[]; handle
                               onChange={(e) => { addMember(q.id, e.target.value); e.target.value = ""; }}
                               style={{ flex: 1 }}
                             >
-                              <option value="">+ Ajouter un agent…</option>
+                              <option value="">+ Add an agent…</option>
                               {handles
                                 .filter((h) => !(members[q.id] ?? []).some((m) => m.agent_handle?.id === h.id))
                                 .map((h) => (

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useT } from "@/lib/i18n";
 
 /**
  * CreateListModal — the "+ Créer une base" flow.
@@ -79,6 +80,7 @@ function slugify(s: string): string {
 }
 
 export function CreateListModal({ onClose, onCreated }: Props) {
+  const t = useT();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [picked, setPicked] = useState<Set<string>>(
@@ -123,7 +125,7 @@ export function CreateListModal({ onClose, onCreated }: Props) {
     e.preventDefault();
     setError(null);
     if (!name.trim()) {
-      setError("Donnez un nom à la base.");
+      setError(t("Donnez un nom à la base."));
       return;
     }
 
@@ -192,12 +194,12 @@ export function CreateListModal({ onClose, onCreated }: Props) {
         }}
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-          <h2 style={{ margin: 0 }}>Créer une base de contacts</h2>
+          <h2 style={{ margin: 0 }}>{t("Créer une base de contacts")}</h2>
           <button type="button" className="ghost" onClick={onClose}>✕</button>
         </div>
 
         <div>
-          <label>Nom de la base</label>
+          <label>{t("Nom de la base")}</label>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -205,12 +207,12 @@ export function CreateListModal({ onClose, onCreated }: Props) {
             autoFocus
           />
           <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
-            Astuce : un nom court et sans espace facilite l&apos;usage dans les campagnes.
+            {t("Astuce : un nom court et sans espace facilite l'usage dans les campagnes.")}
           </div>
         </div>
 
         <div>
-          <label>Description (optionnel)</label>
+          <label>{t("Description (optionnel)")}</label>
           <input
             value={description}
             onChange={(e) => setDescription(e.target.value)}
@@ -219,9 +221,9 @@ export function CreateListModal({ onClose, onCreated }: Props) {
         </div>
 
         <div>
-          <label>Colonnes pré-définies</label>
+          <label>{t("Colonnes pré-définies")}</label>
           <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 8 }}>
-            Cochez les colonnes que vos contacts auront. Téléphone et email sont toujours pris en compte automatiquement.
+            {t("Cochez les colonnes que vos contacts auront. Téléphone et email sont toujours pris en compte automatiquement.")}
           </div>
           <div
             style={{
@@ -248,7 +250,7 @@ export function CreateListModal({ onClose, onCreated }: Props) {
                   onChange={() => toggle(p.key)}
                   style={{ width: "auto" }}
                 />
-                <span>{p.label}</span>
+                <span>{t(p.label)}</span>
                 <span className="kbd" style={{ fontSize: 10, marginLeft: "auto" }}>{p.type}</span>
               </label>
             ))}
@@ -256,9 +258,9 @@ export function CreateListModal({ onClose, onCreated }: Props) {
         </div>
 
         <div>
-          <label>Colonnes personnalisées</label>
+          <label>{t("Colonnes personnalisées")}</label>
           <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 8 }}>
-            Ajoutez des colonnes qui ne sont pas dans la liste ci-dessus.
+            {t("Ajoutez des colonnes qui ne sont pas dans la liste ci-dessus.")}
           </div>
           <div style={{ display: "grid", gap: 8 }}>
             {customs.map((c, i) => (
@@ -274,12 +276,12 @@ export function CreateListModal({ onClose, onCreated }: Props) {
                 <input
                   value={c.label}
                   onChange={(e) => updateCustom(i, { label: e.target.value })}
-                  placeholder="Libellé (ex: Statut S2)"
+                  placeholder={t("Libellé (ex: Statut S2)")}
                 />
                 <input
                   value={c.key}
                   onChange={(e) => updateCustom(i, { key: slugify(e.target.value) })}
-                  placeholder="Clé technique (auto)"
+                  placeholder={t("Clé technique (auto)")}
                   style={{ fontFamily: "monospace", fontSize: 12 }}
                 />
                 <select
@@ -287,11 +289,11 @@ export function CreateListModal({ onClose, onCreated }: Props) {
                   onChange={(e) => updateCustom(i, { type: e.target.value as ColumnType })}
                   style={{ width: "auto" }}
                 >
-                  <option value="text">texte</option>
-                  <option value="number">nombre</option>
+                  <option value="text">{t("texte")}</option>
+                  <option value="number">{t("nombre")}</option>
                   <option value="date">date</option>
-                  <option value="boolean">booléen</option>
-                  <option value="phone">téléphone</option>
+                  <option value="boolean">{t("booléen")}</option>
+                  <option value="phone">{t("téléphone")}</option>
                   <option value="email">email</option>
                   <option value="json">json</option>
                 </select>
@@ -301,7 +303,7 @@ export function CreateListModal({ onClose, onCreated }: Props) {
               </div>
             ))}
             <button type="button" className="ghost" onClick={addCustom} style={{ justifySelf: "start" }}>
-              + Ajouter une colonne
+              + {t("Ajouter une colonne")}
             </button>
           </div>
         </div>
@@ -313,9 +315,9 @@ export function CreateListModal({ onClose, onCreated }: Props) {
         )}
 
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-          <button type="button" className="ghost" onClick={onClose}>Annuler</button>
+          <button type="button" className="ghost" onClick={onClose}>{t("Annuler")}</button>
           <button type="submit" disabled={busy}>
-            {busy ? "Création…" : "Créer la base"}
+            {busy ? t("Création…") : t("Créer la base")}
           </button>
         </div>
       </form>

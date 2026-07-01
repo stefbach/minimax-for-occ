@@ -8,9 +8,9 @@ export const dynamic = "force-static";
 export const revalidate = 3600;
 
 export const metadata = {
-  title: "Guide d'utilisation — Axon",
+  title: "User guide — Axon",
   description:
-    "Documentation et guide d'utilisation complet de la plateforme Axon.",
+    "Full documentation and user guide for the Axon platform.",
 };
 
 /**
@@ -90,7 +90,7 @@ export default async function HelpPage() {
             padding: "4px 8px 10px",
           }}
         >
-          Sommaire
+          Contents
         </div>
         <a
           href="#top"
@@ -116,7 +116,7 @@ export default async function HelpPage() {
             opacity: 0.9,
           }}
         >
-          Par section de l&apos;app
+          By app section
         </a>
         <div
           style={{
@@ -165,7 +165,7 @@ export default async function HelpPage() {
         <HelpPageScroller />
         <section id="top" style={{ scrollMarginTop: 16 }}>
           <h1 style={{ margin: "0 0 8px", fontSize: 28 }}>
-            Guide d&apos;utilisation
+            User guide
           </h1>
           <p
             style={{
@@ -174,9 +174,8 @@ export default async function HelpPage() {
               fontSize: 15,
             }}
           >
-            Tout ce qu&apos;il faut savoir pour utiliser la plateforme au
-            quotidien. Cliquez sur une section dans le sommaire pour y aller
-            directement.
+            Everything you need to know to use the platform day-to-day.
+            Click a section in the contents to jump straight to it.
           </p>
           <div
             style={{
@@ -201,7 +200,7 @@ export default async function HelpPage() {
                 background: "rgba(106,160,255,0.06)",
               }}
             >
-              Comment ça marche (sous le capot) →
+              How it works (under the hood) →
             </a>
           </div>
         </section>
@@ -215,11 +214,11 @@ export default async function HelpPage() {
               paddingBottom: 8,
             }}
           >
-            Par section de l&apos;app
+            By app section
           </h2>
           <p style={{ color: "var(--muted, #8b93a7)", marginTop: 0 }}>
-            Une vue détaillée pour chaque page de la plateforme — utile, didactique,
-            avec cas d&apos;usage et pièges à éviter.
+            A detailed view of each platform page — practical, educational,
+            with use cases and pitfalls to avoid.
           </p>
 
           {sections.map((s) => (
@@ -272,11 +271,10 @@ export default async function HelpPage() {
             }}
           >
             <h2 style={{ fontSize: 22, margin: "0 0 16px" }}>
-              Guide utilisateur complet
+              Full user manual
             </h2>
             <p style={{ color: "var(--muted, #8b93a7)", marginTop: 0 }}>
-              Ci-dessous, le manuel complet de la plateforme avec tous les
-              workflows et concepts.
+              Below is the complete platform manual covering all workflows and concepts.
             </p>
             <div style={{ fontSize: 14 }}>
               {renderMarkdown(guide, { headingIds: true })}
@@ -296,9 +294,8 @@ export default async function HelpPage() {
               fontSize: 13,
             }}
           >
-            Le manuel complet (<code>docs/USER_GUIDE.md</code>) n&apos;a pas pu
-            être chargé sur cet environnement. Les sections ci-dessus restent
-            disponibles.
+            The full manual (<code>docs/USER_GUIDE.md</code>) could not be
+            loaded in this environment. The sections above are still available.
           </section>
         )}
       </article>

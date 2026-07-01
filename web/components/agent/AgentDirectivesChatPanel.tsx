@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, lastAssistantMessageIsCompleteWithToolCalls } from "ai";
+import { useT } from "@/lib/i18n";
 
 export interface DirectivesProposal {
   system_prompt: string;
@@ -35,6 +36,7 @@ export function AgentDirectivesChatPanel({
   onProposal: (p: DirectivesProposal) => void;
   onFinalize: () => Promise<FinalizeAgentResult>;
 }) {
+  const t = useT();
   const [input, setInput] = useState("");
 
   const onProposalRef = useRef(onProposal);
@@ -60,14 +62,14 @@ export function AgentDirectivesChatPanel({
           tool: "finalize_agent",
           toolCallId: toolCall.toolCallId,
           output: res.ok
-            ? { ok: true, message: "Agent de gestion créé." }
-            : { ok: false, error: res.error ?? "création impossible" },
+            ? { ok: true, message: "Management agent created." }
+            : { ok: false, error: res.error ?? "could not create" },
         });
       } catch (e) {
         addToolResult({
           tool: "finalize_agent",
           toolCallId: toolCall.toolCallId,
-          output: { ok: false, error: e instanceof Error ? e.message : "erreur inconnue" },
+          output: { ok: false, error: e instanceof Error ? e.message : "unknown error" },
         });
       }
     },
@@ -113,12 +115,11 @@ export function AgentDirectivesChatPanel({
       <div className="chat-log" style={{ flex: 1, minHeight: 0 }}>
         {messages.length === 0 && (
           <div style={{ color: "var(--muted)", padding: 8, fontSize: 13, lineHeight: 1.6 }}>
-            Décris-moi ce que cet agent de gestion doit faire. Par exemple :
+            {t("Décrivez ce que cet agent de gestion doit faire. Par exemple :")}
             <br />
-            <em>« Relancer par email et WhatsApp les patients en statut no-show, ton chaleureux,
-            leur proposer de reprendre RDV, et mettre la fiche à jour quand c&apos;est fait. »</em>
+            <em>&quot;{t("Effectuer un suivi par email et WhatsApp avec les patients en statut no-show, ton chaleureux, proposer de replanifier leur rendez-vous et mettre à jour le dossier une fois fait.")}&quot;</em>
             <br />
-            Quand les directives te conviennent, dis <strong>« go »</strong> et je crée l&apos;agent.
+            {t("Quand vous êtes satisfait des directives, dites")} <strong>&quot;go&quot;</strong> {t("et je créerai l'agent.")}
           </div>
         )}
         {messages.map((m) => {
@@ -146,7 +147,7 @@ export function AgentDirectivesChatPanel({
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Ex. : relancer les no-shows par email + WhatsApp…"
+          placeholder={t("Ex. : suivi des no-shows par email + WhatsApp…")}
           disabled={isLoading}
         />
         <button type="submit" disabled={isLoading || !input.trim()}>

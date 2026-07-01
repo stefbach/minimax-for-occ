@@ -97,14 +97,14 @@ export default async function CampaignsPage() {
     <>
       <div className="page-header">
         <div>
-          <h1>Campagnes outbound</h1>
+          <h1>Outbound campaigns</h1>
           <div className="subtitle">
-            {campaigns.length} campagne{campaigns.length === 1 ? "" : "s"}
+            {campaigns.length} campaign{campaigns.length === 1 ? "" : "s"}
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <Link href="/campaigns/new">
-            <button>+ Nouvelle campagne</button>
+            <button>+ New campaign</button>
           </Link>
           <HelpButton contextKey="campaigns" />
         </div>
@@ -112,10 +112,9 @@ export default async function CampaignsPage() {
 
       {campaigns.length === 0 ? (
         <div className="card">
-          <h3>Aucune campagne</h3>
+          <h3>No campaigns</h3>
           <p className="muted" style={{ margin: 0 }}>
-            Créez votre première campagne d&apos;appels sortants pour piloter un agent IA sur une
-            liste de contacts.
+            Create your first outbound call campaign to run an AI agent over a contact list.
           </p>
         </div>
       ) : (
@@ -123,12 +122,12 @@ export default async function CampaignsPage() {
           <table className="list">
             <thead>
               <tr>
-                <th>Nom</th>
-                <th>État</th>
+                <th>Name</th>
+                <th>Status</th>
                 <th>Agent</th>
-                <th>Cibles</th>
-                <th>Progression</th>
-                <th>Créée</th>
+                <th>Targets</th>
+                <th>Progress</th>
+                <th>Created</th>
                 <th style={{ textAlign: "right" }}>Actions</th>
               </tr>
             </thead>

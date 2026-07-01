@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, lastAssistantMessageIsCompleteWithToolCalls } from "ai";
+import { useT } from "@/lib/i18n";
 import type { NormalizedSchedule } from "@/lib/campaigns/schedule-proposal";
 
 export interface ScheduleChatContext {
@@ -47,6 +48,7 @@ export function ScheduleChatPanel({
   onProposal: (schedule: NormalizedSchedule) => void;
   onFinalize: () => Promise<FinalizeResult>;
 }) {
+  const t = useT();
   const [input, setInput] = useState("");
 
   // Keep the wizard callbacks in refs so useChat's captured handlers always
@@ -78,14 +80,14 @@ export function ScheduleChatPanel({
           tool: "finalize_campaign",
           toolCallId: toolCall.toolCallId,
           output: res.ok
-            ? { ok: true, message: "Campagne créée en brouillon." }
-            : { ok: false, error: res.error ?? "création impossible" },
+            ? { ok: true, message: t("Campagne créée en brouillon.") }
+            : { ok: false, error: res.error ?? t("création impossible") },
         });
       } catch (e) {
         addToolResult({
           tool: "finalize_campaign",
           toolCallId: toolCall.toolCallId,
-          output: { ok: false, error: e instanceof Error ? e.message : "erreur inconnue" },
+          output: { ok: false, error: e instanceof Error ? e.message : t("erreur inconnue") },
         });
       }
     },
@@ -140,15 +142,15 @@ export function ScheduleChatPanel({
       <div className="chat-log" style={{ flex: 1, minHeight: 0 }}>
         {messages.length === 0 && (
           <div style={{ color: "var(--muted)", padding: 8, fontSize: 13, lineHeight: 1.6 }}>
-            Décris-moi quand tu veux passer les appels. Par exemple :
+            {t("Décris-moi quand tu veux passer les appels. Par exemple :")}
             <br />
-            <em>« Du lundi au vendredi, le matin de 9h à 12h, fuseau Maurice.</em>
+            <em>« {t("Du lundi au vendredi, le matin de 9h à 12h, fuseau Maurice.")}
             {context.mode === "dynamic" && (
-              <em> Relances à J+1 et J+3, 50 nouveaux contacts par jour max.</em>
+              <>{t(" Relances à J+1 et J+3, 50 nouveaux contacts par jour max.")}</>
             )}
-            <em> »</em>
+            {" »"}</em>
             <br />
-            Quand tout est bon, dis <strong>« go »</strong> et je crée la campagne en brouillon.
+            {t("Quand tout est bon, dis")} <strong>« go »</strong> {t("et je crée la campagne en brouillon.")}
           </div>
         )}
         {messages.map((m) => {
@@ -176,7 +178,7 @@ export function ScheduleChatPanel({
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Ex. : en semaine, 9h–12h, fuseau Maurice…"
+          placeholder={t("Ex. : en semaine, 9h–12h, fuseau Maurice…")}
           disabled={isLoading}
         />
         <button type="submit" disabled={isLoading || !input.trim()}>

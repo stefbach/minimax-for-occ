@@ -22,39 +22,39 @@ const directivesProposalSchema = z.object({
     .string()
     .min(20)
     .max(8000)
-    .describe("Les directives complètes de l'agent, rédigées comme des instructions À l'agent (2e personne, impératif). C'est son system prompt."),
+    .describe("The agent's full directives, written as instructions TO the agent (2nd person, imperative). This is its system prompt."),
   description: z
     .string()
     .max(300)
     .optional()
-    .describe("Résumé court (1 phrase) de ce que fait l'agent."),
+    .describe("Short one-sentence summary of what the agent does."),
   suggested_name: z
     .string()
     .max(60)
     .optional()
-    .describe("Nom court suggéré pour l'agent, ex. « Relances RDV » ou « Suivi no-show »."),
+    .describe("Short suggested name for the agent, e.g. 'Appointment follow-ups' or 'No-show tracking'."),
 });
 
 function buildSystem(ctx: ChatContext): string {
   const sector = ctx.org_category
-    ? `\nSecteur du client : ${ctx.org_category}. Adapte les exemples et le ton à ce métier.`
+    ? `\nClient sector: ${ctx.org_category}. Adapt examples and tone to this industry.`
     : "";
-  return `Tu es l'assistant qui aide à configurer un AGENT DE GESTION sur Axon. Un agent de gestion n'appelle PAS au téléphone : il exécute des automations (relances par email, messages WhatsApp, mises à jour de fiches dans une table). Son comportement est défini par ses « directives » (son system prompt).${sector}
+  return `You are the assistant that helps configure a MANAGEMENT AGENT on Axon. A management agent does NOT make phone calls: it runs automations (email follow-ups, WhatsApp messages, record updates in a data table). Its behaviour is defined by its "directives" (its system prompt).${sector}
 
-Ton rôle : discuter avec l'opérateur pour comprendre ce que cet agent doit faire, puis rédiger ses directives.
+Your role: discuss with the operator to understand what this agent should do, then draft its directives.
 
-Déroulé :
-1. Pose des questions ciblées pour cerner : l'OBJECTIF (ex. relancer les no-shows), le TON (formel, chaleureux…), les CANAUX (email, WhatsApp, mise à jour de fiche), les RÈGLES (quand agir / ne pas agir, quoi dire, quand s'arrêter, langue), et ce qu'il faut PERSONNALISER avec les données de la fiche.
-2. Dès que tu as de quoi rédiger, appelle l'outil \`propose_directives\` avec un system_prompt COMPLET et opérationnel, écrit comme des instructions adressées à l'agent (« Tu es… Ton objectif… Pour chaque contact… N'agis jamais si… »). Reformule en clair et demande confirmation.
-3. N'appelle \`finalize_agent\` QUE lorsque l'opérateur valide explicitement (« go », « crée l'agent »). Ne finalise jamais dans le même tour qu'une nouvelle proposition.
-4. Ne prétends jamais que l'agent est créé tant que finalize_agent n'a pas réussi.
+Process:
+1. Ask targeted questions to clarify: the OBJECTIVE (e.g. follow up no-shows), the TONE (formal, warm…), the CHANNELS (email, WhatsApp, record update), the RULES (when to act / not act, what to say, when to stop, language), and what needs to be PERSONALISED using record data.
+2. As soon as you have enough to write, call the \`propose_directives\` tool with a COMPLETE, operational system_prompt written as instructions addressed to the agent ("You are… Your objective… For each contact… Never act if…"). Rephrase clearly and ask for confirmation.
+3. Only call \`finalize_agent\` when the operator explicitly approves ("go", "create the agent"). Never finalize in the same turn as a new proposal.
+4. Never claim the agent is created until finalize_agent has succeeded.
 
-Important : tu rédiges seulement les DIRECTIVES (le cerveau). Le branchement concret à une table / un email / un WhatsApp se fait ensuite dans la page Workflows — tu peux le mentionner mais tu ne le configures pas ici. Reste en français, sois concret.`;
+Important: you only draft the DIRECTIVES (the brain). Connecting to a table / email / WhatsApp is done afterwards in the Workflows page — you can mention it but you don't configure it here. Be concrete.`;
 }
 
 export async function POST(req: Request) {
   if (!process.env.DEEPSEEK_API_KEY) {
-    return NextResponse.json({ error: "DEEPSEEK_API_KEY manquante" }, { status: 500 });
+    return NextResponse.json({ error: "DEEPSEEK_API_KEY missing" }, { status: 500 });
   }
 
   const user = await currentUser();
@@ -86,13 +86,13 @@ export async function POST(req: Request) {
   const tools = {
     propose_directives: tool({
       description:
-        "Enregistre/met à jour les directives (system prompt) proposées pour l'agent de gestion. À appeler dès que tu as de quoi rédiger, avec des directives complètes.",
+        "Save/update the proposed directives (system prompt) for the management agent. Call as soon as you have enough to write, with complete directives.",
       inputSchema: directivesProposalSchema,
       execute: async (input) => ({ ok: true as const, directives: input }),
     }),
     finalize_agent: tool({
       description:
-        "Crée l'agent de gestion avec les dernières directives proposées. À n'appeler qu'après validation explicite (« go »).",
+        "Create the management agent with the latest proposed directives. Only call after explicit approval ('go').",
       inputSchema: z.object({}),
     }),
   };

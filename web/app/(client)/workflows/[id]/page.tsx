@@ -16,16 +16,16 @@ export default async function WorkflowEditorPage({
     <>
       <div className="page-header">
         <div>
-          <h1>Éditeur n8n</h1>
+          <h1>n8n Editor</h1>
           <div className="subtitle">
             Workflow <span className="kbd">{id}</span> ·{" "}
-            <Link href="/workflows" style={{ color: "var(--muted)" }}>← retour à la liste</Link>
+            <Link href="/workflows" style={{ color: "var(--muted)" }}>← back to list</Link>
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {editorUrl && (
             <a href={editorUrl} target="_blank" rel="noopener noreferrer">
-              <button className="ghost">Ouvrir dans un nouvel onglet ↗</button>
+              <button className="ghost">Open in new tab ↗</button>
             </a>
           )}
           <HelpButton contextKey="workflows" />
@@ -34,8 +34,8 @@ export default async function WorkflowEditorPage({
 
       {!editorUrl ? (
         <div className="card">
-          <h3>N8N_BASE_URL manquant</h3>
-          <p className="muted">Définissez la variable côté Vercel pour activer l&apos;éditeur intégré.</p>
+          <h3>N8N_BASE_URL missing</h3>
+          <p className="muted">Set this variable on Vercel to enable the embedded editor.</p>
         </div>
       ) : (
         <div
@@ -52,9 +52,9 @@ export default async function WorkflowEditorPage({
       )}
 
       <div className="muted" style={{ marginTop: 10, fontSize: 13 }}>
-        ⚠️ Si l&apos;éditeur reste blanc : votre n8n bloque l&apos;intégration en iframe par défaut. Sur l&apos;instance n8n, définissez{" "}
-        <span className="kbd">N8N_SECURITY_HEADERS_FRAME_ANCESTORS=*</span> (ou plus restrictif) puis redémarrez.
-        En attendant, utilisez le bouton « Ouvrir dans un nouvel onglet ↗ ».
+        ⚠️ If the editor stays blank: your n8n instance blocks iframe embedding by default. On the n8n instance, set{" "}
+        <span className="kbd">N8N_SECURITY_HEADERS_FRAME_ANCESTORS=*</span> (or more restrictive) then restart.
+        In the meantime, use the &quot;Open in new tab ↗&quot; button.
       </div>
     </>
   );

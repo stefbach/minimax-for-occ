@@ -49,7 +49,7 @@ export async function POST(req: Request) {
       tts_english_normalization: body.tts_english_normalization ?? null,
       voice_style: body.voice_style ?? null,
       system_prompt: body.system_prompt ?? "",
-      greeting: body.greeting ?? "Bonjour, je vous écoute.",
+      greeting: body.greeting ?? "Hello, how can I help you?",
       rag_enabled: body.rag_enabled ?? false,
       rag_top_k: body.rag_top_k ?? 4,
       metadata: body.metadata ?? {},

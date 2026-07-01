@@ -50,6 +50,22 @@ html[data-theme="light"] {
   --info: #2563eb;
 }
 
+/* Date input calendar icon — the inputs use colorScheme:"dark" inline so the
+   browser renders the icon as white regardless of theme. Reset to black with
+   brightness(0) first, then shift to the desired colour.
+   Dark theme: black → invert → white/light at 65% opacity.
+   Light theme: black at 50% opacity (visible on white background). */
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: brightness(0) invert(1);
+  cursor: pointer;
+  opacity: 0.65;
+}
+html[data-theme="light"] input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: brightness(0);
+  cursor: pointer;
+  opacity: 0.5;
+}
+
 * { box-sizing: border-box; }
 
 html, body {
@@ -123,34 +139,90 @@ label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px
   display: grid;
   grid-template-columns: 240px 1fr;
   min-height: 100vh;
+  transition: grid-template-columns 220ms ease;
+}
+html[data-sidebar-collapsed="1"] .app-shell {
+  grid-template-columns: 52px 1fr;
 }
 /* Below 980px the sidebar becomes a slide-in drawer — see the mobile-nav
    rules near the bottom of this file. */
 
+/* ── Sidebar shell ── */
 .sidebar {
   background: var(--bg-2);
   border-right: 1px solid var(--border);
-  padding: 20px 14px;
   position: sticky;
   top: 0;
   height: 100vh;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  /* Scroll the sidebar internally when its menu is taller than the viewport.
-     Without this the bottom entries stay cropped on short pages, since the
-     sticky positioning prevents the outer page scroll from revealing them. */
+  overflow: hidden;
+  width: 240px;
+  min-width: 0;
+}
+
+/* ── Header: brand + theme switcher ── */
+.sidebar-header {
+  padding: 18px 14px 10px;
+  flex-shrink: 0;
+}
+.sidebar-theme-row {
+  margin-top: 6px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* ── Scrollable nav area ── */
+.sidebar-nav {
+  flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
+  padding: 6px 10px 10px;
   overscroll-behavior: contain;
 }
+
+/* ── Group ── */
+.sidebar-group { margin-top: 4px; }
+.sidebar-group-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 7px 6px 5px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--muted-2);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  min-height: unset;
+  border-radius: 6px;
+  transition: color 0.15s, background 0.15s;
+}
+.sidebar-group-btn:hover { color: var(--muted); background: var(--panel); }
+.sidebar-group-items { padding-top: 2px; }
+.sidebar-badge {
+  font-size: 10px;
+  color: var(--muted-2);
+  background: rgba(255,255,255,0.07);
+  border-radius: 10px;
+  padding: 1px 6px;
+  font-weight: 500;
+}
+
+/* ── Nav links ── */
 .sidebar .brand {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 6px 10px 18px;
   font-weight: 700;
   font-size: 16px;
   letter-spacing: 0.2px;
+  color: var(--text);
 }
 .sidebar .brand .dot {
   width: 10px; height: 10px;
@@ -159,18 +231,53 @@ label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px
   box-shadow: 0 0 14px 2px var(--accent);
 }
 .sidebar .nav-link {
-  display: flex; align-items: center; gap: 10px;
-  padding: 9px 12px;
-  border-radius: 8px;
-  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 10px;
+  border-radius: 7px;
+  font-size: 13.5px;
   color: var(--muted);
   white-space: nowrap;
+  transition: background 0.12s, color 0.12s;
 }
 .sidebar .nav-link:hover { background: var(--panel); color: var(--text); }
 .sidebar .nav-link.active {
   background: var(--accent-soft);
   color: var(--accent-2);
   font-weight: 600;
+}
+
+/* ── Pinned footer ── */
+.sidebar-footer {
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
+  padding: 10px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.sidebar-admin-link {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 10px;
+  margin-bottom: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  border-radius: 7px;
+  text-decoration: none;
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  transition: background 0.15s;
+}
+.sidebar-admin-link:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); }
+.sidebar-footer-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 2px 0;
 }
 
 .main {
@@ -403,7 +510,7 @@ table.list tr:hover td { background: var(--panel-2); }
   gap: 14px;
   align-items: start;
 }
-@media (max-width: 1100px) {
+@media (max-width: 900px) {
   .softphone-grid { grid-template-columns: 1fr; }
 }
 .softphone-left, .softphone-center, .softphone-right {
@@ -557,9 +664,9 @@ table.list tr:hover td { background: var(--panel-2); }
     border-right: 1px solid var(--border);
     border-bottom: 0;
     flex-direction: column;
-    overflow-x: hidden;
-    overflow-y: auto;
-    padding: 56px 14px 20px; /* leave room for the close button at top-left */
+    overflow: hidden;
+    padding: 0; /* header/nav/footer handle their own padding */
+    padding-top: 40px; /* leave room for the close button at top-left */
     z-index: 56;
     transform: translateX(-100%);
     transition: transform 180ms ease-out;

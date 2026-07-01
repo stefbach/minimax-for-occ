@@ -82,7 +82,7 @@ export function AutomationEditor({ id }: { id: string }) {
     try {
       trigger = JSON.parse(triggerJson);
     } catch {
-      setErr(t("Le JSON du déclencheur est invalide."));
+      setErr(t("Le JSON du trigger est invalide."));
       return;
     }
     try {
@@ -142,9 +142,9 @@ export function AutomationEditor({ id }: { id: string }) {
       </div>
 
       <div className="card" style={{ display: "grid", gap: 8, padding: 14 }}>
-        <strong style={{ fontSize: 14 }}>{t("Déclencheur")} (JSON)</strong>
+        <strong style={{ fontSize: 14 }}>{t("Déclencheur (JSON)")}</strong>
         <span className="muted" style={{ fontSize: 12 }}>
-          {t("type table_scan|callable · every_minutes · table · data_source_credential_id · filters [{column, op, value}] · max_rows_per_run")}
+          type table_scan|callable · every_minutes · table · data_source_credential_id · filters [{"{"}"column, op, value{"}"}] · max_rows_per_run
         </span>
         <textarea
           value={triggerJson}
@@ -156,9 +156,9 @@ export function AutomationEditor({ id }: { id: string }) {
       </div>
 
       <div className="card" style={{ display: "grid", gap: 8, padding: 14 }}>
-        <strong style={{ fontSize: 14 }}>{t("Étapes")} (JSON)</strong>
+        <strong style={{ fontSize: 14 }}>{t("Étapes (JSON)")}</strong>
         <span className="muted" style={{ fontSize: 12 }}>
-          {t("ai_brain · send_email_smtp · send_wati_template · send_whatsapp_session · update_row · telegram_notify · call_automation … — modèles {{colonne}} acceptés")}
+          ai_brain · send_email_smtp · send_wati_template · send_whatsapp_session · update_row · telegram_notify · call_automation … — {"{{"}column{"}}"}  templates supported
         </span>
         <textarea
           value={stepsJson}
@@ -170,9 +170,9 @@ export function AutomationEditor({ id }: { id: string }) {
       </div>
 
       <div className="card" style={{ display: "grid", gap: 6, padding: 14 }}>
-        <strong style={{ fontSize: 14 }}>{t("Credentials disponibles")}</strong>
+        <strong style={{ fontSize: 14 }}>{t("Identifiants disponibles")}</strong>
         {creds.length === 0 ? (
-          <span className="muted" style={{ fontSize: 12 }}>{t("Aucun credential.")}</span>
+          <span className="muted" style={{ fontSize: 12 }}>{t("Aucun identifiant.")}</span>
         ) : (
           creds.map((c) => (
             <div key={c.id} style={{ fontSize: 12, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
@@ -180,7 +180,7 @@ export function AutomationEditor({ id }: { id: string }) {
               <strong>{c.name}</strong>
               <span className="kbd" style={{ fontSize: 11 }}>{c.id}</span>
               <span className="muted">
-                {t("champs renseignés")}: {c.fields_set.length > 0 ? c.fields_set.join(", ") : t("aucun")}
+                {t("Champs renseignés :")} {c.fields_set.length > 0 ? c.fields_set.join(", ") : t("aucun")}
               </span>
             </div>
           ))

@@ -350,7 +350,7 @@ export function DeskWorkstation() {
           doesn't leave a gap on first paint. */}
       <section
         id={DESK_SOFTPHONE_SLOT_ID}
-        aria-label="Mon poste — softphone"
+        aria-label={t("Mon poste — softphone")}
         className="desk-softphone-slot"
         style={{ display: "grid", gap: 8 }}
       />

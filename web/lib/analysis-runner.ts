@@ -482,10 +482,6 @@ export async function qualifyCall(
 
   const meta = (call.metadata ?? {}) as Record<string, unknown>;
   const current = bucketForCall(call);
-  // Wati 25/06 — an explicit / human-set qualification is AUTHORITATIVE: ai_auto
-  // must never overwrite it, regardless of how its value normalizes. Without
-  // this guard a manual reclassification (e.g. SUIVI REQUIS) got re-stamped by
-  // the AI on every re-run (D Davies reverted 3×).
   const qSrc = typeof meta.qualification_source === "string" ? meta.qualification_source : "";
   // reached_specialist is authoritative — never overwrite it (set by Python agent or DB fix).
   // Also treat any call already confirmed at agent_stage >= 2 as explicitly SUIVI REQUIS
@@ -621,6 +617,11 @@ export async function qualifyCall(
     finalBucket = "suivi_requis";
   }
 
+  const aiReason = finalBucket !== bucket
+    ? "A atteint un agent spécialiste sans confirmation de RDV — suivi requis."
+    : coerced ? "Indécidable par l'IA — à vérifier par un humain." : reason;
+  const needsReview = coerced || (typeof confidence === "number" && confidence < 0.5);
+
   const mergedMeta: Record<string, unknown> = { ...meta };
   // (a) Qualification — when the call had none, OR when correcting auto_inferred
   // passer_humain calls that provably reached a specialist (ground-truth handoff event).
@@ -629,15 +630,17 @@ export async function qualifyCall(
   if (shouldWriteQual) {
     mergedMeta.qualification = finalBucket;
     mergedMeta.qualification_source = "ai_auto";
-    mergedMeta.qualification_ai = {
-      confidence: coerced ? 0 : confidence,
-      reason: finalBucket !== bucket
-        ? "A atteint un agent spécialiste sans confirmation de RDV — suivi requis."
-        : coerced ? "Indécidable par l'IA — escaladé à un humain." : reason,
-      model: "deepseek-v4-flash",
-      at: new Date().toISOString(),
-    };
   }
+  // Always write the full AI result so the dashboard can surface it and
+  // flag low-confidence calls for human review, even for already-classified calls.
+  mergedMeta.qualification_ai = {
+    bucket: finalBucket,
+    confidence: coerced ? 0 : confidence,
+    needs_review: needsReview,
+    reason: aiReason,
+    model: "deepseek-v4-flash",
+    at: new Date().toISOString(),
+  };
   // (b) Agent-chain stage — always stamped (we have it from this pass).
   mergedMeta.agent_stage = agentStage;
   mergedMeta.agent_stage_source = "ai_auto";
@@ -648,8 +651,6 @@ export async function qualifyCall(
     .eq("id", callId);
   if (upErr) throw new Error(upErr.message);
 
-  // "qualified" status only when we actually wrote a qualification, so the
-  // backlog-drain's progress check stays meaningful.
   return {
     call_id: callId,
     status: shouldWriteQual ? "qualified" : "skipped_existing",

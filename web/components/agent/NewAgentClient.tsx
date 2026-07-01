@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { AgentForm } from "./AgentForm";
 import { ManagementAgentForm } from "./ManagementAgentForm";
+import { useT } from "@/lib/i18n";
 
 type AgentType = "telephony" | "management";
 
@@ -13,6 +14,7 @@ type AgentType = "telephony" | "management";
  * voice form, management gets the slim identity + directives-chat form.
  */
 export function NewAgentClient({ orgCategory = null }: { orgCategory?: string | null }) {
+  const t = useT();
   const [type, setType] = useState<AgentType | null>(null);
 
   if (type === "telephony") {
@@ -36,14 +38,14 @@ export function NewAgentClient({ orgCategory = null }: { orgCategory?: string | 
     <div style={{ display: "grid", gap: 14, gridTemplateColumns: "1fr 1fr", maxWidth: 760 }}>
       <Card
         emoji="🎙"
-        title="Agent téléphonie"
-        desc="Parle au téléphone. Voix, modèle, prompt et accueil. S'utilise dans les Campagnes pour passer des appels."
+        title={t("Agent téléphonie")}
+        desc={t("Parle au téléphone. Voix, modèle, prompt et accueil. S'utilise dans les Campagnes pour passer des appels.")}
         onClick={() => setType("telephony")}
       />
       <Card
         emoji="⚙️"
-        title="Agent de gestion"
-        desc="Exécute des automations : relances email/WhatsApp, mises à jour de fiches. Se configure par chat, s'utilise dans les Workflows."
+        title={t("Agent de gestion")}
+        desc={t("Exécute des automations : relances email/WhatsApp, mises à jour de fiches. Se configure par chat, s'utilise dans les Workflows.")}
         onClick={() => setType("management")}
       />
     </div>
@@ -74,6 +76,7 @@ function Card({ emoji, title, desc, onClick }: { emoji: string; title: string; d
 }
 
 function BackLink({ onClick }: { onClick: () => void }) {
+  const t = useT();
   return (
     <button
       type="button"
@@ -81,7 +84,7 @@ function BackLink({ onClick }: { onClick: () => void }) {
       onClick={onClick}
       style={{ padding: "4px 10px", fontSize: 13, alignSelf: "flex-start", marginBottom: 4 }}
     >
-      ← Changer de type d&apos;agent
+      {t("← Changer de type d'agent")}
     </button>
   );
 }

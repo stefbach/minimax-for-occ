@@ -69,7 +69,7 @@ export async function POST(req: Request) {
       lower.includes("physical_table")
     ) {
       // Same org re-registering OR another org already claimed this table.
-      msg = `La table « ${physical} » est déjà connectée (à votre organisation ou une autre). Choisissez-en une autre.`;
+      msg = `Table "${physical}" is already connected (to your org or another). Please choose a different name.`;
       status = 409;
     }
     return NextResponse.json({ error: msg, code: status === 409 ? "name_taken" : undefined }, { status });

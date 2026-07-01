@@ -149,7 +149,7 @@ export function CreateTaskModal({
             type="text"
             value={qualification}
             onChange={(e) => setQualification(e.target.value)}
-            placeholder="RDV demandé"
+            placeholder={t("RDV demandé")}
           />
         </div>
 

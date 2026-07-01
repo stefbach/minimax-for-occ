@@ -1,6 +1,6 @@
 ---
 slug: spa-booking-fr
-title: Réservation soins SPA (FR)
+title: SPA treatment booking (FR)
 industry: hospitality
 language: fr
 voice_suggestion: female_calm_30s
@@ -13,6 +13,7 @@ n8n_bindings_suggested:
   - send_confirmation_sms
   - upsell_package
 handoff_team_suggested: spa-team
+description: "Soothing spa wellness advisor. Books treatments, upsells packages and creates a relaxing experience from the very first call."
 ---
 
 ## Identity

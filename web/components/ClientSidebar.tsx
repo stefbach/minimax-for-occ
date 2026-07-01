@@ -9,7 +9,7 @@ import { OrgSwitcher } from "./OrgSwitcher";
 import { ThemeLangSwitcher } from "./ThemeLangSwitcher";
 import { useT } from "@/lib/i18n";
 import { supabaseBrowser } from "@/lib/supabase-browser";
-import { Heart, Menu, Music, Pencil, Settings, X, Zap } from "lucide-react";
+import { ChevronDown, Heart, Menu, Music, Pencil, Settings, X, Zap } from "lucide-react";
 import { effectiveModules, isModuleId, type ModuleId } from "@/lib/permissions";
 
 // Width below which the sidebar morphs into a slide-in drawer. Kept in sync
@@ -69,25 +69,25 @@ const NON_AGENT_PAGES_FOR_AGENT_ROLE = new Set([
 const RETIRED_PAGES = new Set(["/calls"]);
 
 const NAV: NavItem[] = [
-  // ─── OVERVIEW ───
-  { href: "/start",     label: "Démarrage guidé",  icon: "✦", group: "Overview" },
-  { href: "/dashboard", label: "Tableau d'analyse", icon: "▣", group: "Overview", module: "dashboard" },
-  { href: "/copilot",   label: "Co-pilot manager", icon: "✸", group: "Overview", module: "copilot" },
-  { href: "/rapports",  label: "Rapports pilotage", icon: "▤", group: "Overview", requiredRoles: MANAGER_REPORT_ROLES },
-  { href: "/desk",            label: "Mon poste",       icon: "⌂", group: "Overview", module: "desk" },
-  { href: "/mon-calendrier",  label: "Mon calendrier",  icon: "▦", group: "Overview", module: "desk" },
-  { href: "/mon-calendrier/ia", label: "Calendrier IA", icon: "🤖", group: "Overview", module: "desk", indent: true },
-  { href: "/desk/supervise",  label: "Supervision",     icon: "◷", group: "Overview", module: "desk", requiredRoles: SUPERVISOR_ROLES },
-  { href: "/supervise/live",  label: "Supervision live", icon: "◉", group: "Overview", module: "desk", requiredRoles: SUPERVISOR_ROLES },
-  { href: "/mes-patients",    label: "Mes patients",    icon: <Menu size={16} />, group: "Overview", module: "desk" },
-  { href: "/alerts",    label: "Alertes",          icon: "!", group: "Overview", module: "alerts" },
+  // ─── APERÇU ───
+  { href: "/start",     label: "Démarrage guidé",   icon: "✦", group: "Vue d'ensemble" },
+  { href: "/dashboard", label: "Tableau d'analyse", icon: "▣", group: "Vue d'ensemble", module: "dashboard" },
+  { href: "/copilot",   label: "Co-pilot manager",  icon: "✸", group: "Vue d'ensemble", module: "copilot" },
+  { href: "/rapports",  label: "Rapports pilotage",  icon: "▤", group: "Vue d'ensemble", requiredRoles: MANAGER_REPORT_ROLES },
+  { href: "/desk",            label: "Mon espace",      icon: "⌂", group: "Vue d'ensemble", module: "desk" },
+  { href: "/mon-calendrier",  label: "Mon calendrier",  icon: "▦", group: "Vue d'ensemble", module: "desk" },
+  { href: "/mon-calendrier/ia", label: "Calendrier IA", icon: "🤖", group: "Vue d'ensemble", module: "desk", indent: true },
+  { href: "/desk/supervise",  label: "Supervision",     icon: "◷", group: "Vue d'ensemble", module: "desk", requiredRoles: SUPERVISOR_ROLES },
+  { href: "/supervise/live",  label: "Supervision live", icon: "◉", group: "Vue d'ensemble", module: "desk", requiredRoles: SUPERVISOR_ROLES },
+  { href: "/mes-patients",    label: "Mes patients",    icon: <Menu size={16} />, group: "Vue d'ensemble", module: "desk" },
+  { href: "/alerts",    label: "Alertes",           icon: "!", group: "Vue d'ensemble", module: "alerts" },
 
   // ─── CONFIGURATION ───
   { href: "/agents",         label: "Agents",                icon: "◇", group: "Configuration", module: "agents" },
   { href: "/outbound-call",  label: "Appel sortant",         icon: "☎", group: "Configuration", module: "agents" },
   { href: "/teams",          label: "Teams IA",              icon: "⌬", group: "Configuration", module: "agents" },
   { href: "/scripts",        label: "Scripts",               icon: <Pencil size={16} />, group: "Configuration", module: "agents" },
-  { href: "/agents/library", label: "Bibliothèque persona", icon: "⊕", group: "Configuration", module: "agents" },
+  { href: "/agents/library", label: "Bibliothèque persona",  icon: "⊕", group: "Configuration", module: "agents" },
   { href: "/voices",         label: "Voice Studio",          icon: <Music size={16} />, group: "Configuration", module: "agents" },
 
   // ─── OPÉRATIONS ───
@@ -101,19 +101,19 @@ const NAV: NavItem[] = [
   { href: "/queues",    label: "Files d'attente", icon: "≡", group: "Opérations", module: "queues" },
 
   // ─── DONNÉES ───
-  { href: "/contacts",       label: "CRM / Contacts",      icon: "◐", group: "Données", module: "contacts" },
+  { href: "/contacts",       label: "CRM / Contacts",       icon: "◐", group: "Données", module: "contacts" },
   { href: "/numbers",        label: "Numéros de téléphone", icon: "✆", group: "Données", module: "numbers" },
-  { href: "/numbers/health", label: "Santé des numéros",   icon: <Heart size={16} />, group: "Données", module: "numbers" },
+  { href: "/numbers/health", label: "Santé des numéros",    icon: <Heart size={16} />, group: "Données", module: "numbers" },
 
   // ─── COMPTE ───
   { href: "/team",      label: "Équipe",          icon: "◉", group: "Compte", module: "team" },
   { href: "/settings",  label: "Paramètres",      icon: <Settings size={16} />, group: "Compte", module: "settings" },
-  { href: "/help",      label: "Guide",           icon: "?", group: "Compte" },
+  { href: "/help",      label: "Guide",            icon: "?", group: "Compte" },
 ];
 
 // Render order for the primary groups. The "Avancé" collapsible section is
 // fully retired — every advanced page now lives in its proper functional group.
-const GROUP_ORDER = ["Overview", "Configuration", "Opérations", "Données", "Compte"];
+const GROUP_ORDER = ["Vue d'ensemble", "Configuration", "Opérations", "Données", "Compte"];
 
 export function ClientSidebar() {
   const t = useT();
@@ -122,9 +122,27 @@ export function ClientSidebar() {
   const [visibleModules, setVisibleModules] = useState<ModuleId[] | null>(null);
   const [loadedRole, setLoadedRole] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  // Collapsed groups — set of group names folded by the user. Persisted in localStorage.
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   // Mobile drawer state — only meaningful below MOBILE_BREAKPOINT; ignored
   // by the CSS on desktop where the sidebar is permanently visible.
   const [drawerOpen, setDrawerOpen] = useState(false);
+
+  useEffect(() => {
+    try {
+      const storedGroups = localStorage.getItem("sidebar-collapsed-groups");
+      if (storedGroups) setCollapsedGroups(new Set(JSON.parse(storedGroups)));
+    } catch { /* ignore */ }
+  }, []);
+
+  const toggleGroup = (group: string) => {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(group)) next.delete(group); else next.add(group);
+      localStorage.setItem("sidebar-collapsed-groups", JSON.stringify([...next]));
+      return next;
+    });
+  };
 
   // Close the drawer whenever the route changes — otherwise a user who taps a
   // nav link sees the overlay linger on top of the destination page.
@@ -252,15 +270,17 @@ export function ClientSidebar() {
         href={n.href}
         className={`nav-link ${active ? "active" : ""}`}
         aria-label={n.label}
+        title={undefined}
         aria-current={active ? "page" : undefined}
         onClick={() => setDrawerOpen(false)}
         style={n.indent ? { paddingLeft: 30 } : undefined}
       >
-        <span aria-hidden="true" style={{ width: 16, opacity: 0.7, fontSize: n.indent ? 12 : undefined }}>{n.icon}</span>
-        <span style={{ flex: 1, fontSize: n.indent ? 13 : undefined, opacity: n.indent && !active ? 0.85 : undefined }}>{t(n.label)}</span>
+        <span aria-hidden="true" style={{ width: 16, opacity: 0.7, fontSize: n.indent ? 12 : undefined, flexShrink: 0 }}>{n.icon}</span>
+        <span className="sidebar-label" style={{ flex: 1, fontSize: n.indent ? 13 : undefined, opacity: n.indent && !active ? 0.85 : undefined }}>{t(n.label)}</span>
         {n.href === "/desk" && deskBadge > 0 ? (
           <span
-            aria-label={`${deskBadge} tâche${deskBadge > 1 ? "s" : ""} en attente`}
+            className="sidebar-label"
+            aria-label={`${deskBadge} pending task${deskBadge > 1 ? "s" : ""}`}
             style={{
               minWidth: 20,
               padding: "0 6px",
@@ -310,124 +330,99 @@ export function ClientSidebar() {
         className={`sidebar${drawerOpen ? " open" : ""}`}
         aria-label={t("Navigation principale")}
       >
-      <Link href="/" className="brand" onClick={() => setDrawerOpen(false)}>
-        <Brand size={18} />
-      </Link>
-
-      <div style={{ marginTop: 10, marginBottom: 4, paddingBottom: 10, borderBottom: "1px solid var(--border)" }}>
-        <ThemeLangSwitcher />
-      </div>
-
-      {GROUP_ORDER.filter((g) => groups[g]?.length).map((group) => (
-        <div key={group} style={{ marginTop: 6 }}>
-          <div
-            style={{
-              fontSize: 10,
-              color: "var(--muted-2)",
-              textTransform: "uppercase",
-              letterSpacing: 1,
-              padding: "10px 12px 4px",
-            }}
-          >
-            {t(group)}
+        {/* ── Header: brand + theme switcher ── */}
+        <div className="sidebar-header">
+          <Link href="/" className="brand" onClick={() => setDrawerOpen(false)}>
+            <Brand size={18} />
+          </Link>
+          <div className="sidebar-theme-row">
+            <ThemeLangSwitcher />
           </div>
-          {groups[group].map(renderLink)}
         </div>
-      ))}
 
-      {/* ─── Avancé (collapsible) ─── */}
-      {advanced.length > 0 && (
-        <div style={{ marginTop: 10, padding: "0 10px" }}>
-          <button
-            onClick={() => setAdvancedOpen((v) => !v)}
-            style={{
-              width: "100%",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 8,
-              cursor: "pointer",
-              fontSize: 13,
-              fontWeight: 500,
-              color: "var(--fg, #e5e5e5)",
-              background: "var(--surface-2, rgba(255,255,255,0.04))",
-              border: "1px solid var(--border, #2a2a2a)",
-              borderRadius: 8,
-              padding: "9px 12px",
-              textAlign: "left",
-            }}
-            aria-expanded={advancedOpen}
-          >
-            <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span aria-hidden="true" style={{ opacity: 0.7, display: "inline-flex" }}><Settings size={16} /></span>
-              <span>Avancé</span>
-              <span
-                style={{
-                  fontSize: 11,
-                  color: "var(--muted-2)",
-                  background: "var(--surface-3, rgba(255,255,255,0.08))",
-                  borderRadius: 10,
-                  padding: "1px 7px",
-                }}
+        {/* ── Scrollable nav groups ── */}
+        <div className="sidebar-nav">
+          {GROUP_ORDER.filter((g) => groups[g]?.length).map((group) => {
+            const isGroupCollapsed = collapsedGroups.has(group);
+            return (
+              <div key={group} className="sidebar-group">
+                <button
+                  type="button"
+                  onClick={() => toggleGroup(group)}
+                  className="sidebar-group-btn"
+                  aria-expanded={!isGroupCollapsed}
+                >
+                  <span>{t(group)}</span>
+                  <ChevronDown
+                    size={12}
+                    style={{
+                      transition: "transform 0.2s",
+                      transform: isGroupCollapsed ? "rotate(-90deg)" : "none",
+                      flexShrink: 0,
+                    }}
+                  />
+                </button>
+                {!isGroupCollapsed && (
+                  <div className="sidebar-group-items">
+                    {groups[group].map(renderLink)}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {/* ─── Avancé (collapsible) ─── */}
+          {advanced.length > 0 && (
+            <div className="sidebar-group">
+              <button
+                type="button"
+                onClick={() => setAdvancedOpen((v) => !v)}
+                className="sidebar-group-btn"
+                aria-expanded={advancedOpen}
               >
-                {advanced.length}
-              </span>
-            </span>
-            <span aria-hidden="true" style={{ fontSize: 14, opacity: 0.8, transition: "transform 0.15s", transform: advancedOpen ? "rotate(90deg)" : "none" }}>
-              ›
-            </span>
-          </button>
-          {advancedOpen && <div style={{ marginTop: 4 }}>{advanced.map(renderLink)}</div>}
+                <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <Settings size={11} style={{ opacity: 0.7 }} />
+                  <span>Advanced</span>
+                  <span className="sidebar-badge">{advanced.length}</span>
+                </span>
+                <ChevronDown
+                  size={12}
+                  style={{
+                    transition: "transform 0.2s",
+                    transform: advancedOpen ? "none" : "rotate(-90deg)",
+                    flexShrink: 0,
+                  }}
+                />
+              </button>
+              {advancedOpen && (
+                <div className="sidebar-group-items">
+                  {advanced.map(renderLink)}
+                </div>
+              )}
+            </div>
+          )}
         </div>
-      )}
 
-      <div style={{ marginTop: "auto" }}>
-        {/* Super-admin: jump to the Axon admin app — made prominent */}
-        {loadedRole && role === "super_admin" && (
-          <div style={{ padding: "8px 10px 4px" }}>
+        {/* ── Pinned footer ── */}
+        <div className="sidebar-footer">
+          {loadedRole && role === "super_admin" && (
             <Link
               href="/admin"
-              aria-label="Basculer en mode admin Axon"
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                padding: "10px 12px",
-                fontSize: 13,
-                fontWeight: 600,
-                color: "var(--accent, #ff6b35)",
-                border: "1px solid var(--accent, #ff6b35)",
-                borderRadius: 8,
-                textDecoration: "none",
-                justifyContent: "center",
-              }}
+              aria-label="Switch to Axon admin mode"
+              className="sidebar-admin-link"
             >
-              <Zap size={16} aria-hidden="true" />
-              <span>Mode admin Axon</span>
+              <Zap size={13} aria-hidden="true" />
+              <span>Axon admin mode</span>
             </Link>
-          </div>
-        )}
-
-        {/* Org switcher (renders its own "Organisation" label, email + Quitter). */}
-        <OrgSwitcher />
-
-        {/* Role + version footer line. */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            padding: "8px 12px",
-          }}
-        >
-          {loadedRole && role ? (
-            <span className="kbd" style={{ fontSize: 11 }}>{role}</span>
-          ) : (
-            <span />
           )}
-          <span style={{ fontSize: 11, color: "var(--muted-2)" }}>Axon · v2</span>
+          <OrgSwitcher />
+          <div className="sidebar-footer-meta">
+            {loadedRole && role && (
+              <span className="kbd" style={{ fontSize: 10 }}>{role}</span>
+            )}
+            <span style={{ fontSize: 11, color: "var(--muted-2)" }}>Axon · v2</span>
+          </div>
         </div>
-      </div>
       </nav>
     </>
   );

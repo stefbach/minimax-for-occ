@@ -52,11 +52,11 @@ export async function PATCH(
     clean[k] = v === "" ? null : v;
   }
   if (Object.keys(clean).length === 0) {
-    return NextResponse.json({ error: "Aucun champ à mettre à jour." }, { status: 400 });
+    return NextResponse.json({ error: "No fields to update." }, { status: 400 });
   }
   if (reg.phone_column in clean && !clean[reg.phone_column]) {
     return NextResponse.json(
-      { error: `Le numéro (${reg.phone_column}) ne peut pas être vide.` },
+      { error: `Phone number (${reg.phone_column}) cannot be empty.` },
       { status: 400 },
     );
   }

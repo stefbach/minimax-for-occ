@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useT } from "@/lib/i18n";
 
 export interface OrgOption {
   id: string;
@@ -15,6 +16,7 @@ interface Assigned {
 }
 
 export function AdminDataTablesClient({ orgs }: { orgs: OrgOption[] }) {
+  const t = useT();
   const [orgId, setOrgId] = useState(orgs[0]?.id ?? "");
   const [assigned, setAssigned] = useState<Assigned[]>([]);
   const [available, setAvailable] = useState<string[]>([]);
@@ -28,7 +30,7 @@ export function AdminDataTablesClient({ orgs }: { orgs: OrgOption[] }) {
     setError(null);
     const r = await fetch(`/api/admin/data-tables?org_id=${encodeURIComponent(org)}`);
     if (!r.ok) {
-      setError("Chargement échoué (réservé aux super-admins).");
+      setError(t("Chargement échoué (réservé aux super-admins)."));
       return;
     }
     const body = await r.json();
@@ -52,7 +54,7 @@ export function AdminDataTablesClient({ orgs }: { orgs: OrgOption[] }) {
         body: JSON.stringify({ org_id: orgId, physical_table: pick, note: note.trim() || null }),
       });
       const body = await r.json();
-      if (!r.ok) { setError(body.error ?? `Échec (${r.status})`); return; }
+      if (!r.ok) { setError(body.error ?? t("Échec") + ` (${r.status})`); return; }
       setPick("");
       setNote("");
       await load(orgId);
@@ -62,7 +64,7 @@ export function AdminDataTablesClient({ orgs }: { orgs: OrgOption[] }) {
   }
 
   async function unassign(id: string) {
-    if (!confirm("Retirer cette attribution ? (la table physique n'est pas supprimée)")) return;
+    if (!confirm(t("Retirer cette attribution ? (la table physique n'est pas supprimée)"))) return;
     setBusy(true);
     try {
       const r = await fetch(`/api/admin/data-tables?id=${id}`, { method: "DELETE" });
@@ -76,7 +78,7 @@ export function AdminDataTablesClient({ orgs }: { orgs: OrgOption[] }) {
     <div style={{ display: "grid", gap: 16 }}>
       <div className="card" style={{ display: "grid", gap: 12 }}>
         <div>
-          <label>Client (organisation)</label>
+          <label>{t("Client (organisation)")}</label>
           <select value={orgId} onChange={(e) => setOrgId(e.target.value)}>
             {orgs.map((o) => (
               <option key={o.id} value={o.id}>{o.name}</option>
@@ -86,26 +88,26 @@ export function AdminDataTablesClient({ orgs }: { orgs: OrgOption[] }) {
 
         <div className="form-row">
           <div>
-            <label>Table à attribuer</label>
+            <label>{t("Table à attribuer")}</label>
             <select value={pick} onChange={(e) => setPick(e.target.value)}>
-              <option value="">— choisir une table physique —</option>
-              {available.map((t) => (
-                <option key={t} value={t}>{t}</option>
+              <option value="">{t("— choisir une table physique —")}</option>
+              {available.map((tbl) => (
+                <option key={tbl} value={tbl}>{tbl}</option>
               ))}
             </select>
             {available.length === 0 && (
               <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
-                Aucune table libre. Importez-en une dans Supabase d&apos;abord.
+                {t("Aucune table libre. Importez-en une dans Supabase d'abord.")}
               </div>
             )}
           </div>
           <div>
-            <label>Note (optionnel)</label>
-            <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="ex: prod / test" />
+            <label>{t("Note (optionnel)")}</label>
+            <input value={note} onChange={(e) => setNote(e.target.value)} placeholder={t("ex: prod / test")} />
           </div>
         </div>
         <div>
-          <button onClick={assign} disabled={busy || !pick}>Attribuer à ce client</button>
+          <button onClick={assign} disabled={busy || !pick}>{t("Attribuer à ce client")}</button>
         </div>
         {error && <div style={{ color: "#ff8080" }}>{error}</div>}
       </div>
@@ -114,21 +116,21 @@ export function AdminDataTablesClient({ orgs }: { orgs: OrgOption[] }) {
         <table className="list">
           <thead>
             <tr>
-              <th>Table attribuée</th>
-              <th>Note</th>
+              <th>{t("Table attribuée")}</th>
+              <th>{t("Note")}</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
             {assigned.length === 0 ? (
-              <tr><td colSpan={3} style={{ color: "var(--muted)", padding: 14 }}>Aucune table attribuée à ce client.</td></tr>
+              <tr><td colSpan={3} style={{ color: "var(--muted)", padding: 14 }}>{t("Aucune table attribuée à ce client.")}</td></tr>
             ) : (
               assigned.map((a) => (
                 <tr key={a.id}>
                   <td style={{ fontFamily: "monospace" }}>{a.physical_table}</td>
                   <td style={{ color: "var(--muted)" }}>{a.note ?? "—"}</td>
                   <td style={{ textAlign: "right" }}>
-                    <button className="danger" style={{ padding: "5px 9px" }} onClick={() => unassign(a.id)}>Retirer</button>
+                    <button className="danger" style={{ padding: "5px 9px" }} onClick={() => unassign(a.id)}>{t("Retirer")}</button>
                   </td>
                 </tr>
               ))

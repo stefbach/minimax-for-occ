@@ -6,6 +6,7 @@ import {
   RoomAudioRenderer,
   StartAudio,
 } from "@livekit/components-react";
+import { useT } from "@/lib/i18n";
 
 export type SupervisionMode = "listen" | "whisper" | "barge";
 
@@ -23,18 +24,19 @@ type Props = {
   onClose: () => void;
 };
 
-function modeLabel(mode: SupervisionMode): string {
+function modeLabel(mode: SupervisionMode, t: (s: string) => string): string {
   switch (mode) {
     case "listen":
-      return "Écoute discrète";
+      return t("Écoute discrète");
     case "whisper":
-      return "Souffler à l'agent";
+      return t("Souffler à l'agent");
     case "barge":
-      return "Intervenir";
+      return t("Intervenir");
   }
 }
 
 export function SupervisionRoom({ callId, mode, onClose }: Props) {
+  const t = useT();
   const [conn, setConn] = useState<TokenResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -73,18 +75,18 @@ export function SupervisionRoom({ callId, mode, onClose }: Props) {
       <div className="supervision-header">
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <span aria-hidden style={{ fontSize: 18 }}>🎧</span>
-          <strong>{modeLabel(mode)}</strong>
+          <strong>{modeLabel(mode, t)}</strong>
           <span className={`supervision-mode supervision-mode-${mode}`}>{mode}</span>
         </div>
         <button className="ghost" onClick={handleEnd}>
-          Terminer la supervision
+          {t("Terminer la supervision")}
         </button>
       </div>
 
-      {loading && <p className="muted" style={{ margin: 0 }}>Connexion à la salle…</p>}
+      {loading && <p className="muted" style={{ margin: 0 }}>{t("Connexion à la salle…")}</p>}
       {error && (
         <div style={{ color: "var(--bad)", fontSize: 13 }}>
-          Erreur : {error}
+          {t("Erreur :")} {error}
         </div>
       )}
 
@@ -98,21 +100,21 @@ export function SupervisionRoom({ callId, mode, onClose }: Props) {
           onDisconnected={handleEnd}
         >
           <RoomAudioRenderer />
-          <StartAudio label="Activer l'audio" />
+          <StartAudio label={t("Activer l'audio")} />
           <div className="supervision-controls">
             <span className="muted" style={{ fontSize: 12 }}>
-              Salle : <span className="kbd">{conn.room}</span>
+              {t("Salle :")} <span className="kbd">{conn.room}</span>
             </span>
             <button
               className="ghost"
               onClick={() => setMuted((m) => !m)}
               disabled={mode === "listen"}
-              title={mode === "listen" ? "Écoute discrète : micro toujours muet" : undefined}
+              title={mode === "listen" ? t("Écoute discrète : micro toujours muet") : undefined}
             >
-              {muted ? "Réactiver micro" : "Mute"}
+              {muted ? t("Réactiver micro") : t("Mute")}
             </button>
             <button className="danger" onClick={handleEnd}>
-              Quitter
+              {t("Quitter")}
             </button>
           </div>
         </LiveKitRoom>
