@@ -504,6 +504,38 @@ async function dialViaHumanDesk(args: {
 }
 
 /**
+ * Returns the UTC ms timestamp of the END of the schedule range that is
+ * currently active, or null if the schedule has no ranges / is not parseable.
+ * Used by the pre-call SMS gate to avoid sending a message too close to the
+ * slot boundary (when there won't be enough time to place the follow-up call).
+ */
+function activeSlotEndMs(schedule: unknown, now: Date): number | null {
+  type Range = { start?: string; end?: string };
+  const hours = (schedule as { hours?: { start?: string; end?: string; ranges?: Range[] } } | null)?.hours;
+  if (!hours) return null;
+  const toMins = (hhmm: string | undefined): number | null => {
+    if (!hhmm) return null;
+    const [h, m] = hhmm.split(":").map(Number);
+    return Number.isFinite(h) && Number.isFinite(m) ? h * 60 + m : null;
+  };
+  const curMins = now.getUTCHours() * 60 + now.getUTCMinutes();
+  const ranges: Range[] = Array.isArray(hours.ranges) && hours.ranges.length > 0
+    ? hours.ranges
+    : [{ start: hours.start, end: hours.end }];
+  for (const r of ranges) {
+    const s = toMins(r.start);
+    const e = toMins(r.end);
+    if (s === null || e === null) continue;
+    if (curMins >= s && curMins <= e) {
+      // Current time is inside this range; return the end as a UTC ms timestamp.
+      const todayUtcMidnight = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+      return todayUtcMidnight + e * 60_000;
+    }
+  }
+  return null; // not currently inside any range
+}
+
+/**
  * Dial a single campaign_target.
  *
  * Flow:
@@ -541,7 +573,7 @@ export async function dialTarget(job: DialJob): Promise<void> {
   const { data: campaignRaw, error: cErr } = await sb
     .from("campaigns")
     .select(
-      "id,org_id,state,phone_number_id,caller_id_e164,amd_enabled,max_attempts,retry_delay_min,agent_handle_id,metadata",
+      "id,org_id,state,phone_number_id,caller_id_e164,amd_enabled,max_attempts,retry_delay_min,agent_handle_id,metadata,schedule",
     )
     .eq("id", job.campaign_id)
     .single();
@@ -671,7 +703,23 @@ export async function dialTarget(job: DialJob): Promise<void> {
     const prevSmsFailed = Boolean((payload as Record<string, unknown>).precall_sms_error);
     if (lastSmsAttempt !== upcoming && !prevSmsFailed) {
       const leadMin = Math.max(1, Math.min(15, Number(precall?.lead_minutes ?? 2)));
-      const nextAt = new Date(Date.now() + leadMin * 60_000).toISOString();
+      // Slot-end guard: don't send a pre-call SMS if the follow-up call would
+      // land after the campaign's active schedule window closes. Defer the lead
+      // past the slot end so it is not re-picked until the next campaign run.
+      const nowMs = Date.now();
+      const callWouldBeAt = nowMs + leadMin * 60_000;
+      const schedule = (campaignRaw as Record<string, unknown>).schedule ?? null;
+      const slotEndMs = activeSlotEndMs(schedule, new Date(nowMs));
+      if (slotEndMs !== null && callWouldBeAt >= slotEndMs) {
+        const deferTo = new Date(slotEndMs + 60_000).toISOString();
+        await sb.from("campaign_targets")
+          .update({ next_attempt_at: deferTo })
+          .eq("id", target.id)
+          .eq("status", "pending");
+        dlog("info", ctx, `precall: slot ends in <${leadMin}min — deferring lead past slot end (${deferTo}), no SMS sent`);
+        return;
+      }
+      const nextAt = new Date(nowMs + leadMin * 60_000).toISOString();
       // Atomic claim: mark this attempt's message(s) as sent AND push
       // next_attempt_at out by lead_minutes, guarded on status='pending' so a
       // concurrent tick can't double-send. If we don't win the row, skip.
