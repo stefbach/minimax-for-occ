@@ -4,7 +4,7 @@ import { Suspense, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabase-browser";
-import { Brand } from "@/components/brand/Brand";
+import { AuthMark } from "@/components/auth/AuthMark";
 import { useT } from "@/lib/i18n";
 
 function LoginForm() {
@@ -33,29 +33,35 @@ function LoginForm() {
   }
 
   return (
-    <div className="card" style={{ display: "grid", gap: 14 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <Brand size={22} />
-        <span style={{ color: "var(--muted)", marginLeft: 6 }}>· {t("Connexion")}</span>
+    <>
+      <div className="ax-auth-logo">
+        <AuthMark size={24} />
+        Axon<span className="acc">.</span>ai
       </div>
-      <form onSubmit={onSubmit} style={{ display: "grid", gap: 12 }}>
-        <div>
-          <label>Email</label>
-          <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+      <div className="ax-auth-kicker">{t("Espace client")}</div>
+      <h1 className="ax-auth-h">{t("Connexion")}</h1>
+      <p className="ax-auth-sub">{t("Accédez à vos agents vocaux, vos campagnes et votre supervision en direct.")}</p>
+
+      <form className="ax-auth-form" onSubmit={onSubmit}>
+        <div className="ax-auth-field">
+          <label htmlFor="email">Email</label>
+          <input id="email" type="email" required value={email} placeholder="vous@entreprise.mu" onChange={(e) => setEmail(e.target.value)} />
         </div>
-        <div>
-          <label>{t("Mot de passe")}</label>
-          <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} />
+        <div className="ax-auth-field">
+          <label htmlFor="password">{t("Mot de passe")}</label>
+          <input id="password" type="password" required value={password} placeholder="••••••••" onChange={(e) => setPassword(e.target.value)} />
         </div>
-        {error && <div style={{ color: "var(--bad)", fontSize: 13 }}>{error}</div>}
-        <button type="submit" disabled={busy || !email || !password}>
+        {error && <div className="ax-auth-msg ax-auth-err">{error}</div>}
+        <button className="ax-auth-btn" type="submit" disabled={busy || !email || !password}>
           {busy ? t("Connexion…") : t("Se connecter")}
         </button>
       </form>
-      <div style={{ fontSize: 13, color: "var(--muted)" }}>
-        {t("Pas de compte ?")} <Link href={`/signup${next ? `?next=${next}` : ""}`} style={{ color: "var(--accent-2)" }}>{t("Créer un compte")}</Link>
+
+      <div className="ax-auth-alt">
+        {t("Pas de compte ?")}{" "}
+        <Link href={`/signup${next ? `?next=${next}` : ""}`} className="ax-auth-link">{t("Créer un compte")}</Link>
       </div>
-    </div>
+    </>
   );
 }
 
