@@ -1,0 +1,34 @@
+name: Activer Human-First (HUMAN_FIRST_INBOUND)
+
+# Lance ce workflow UNE FOIS depuis GitHub Actions pour activer le mode
+# "Humain d'abord" sur l'agent Python. Il pose le secret sur Fly.io (axon-agent)
+# et redémarre le worker pour que la variable soit prise en compte.
+# Après : aller sur /team → profil admin → Numéros → cocher le numéro entrant.
+
+on:
+  workflow_dispatch:
+    inputs:
+      valeur:
+        description: "1 = activer le mode humain-first | 0 = désactiver"
+        required: true
+        default: "1"
+
+jobs:
+  set-secret:
+    name: Poser HUMAN_FIRST_INBOUND sur axon-agent (Fly.io)
+    runs-on: ubuntu-latest
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+    steps:
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Définir le secret
+        run: |
+          flyctl secrets set HUMAN_FIRST_INBOUND=${{ github.event.inputs.valeur }} \
+            --app axon-agent --stage
+          echo "Secret posé (--stage = pas encore actif)."
+
+      - name: Redémarrer axon-agent pour appliquer
+        run: |
+          flyctl apps restart axon-agent
+          echo "Worker redémarré — HUMAN_FIRST_INBOUND=${{ github.event.inputs.valeur }} actif."

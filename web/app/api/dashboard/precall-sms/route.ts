@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseServer, hasSupabase } from "@/lib/supabase";
 import { requestOrgId } from "@/lib/request-org";
+import { isPhantomCall } from "@/lib/call-quality";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,7 +22,7 @@ type CallRow = {
   answered_at: string | null;
   duration_secs: number | null;
   disposition: string | null;
-  metadata: { target_id?: string; qualification?: string } | null;
+  metadata: { target_id?: string; qualification?: string; twilio_call_sid?: string; source?: string } | null;
 };
 
 export async function GET(req: Request) {
@@ -61,7 +62,6 @@ export async function GET(req: Request) {
     .select("id,state,started_at,answered_at,duration_secs,disposition,metadata")
     .eq("org_id", org_id)
     .gte("started_at", earliest)
-    .neq("state", "failed")
     .order("started_at", { ascending: true })
     .limit(8000);
 
@@ -69,17 +69,62 @@ export async function GET(req: Request) {
   for (const c of (calls ?? []) as CallRow[]) {
     const tid = c.metadata?.target_id;
     if (!tid) continue;
+    // Drop phantom LiveKit dispatch artifacts (no twilio_call_sid, no answer, 0 duration)
+    if (isPhantomCall(c)) continue;
     const arr = byTarget.get(tid);
     if (arr) arr.push(c);
     else byTarget.set(tid, [c]);
   }
 
+  // Group SMS rows by target_id so we can find, per call, which SMS immediately
+  // preceded it. rows is already sorted descending by sent_at (latest first).
+  const smsByTarget = new Map<string, string[]>(); // targetId → [smsId, ...] latest-first
+  for (const r of rows) {
+    const tid = r.target_id as string | null;
+    if (!tid) continue;
+    const arr = smsByTarget.get(tid);
+    const id = r.id as string;
+    if (arr) arr.push(id);
+    else smsByTarget.set(tid, [id]);
+  }
+
+  // Map each call to the SMS that immediately preceded it (latest sent_at ≤ call
+  // started_at). A call can only be "owned" by one SMS so the same call won't
+  // appear twice in the panel.
+  const callOwner = new Map<string, string>(); // callId → smsId
+  for (const [tid, callsForTarget] of byTarget) {
+    const smsIds = smsByTarget.get(tid) ?? [];
+    // Build a sent-time lookup for this target's SMS rows (id → ms)
+    const sentMs = new Map<string, number>();
+    for (const r of rows) {
+      if ((r.target_id as string | null) !== tid) continue;
+      const sentAt = r.sent_at as string | null;
+      if (sentAt) sentMs.set(r.id as string, new Date(sentAt).getTime());
+    }
+    for (const call of callsForTarget) {
+      if (!call.started_at) continue;
+      const callTime = new Date(call.started_at).getTime();
+      // smsIds is latest-first; find the latest SMS that was sent before this call
+      const ownerId = smsIds.find((sid) => {
+        const t = sentMs.get(sid);
+        return t != null && t <= callTime;
+      });
+      if (ownerId) callOwner.set(call.id, ownerId);
+    }
+  }
+
   const out = rows.map((r) => {
     const targetId = r.target_id as string | null;
     const sentAt = r.sent_at as string | null;
+    const smsId = r.id as string;
     const candidates = (targetId && byTarget.get(targetId)) || [];
+    // Only claim a call if THIS SMS is the one that immediately preceded it.
     const after = candidates.find(
-      (c) => c.started_at && sentAt && new Date(c.started_at).getTime() >= new Date(sentAt).getTime(),
+      (c) =>
+        c.started_at &&
+        sentAt &&
+        new Date(c.started_at).getTime() >= new Date(sentAt).getTime() &&
+        callOwner.get(c.id) === smsId,
     );
     let answered: "answered" | "no_answer" | "voicemail" | "pending" = "pending";
     let call_id: string | null = null;

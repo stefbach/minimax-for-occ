@@ -79,6 +79,7 @@ const NAV: NavItem[] = [
   { href: "/mon-calendrier/ia", label: "Calendrier IA", icon: "🤖", group: "Vue d'ensemble", module: "desk", indent: true },
   { href: "/desk/supervise",  label: "Supervision",     icon: "◷", group: "Vue d'ensemble", module: "desk", requiredRoles: SUPERVISOR_ROLES },
   { href: "/supervise/live",  label: "Supervision live", icon: "◉", group: "Vue d'ensemble", module: "desk", requiredRoles: SUPERVISOR_ROLES },
+  { href: "/supervise/live/inbound", label: "Appels entrants live", icon: "←", group: "Vue d'ensemble", module: "desk", requiredRoles: SUPERVISOR_ROLES, indent: true },
   { href: "/mes-patients",    label: "Mes patients",    icon: <Menu size={16} />, group: "Vue d'ensemble", module: "desk" },
   { href: "/alerts",    label: "Alertes",           icon: "!", group: "Vue d'ensemble", module: "alerts" },
 

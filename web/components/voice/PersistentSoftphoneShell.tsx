@@ -30,7 +30,6 @@
  */
 
 import { useEffect, useState } from "react";
-import { createPortal } from "react-dom";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Softphone } from "./Softphone";
@@ -54,14 +53,10 @@ export function PersistentSoftphoneShell() {
   const t = useT();
   const pathname = usePathname();
   // /desk and /desk/<sub-route> are both treated as the agent's poste.
-  // Everywhere else, the softphone sits hidden but mounted.
   const onDesk = pathname === "/desk" || pathname?.startsWith("/desk/");
 
-  // Target DOM node for the inline slot. We resolve it AFTER the children
-  // (the /desk page) have rendered so the slot is in the tree. A small
-  // poll covers the gap between layout effect on this shell and the
-  // child page committing — Next renders client components in document
-  // order so usually it's there on the first check.
+  // Grab the DOM slot that the /desk page renders so Softphone can portal
+  // its visible UI there. Polled via rAF until the child page commits.
   const [slotEl, setSlotEl] = useState<HTMLElement | null>(null);
   useEffect(() => {
     if (!onDesk) {
@@ -75,56 +70,37 @@ export function PersistentSoftphoneShell() {
       if (el) {
         setSlotEl(el);
       } else {
-        // Re-check on the next animation frame until the page mounts the
-        // slot. Bounded to a handful of frames so we don't keep polling
-        // forever on pages that don't expose one.
         requestAnimationFrame(tryGrab);
       }
     };
     tryGrab();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [onDesk, pathname]);
 
-  // The hidden fallback container: stays in the DOM on every route so the
-  // Softphone has a stable mount point, and just gets `display: none` so
-  // it doesn't take space. When the portal target appears, React moves
-  // the Softphone there without unmounting it.
+  // ONE stable off-screen container — Softphone is NEVER unmounted or moved
+  // in the React tree. The deskSlotEl prop lets it portal its visible UI
+  // into the /desk page slot without changing its own mount point.
+  // This prevents the previous bug where navigating to/from /desk triggered
+  // an unmount → sendBeacon("offline") → remount cycle that reset presence.
   return (
     <>
-      {/* Inline slot — when the user is on /desk we portal the Softphone
-          into the page's #desk-softphone-slot div. */}
-      {slotEl && createPortal(<Softphone />, slotEl)}
+      <div
+        aria-hidden
+        style={{
+          position: "fixed",
+          top: 0,
+          left: -99999,
+          width: 1,
+          height: 1,
+          overflow: "hidden",
+          pointerEvents: "none",
+          opacity: 0,
+        }}
+      >
+        <Softphone deskSlotEl={slotEl} />
+      </div>
 
-      {/* Hidden fallback mount — keeps the Softphone alive on every other
-          route. We only render it here when we DON'T have an inline slot,
-          so the same JSX element is never mounted twice. */}
-      {!slotEl && (
-        <div
-          aria-hidden
-          style={{
-            position: "fixed",
-            // Off-screen but rendered, so Twilio Device + LiveKit Room can
-            // initialise and answer calls without grabbing focus. display:
-            // none would tear down media elements on some browsers, so we
-            // stick with the off-screen trick used by most modal toolkits.
-            top: 0,
-            left: -99999,
-            width: 1,
-            height: 1,
-            overflow: "hidden",
-            pointerEvents: "none",
-            opacity: 0,
-          }}
-        >
-          <Softphone />
-        </div>
-      )}
-
-      {/* Floating "Mon poste" pill — top-right of every page EXCEPT
-          /desk itself (since the user is already there). Plain link to
-          /desk, no drawer, no event dispatch. */}
+      {/* "Mon poste" pill — visible on every page except /desk itself. */}
       {!onDesk && (
         <Link
           href="/desk"

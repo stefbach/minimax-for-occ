@@ -69,14 +69,14 @@ export async function GET(req: Request) {
     return NextResponse.json({ agents: [], totals: zeroTotals(), server_now: new Date().toISOString() });
   }
 
-  // 2) Profiles for display_name + email.
+  // 2) Profiles for full_name + email. Note: the column is `full_name`, not `display_name`.
   const { data: profs } = await admin
     .from("profiles")
-    .select("user_id, display_name, email")
+    .select("user_id, full_name, email")
     .in("user_id", userIds);
   const profMap = new Map<string, { display_name: string | null; email: string | null }>();
-  for (const p of (profs ?? []) as Array<{ user_id: string; display_name: string | null; email: string | null }>) {
-    profMap.set(p.user_id, { display_name: p.display_name, email: p.email });
+  for (const p of (profs ?? []) as Array<{ user_id: string; full_name: string | null; email: string | null }>) {
+    profMap.set(p.user_id, { display_name: p.full_name, email: p.email });
   }
 
   // 3) Presence rows.
@@ -90,7 +90,26 @@ export async function GET(req: Request) {
     presMap.set(p.user_id, p);
   }
 
-  // 4) Pull every "in-flight" call referenced by a presence row.
+  // 4) Agent handles for the users (display_name + call stats lookup).
+  const { data: handles } = await admin
+    .from("agent_handles")
+    .select("id, user_id, display_name")
+    .eq("org_id", orgId)
+    .eq("kind", "human")
+    .in("user_id", userIds);
+  const handleToUser = new Map<string, string>();
+  const userToHandles = new Map<string, string[]>();
+  const handleDisplayByUser = new Map<string, string | null>();
+  for (const h of (handles ?? []) as Array<{ id: string; user_id: string; display_name: string | null }>) {
+    handleToUser.set(h.id, h.user_id);
+    const list = userToHandles.get(h.user_id) ?? [];
+    list.push(h.id);
+    userToHandles.set(h.user_id, list);
+    // Keep the first (or only) handle display_name per user as fallback.
+    if (!handleDisplayByUser.has(h.user_id)) handleDisplayByUser.set(h.user_id, h.display_name);
+  }
+
+  // 5) Pull every "in-flight" call referenced by a presence row.
   const callIds = Array.from(
     new Set(
       Array.from(presMap.values())
@@ -98,35 +117,117 @@ export async function GET(req: Request) {
         .filter((id): id is string => !!id),
     ),
   );
-  let callMap = new Map<string, { id: string; started_at: string | null; answered_at: string | null; duration_secs: number | null; to_e164: string | null; contact_name: string | null }>();
+  let callMap = new Map<string, { id: string; direction: string | null; started_at: string | null; answered_at: string | null; duration_secs: number | null; from_e164: string | null; to_e164: string | null; contact_name: string | null }>();
   if (callIds.length > 0) {
     const { data: calls } = await admin
       .from("calls")
-      .select("id, started_at, answered_at, duration_secs, to_e164, contacts(display_name)")
+      .select("id, direction, started_at, answered_at, duration_secs, from_e164, to_e164, contacts(display_name)")
       .in("id", callIds);
     callMap = new Map(
       ((calls ?? []) as unknown as Array<{
         id: string;
+        direction: string | null;
         started_at: string | null;
         answered_at: string | null;
         duration_secs: number | null;
+        from_e164: string | null;
         to_e164: string | null;
         contacts: { display_name: string | null }[] | { display_name: string | null } | null;
       }>).map((c) => {
         const contact = Array.isArray(c.contacts) ? c.contacts[0] : c.contacts;
+        // Filter out LiveKit participant identities.
+        const fromE164 = c.from_e164?.startsWith("client:") ? null : c.from_e164;
         return [
           c.id,
           {
             id: c.id,
+            direction: c.direction,
             started_at: c.started_at,
             answered_at: c.answered_at,
             duration_secs: c.duration_secs,
+            from_e164: fromE164,
             to_e164: c.to_e164,
             contact_name: contact?.display_name ?? null,
           },
         ];
       }),
     );
+
+    // Secondary phone lookup for calls that have no contact name yet.
+    const noName = Array.from(callMap.values()).filter((c) => !c.contact_name && (c.from_e164 || c.to_e164));
+    if (noName.length > 0) {
+      const phones = [...new Set(noName.flatMap((c) => [c.from_e164, c.to_e164]).filter((p): p is string => !!p))];
+      const nameByPhone = new Map<string, string | null>();
+
+      const { data: ctsRows } = await admin
+        .from("contacts")
+        .select("e164, display_name")
+        .eq("org_id", orgId)
+        .in("e164", phones);
+      for (const ct of (ctsRows ?? []) as Array<{ e164: string; display_name: string | null }>) {
+        if (ct.e164) nameByPhone.set(ct.e164, ct.display_name);
+      }
+
+      const missingPhones = phones.filter((p) => !nameByPhone.has(p));
+      if (missingPhones.length > 0) {
+        const { data: leadRows } = await admin
+          .from("leads_rdv")
+          .select("numero_telephone, nom")
+          .in("numero_telephone", missingPhones);
+        for (const l of (leadRows ?? []) as Array<{ numero_telephone: string | null; nom: string | null }>) {
+          if (l.numero_telephone) nameByPhone.set(l.numero_telephone, l.nom);
+        }
+      }
+
+      for (const call of callMap.values()) {
+        if (!call.contact_name) {
+          const phone = call.direction === "in" ? call.from_e164 : call.to_e164;
+          if (phone && nameByPhone.has(phone)) {
+            call.contact_name = nameByPhone.get(phone) ?? null;
+          }
+        }
+      }
+    }
+  }
+
+  // 6) Today's call stats per agent handle (calls answered today).
+  const todayStart = new Date();
+  todayStart.setUTCHours(0, 0, 0, 0);
+  const allHandleIds = Array.from(handleToUser.keys());
+  const statsByUser = new Map<string, { calls_today: number; avg_duration_secs: number | null }>();
+  if (allHandleIds.length > 0) {
+    const { data: todayCalls } = await admin
+      .from("calls")
+      .select("agent_handle_id, duration_secs, answered_at")
+      .eq("org_id", orgId)
+      .in("agent_handle_id", allHandleIds)
+      .gte("started_at", todayStart.toISOString())
+      .in("state", ["ended", "in_progress", "wrap_up"]);
+    const aggByHandle = new Map<string, { count: number; total_dur: number; dur_count: number }>();
+    for (const c of (todayCalls ?? []) as Array<{ agent_handle_id: string | null; duration_secs: number | null; answered_at: string | null }>) {
+      if (!c.agent_handle_id) continue;
+      const agg = aggByHandle.get(c.agent_handle_id) ?? { count: 0, total_dur: 0, dur_count: 0 };
+      agg.count++;
+      if (c.answered_at && c.duration_secs != null) {
+        agg.total_dur += c.duration_secs;
+        agg.dur_count++;
+      }
+      aggByHandle.set(c.agent_handle_id, agg);
+    }
+    // Roll up per user (a user may have multiple handles).
+    for (const [hid, agg] of aggByHandle) {
+      const uid = handleToUser.get(hid);
+      if (!uid) continue;
+      const prev = statsByUser.get(uid) ?? { calls_today: 0, avg_duration_secs: null };
+      const newCount = prev.calls_today + agg.count;
+      const prevDurTotal = (prev.avg_duration_secs ?? 0) * (prev.calls_today > 0 ? prev.calls_today : 0);
+      const newDurTotal = prevDurTotal + agg.total_dur;
+      const newDurCount = (prev.avg_duration_secs != null ? prev.calls_today : 0) + agg.dur_count;
+      statsByUser.set(uid, {
+        calls_today: newCount,
+        avg_duration_secs: newDurCount > 0 ? Math.round(newDurTotal / newDurCount) : null,
+      });
+    }
   }
 
   const now = Date.now();
@@ -142,14 +243,18 @@ export async function GET(req: Request) {
         ? "offline"
         : (stored as AgentStatus);
     const call = p?.current_call_id ? callMap.get(p.current_call_id) ?? null : null;
+    const stats = statsByUser.get(uid) ?? null;
+    // Priority: profiles.full_name → agent_handles.display_name → email → uuid prefix.
+    const displayName = prof?.display_name || handleDisplayByUser.get(uid) || null;
     return {
       user_id: uid,
-      display_name: prof?.display_name ?? null,
+      display_name: displayName,
       email: prof?.email ?? null,
       status,
       last_seen: p?.last_seen ?? null,
       stale_secs: Number.isFinite(staleSecs) ? staleSecs : null,
       current_call: call,
+      stats_today: stats,
     };
   });
 
