@@ -295,12 +295,15 @@ export async function GET(request: Request) {
         .gte("occurred_at", from.toISOString())
         .lte("occurred_at", to.toISOString()) as unknown as Rangeable<UsageRow>,
   );
-  const breakdown = { call_minutes: 0, llm_tokens: 0, tts_chars: 0, stt_minutes: 0 };
-  const qtyByType: Record<string, number> = { call_minutes: 0, llm_tokens: 0, tts_chars: 0, stt_minutes: 0 };
+  const breakdown = { call_minutes: 0, llm_tokens: 0, tts_chars: 0, stt_minutes: 0, livekit: 0 };
+  const qtyByType: Record<string, number> = { call_minutes: 0, llm_tokens: 0, tts_chars: 0, stt_minutes: 0, livekit: 0 };
   let totalCents = 0;
   const costByCall = new Map<string, number>(); // call_id → cents, for the cost panel
   const costByDay = new Map<string, number>();   // YYYY-MM-DD → cents
   for (const u of usage) {
+    // Explicitly exclude legacy Retell AI costs — they predate the current
+    // LiveKit/Twilio stack and are not relevant to current cost reporting.
+    if (u.event_type === "retell_call") continue;
     const cid = u.metadata?.call_id;
     // Drop events that belong to filtered-out calls. Untagged events
     // (no call_id) only count when no filter is active.
@@ -594,13 +597,15 @@ export async function GET(request: Request) {
     if (r.started_at) hourCost[new Date(r.started_at).getHours()] += c;
     if (b === "faux_numero" || b === "pas_de_reponse") wastedCents += c;
   }
-  // Provider breakdown — 4 fixed rows always present (even if $0) so the UI
-  // can always render all 4 cards without conditional logic.
+  // Provider breakdown — 5 fixed rows always present (even if $0) so the UI
+  // can always render all cards without conditional logic.
+  // LiveKit is on the free tier and shows $0.00; Retell (legacy) is excluded.
   const PROVIDERS: { event_type: string; label: string; color: string; unit: string; scale: number }[] = [
     { event_type: "call_minutes", label: "Twilio Voice", color: "#2563eb", unit: "min", scale: 1 },
     { event_type: "llm_tokens",   label: "AI (DeepSeek)", color: "#7c3aed", unit: "k tokens", scale: 1000 },
     { event_type: "tts_chars",    label: "Text-to-Speech", color: "#059669", unit: "k chars", scale: 1000 },
     { event_type: "stt_minutes",  label: "Speech-to-Text", color: "#d97706", unit: "min", scale: 1 },
+    { event_type: "livekit",      label: "LiveKit", color: "#0ea5e9", unit: "min", scale: 1 },
   ];
   const by_provider: ProviderRow[] = PROVIDERS.map((p) => {
     const cents = breakdown[p.event_type as keyof typeof breakdown] ?? 0;

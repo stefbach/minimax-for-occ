@@ -192,6 +192,10 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
                           {cp.total > 0 ? `${(p.pct * 100).toFixed(1)}%` : "0%"}
                         </span>
                       </div>
+                      {/* Free-tier badge for LiveKit */}
+                      {p.event_type === "livekit" && (
+                        <div className="muted" style={{ fontSize: 10, marginTop: 4 }}>{t("Gratuit — palier actuel")}</div>
+                      )}
                       {/* Mini bar */}
                       <div style={{ background: "var(--bg-2)", borderRadius: 3, height: 4, marginTop: 6, overflow: "hidden" }}>
                         <div style={{ width: `${(p.pct * 100).toFixed(1)}%`, height: "100%", background: p.color }} />

@@ -1926,6 +1926,7 @@ const EN: Record<string, string> = {
   "Coût par résultat": "Cost by outcome",
   "Aucune donnée de coût": "No cost data",
   "Aucun coût enregistré sur cette période.": "No costs recorded in this period.",
+  "Gratuit — palier actuel": "Free — current tier",
   "Résultats des appels classés par catégorie": "Call outcomes by category",
   "Aucune qualification sur la période.": "No qualifications in this period.",
   "Faux numéro + DNR": "Wrong Number + DNR",
