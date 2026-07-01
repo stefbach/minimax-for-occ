@@ -9,6 +9,7 @@ import { fetchAllPaged, type Rangeable } from "@/lib/supabase-page";
 import { callMatchesSystem, parseCallSystem } from "@/lib/call-system";
 import { isPhantomCall, isSoftphoneTestLeg } from "@/lib/call-quality";
 import { slotForDate } from "@/lib/call-slots";
+import { COST_RATES } from "@/lib/billing";
 import {
   parseGlobalFilters, hasActiveGlobalFilters, hasLeadScopedFilters, matchesGlobalFilters,
   buildLeadFilterIndex, buildAttemptIndex, eligibilityForPhone, EMPTY_LEAD_INDEX,
@@ -317,26 +318,46 @@ export async function GET(request: Request) {
   // (or vice versa). Match on metadata.call_id which is what the agent
   // and Twilio status webhook both set.
   const inScopeIds = new Set(rows.map((r) => r.id));
-  const { rows: usage } = await fetchAllPaged<{ cost_cents: number; metadata: { call_id?: string } | null }>(
+  type UsageRow = { event_type: string; cost_cents: number; quantity: number; metadata: { call_id?: string } | null };
+  const { rows: usage } = await fetchAllPaged<UsageRow>(
     () =>
       sb
         .from("usage_events")
-        .select("cost_cents, metadata")
+        .select("event_type, cost_cents, quantity, metadata")
         .eq("org_id", orgId)
         .gte("occurred_at", from.toISOString())
-        .lte("occurred_at", to.toISOString()) as unknown as Rangeable<{ cost_cents: number; metadata: { call_id?: string } | null }>,
+        .lte("occurred_at", to.toISOString()) as unknown as Rangeable<UsageRow>,
   );
-  const cost =
-    usage
-      .filter((u) => {
-        const cid = u.metadata?.call_id;
-        // Keep events with no call_id only when there is no filter active
-        // (scope === null), otherwise we'd leak sandbox events back into
-        // the prod view.
-        if (!cid) return scope === null;
-        return inScopeIds.has(cid);
-      })
-      .reduce((a, u) => a + (Number(u.cost_cents) || 0), 0) / 100;
+  // Same read-time price book as /api/dashboard/analytics so the Overview
+  // "Coût consommé" matches the Statistics cost panel: Twilio uses its real
+  // reconciled price; TTS/STT are quantity × current rate; LLM is 0 (bundled in
+  // LiveKit); LiveKit is estimated per call from duration; Retell excluded.
+  let costCents = usage
+    .filter((u) => {
+      if (u.event_type === "retell_call") return false;
+      const cid = u.metadata?.call_id;
+      // Keep events with no call_id only when there is no filter active
+      // (scope === null), otherwise we'd leak sandbox events back into
+      // the prod view.
+      if (!cid) return scope === null;
+      return inScopeIds.has(cid);
+    })
+    .reduce((a, u) => {
+      const qty = Number(u.quantity) || 0;
+      switch (u.event_type) {
+        case "call_minutes": return a + (Number(u.cost_cents) || 0);   // Twilio, real
+        case "tts_chars":    return a + (qty / 1000) * COST_RATES.tts_1k_chars_cents;
+        case "stt_minutes":  return a + qty * COST_RATES.stt_minute_cents;
+        case "llm_tokens":   return a;                                  // bundled in LiveKit
+        default:             return a + (Number(u.cost_cents) || 0);
+      }
+    }, 0);
+  // LiveKit (infra + LLM inference) — per-call from duration × blended rate.
+  for (const r of rows) {
+    const secs = Number(r.duration_secs) || 0;
+    if (secs > 0) costCents += Math.ceil(secs / 60) * COST_RATES.livekit_minute_cents;
+  }
+  const cost = costCents / 100;
 
   // Chaîne d'agents — count distinct agents touched per call from call_events.
   // Initial agent is calls.agent_handle_id (may be null for inbound). Handoffs

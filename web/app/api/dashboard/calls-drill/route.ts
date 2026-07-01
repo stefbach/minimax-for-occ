@@ -6,6 +6,7 @@ import { bucketForCall, type QualBucket } from "@/lib/qualification";
 import { isInbound, normalizeDirectionForDb } from "@/lib/call-direction";
 import { callInLeadsScope, leadsScopeFor, leadNameMapFor, leadNameForPhone, leadsTableFor, type LeadsSource } from "@/lib/leads-source";
 import { fetchAllPaged, type Rangeable } from "@/lib/supabase-page";
+import { COST_RATES } from "@/lib/billing";
 import { callMatchesSystem, parseCallSystem } from "@/lib/call-system";
 import { isPhantomCall, isSoftphoneTestLeg } from "@/lib/call-quality";
 import { slotForDate } from "@/lib/call-slots";
@@ -38,6 +39,7 @@ export type DrillCall = {
   phone: string | null;
   disposition: string | null;
   assignee: string | null;
+  cost: number;        // USD, real-usage cost of this call (same price book as the cost panel)
 };
 
 export type DrillResponse = {
@@ -229,6 +231,45 @@ export async function GET(request: Request) {
     }
   }
 
+  // Per-call cost, using the SAME read-time price book as the dashboard cost
+  // panel (Twilio real; TTS/STT quantity × rate; LLM bundled in LiveKit;
+  // LiveKit estimated from duration). Best-effort — never blocks the list.
+  const slicedIds = new Set(sliced.map((r) => r.id));
+  const costByCall = new Map<string, number>();
+  try {
+    type U = { event_type: string; cost_cents: number; quantity: number; metadata: { call_id?: string } | null };
+    const { rows: usage } = await fetchAllPaged<U>(
+      () =>
+        sb
+          .from("usage_events")
+          .select("event_type, cost_cents, quantity, metadata")
+          .eq("org_id", orgId)
+          .gte("occurred_at", from.toISOString())
+          .lte("occurred_at", to.toISOString()) as unknown as Rangeable<U>,
+    );
+    for (const u of usage) {
+      if (u.event_type === "retell_call") continue;
+      const cid = u.metadata?.call_id;
+      if (!cid || !slicedIds.has(cid)) continue;
+      const qty = Number(u.quantity) || 0;
+      let c = 0;
+      switch (u.event_type) {
+        case "call_minutes": c = Number(u.cost_cents) || 0; break;
+        case "tts_chars":    c = (qty / 1000) * COST_RATES.tts_1k_chars_cents; break;
+        case "stt_minutes":  c = qty * COST_RATES.stt_minute_cents; break;
+        case "llm_tokens":   c = 0; break;
+        default:             c = Number(u.cost_cents) || 0;
+      }
+      costByCall.set(cid, (costByCall.get(cid) ?? 0) + c);
+    }
+  } catch {
+    /* cost is best-effort */
+  }
+  for (const r of sliced) {
+    const secs = Number(r.duration_secs) || 0;
+    if (secs > 0) costByCall.set(r.id, (costByCall.get(r.id) ?? 0) + Math.ceil(secs / 60) * COST_RATES.livekit_minute_cents);
+  }
+
   const body: DrillResponse = {
     total: filtered.length,
     returned: sliced.length,
@@ -237,6 +278,7 @@ export async function GET(request: Request) {
       const phone = isInbound(r.direction) ? r.from_e164 : r.to_e164;
       return {
         id: r.id,
+        cost: Math.round(costByCall.get(r.id) ?? 0) / 100,
         started_at: r.started_at,
         direction: r.direction,
         duration_secs: r.duration_secs,

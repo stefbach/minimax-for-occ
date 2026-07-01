@@ -143,6 +143,7 @@ function smsRowToCall(r: SmsRow): DrillCall {
     phone: r.to_e164,
     disposition: r.qualification,
     assignee: null,
+    cost: 0,
   };
 }
 

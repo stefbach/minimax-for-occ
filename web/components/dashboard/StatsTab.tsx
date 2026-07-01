@@ -161,7 +161,7 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
             ) : (
               <>
                 <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, fontWeight: 600, marginBottom: 8 }}>
-                  {t("Répartition par fournisseur")}
+                  {t("Coût par outil (usage réel de la période)")}
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 16 }}>
                   {(cp.by_provider ?? []).map((p) => (
@@ -192,9 +192,12 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
                           {cp.total > 0 ? `${(p.pct * 100).toFixed(1)}%` : "0%"}
                         </span>
                       </div>
-                      {/* Free-tier badge for LiveKit */}
+                      {/* Per-provider note — what's inside / how it's billed */}
                       {p.event_type === "livekit" && (
-                        <div className="muted" style={{ fontSize: 10, marginTop: 4 }}>{t("Gratuit — palier actuel")}</div>
+                        <div className="muted" style={{ fontSize: 10, marginTop: 4 }}>{t("Inclut le LLM (OpenAI / Anthropic) + SIP + observability")}</div>
+                      )}
+                      {p.event_type === "llm_tokens" && (
+                        <div className="muted" style={{ fontSize: 10, marginTop: 4 }}>{t("Inclus dans LiveKit (non facturé séparément)")}</div>
                       )}
                       {/* Mini bar */}
                       <div style={{ background: "var(--bg-2)", borderRadius: 3, height: 4, marginTop: 6, overflow: "hidden" }}>
@@ -205,6 +208,11 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
                 </div>
               </>
             )}
+
+            {/* Subscription disclaimer — clarify billing nature vs usage estimate */}
+            <p className="muted" style={{ fontSize: 10, margin: "-4px 0 16px", lineHeight: 1.5, opacity: 0.85 }}>
+              {t("Twilio et AssemblyAI sont facturés à l'usage réel. LiveKit ($50/mois) et ElevenLabs ($22/mois) sont des abonnements mensuels — les montants par appel sont une estimation à partir de l'usage réel × tarif unitaire, pour analyser et optimiser la consommation. Le LLM (OpenAI/Anthropic) est inclus dans LiveKit.")}
+            </p>
 
             {/* ── Daily cost trend + by-hour + by-outcome ── */}
             <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1.2fr) minmax(0,1fr) minmax(0,1fr)", gap: 16, flexWrap: "wrap" }}>
