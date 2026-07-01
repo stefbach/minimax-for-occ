@@ -229,7 +229,7 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
             <button className="ghost" onClick={fetchData} disabled={refreshing}>
               {refreshing ? t("Actualisation…") : t("Actualiser")}
             </button>
-            <HelpButton contextKey="dashboard" />
+            <HelpButton contextKey={`dashboard.${tab}`} />
           </div>
         </div>
 

@@ -20,6 +20,23 @@ export function HelpDrawer({
   const t = useT();
   const [role, setRole] = useState<HelpRole | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [lang, setLang] = useState<"fr" | "en">("en");
+
+  // Detect the interface language from localStorage (set by ThemeLangSwitcher).
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("axon.lang");
+      if (stored === "fr" || stored === "en") setLang(stored);
+    } catch {
+      // localStorage unavailable (SSR / private mode) — keep default "en"
+    }
+    const onLang = (e: Event) => {
+      const detail = (e as CustomEvent<string>).detail;
+      if (detail === "fr" || detail === "en") setLang(detail);
+    };
+    window.addEventListener("axon:lang", onLang);
+    return () => window.removeEventListener("axon:lang", onLang);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -52,7 +69,7 @@ export function HelpDrawer({
     };
   }, [onClose]);
 
-  const resolved = loaded ? resolveHelp(contextKey, role) : null;
+  const resolved = loaded ? resolveHelp(contextKey, role, lang) : null;
   const fullGuideHref = `/help#${contextKey}`;
 
   return (

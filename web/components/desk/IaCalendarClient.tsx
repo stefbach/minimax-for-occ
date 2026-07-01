@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLang, useT } from "@/lib/i18n";
+import { HelpButton } from "@/components/help/HelpButton";
 
 // Calendrier de l'agent IA (Charlotte) — les rappels qu'elle doit passer à
 // l'heure demandée par le patient. Lecture seule : reflet de ce que le dialer
@@ -190,6 +191,7 @@ export function IaCalendarClient() {
           <h1>{t("Calendrier IA")}</h1>
           <div className="subtitle">{t("Les rappels que Charlotte (IA) passera à l'heure demandée par le patient.")}</div>
         </div>
+        <HelpButton contextKey="mon-calendrier.ia" />
       </div>
       <div className="card" style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
         <div role="group" style={{ display: "inline-flex", border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>

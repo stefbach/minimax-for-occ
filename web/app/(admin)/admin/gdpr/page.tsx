@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useT } from "@/lib/i18n";
+import { HelpButton } from "@/components/help/HelpButton";
 
 export const dynamic = "force-dynamic";
 
@@ -71,6 +72,7 @@ export default function GdprPage() {
             {t("Anonymise un utilisateur ou efface un contact. La suppression d'organisation est réservée aux super-admins. Chaque action est tracée dans le journal d'audit.")}
           </div>
         </div>
+        <HelpButton contextKey="admin.gdpr" />
       </div>
 
       <div className="card" style={{ maxWidth: 640, padding: 20 }}>

@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { ReportPayload, ReportType } from "@/lib/reports/types";
 import { ReportViewer } from "./ReportViewer";
 import { useT, useLang } from "@/lib/i18n";
+import { HelpButton } from "@/components/help/HelpButton";
 
 interface TemplateOption {
   id: ReportType;
@@ -206,8 +207,10 @@ export function ReportsClient() {
             {t("Synthèse exécutive, KPIs, plan d'action et vigilance — générés à la demande.")}
           </div>
         </div>
-        {/* Language toggle */}
-        <div style={{ display: "flex", border: "1px solid var(--border)", borderRadius: 6, overflow: "hidden", flexShrink: 0 }}>
+        {/* Language toggle + help */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+        <HelpButton contextKey="rapports" />
+        <div style={{ display: "flex", border: "1px solid var(--border)", borderRadius: 6, overflow: "hidden" }}>
           {(["fr", "en"] as const).map((l) => (
             <button
               key={l}
@@ -227,6 +230,7 @@ export function ReportsClient() {
               {l.toUpperCase()}
             </button>
           ))}
+        </div>
         </div>
       </div>
 

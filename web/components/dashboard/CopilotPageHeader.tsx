@@ -1,6 +1,7 @@
 "use client";
 
 import { useT } from "@/lib/i18n";
+import { HelpButton } from "@/components/help/HelpButton";
 
 export function CopilotPageHeader() {
   const t = useT();
@@ -12,6 +13,7 @@ export function CopilotPageHeader() {
           {t("Pose une question en langage naturel sur l'activité de tes appels.")}
         </div>
       </div>
+      <HelpButton contextKey="copilot" />
     </div>
   );
 }

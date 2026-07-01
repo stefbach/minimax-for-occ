@@ -2,6 +2,7 @@ import { hasSupabase, supabaseServer } from "@/lib/supabase";
 import { currentMembership } from "@/lib/supabase-auth";
 import { redirect } from "next/navigation";
 import { AdminDataTablesClient, type OrgOption } from "@/components/admin/AdminDataTablesClient";
+import { HelpButton } from "@/components/help/HelpButton";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +54,7 @@ export default async function AdminDataTablesPage() {
             voit que ses tables attribuées.
           </div>
         </div>
+        <HelpButton contextKey="admin.data-tables" />
       </div>
       <AdminDataTablesClient orgs={orgs} />
     </>
