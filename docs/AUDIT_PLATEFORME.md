@@ -235,7 +235,7 @@ Aucune URL/domaine figé dans le schéma → **rien à changer côté base** pou
 
 1. **`DEEPGRAM_API_KEY`** = variable morte (STT réel = AssemblyAI).
 2. **`REDIS_URL`** = documentée mais **non utilisée** (dialer en mémoire) → README à corriger.
-3. **Agent = 2-3 déploiements vivants** (LiveKit prod `CA_PFUfvaBhC8Wk` + LiveKit test `CA_PbChboVCvPJC` + Fly `axon-agent`) → clarifier lesquels servent vraiment, mettre les secrets d'URL partout.
+3. **Agent = DEUX workers actifs sous le même nom `axon-voice-agent`** : LiveKit Cloud prod `CA_PFUfvaBhC8Wk` **ET** Fly `axon-agent` tournent en parallèle et se partagent les appels (pool redondant). **Preuve** : la sonde de surveillance (`_run_dispatch_probe`, `agent.py:4658`) crée une room `axon-probe-*` et vérifie que *ce worker-ci* reçoit le dispatch ; comme deux workers portent le même nom, LiveKit route parfois la sonde vers l'AUTRE worker → le marqueur local ne bouge pas → sonde de **20 s = « échec »**. C'est exactement le mélange 1 s (succès) / 20 s (échec) observé dans les Sessions. **Effet de bord réel** : après `DISPATCH_PROBE_MAX_MISSES` échecs consécutifs, le watchdog fait `os._exit(1)` → **redémarrages Fly inutiles**. → **Recommandation : consolider sur UN seul worker** (Cloud Agents *ou* Fly, pas les deux). Le test `CA_PbChboVCvPJC` est sur un nom séparé (`…-test`) et ne reçoit pas de trafic réel.
 4. **App Fly `minimax-for-occ-xfnyag` en "Pending"** → probablement abandonnée, à supprimer après vérification.
 5. **Deux `minimax-for-occ`** (Vercel web + Fly dialer) → risque de confusion.
 6. **Automatisations : sous-agents en `error`** (Agent 2..7 d'OCC) → à investiguer (ops, pas migration).
