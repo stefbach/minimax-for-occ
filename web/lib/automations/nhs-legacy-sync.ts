@@ -8,6 +8,27 @@
 const LEGACY_URL = process.env.NHS_LEGACY_SUPABASE_URL ?? "https://kgohjmivilsfoewrcovn.supabase.co";
 const LEGACY_KEY = process.env.NHS_LEGACY_SERVICE_KEY;
 
+/** Patch the legacy leads_rdv row (by id) — used for WhatsApp opt-outs so the
+ * dashboard's "Abandons" count sees them. Never throws. */
+export async function mirrorLeadPatch(leadId: string, patch: Record<string, unknown>): Promise<void> {
+  if (!LEGACY_KEY || !leadId || Object.keys(patch).length === 0) return;
+  const headers = {
+    apikey: LEGACY_KEY,
+    Authorization: `Bearer ${LEGACY_KEY}`,
+    "Content-Type": "application/json",
+  };
+  try {
+    await fetch(`${LEGACY_URL}/rest/v1/leads_rdv?id=eq.${encodeURIComponent(leadId)}`, {
+      method: "PATCH",
+      headers: { ...headers, Prefer: "return=minimal" },
+      body: JSON.stringify(patch),
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch {
+    /* best effort */
+  }
+}
+
 /** Upsert a dossier patch into the legacy project, keyed by lead_id. Never throws. */
 export async function mirrorDossierPatch(leadId: string, patch: Record<string, unknown>): Promise<void> {
   if (!LEGACY_KEY || !leadId || Object.keys(patch).length === 0) return;
