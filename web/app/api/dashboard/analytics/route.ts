@@ -340,10 +340,22 @@ export async function GET(request: Request) {
     // Legacy Retell AI costs predate the current LiveKit/Twilio stack — exclude.
     if (u.event_type === "retell_call") continue;
     const cid = u.metadata?.call_id;
-    // SMS are an org-level cost not tied to a single call → always count them
-    // (they carry no call_id). Everything else: drop events for filtered-out
+    // SMS are an org-level cost tracked in their OWN "Coûts des SMS" section.
+    // They are NEVER folded into the call-cost total — doing so double-counts
+    // and inflates "Dépense totale", coût/appel décroché, coût/RDV, etc.
+    if (u.event_type === "sms") {
+      const cents = eventCents(u);
+      const tpl = u.metadata?.content_sid || "unknown";
+      const cur = smsByTemplate.get(tpl) ?? { cents: 0, segments: 0, count: 0 };
+      cur.cents += cents;
+      cur.segments += Number(u.quantity) || 0;
+      cur.count += 1;
+      smsByTemplate.set(tpl, cur);
+      continue;
+    }
+    // Everything else (telephony / TTS / STT): drop events for filtered-out
     // calls; untagged events only count when no leads-source filter is active.
-    if (u.event_type !== "sms" && (cid ? !inScopeIds.has(cid) : scope !== null)) continue;
+    if (cid ? !inScopeIds.has(cid) : scope !== null) continue;
     const cents = eventCents(u);
     totalCents += cents;
     if (cid) costByCall.set(cid, (costByCall.get(cid) ?? 0) + cents);
@@ -351,14 +363,6 @@ export async function GET(request: Request) {
     if (k in breakdown) {
       breakdown[k] += cents;
       qtyByType[k] = (qtyByType[k] ?? 0) + (Number(u.quantity) || 0);
-    }
-    if (u.event_type === "sms") {
-      const tpl = u.metadata?.content_sid || "unknown";
-      const cur = smsByTemplate.get(tpl) ?? { cents: 0, segments: 0, count: 0 };
-      cur.cents += cents;
-      cur.segments += Number(u.quantity) || 0;
-      cur.count += 1;
-      smsByTemplate.set(tpl, cur);
     }
     // Daily cost trend — keyed by UTC date of the event.
     if (u.occurred_at) {
@@ -795,6 +799,7 @@ export async function GET(request: Request) {
         case "call_minutes": prevCents += Number(u.cost_cents) || 0; break;
         case "tts_chars":    prevCents += (qty / 1000) * COST_RATES.tts_1k_chars_cents; break;
         case "stt_minutes":  prevCents += qty * COST_RATES.stt_minute_cents; break;
+        case "sms":          break; // tracked in the SMS panel, not the call cost
         case "llm_tokens":   break; // bundled in LiveKit
         default:             prevCents += Number(u.cost_cents) || 0;
       }
