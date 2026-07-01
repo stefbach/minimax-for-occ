@@ -273,29 +273,6 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
-      {/* QUALIFICATIONS MODE TOGGLE — top of tab, affects both totals strip and qual cards */}
-      <div style={{ display: "flex", justifyContent: "flex-end" }}>
-        <div style={{ display: "flex", gap: 2, background: "var(--bg-2)", borderRadius: 6, padding: 2 }}>
-          {(["calls", "leads"] as const).map((mode) => (
-            <button
-              key={mode}
-              type="button"
-              onClick={() => setQualMode(mode)}
-              style={{
-                padding: "5px 14px", fontSize: 12, fontWeight: 600, borderRadius: 4, border: "none",
-                cursor: "pointer", whiteSpace: "nowrap",
-                background: qualMode === mode ? "var(--bg)" : "transparent",
-                color: qualMode === mode ? "var(--fg)" : "var(--muted)",
-                boxShadow: qualMode === mode ? "0 1px 3px rgba(0,0,0,0.12)" : "none",
-                transition: "all 120ms",
-              }}
-            >
-              {mode === "calls" ? t("Appels totaux") : t("Leads uniques")}
-            </button>
-          ))}
-        </div>
-      </div>
-
       {/* KPI ROW */}
       <div className="grid-kpi">
         {tiles.map((tile) => {
@@ -382,7 +359,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
 
       {/* QUALIFICATIONS GRID — totals strip + efficacy heroes + remaining buckets */}
       <div className="card">
-        {/* ── Totals strip (moved inside qual card, responds to toggle) ── */}
+        {/* ── Totals strip with toggle — toggle lives here and affects only these 3 cards ── */}
         {(() => {
           const isLeads = qualMode === "leads";
           const totalVal = isLeads ? data.kpis.totalUniqueLeads : data.kpis.totalCalls;
@@ -392,6 +369,29 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
           const unansweredPct = totalVal > 0 ? ((unansweredVal / totalVal) * 100).toFixed(0) : "0";
           const unitLabel = isLeads ? t("des leads") : t("des appels");
           return (
+            <>
+              {/* Toggle inside this block only */}
+              <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+                <div style={{ display: "flex", gap: 2, background: "var(--bg-2)", borderRadius: 6, padding: 2 }}>
+                  {(["calls", "leads"] as const).map((mode) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => setQualMode(mode)}
+                      style={{
+                        padding: "4px 12px", fontSize: 11, fontWeight: 600, borderRadius: 4, border: "none",
+                        cursor: "pointer", whiteSpace: "nowrap",
+                        background: qualMode === mode ? "var(--bg)" : "transparent",
+                        color: qualMode === mode ? "var(--fg)" : "var(--muted)",
+                        boxShadow: qualMode === mode ? "0 1px 3px rgba(0,0,0,0.12)" : "none",
+                        transition: "all 120ms",
+                      }}
+                    >
+                      {mode === "calls" ? t("Appels totaux") : t("Leads uniques")}
+                    </button>
+                  ))}
+                </div>
+              </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 16, paddingBottom: 16, borderBottom: "1px solid var(--border)" }}>
               <ClickCard
                 ariaLabel={`${t("Total")} — ${t("voir les appels")}`}
@@ -421,6 +421,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
                 <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>{unansweredPct}% {unitLabel}</div>
               </ClickCard>
             </div>
+            </>
           );
         })()}
 
@@ -435,7 +436,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
 
         {/* ── Efficacy hero row (Task 7) ── */}
         {(() => {
-          const activeQuals = qualMode === "leads" ? (data.qualificationsUnique ?? data.qualifications) : data.qualifications;
+          const activeQuals = data.qualifications;
           const passerHumain = activeQuals.find((q) => q.key === "passer_humain")?.count ?? 0;
           const pasInteresse = activeQuals.find((q) => q.key === "pas_interesse")?.count ?? 0;
           // Display as ratio "1 : XX.XX" — how many "not interested" per transfer
@@ -482,7 +483,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
         {/* ── Remaining buckets + merged Faux Numéro+DNR (Tasks 7+10) ── */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>
           {(() => {
-            const activeQuals = qualMode === "leads" ? (data.qualificationsUnique ?? data.qualifications) : data.qualifications;
+            const activeQuals = data.qualifications;
             // Merge RAPPEL into PAS DE REPONSE (main's 30/06 change).
             const rappelCount = activeQuals.find((q) => q.key === "rappel")?.count ?? 0;
             // Merge FAUX NUMERO + NE PAS RAPPELER (Task 10).
@@ -513,7 +514,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
                 {q.count}
               </div>
               <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
-                {qualMode === "calls" ? pct(q.count) : ""}
+                {pct(q.count)}
               </div>
               <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginTop: 4 }}>
                 {t(q.label)}
