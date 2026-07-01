@@ -8,6 +8,7 @@ import { fetchAllPaged, type Rangeable } from "@/lib/supabase-page";
 import { callMatchesSystem, parseCallSystem } from "@/lib/call-system";
 import { slotForDate, SLOT_WINDOWS } from "@/lib/call-slots";
 import { isPhantomCall, isSoftphoneTestLeg } from "@/lib/call-quality";
+import { COST_RATES } from "@/lib/billing";
 import {
   parseGlobalFilters, hasActiveGlobalFilters, matchesGlobalFilters,
   buildLeadFilterIndex, buildAttemptIndex, eligibilityForPhone, EMPTY_LEAD_INDEX,
@@ -56,14 +57,40 @@ export type HeatCell = { weekday: number; hour: number; count: number; answered:
 export type FunnelStep = { key: string; label: string; count: number; pct_of_total: number };
 export type SourceRow = { source: string; total: number; rdv: number; conv_rate: number };
 // Cost panel — spend broken down by outcome and by hour, plus the headline tiles.
+export type ProviderRow = {
+  event_type: string;
+  label: string;
+  color: string;        // CSS color for the UI chip/bar
+  cost: number;         // USD, 2dp
+  quantity: number;     // raw quantity (minutes, tokens, chars, etc.)
+  unit: string;         // human label for the quantity ("min", "k tokens", "k chars")
+  pct: number;          // fraction of total cost (0–1)
+};
 export type CostPanel = {
   total: number;
   avg_per_call: number;
   cost_per_rdv: number;
   wasted: number;       // spend on faux_numero + pas_de_reponse
   wasted_pct: number;
-  by_outcome: { key: QualBucket; label: string; cost: number }[];
+  by_outcome: { key: QualBucket; label: string; cost: number; count: number }[];
   by_hour: { hour: number; cost: number }[];
+  by_provider: ProviderRow[];                  // per event_type with quantity
+  by_day: { date: string; cost: number }[];    // daily cost trend (YYYY-MM-DD)
+};
+// SMS costs — its own dashboard section, broken down PER TEMPLATE so the old
+// (4-segment) template can be compared against a new (1-segment) one.
+export type SmsPanel = {
+  total: number;            // total SMS spend (USD) over the period
+  total_messages: number;
+  by_template: {
+    content_sid: string;
+    label: string;          // friendly template name (or the content_sid)
+    messages: number;
+    segments: number;
+    avg_segments: number;   // segments per message — 1 vs 4 tells the story
+    cost: number;           // total USD
+    avg_cost: number;       // USD per message
+  }[];
 };
 export type SlotRow = { key: "matin" | "midi" | "soir" | "hors"; label: string; total: number; answered: number };
 // Eligibility pipeline (S2 UK NHS WMP) — eligible leads still callable vs lost.
@@ -94,6 +121,7 @@ export type AnalyticsResponse = {
   previous: PreviousPeriod;
   business: BusinessMetrics;
   cost_panel: CostPanel;
+  sms_panel: SmsPanel;
   slots: SlotRow[];
   eligibility: Eligibility;
   volume: Bucket[];
@@ -274,28 +302,88 @@ export async function GET(request: Request) {
   // Real cost from recorded usage (telephony minutes + LLM tokens + TTS chars +
   // STT minutes), summed over the period and restricted to in-scope calls.
   const inScopeIds = new Set(rows.map((r) => r.id));
-  const { rows: usage } = await fetchAllPaged<{ event_type: string; cost_cents: number; metadata: { call_id?: string } | null }>(
+  type UsageRow = { event_type: string; cost_cents: number; quantity: number; occurred_at: string; metadata: { call_id?: string; content_sid?: string | null } | null };
+  // SMS spend split by template (content_sid) → its own "Coûts des SMS" section.
+  const smsByTemplate = new Map<string, { cents: number; segments: number; count: number }>();
+  const { rows: usage } = await fetchAllPaged<UsageRow>(
     () =>
       sb
         .from("usage_events")
-        .select("event_type, cost_cents, metadata")
+        .select("event_type, cost_cents, quantity, occurred_at, metadata")
         .eq("org_id", orgId)
         .gte("occurred_at", from.toISOString())
-        .lte("occurred_at", to.toISOString()) as unknown as Rangeable<{ event_type: string; cost_cents: number; metadata: { call_id?: string } | null }>,
+        .lte("occurred_at", to.toISOString()) as unknown as Rangeable<UsageRow>,
   );
-  const breakdown = { call_minutes: 0, llm_tokens: 0, tts_chars: 0, stt_minutes: 0 };
+  const breakdown = { call_minutes: 0, llm_tokens: 0, tts_chars: 0, stt_minutes: 0, livekit: 0, sms: 0 };
+  const qtyByType: Record<string, number> = { call_minutes: 0, llm_tokens: 0, tts_chars: 0, stt_minutes: 0, livekit: 0, sms: 0 };
   let totalCents = 0;
   const costByCall = new Map<string, number>(); // call_id → cents, for the cost panel
+  const costByDay = new Map<string, number>();   // YYYY-MM-DD → cents
+  // Price-book recompute at READ time (not the cost frozen in usage_events at
+  // insert). A rate correction in lib/billing.ts then applies to history AND
+  // future. Twilio is the exception — its call_minutes cost is the REAL billed
+  // price (reconciled by sync-twilio), so we trust the stored value. LLM runs
+  // through LiveKit Inference (bundled in the LiveKit plan) → priced at 0 here
+  // to avoid double-counting; tokens are still surfaced for information.
+  const eventCents = (u: UsageRow): number => {
+    const qty = Number(u.quantity) || 0;
+    switch (u.event_type) {
+      case "call_minutes": return Number(u.cost_cents) || 0;         // Twilio, real
+      case "tts_chars":    return (qty / 1000) * COST_RATES.tts_1k_chars_cents;
+      case "stt_minutes":  return qty * COST_RATES.stt_minute_cents;
+      case "sms":          return Number(u.cost_cents) || 0;          // Twilio, real (reconciled)
+      case "llm_tokens":   return 0;                                  // bundled in LiveKit
+      default:             return Number(u.cost_cents) || 0;
+    }
+  };
   for (const u of usage) {
+    // Legacy Retell AI costs predate the current LiveKit/Twilio stack — exclude.
+    if (u.event_type === "retell_call") continue;
     const cid = u.metadata?.call_id;
-    // Drop events that belong to filtered-out calls. Untagged events
-    // (no call_id) only count when no filter is active.
-    if (cid ? !inScopeIds.has(cid) : scope !== null) continue;
-    const cents = Number(u.cost_cents) || 0;
+    // SMS are an org-level cost not tied to a single call → always count them
+    // (they carry no call_id). Everything else: drop events for filtered-out
+    // calls; untagged events only count when no leads-source filter is active.
+    if (u.event_type !== "sms" && (cid ? !inScopeIds.has(cid) : scope !== null)) continue;
+    const cents = eventCents(u);
     totalCents += cents;
     if (cid) costByCall.set(cid, (costByCall.get(cid) ?? 0) + cents);
     const k = u.event_type as keyof typeof breakdown;
-    if (k in breakdown) breakdown[k] += cents;
+    if (k in breakdown) {
+      breakdown[k] += cents;
+      qtyByType[k] = (qtyByType[k] ?? 0) + (Number(u.quantity) || 0);
+    }
+    if (u.event_type === "sms") {
+      const tpl = u.metadata?.content_sid || "unknown";
+      const cur = smsByTemplate.get(tpl) ?? { cents: 0, segments: 0, count: 0 };
+      cur.cents += cents;
+      cur.segments += Number(u.quantity) || 0;
+      cur.count += 1;
+      smsByTemplate.set(tpl, cur);
+    }
+    // Daily cost trend — keyed by UTC date of the event.
+    if (u.occurred_at) {
+      const day = u.occurred_at.slice(0, 10); // "YYYY-MM-DD"
+      costByDay.set(day, (costByDay.get(day) ?? 0) + cents);
+    }
+  }
+
+  // LiveKit is a PAID plan whose cost scales with agent-session minutes but is
+  // NOT recorded in usage_events. Estimate it per in-scope call from the call
+  // duration × the blended per-minute rate (calibrated on the real invoice).
+  // The LLM inference is included in this LiveKit cost (see lib/billing.ts).
+  for (const r of rows) {
+    const secs = Number(r.duration_secs) || 0;
+    if (secs <= 0) continue;
+    const mins = Math.ceil(secs / 60);
+    const lkCents = mins * COST_RATES.livekit_minute_cents;
+    breakdown.livekit += lkCents;
+    qtyByType.livekit += mins;
+    totalCents += lkCents;
+    costByCall.set(r.id, (costByCall.get(r.id) ?? 0) + lkCents);
+    if (r.started_at) {
+      const day = new Date(r.started_at).toISOString().slice(0, 10);
+      costByDay.set(day, (costByDay.get(day) ?? 0) + lkCents);
+    }
   }
   const costReal = Math.round((totalCents / 100) * 100) / 100; // → dollars, 2dp
   const r2 = (cents: number) => Math.round((cents / 100) * 100) / 100;
@@ -563,15 +651,48 @@ export async function GET(request: Request) {
   // ── Cost panel: spend by outcome + by hour, plus headline tiles ──
   const d2 = (cents: number) => Math.round(cents) / 100;
   const outCost = new Map<QualBucket, number>();
+  const outCount = new Map<QualBucket, number>();
   const hourCost = new Array<number>(24).fill(0);
   let wastedCents = 0;
   for (const r of rows) {
     const c = costByCall.get(r.id) ?? 0;
     const b = bucketForCall(r);
     outCost.set(b, (outCost.get(b) ?? 0) + c);
+    outCount.set(b, (outCount.get(b) ?? 0) + 1);
     if (r.started_at) hourCost[new Date(r.started_at).getHours()] += c;
     if (b === "faux_numero" || b === "pas_de_reponse") wastedCents += c;
   }
+  // Provider breakdown — 5 fixed rows always present (even if $0) so the UI
+  // can always render all cards without conditional logic.
+  // LiveKit is on the free tier and shows $0.00; Retell (legacy) is excluded.
+  // Labels reflect OCC's REAL production stack (verified against the agents
+  // table + provider invoices), not the code's historical defaults.
+  const PROVIDERS: { event_type: string; label: string; color: string; unit: string; scale: number }[] = [
+    { event_type: "call_minutes", label: "Twilio · Téléphonie", color: "#2563eb", unit: "min", scale: 1 },
+    { event_type: "stt_minutes",  label: "AssemblyAI · STT", color: "#d97706", unit: "min", scale: 1 },
+    { event_type: "tts_chars",    label: "ElevenLabs · TTS", color: "#059669", unit: "k chars", scale: 1000 },
+    { event_type: "livekit",      label: "LiveKit · Infra + LLM", color: "#0ea5e9", unit: "min", scale: 1 },
+    { event_type: "llm_tokens",   label: "LLM · OpenAI / Anthropic", color: "#7c3aed", unit: "k tokens", scale: 1000 },
+  ];
+  const by_provider: ProviderRow[] = PROVIDERS.map((p) => {
+    const cents = breakdown[p.event_type as keyof typeof breakdown] ?? 0;
+    const qty = qtyByType[p.event_type] ?? 0;
+    return {
+      event_type: p.event_type,
+      label: p.label,
+      color: p.color,
+      cost: r2(cents),
+      quantity: p.scale > 1 ? Math.round(qty / p.scale * 10) / 10 : Math.round(qty * 10) / 10,
+      unit: p.unit,
+      pct: totalCents > 0 ? cents / totalCents : 0,
+    };
+  });
+
+  // Daily cost trend — sorted chronologically, costs in dollars.
+  const by_day = Array.from(costByDay.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([date, cents]) => ({ date, cost: r2(cents) }));
+
   const cost_panel: CostPanel = {
     total: costReal,
     avg_per_call: total > 0 ? Math.round(totalCents / total) / 100 : 0,
@@ -579,10 +700,12 @@ export async function GET(request: Request) {
     wasted: d2(wastedCents),
     wasted_pct: totalCents > 0 ? wastedCents / totalCents : 0,
     by_outcome: QUAL_BUCKETS
-      .map((b) => ({ key: b.key, label: b.label, cost: d2(outCost.get(b.key) ?? 0) }))
-      .filter((x) => x.cost > 0)
+      .map((b) => ({ key: b.key, label: b.label, cost: d2(outCost.get(b.key) ?? 0), count: outCount.get(b.key) ?? 0 }))
+      .filter((x) => x.count > 0)
       .sort((a, b) => b.cost - a.cost),
     by_hour: hourCost.map((c, h) => ({ hour: h, cost: d2(c) })),
+    by_provider,
+    by_day,
   };
 
   // ── Volume per OCC call-slot (Matin / Midi / Soir / Hors), with answer rate ──
@@ -651,22 +774,71 @@ export async function GET(request: Request) {
     previous.total = prevRows.length;
     previous.answered = prevRows.filter(isAnswered).length;
     previous.rdv = prevRows.filter(isRdv).length;
-    const { rows: prevUsage } = await fetchAllPaged<{ cost_cents: number; metadata: { call_id?: string } | null }>(() =>
+    // Use the SAME read-time price book as the current period so the "vs prev"
+    // comparison is apples-to-apples (Twilio real; TTS/STT quantity × rate; LLM
+    // 0 = bundled in LiveKit; LiveKit per-call from duration; Retell excluded).
+    const { rows: prevUsage } = await fetchAllPaged<{ event_type: string; cost_cents: number; quantity: number; metadata: { call_id?: string } | null }>(() =>
       sb
         .from("usage_events")
-        .select("cost_cents, metadata")
+        .select("event_type, cost_cents, quantity, metadata")
         .eq("org_id", orgId)
         .gte("occurred_at", prevFrom.toISOString())
-        .lt("occurred_at", prevTo.toISOString()) as unknown as Rangeable<{ cost_cents: number; metadata: { call_id?: string } | null }>,
+        .lt("occurred_at", prevTo.toISOString()) as unknown as Rangeable<{ event_type: string; cost_cents: number; quantity: number; metadata: { call_id?: string } | null }>,
     );
     let prevCents = 0;
     for (const u of prevUsage) {
+      if (u.event_type === "retell_call") continue;
       const cid = u.metadata?.call_id;
       if (cid ? !prevIds.has(cid) : scope !== null) continue;
-      prevCents += Number(u.cost_cents) || 0;
+      const qty = Number(u.quantity) || 0;
+      switch (u.event_type) {
+        case "call_minutes": prevCents += Number(u.cost_cents) || 0; break;
+        case "tts_chars":    prevCents += (qty / 1000) * COST_RATES.tts_1k_chars_cents; break;
+        case "stt_minutes":  prevCents += qty * COST_RATES.stt_minute_cents; break;
+        case "llm_tokens":   break; // bundled in LiveKit
+        default:             prevCents += Number(u.cost_cents) || 0;
+      }
+    }
+    for (const r of prevRows) {
+      const secs = Number(r.duration_secs) || 0;
+      if (secs > 0) prevCents += Math.ceil(secs / 60) * COST_RATES.livekit_minute_cents;
     }
     previous.cost = Math.round(prevCents) / 100;
   }
+
+  // ── SMS cost panel (per template) ──────────────────────────────────────────
+  // Resolve each content_sid → a friendly template name from the org's
+  // campaigns (precall_message.sms / legacy precall_sms), so each SMS template
+  // shows up as its own labelled row with cost + avg segments + avg cost/SMS.
+  const smsNameByContentSid = new Map<string, string>();
+  if (smsByTemplate.size > 0) {
+    const { data: camps } = await sb.from("campaigns").select("metadata").eq("org_id", orgId);
+    for (const c of (camps ?? []) as Array<{ metadata: Record<string, unknown> | null }>) {
+      const pm = c.metadata as {
+        precall_message?: { sms?: { content_sid?: string; template_name?: string } };
+        precall_sms?: { content_sid?: string; template_name?: string };
+      } | null;
+      for (const s of [pm?.precall_message?.sms, pm?.precall_sms]) {
+        if (s?.content_sid && s?.template_name) smsNameByContentSid.set(s.content_sid, s.template_name);
+      }
+    }
+  }
+  const smsRows = Array.from(smsByTemplate.entries())
+    .map(([content_sid, v]) => ({
+      content_sid,
+      label: smsNameByContentSid.get(content_sid) || (content_sid === "unknown" ? "Sans template" : content_sid),
+      messages: v.count,
+      segments: v.segments,
+      avg_segments: v.count > 0 ? Math.round((v.segments / v.count) * 10) / 10 : 0,
+      cost: r2(v.cents),
+      avg_cost: v.count > 0 ? Math.round(v.cents / v.count) / 100 : 0,
+    }))
+    .sort((a, b) => b.cost - a.cost);
+  const sms_panel: SmsPanel = {
+    total: r2(Array.from(smsByTemplate.values()).reduce((a, v) => a + v.cents, 0)),
+    total_messages: Array.from(smsByTemplate.values()).reduce((a, v) => a + v.count, 0),
+    by_template: smsRows,
+  };
 
   const body: AnalyticsResponse = {
     from: from.toISOString(),
@@ -676,6 +848,7 @@ export async function GET(request: Request) {
     previous,
     business,
     cost_panel,
+    sms_panel,
     slots,
     eligibility,
     volume,

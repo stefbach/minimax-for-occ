@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import type { AnalyticsResponse } from "@/app/api/dashboard/analytics/route";
-import { AlertTriangle, CalendarCheck, Clock, DollarSign, Flame, Lightbulb, Phone, Sparkles, Target } from "lucide-react";
+import { AlertTriangle, CalendarCheck, Clock, DollarSign, Flame, Lightbulb, MessageSquare, Phone, Sparkles, Target } from "lucide-react";
 import { appendGlobalFilters, globalFiltersKey, DEFAULT_GLOBAL_FILTERS, type GlobalFilters } from "@/lib/global-filters";
+import { useT } from "@/lib/i18n";
 
 function fmtDuration(secs: number): string {
   const m = Math.floor(secs / 60);
@@ -36,10 +37,12 @@ function heatCellStyle(rate: number, total: number): { background: string; color
 }
 
 export function StatsTab({ from, to, direction, leadsSource = "prod", system = "all", global = DEFAULT_GLOBAL_FILTERS, campaignId }: { from: string; to: string; direction: string; leadsSource?: "prod" | "test"; system?: "all" | "retell" | "axon"; global?: GlobalFilters; campaignId?: string }) {
+  const t = useT();
   const [data, setData] = useState<AnalyticsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [heatMode, setHeatMode] = useState<"answer" | "rdv">("answer");
+  const [smsTemplate, setSmsTemplate] = useState<string>("all"); // "Coûts des SMS" filter
 
   const gfKey = globalFiltersKey(global);
   useEffect(() => {
@@ -118,22 +121,66 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
       </div>
       <style jsx>{`@keyframes stat-pulse{0%,100%{opacity:.4}50%{opacity:1}}`}</style>
 
-      {/* ─── CALL COSTS ─── */}
+      {/* ─── COST BREAKDOWN ─── */}
       {(() => {
         const cp = data.cost_panel;
         const maxOut = Math.max(1, ...cp.by_outcome.map((o) => o.cost));
         const maxHour = Math.max(0.01, ...cp.by_hour.map((h) => h.cost));
+        const maxDay = Math.max(0.01, ...(cp.by_day ?? []).map((d) => d.cost));
+        // Daily trend only makes sense across ≥2 days — on a single-day period
+        // it's just one bar, so we hide it and let the other two charts fill.
+        const showDaily = (cp.by_day ?? []).length >= 2;
+        const answered = data.kpis.answered;
+        // Spend trend vs the previous equivalent period — for cost, DOWN is good.
+        const costDelta = makeDelta(cp.total, data.previous.cost);
+        // Biggest avoidable spend: the highest-cost non-productive outcome, with a
+        // concrete optimisation tip — turns the numbers into an action.
+        const AVOIDABLE: Record<string, string> = {
+          repondeur: t("améliorer la détection répondeur et raccrocher plus vite sur messagerie"),
+          pas_de_reponse: t("ajuster les créneaux d'appel et limiter les tentatives sur les numéros qui ne répondent jamais"),
+          faux_numero: t("nettoyer la base des numéros invalides"),
+          non_eligible: t("filtrer les leads non éligibles avant d'appeler"),
+        };
+        const topAvoidable = cp.by_outcome.find((o) => AVOIDABLE[o.key] && o.cost > 0) ?? null;
         const costTiles: { label: string; value: string; sub?: string; tone?: string }[] = [
-          { label: "Total spend", value: fmtMoney(cp.total), sub: `${k.total.toLocaleString()} calls`, tone: "var(--warn)" },
-          { label: "Avg cost / call", value: fmtMoney(cp.avg_per_call), tone: "var(--info)" },
-          { label: "Cost per appointment", value: cp.cost_per_rdv > 0 ? fmtMoney(cp.cost_per_rdv) : "—", tone: "var(--accent)" },
-          { label: "Wasted (wrong no. / no answer)", value: fmtMoney(cp.wasted), sub: `${pct(cp.wasted_pct)} of spend`, tone: "var(--bad)" },
+          { label: t("Dépense totale"), value: cp.total > 0 ? fmtMoney(cp.total) : t("Aucun coût"), sub: `${k.total.toLocaleString()} ${t("appels")}`, tone: "var(--warn)" },
+          { label: t("Coût / appel décroché"), value: answered > 0 ? fmtMoney(cp.total / answered) : "—", sub: `${answered.toLocaleString()} ${t("décrochés")}`, tone: "var(--info)" },
+          { label: t("Coût moyen / appel"), value: fmtMoney(cp.avg_per_call), sub: t("tous les appels"), tone: "var(--info)" },
+          { label: t("Coût par RDV"), value: cp.cost_per_rdv > 0 ? fmtMoney(cp.cost_per_rdv) : "—", tone: "var(--accent)" },
+          { label: t("Gaspillé (faux n° / sans réponse)"), value: fmtMoney(cp.wasted), sub: `${pct(cp.wasted_pct)} ${t("de la dépense")}`, tone: "var(--bad)" },
         ];
         return (
           <div className="card">
-            <h3 style={{ marginTop: 0, marginBottom: 2, display: "flex", alignItems: "center", gap: 6 }}><DollarSign size={15} /> Call costs</h3>
-            <p className="muted" style={{ fontSize: 12, margin: "0 0 12px" }}>{fmtMoney(cp.total)} spent · {fmtMoney(data.previous.cost)} previous period</p>
-            <div className="grid-kpi" style={{ marginBottom: 14 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap", marginBottom: 2 }}>
+              <h3 style={{ marginTop: 0, marginBottom: 0, display: "flex", alignItems: "center", gap: 6 }}><DollarSign size={15} /> {t("Coûts des appels")}</h3>
+              <span className="muted" style={{ fontSize: 12 }} title={t("« Période précédente » = même durée juste avant celle sélectionnée (ex. Aujourd'hui → hier, 7 derniers jours → les 7 jours d'avant).")}>
+                {fmtMoney(cp.total)} {t("dépensés")}
+                {costDelta.show && (
+                  <span style={{ marginLeft: 6, fontWeight: 700, color: costDelta.pct <= 0 ? "var(--good)" : "var(--bad)" }}>
+                    {costDelta.pct <= 0 ? "▼" : "▲"} {Math.abs(Math.round(costDelta.pct))}%
+                  </span>
+                )}
+                {" · "}{fmtMoney(data.previous.cost)} {t("période précédente (même durée avant)")}
+              </span>
+            </div>
+            <p className="muted" style={{ fontSize: 11, margin: "0 0 14px" }}>
+              {t("Dépenses réelles depuis")} <code>usage_events</code> · {t("respecte les filtres de période")}
+            </p>
+
+            {/* Actionable insight — biggest avoidable spend + how to cut it */}
+            {topAvoidable && (
+              <div style={{
+                fontSize: 12, lineHeight: 1.5, margin: "0 0 16px", padding: "9px 12px", borderRadius: 8,
+                background: "color-mix(in srgb, var(--bad) 8%, transparent)",
+                border: "1px solid color-mix(in srgb, var(--bad) 25%, transparent)",
+              }}>
+                🔦 <b>{t("Plus gros poste évitable")}</b> : {t(topAvoidable.label)} — <b>{fmtMoney(topAvoidable.cost)}</b> · {topAvoidable.count.toLocaleString()} {t("appels")}.{" "}
+                <span className="muted">{t("Piste")} : {AVOIDABLE[topAvoidable.key]}.</span>
+              </div>
+            )}
+
+            {/* ── Headline KPI tiles ── */}
+            <div className="grid-kpi" style={{ marginBottom: 16 }}>
               {costTiles.map((tile) => (
                 <div key={tile.label} className="card" style={{ padding: 14 }}>
                   <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4 }}>{tile.label}</div>
@@ -142,32 +189,169 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
                 </div>
               ))}
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 16 }}>
-              {/* Cost by hour */}
+
+            {/* ── Provider breakdown cards ── */}
+            {cp.total === 0 ? (
+              <p className="muted" style={{ fontSize: 13, marginBottom: 16 }}>{t("Aucun coût enregistré pour cette période.")}</p>
+            ) : (
+              <>
+                <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, fontWeight: 600, marginBottom: 8 }}>
+                  {t("Coût par outil (usage réel de la période)")}
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 16 }}>
+                  {(cp.by_provider ?? []).map((p) => (
+                    <div
+                      key={p.event_type}
+                      className="card"
+                      style={{
+                        padding: 14,
+                        borderColor: p.cost > 0 ? p.color : undefined,
+                        background: p.cost > 0 ? `color-mix(in srgb, ${p.color} 6%, transparent)` : undefined,
+                      }}
+                    >
+                      {/* Color chip + label */}
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                        <span style={{ width: 10, height: 10, borderRadius: 3, background: p.color, flexShrink: 0 }} />
+                        <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, color: p.cost > 0 ? p.color : "var(--muted)" }}>
+                          {p.label}
+                        </span>
+                      </div>
+                      {/* Cost */}
+                      <div style={{ fontSize: 26, fontWeight: 800, color: p.cost > 0 ? p.color : "var(--muted)", lineHeight: 1 }}>
+                        {fmtMoney(p.cost)}
+                      </div>
+                      {/* Quantity + percentage */}
+                      <div className="muted" style={{ fontSize: 11, marginTop: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span>{p.quantity > 0 ? `${p.quantity.toLocaleString()} ${p.unit}` : "—"}</span>
+                        <span style={{ fontWeight: 600, color: p.cost > 0 ? p.color : "var(--muted)" }}>
+                          {cp.total > 0 ? `${(p.pct * 100).toFixed(1)}%` : "0%"}
+                        </span>
+                      </div>
+                      {/* Per-provider note — what's inside / how it's billed */}
+                      {p.event_type === "livekit" && (
+                        <div className="muted" style={{ fontSize: 10, marginTop: 4 }}>{t("Inclut le LLM (OpenAI / Anthropic) + SIP + observability")}</div>
+                      )}
+                      {p.event_type === "llm_tokens" && (
+                        <div className="muted" style={{ fontSize: 10, marginTop: 4 }}>{t("Inclus dans LiveKit (non facturé séparément)")}</div>
+                      )}
+                      {/* Mini bar */}
+                      <div style={{ background: "var(--bg-2)", borderRadius: 3, height: 4, marginTop: 6, overflow: "hidden" }}>
+                        <div style={{ width: `${(p.pct * 100).toFixed(1)}%`, height: "100%", background: p.color }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {/* Subscription disclaimer — clarify billing nature vs usage estimate */}
+            <p className="muted" style={{ fontSize: 10, margin: "-4px 0 16px", lineHeight: 1.5, opacity: 0.85 }}>
+              {t("Twilio et AssemblyAI sont facturés à l'usage réel. LiveKit ($50/mois) et ElevenLabs ($22/mois) sont des abonnements mensuels — les montants par appel sont une estimation à partir de l'usage réel × tarif unitaire, pour analyser et optimiser la consommation. Le LLM (OpenAI/Anthropic) est inclus dans LiveKit.")}
+            </p>
+
+            {/* ── (Daily cost trend) + by-hour + by-outcome ── */}
+            <div style={{ display: "grid", gridTemplateColumns: showDaily ? "minmax(0,1.2fr) minmax(0,1fr) minmax(0,1fr)" : "minmax(0,1fr) minmax(0,1fr)", gap: 16, flexWrap: "wrap" }}>
+              {/* Daily trend — only shown across ≥2 days */}
+              {showDaily && (
+                <div>
+                  <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 8 }}>{t("Tendance journalière")}</div>
+                  <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min((cp.by_day ?? []).length, 30)}, 1fr)`, gap: 2, alignItems: "end", height: 70 }}>
+                    {(cp.by_day ?? []).slice(-30).map((d) => (
+                      <div
+                        key={d.date}
+                        title={`${d.date} — ${fmtMoney(d.cost)}`}
+                        style={{
+                          background: d.cost > 0 ? "var(--warn)" : "var(--bg-2)",
+                          height: `${Math.max(4, (d.cost / maxDay) * 100)}%`,
+                          borderRadius: 2, minHeight: 2,
+                        }}
+                      />
+                    ))}
+                  </div>
+                  <div className="muted" style={{ fontSize: 9, display: "flex", justifyContent: "space-between", marginTop: 2 }}>
+                    <span>{(cp.by_day ?? [])[0]?.date ?? ""}</span>
+                    <span>{(cp.by_day ?? []).at(-1)?.date ?? ""}</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Cost by hour — hour axis every 6h; exact hour shown on hover */}
               <div>
-                <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 8 }}>Cost by hour</div>
+                <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 8 }}>{t("Coût par heure")}</div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(24, 1fr)", gap: 2, alignItems: "end", height: 90 }}>
                   {cp.by_hour.map((h) => (
                     <div key={h.hour} title={`${h.hour}h — ${fmtMoney(h.cost)}`} style={{ background: h.cost > 0 ? "var(--warn)" : "var(--bg-2)", height: `${Math.max(2, (h.cost / maxHour) * 100)}%`, borderRadius: 2, minHeight: 2 }} />
                   ))}
                 </div>
-                <div className="muted" style={{ fontSize: 9, display: "flex", justifyContent: "space-between", marginTop: 2 }}><span>0h</span><span>6h</span><span>12h</span><span>18h</span><span>23h</span></div>
+                <div className="muted" style={{ fontSize: 9, display: "grid", gridTemplateColumns: "repeat(24, 1fr)", marginTop: 3 }}>
+                  {cp.by_hour.map((h) => (
+                    <span key={h.hour} style={{ textAlign: "center", gridColumn: `${h.hour + 1}` }}>{h.hour % 6 === 0 || h.hour === 23 ? `${h.hour}h` : ""}</span>
+                  ))}
+                </div>
               </div>
+
               {/* Cost by outcome */}
               <div>
-                <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 8 }}>Cost by outcome</div>
+                <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 8 }}>{t("Coût par résultat")}</div>
                 {cp.by_outcome.length === 0 ? (
-                  <p className="muted" style={{ fontSize: 12 }}>No cost attributed.</p>
+                  <p className="muted" style={{ fontSize: 12 }}>{t("Aucun coût attribué.")}</p>
                 ) : cp.by_outcome.map((o) => (
-                  <div key={o.key} style={{ display: "grid", gridTemplateColumns: "120px 1fr 56px", gap: 8, alignItems: "center", marginBottom: 4 }}>
-                    <span style={{ fontSize: 11 }}>{o.label}</span>
-                    <div style={{ background: "var(--bg-2)", borderRadius: 4, height: 14, overflow: "hidden" }}>
+                  <div key={o.key} style={{ display: "grid", gridTemplateColumns: "115px 1fr 52px", gap: 6, alignItems: "center", marginBottom: 4 }}>
+                    <span style={{ fontSize: 11 }}>
+                      {t(o.label)} <span className="muted" style={{ fontSize: 9 }}>×{o.count.toLocaleString()}</span>
+                    </span>
+                    <div style={{ background: "var(--bg-2)", borderRadius: 4, height: 12, overflow: "hidden" }}>
                       <div style={{ width: `${(o.cost / maxOut) * 100}%`, height: "100%", background: "var(--warn)" }} />
                     </div>
                     <span className="muted" style={{ fontSize: 11, textAlign: "right" }}>{fmtMoney(o.cost)}</span>
                   </div>
                 ))}
               </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ─── SMS COSTS (one card per template) ─── */}
+      {(() => {
+        const all = data.sms_panel.by_template;
+        const shown = smsTemplate === "all" ? all : all.filter((s) => s.content_sid === smsTemplate);
+        const selTotal = shown.reduce((a, s) => a + s.cost, 0);
+        const selMsgs = shown.reduce((a, s) => a + s.messages, 0);
+        return (
+          <div className="card">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap", marginBottom: 2 }}>
+              <h3 style={{ marginTop: 0, marginBottom: 0, display: "flex", alignItems: "center", gap: 6 }}><MessageSquare size={15} /> {t("Coûts des SMS")}</h3>
+              {all.length > 0 && <span className="muted" style={{ fontSize: 12 }}>{fmtMoney(selTotal)} · {selMsgs.toLocaleString()} SMS</span>}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "6px 0 14px", flexWrap: "wrap" }}>
+              <span className="muted" style={{ fontSize: 11 }}>{t("SMS pré-appel Twilio (coût réel réconcilié) — un carré par template pour comparer.")}</span>
+              {all.length > 1 && (
+                <select
+                  value={smsTemplate}
+                  onChange={(e) => setSmsTemplate(e.target.value)}
+                  style={{ fontSize: 12, padding: "4px 8px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg-2)", color: "var(--fg)" }}
+                >
+                  <option value="all">{t("Tous les templates")}</option>
+                  {all.map((s) => <option key={s.content_sid} value={s.content_sid}>{s.label}</option>)}
+                </select>
+              )}
+            </div>
+            {all.length === 0 && (
+              <p className="muted" style={{ fontSize: 13 }}>{t("Aucun coût SMS enregistré pour cette période — la section se remplit après le sync Twilio (bouton « Synchroniser Twilio » ou cron, en production).")}</p>
+            )}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 10 }}>
+              {shown.map((s) => (
+                <div key={s.content_sid} className="card" style={{ padding: 14, borderColor: "color-mix(in srgb, #e11d48 30%, transparent)" }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, color: "#e11d48", marginBottom: 6, wordBreak: "break-word" }}>{s.label}</div>
+                  <div style={{ fontSize: 24, fontWeight: 800, color: "#e11d48", lineHeight: 1 }}>{fmtMoney(s.cost)}</div>
+                  <div className="muted" style={{ fontSize: 11, marginTop: 8, display: "grid", gridTemplateColumns: "1fr auto", rowGap: 3, columnGap: 8 }}>
+                    <span>{t("SMS envoyés")}</span><span style={{ fontWeight: 600, textAlign: "right" }}>{s.messages.toLocaleString()}</span>
+                    <span>{t("Segments moy. / SMS")}</span><span style={{ fontWeight: 600, textAlign: "right", color: s.avg_segments > 1.5 ? "var(--bad)" : "var(--good)" }}>{s.avg_segments}</span>
+                    <span>{t("Coût moy. / SMS")}</span><span style={{ fontWeight: 600, textAlign: "right" }}>{fmtMoney(s.avg_cost)}</span>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         );

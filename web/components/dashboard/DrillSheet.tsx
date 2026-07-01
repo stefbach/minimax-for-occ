@@ -220,13 +220,13 @@ function buildQS(filters: DrillFilters): string {
 }
 
 function toCSV(rows: DrillCall[]): string {
-  const header = ["started_at", "direction", "contact", "phone", "agent", "duration_secs", "answered", "qualification", "disposition"];
+  const header = ["started_at", "direction", "contact", "phone", "agent", "duration_secs", "answered", "qualification", "disposition", "cost_usd"];
   const esc = (v: unknown) => {
     const s = v == null ? "" : String(v);
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const lines = rows.map((r) =>
-    [r.started_at, r.direction, r.contact_name, r.phone, r.agent_name, r.duration_secs, r.answered, r.qualification, r.disposition]
+    [r.started_at, r.direction, r.contact_name, r.phone, r.agent_name, r.duration_secs, r.answered, r.qualification, r.disposition, r.cost]
       .map(esc).join(","),
   );
   return [header.join(","), ...lines].join("\n");
@@ -493,6 +493,7 @@ export function DrillSheet({ spec, onClose, onClosed }: { spec: DrillSpec | null
                     </span>
                     <span className="muted" style={{ fontSize: 12.5, whiteSpace: "nowrap" }}>
                       {fmtDur(c.duration_secs, !!c.answered)} · {fmtDate(c.started_at)}
+                      {c.cost > 0 && <> · <span style={{ color: "var(--warn)", fontWeight: 600 }}>${c.cost.toFixed(2)}</span></>}
                     </span>
                   </div>
                 </button>
