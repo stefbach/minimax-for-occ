@@ -437,7 +437,9 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
           const passerHumain = activeQuals.find((q) => q.key === "passer_humain")?.count ?? 0;
           const pasInteresse = activeQuals.find((q) => q.key === "pas_interesse")?.count ?? 0;
           // Display as ratio "1 : XX.XX" — how many "not interested" per transfer
-          const ratioVal = passerHumain > 0 ? (pasInteresse / passerHumain).toFixed(2) : null;
+          const ratioDisplay = passerHumain > 0
+            ? `1 : ${(pasInteresse / passerHumain).toFixed(2)}`
+            : `0 : ${pasInteresse}`;
           return (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12, marginBottom: 14 }}>
               {/* Efficacy Rate — shown as ratio */}
@@ -446,7 +448,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
                   📊 {t("Taux d'efficacité")}
                 </div>
                 <div style={{ fontSize: 30, fontWeight: 800, marginTop: 6, color: "var(--accent-2)", lineHeight: 1, letterSpacing: -0.5 }}>
-                  {ratioVal !== null ? `1 : ${ratioVal}` : "N/A"}
+                  {ratioDisplay}
                 </div>
                 <div className="muted" style={{ fontSize: 11, marginTop: 6 }}
                   title={t("Ratio de transferts à l'humain par rapport aux refus explicites")}>
