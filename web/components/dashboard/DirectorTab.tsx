@@ -368,8 +368,8 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
         {(() => {
           const passerHumain = data.qualifications.find((q) => q.key === "passer_humain")?.count ?? 0;
           const pasInteresse = data.qualifications.find((q) => q.key === "pas_interesse")?.count ?? 0;
-          const totalOutcomes = data.qualifications.reduce((s, q) => s + q.count, 0);
-          const efficacyRate = totalOutcomes > 0 ? ((passerHumain + pasInteresse) / totalOutcomes) * 100 : null;
+          const totalAnswered = data.kpis.answeredUniqueContacts;
+          const efficacyRate = totalAnswered > 0 ? ((passerHumain + pasInteresse) / totalAnswered) * 100 : null;
           return (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12, marginBottom: 14 }}>
               {/* Efficacy Rate */}
