@@ -433,7 +433,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
 
         {/* ── Efficacy hero row (Task 7) ── */}
         {(() => {
-          const activeQuals = data.qualifications;
+          const activeQuals = qualMode === "leads" ? data.qualificationsUnique : data.qualifications;
           const passerHumain = activeQuals.find((q) => q.key === "passer_humain")?.count ?? 0;
           const pasInteresse = activeQuals.find((q) => q.key === "pas_interesse")?.count ?? 0;
           // Display as ratio "1 : XX.XX" — how many "not interested" per transfer
@@ -480,7 +480,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
         {/* ── Remaining buckets + merged Faux Numéro+DNR (Tasks 7+10) ── */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>
           {(() => {
-            const activeQuals = data.qualifications;
+            const activeQuals = qualMode === "leads" ? data.qualificationsUnique : data.qualifications;
             // Merge RAPPEL into PAS DE REPONSE (main's 30/06 change).
             const rappelCount = activeQuals.find((q) => q.key === "rappel")?.count ?? 0;
             // Merge FAUX NUMERO + NE PAS RAPPELER (Task 10).
