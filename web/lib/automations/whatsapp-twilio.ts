@@ -104,3 +104,24 @@ export async function sendSms(phone: string, body: string): Promise<void> {
   const to = cleaned.startsWith("+") ? cleaned : "+" + cleaned.replace(/[^0-9]/g, "");
   await twilioMessage({ To: to, From: smsFrom(), Body: body });
 }
+
+/**
+ * Download a Twilio media resource (inbound WhatsApp/MMS attachment). Twilio
+ * media URLs require Basic auth (AccountSid:AuthToken) and 302-redirect to the
+ * actual bytes; fetch follows the redirect automatically. Returns the raw
+ * bytes + the resolved content type.
+ */
+export async function downloadTwilioMedia(
+  mediaUrl: string,
+): Promise<{ bytes: Buffer; contentType: string }> {
+  const sid = process.env.TWILIO_ACCOUNT_SID;
+  const token = process.env.TWILIO_AUTH_TOKEN;
+  if (!sid || !token) throw new Error("Twilio not configured (TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN)");
+  const r = await fetch(mediaUrl, {
+    headers: { Authorization: "Basic " + Buffer.from(`${sid}:${token}`).toString("base64") },
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!r.ok) throw new Error(`Twilio media ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  const ab = await r.arrayBuffer();
+  return { bytes: Buffer.from(ab), contentType: r.headers.get("content-type") ?? "application/octet-stream" };
+}

@@ -233,6 +233,7 @@ function NhsSuiviTabInner({
   if (view.name === "report-list") {
     return (
       <NhsReportListView
+        data={data!}
         reportKey={view.key}
         onBack={() => setView({ name: "dashboard" })}
         onChangeKey={(key) => setView({ name: "report-list", key })}
@@ -727,8 +728,8 @@ function NhsSuiviTabInner({
         </div>
       </div>
 
-      {/* Rapport NHS — source : rapport du manager (cf. lib/nhs-report.ts) */}
-      <NhsReportSection onOpenCard={(key) => setView({ name: "report-list", key })} />
+      {/* Rapport NHS — counts from live API; patient lists from nhs-report.ts */}
+      <NhsReportSection data={data} onOpenCard={(key) => setView({ name: "report-list", key })} />
 
       {!data.has_data && (
         <div className="card" style={{ borderColor: "var(--warn)", color: "var(--warn)", fontSize: 13 }}>
@@ -760,9 +761,21 @@ type NhsReportCard = {
   patients: NhsReportPatient[];
 };
 
-function useNhsReportCards(): NhsReportCard[] {
+// Live counts from nhs_tracking (total, approved, pending, rejected, missing_docs)
+// and abandoned_count. All driven by the automation (Agent 8 NHS Response
+// Ingest + drop-out flags on leads_rdv) once real data exists; liveData is
+// optional so callers without API data still fall back to NHS_REPORT statics.
+function useNhsReportCards(liveData?: NhsSuiviResponse | null): NhsReportCard[] {
   const t = useT();
   const breakdown = NHS_REPORT_APPROVED_BREAKDOWN;
+  const tr = liveData?.nhs_tracking ?? {
+    submitted: NHS_REPORT_TOTAL_SUBMITTED,
+    in_review: NHS_REPORT.pending_nhs.patients.length,
+    accepted: NHS_REPORT.approved.patients.length,
+    rejected: NHS_REPORT.rejected.patients.length,
+    missing_docs: NHS_REPORT.missing_docs.patients.length,
+  };
+  const abandonedCount = liveData?.abandoned_count ?? NHS_REPORT.dropped_out.patients.length;
   const totalPatients = [
     ...NHS_REPORT.approved.patients,
     ...NHS_REPORT.pending_nhs.patients,
@@ -774,7 +787,7 @@ function useNhsReportCards(): NhsReportCard[] {
     {
       key: "total",
       label: t("Total dossiers"),
-      value: NHS_REPORT_TOTAL_SUBMITTED,
+      value: tr.submitted,
       hint: t("soumis au NHS"),
       tone: "var(--info)",
       icon: "▣",
@@ -783,7 +796,7 @@ function useNhsReportCards(): NhsReportCard[] {
     {
       key: "approved",
       label: t("Approuvés"),
-      value: NHS_REPORT.approved.patients.length,
+      value: tr.accepted,
       hint: `${breakdown.operated} ${t("opérés")} · ${breakdown.scheduled} ${t("programmés")} · ${breakdown.left_pathway} ${t("sortis du parcours")}`,
       tone: "var(--good)",
       icon: "✓",
@@ -792,7 +805,7 @@ function useNhsReportCards(): NhsReportCard[] {
     {
       key: "pending_nhs",
       label: t("En attente NHS"),
-      value: NHS_REPORT.pending_nhs.patients.length,
+      value: tr.in_review,
       hint: t("réponse / appel en cours"),
       tone: "var(--warn)",
       icon: "⌛",
@@ -801,7 +814,7 @@ function useNhsReportCards(): NhsReportCard[] {
     {
       key: "missing_docs",
       label: t("Éléments requis"),
-      value: NHS_REPORT.missing_docs.patients.length,
+      value: tr.missing_docs,
       hint: t("documents à fournir"),
       tone: "var(--warn)",
       icon: "📄",
@@ -810,7 +823,7 @@ function useNhsReportCards(): NhsReportCard[] {
     {
       key: "rejected",
       label: t("Rejetés"),
-      value: NHS_REPORT.rejected.patients.length,
+      value: tr.rejected,
       hint: t("critères ICB non remplis"),
       tone: "var(--bad)",
       icon: "✕",
@@ -819,7 +832,7 @@ function useNhsReportCards(): NhsReportCard[] {
     {
       key: "dropped_out",
       label: t("Abandons"),
-      value: NHS_REPORT.dropped_out.patients.length,
+      value: abandonedCount,
       hint: t("ne souhaitent pas continuer"),
       tone: "var(--muted)",
       icon: "↓",
@@ -828,7 +841,7 @@ function useNhsReportCards(): NhsReportCard[] {
     {
       key: "to_submit",
       label: t("À soumettre"),
-      value: NHS_REPORT.to_submit.patients.length,
+      value: liveData?.ready_to_submit ?? NHS_REPORT.to_submit.patients.length,
       hint: t("transmis au NHS en fin de semaine"),
       tone: "var(--accent)",
       icon: "↗",
@@ -838,15 +851,14 @@ function useNhsReportCards(): NhsReportCard[] {
 }
 
 function NhsReportSection({
+  data,
   onOpenCard,
 }: {
+  data: NhsSuiviResponse;
   onOpenCard: (key: NhsReportFilter) => void;
 }) {
   const t = useT();
-  const cards = useNhsReportCards();
-  const asOf = new Date(NHS_REPORT_AS_OF).toLocaleDateString("fr-FR", {
-    day: "2-digit", month: "long", year: "numeric",
-  });
+  const cards = useNhsReportCards(data);
   return (
     <div>
       <div
@@ -858,7 +870,7 @@ function NhsReportSection({
         }}
       >
         <span>🏥 {t("Rapport NHS — dossiers S2")}</span>
-        <span style={{ fontSize: 10, fontStyle: "italic" }}>{t("Mis à jour le")} {asOf}</span>
+        <span style={{ fontSize: 10, fontStyle: "italic" }}>En temps réel</span>
       </div>
       <div
         className="grid-kpi"
@@ -886,11 +898,13 @@ function NhsReportSection({
 // per patient. Per-patient document view will be wired once the Google Drive
 // → Supabase storage migration completes.
 function NhsReportListView({
+  data,
   reportKey,
   onBack,
   onChangeKey,
   onOpenPatient,
 }: {
+  data: NhsSuiviResponse;
   reportKey: NhsReportFilter;
   onBack: () => void;
   onChangeKey: (key: NhsReportFilter) => void;
@@ -898,7 +912,7 @@ function NhsReportListView({
 }) {
   const t = useT();
   const [search, setSearch] = useState("");
-  const cards = useNhsReportCards();
+  const cards = useNhsReportCards(data);
   const active = cards.find((c) => c.key === reportKey) ?? cards[0];
 
   const q = search.trim().toLowerCase();

@@ -78,7 +78,9 @@ export type NhsSuiviResponse = {
     in_review: number;
     accepted: number;
     rejected: number;
+    missing_docs: number;
   };
+  abandoned_count: number;
   pipeline: {
     initial_call: number;
     email_reminder: number;
@@ -88,9 +90,11 @@ export type NhsSuiviResponse = {
   };
 };
 
-// qualification for the stalled list (not in the shared LEAD_SELECT)
-const LEAD_SELECT_EXT = LEAD_SELECT + ", qualification";
-type LeadRowExt = LeadRow & { qualification: string | null };
+// qualification + drop-out marker for the stalled list / Abandons card (not in the shared LEAD_SELECT)
+const LEAD_SELECT_EXT = LEAD_SELECT + ", qualification, raison_ne_pas_rappeler";
+type LeadRowExt = LeadRow & { qualification: string | null; raison_ne_pas_rappeler: string | null };
+
+const DROPOUT_QUALIFICATIONS = new Set(["PAS INTERESSE", "NE PAS RAPPELER", "FAUX NUMERO", "NON ELIGIBLE"]);
 
 // Clinic-produced docs: any truthy value (URL / "yes" / "generated") counts.
 function truthyDoc(v: unknown): boolean {
@@ -171,19 +175,24 @@ export async function GET(request: Request) {
   };
 
   // ── Step 6: dossier-based counts (clinic docs, NHS tracking) ──────────
-  // Use hardcoded NHS report data (clinic manager's actual counts) when automation
-  // workflow is inactive and no dossier data is available.
-  const hasAutomationData = allLeads.some((l) => dossierByLeadId.has(String(l.id)));
+  // Use hardcoded NHS report data (clinic manager's actual counts) unless there
+  // is actual live submission tracking data in dossiers. The automation creates
+  // dossiers and updates doc_* fields, but never writes nhs_submission_status —
+  // so checking dossier existence alone would permanently suppress the report.
+  const hasLiveSubmissionData = [...dossierByLeadId.values()].some(
+    (d) => d.nhs_submission_status != null || d.nhs_submission_date != null,
+  );
   const clinicDocs = { medical_report: 0, undue_delay_letter: 0, s2_provider_declaration: 0, medical_estimate: 0 };
-  const tracking = hasAutomationData ?
-    { submitted: 0, in_review: 0, accepted: 0, rejected: 0 } :
-    {
-      submitted: NHS_REPORT_TOTAL_SUBMITTED,
-      in_review: NHS_REPORT.pending_nhs.patients.length,
-      accepted: NHS_REPORT.approved.patients.length,
-      rejected: NHS_REPORT.rejected.patients.length,
-    };
-  let readyToSubmit = hasAutomationData ? 0 : NHS_REPORT.to_submit.patients.length;
+  const tracking = hasLiveSubmissionData
+    ? { submitted: 0, in_review: 0, accepted: 0, rejected: 0, missing_docs: 0 }
+    : {
+        submitted: NHS_REPORT_TOTAL_SUBMITTED,
+        in_review: NHS_REPORT.pending_nhs.patients.length,
+        accepted: NHS_REPORT.approved.patients.length,
+        rejected: NHS_REPORT.rejected.patients.length,
+        missing_docs: NHS_REPORT.missing_docs.patients.length,
+      };
+  let readyToSubmit = hasLiveSubmissionData ? 0 : NHS_REPORT.to_submit.patients.length;
   let submittedThisMonth = 0;
   for (const { d, patient } of entries) {
     if (!d) continue; // no dossier yet — skip clinic/NHS counts
@@ -199,13 +208,22 @@ export async function GET(request: Request) {
     const submitted = Boolean(submissionDate) || Boolean(submissionStatus?.trim());
     if (submitted) tracking.submitted++;
     const status = (submissionStatus ?? "").toLowerCase();
-    if (/review|pending|instruction|examen/.test(status)) tracking.in_review++;
+    if (/info_requested|info requested|elements requis|documents requis/.test(status)) tracking.missing_docs++;
+    else if (/review|pending|instruction|examen/.test(status)) tracking.in_review++;
     if (/accept|approv/.test(status)) tracking.accepted++;
     if (/refus|reject/.test(status)) tracking.rejected++;
 
     if (d.submission_ready && !submitted) readyToSubmit++;
     if (submissionDate && submissionDate >= monthStart) submittedThisMonth++;
   }
+
+  // Abandons: patients in the programme who were later flagged do-not-call or
+  // disqualified — i.e. started the NHS pathway but dropped out of it. Falls
+  // back to the static report count until at least one such flag is live.
+  const liveAbandoned = entries.filter(
+    ({ lead }) => !!lead.raison_ne_pas_rappeler || DROPOUT_QUALIFICATIONS.has(lead.qualification ?? ""),
+  ).length;
+  const abandonedCount = liveAbandoned > 0 ? liveAbandoned : NHS_REPORT.dropped_out.patients.length;
 
   // ── Step 7: stalled patients (partiels/aucun-doc, no activity 5j+) ────
   const stalledPatients: NhsStalledPatient[] = [];
@@ -328,6 +346,7 @@ export async function GET(request: Request) {
     comms,
     file_status,
     nhs_tracking: tracking,
+    abandoned_count: abandonedCount,
     pipeline,
   };
   return NextResponse.json(body);
