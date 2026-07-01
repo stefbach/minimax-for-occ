@@ -52,6 +52,9 @@ export type DirectorResponse = {
   kpis: DirectorKpis;
   inbound: { total: number; answered: number; notAnswered: number };
   qualifications: { key: QualBucket; label: string; count: number }[];
+  // Same buckets but counting unique leads (by contact_id or to_e164), taking
+  // the most recent call's qualification per lead.
+  qualificationsUnique: { key: QualBucket; label: string; count: number }[];
   // Answered calls the agent left unqualified (hidden "autre" bucket). Surfaced
   // so the UI can offer post-hoc AI qualification instead of dropping them.
   unqualified: number;
@@ -262,6 +265,29 @@ export async function GET(request: Request) {
     const b = bucketForCall(r);
     qcount[b] += 1;
     buckets.push({ row: r, bucket: b });
+  }
+
+  // Unique-lead qualification counts: for each lead (contact_id or to_e164),
+  // take the most recent call and bucket it. Gives a "per-person" view.
+  const qcountUnique: Record<QualBucket, number> = {
+    rdv_confirme: 0, passer_humain: 0, rappel: 0, pas_interesse: 0,
+    pas_de_reponse: 0, repondeur: 0, faux_numero: 0, non_eligible: 0,
+    ne_pas_rappeler: 0, suivi_requis: 0, autre: 0,
+  };
+  {
+    // Group by lead key, keep latest call per lead.
+    const latestByLead = new Map<string, { bucket: QualBucket; started_at: string }>();
+    for (const { row, bucket } of buckets) {
+      const key = row.contact_id ?? row.to_e164;
+      if (!key) continue; // calls with no identifier can't be de-duped
+      const existing = latestByLead.get(key);
+      if (!existing || (row.started_at ?? "") > existing.started_at) {
+        latestByLead.set(key, { bucket, started_at: row.started_at ?? "" });
+      }
+    }
+    for (const { bucket } of latestByLead.values()) {
+      qcountUnique[bucket] += 1;
+    }
   }
 
   // KPIs.
@@ -561,6 +587,11 @@ export async function GET(request: Request) {
       key: b.key,
       label: b.label,
       count: qcount[b.key],
+    })),
+    qualificationsUnique: QUAL_BUCKETS.filter((b) => b.key !== "autre").map((b) => ({
+      key: b.key,
+      label: b.label,
+      count: qcountUnique[b.key],
     })),
     unqualified: qcount.autre,
     pendingAnalysis: rows.filter((r) => {

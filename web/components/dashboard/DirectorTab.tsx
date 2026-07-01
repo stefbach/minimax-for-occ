@@ -91,6 +91,8 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
   const [error, setError] = useState<string | null>(null);
   const [threshold, setThreshold] = useState<number>(60);
   const [activeQualTab, setActiveQualTab] = useState<string>("all");
+  // Qualifications toggle: "calls" = total calls (default), "leads" = unique leads
+  const [qualMode, setQualMode] = useState<"calls" | "leads">("calls");
   // Bumped after an AI-qualification run so the director figures refetch.
   const [reloadKey, setReloadKey] = useState(0);
   const [qualifying, setQualifying] = useState(false);
@@ -373,15 +375,40 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
 
       {/* QUALIFICATIONS GRID — efficacy heroes + remaining buckets */}
       <div className="card">
-        <h3 style={{ marginTop: 0, marginBottom: 4 }}>{t("Qualifications")}</h3>
-        <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>
-          {t("Source")} : <code>calls.metadata.qualification</code> + <code>calls.disposition</code>
-        </p>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 4 }}>
+          <div>
+            <h3 style={{ marginTop: 0, marginBottom: 4 }}>{t("Qualifications")}</h3>
+            <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>
+              {t("Source")} : <code>calls.metadata.qualification</code> + <code>calls.disposition</code>
+            </p>
+          </div>
+          {/* Toggle: Total Calls vs Unique Leads */}
+          <div style={{ display: "flex", gap: 2, background: "var(--bg-2)", borderRadius: 6, padding: 2, flexShrink: 0 }}>
+            {(["calls", "leads"] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setQualMode(mode)}
+                style={{
+                  padding: "4px 10px", fontSize: 11, fontWeight: 600, borderRadius: 4, border: "none",
+                  cursor: "pointer", whiteSpace: "nowrap",
+                  background: qualMode === mode ? "var(--bg)" : "transparent",
+                  color: qualMode === mode ? "var(--fg)" : "var(--muted)",
+                  boxShadow: qualMode === mode ? "0 1px 3px rgba(0,0,0,0.12)" : "none",
+                  transition: "all 120ms",
+                }}
+              >
+                {mode === "calls" ? t("Appels totaux") : t("Leads uniques")}
+              </button>
+            ))}
+          </div>
+        </div>
 
         {/* ── Efficacy hero row (Task 7) ── */}
         {(() => {
-          const passerHumain = data.qualifications.find((q) => q.key === "passer_humain")?.count ?? 0;
-          const pasInteresse = data.qualifications.find((q) => q.key === "pas_interesse")?.count ?? 0;
+          const activeQuals = qualMode === "leads" ? (data.qualificationsUnique ?? data.qualifications) : data.qualifications;
+          const passerHumain = activeQuals.find((q) => q.key === "passer_humain")?.count ?? 0;
+          const pasInteresse = activeQuals.find((q) => q.key === "pas_interesse")?.count ?? 0;
           const efficacyRate = pasInteresse > 0 ? (passerHumain / pasInteresse) * 100 : null;
           return (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12, marginBottom: 14 }}>
@@ -425,14 +452,15 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
         {/* ── Remaining buckets + merged Faux Numéro+DNR (Tasks 7+10) ── */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>
           {(() => {
+            const activeQuals = qualMode === "leads" ? (data.qualificationsUnique ?? data.qualifications) : data.qualifications;
             // Merge RAPPEL into PAS DE REPONSE (main's 30/06 change).
-            const rappelCount = data.qualifications.find((q) => q.key === "rappel")?.count ?? 0;
+            const rappelCount = activeQuals.find((q) => q.key === "rappel")?.count ?? 0;
             // Merge FAUX NUMERO + NE PAS RAPPELER (Task 10).
-            const fauxNumeroCount = data.qualifications.find((q) => q.key === "faux_numero")?.count ?? 0;
-            const dnrCount = data.qualifications.find((q) => q.key === "ne_pas_rappeler")?.count ?? 0;
+            const fauxNumeroCount = activeQuals.find((q) => q.key === "faux_numero")?.count ?? 0;
+            const dnrCount = activeQuals.find((q) => q.key === "ne_pas_rappeler")?.count ?? 0;
             const mergedDnrCount = fauxNumeroCount + dnrCount;
 
-            const filtered = data.qualifications
+            const filtered = activeQuals
               .filter((q) => !["rappel", "passer_humain", "pas_interesse", "faux_numero", "ne_pas_rappeler"].includes(q.key))
               .map((q) => q.key === "pas_de_reponse" ? { ...q, count: q.count + rappelCount } : q);
 
@@ -455,7 +483,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
                 {q.count}
               </div>
               <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
-                {pct(q.count)}
+                {qualMode === "calls" ? pct(q.count) : ""}
               </div>
               <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginTop: 4 }}>
                 {t(q.label)}
