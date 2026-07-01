@@ -860,6 +860,7 @@ const EN: Record<string, string> = {
   "Gratuit — palier actuel": "Free — current tier",
   "Coût par outil (usage réel de la période)": "Cost per tool (real usage for the period)",
   "Coûts des SMS": "SMS costs",
+  "Tous les templates": "All templates",
   "SMS pré-appel Twilio (coût réel réconcilié) — un carré par template pour comparer.": "Twilio pre-call SMS (real reconciled cost) — one card per template to compare.",
   "SMS envoyés": "SMS sent",
   "Segments moy. / SMS": "Avg segments / SMS",
