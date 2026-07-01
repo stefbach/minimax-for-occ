@@ -97,6 +97,8 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
   const [qualifyMsg, setQualifyMsg] = useState<string | null>(null);
   // Drill-down: which card was clicked. null = sheet closed.
   const [drill, setDrill] = useState<DrillSpec | null>(null);
+  // Cost breakdown modal
+  const [costModalOpen, setCostModalOpen] = useState(false);
 
   // Every card opens the SAME sheet — passes the current period + direction +
   // leads source + calling-system, plus the per-card filter. Keeps all scoping
@@ -245,10 +247,9 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
   const tiles: Tile[] = [
     { label: t("Total appels"), value: k.totalCalls.toLocaleString(), icon: "📞", displayIcon: <Phone size={15} />, tone: "var(--info)", pctLabel: "100%", drill: {} },
     { label: t("Décrochés"), value: `${k.answeredUniqueContacts.toLocaleString()} · ${k.answeredPct.toFixed(0)}%`, icon: "✅", displayIcon: <CheckCircle2 size={15} />, tone: "var(--good)", drill: { answered: "yes" } },
-    // Cost is an aggregate over usage_events, not a call subset → no drill.
-    // Drill = every call in the period (each one contributed to the spend),
-    // mirroring the legacy "Cost consumed" panel.
-    { label: t("Coût consommé"), value: `$${k.cost.toFixed(2)}`, icon: "$", displayIcon: <span>$</span>, tone: "var(--warn)", drill: {} },
+    // Cost is an aggregate over usage_events — opens a provider breakdown modal,
+    // not a call logs drill (drill: null disables the default sheet).
+    { label: t("Coût consommé"), value: `$${k.cost.toFixed(2)}`, icon: "$", displayIcon: <span>$</span>, tone: "var(--warn)", drill: null },
     { label: t("RDV confirmés"), value: k.rdvConfirmed.toLocaleString(), icon: "📅", displayIcon: <CalendarCheck size={15} />, tone: "var(--good)", highlight: true, pctLabel: pct(k.rdvConfirmed), drill: { qualification: "rdv_confirme" } },
     // Conversion = RDV / Total → drill to the RDV calls (the numerator).
     { label: t("Taux de conversion"), value: `${k.conversionRate.toFixed(1)}%`, icon: "📈", displayIcon: <TrendingUp size={15} />, tone: "var(--accent-2)", drill: { qualification: "rdv_confirme" } },
@@ -287,6 +288,19 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
               )}
             </>
           );
+          // Cost card: drill is null but we still want a clickable card for the modal
+          if (tile.icon === "$") {
+            return (
+              <ClickCard
+                key={tile.label}
+                ariaLabel={`${tile.label} — ${t("voir la répartition des coûts")}`}
+                onClick={() => setCostModalOpen(true)}
+                style={{ padding: 16 }}
+              >
+                {inner}
+              </ClickCard>
+            );
+          }
           if (!tile.drill) {
             return (
               <div key={tile.label} className="card" style={{ padding: 16, borderColor: tile.highlight ? "var(--good)" : undefined }}>
@@ -800,6 +814,79 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
         // and the tiles otherwise stay frozen on the data fetched at mount.
         onClosed={loadDirector}
       />
+
+      {/* ── Cost breakdown modal ── */}
+      {costModalOpen && data && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={t("Répartition des coûts")}
+          style={{
+            position: "fixed", inset: 0, zIndex: 1000,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            background: "rgba(0,0,0,0.45)",
+          }}
+          onClick={() => setCostModalOpen(false)}
+        >
+          <div
+            className="card"
+            style={{ padding: 24, minWidth: 340, maxWidth: 480, width: "90vw", position: "relative" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--warn)" }}>
+                  💰 {t("Répartition des coûts")}
+                </div>
+                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
+                  {from} → {to}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCostModalOpen(false)}
+                aria-label={t("Fermer")}
+                style={{ background: "none", border: "none", cursor: "pointer", fontSize: 18, color: "var(--muted)", lineHeight: 1, padding: 4 }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Total */}
+            <div style={{ textAlign: "center", marginBottom: 20, padding: "14px 0", borderTop: "1px solid var(--border)", borderBottom: "1px solid var(--border)" }}>
+              <div style={{ fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>{t("Total")}</div>
+              <div style={{ fontSize: 36, fontWeight: 800, color: "var(--warn)", lineHeight: 1 }}>
+                ${data.kpis.cost.toFixed(2)}
+              </div>
+            </div>
+
+            {/* Provider rows */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {(data.kpis.costByProvider ?? []).map((p) => (
+                <div key={p.event_type} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ width: 10, height: 10, borderRadius: 3, background: p.color, flexShrink: 0 }} />
+                  <span style={{ flex: 1, fontSize: 13, fontWeight: 500 }}>{p.label}</span>
+                  {p.freeTier && (
+                    <span style={{ fontSize: 10, color: "var(--muted)", marginRight: 4 }}>{t("Gratuit — palier actuel")}</span>
+                  )}
+                  <span style={{ fontSize: 14, fontWeight: 700, color: p.cost > 0 ? p.color : "var(--muted)" }}>
+                    ${p.cost.toFixed(2)}
+                  </span>
+                  <span style={{ fontSize: 11, color: "var(--muted)", width: 42, textAlign: "right" }}>
+                    {data.kpis.cost > 0 ? `${(p.pct * 100).toFixed(1)}%` : "0%"}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {/* Footer note */}
+            <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 16, paddingTop: 12, borderTop: "1px solid var(--border)" }}>
+              {t("Les coûts Retell AI (ancienne infrastructure) sont exclus.")}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
