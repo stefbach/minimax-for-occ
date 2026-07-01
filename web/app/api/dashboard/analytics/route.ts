@@ -744,19 +744,34 @@ export async function GET(request: Request) {
     previous.total = prevRows.length;
     previous.answered = prevRows.filter(isAnswered).length;
     previous.rdv = prevRows.filter(isRdv).length;
-    const { rows: prevUsage } = await fetchAllPaged<{ cost_cents: number; metadata: { call_id?: string } | null }>(() =>
+    // Use the SAME read-time price book as the current period so the "vs prev"
+    // comparison is apples-to-apples (Twilio real; TTS/STT quantity × rate; LLM
+    // 0 = bundled in LiveKit; LiveKit per-call from duration; Retell excluded).
+    const { rows: prevUsage } = await fetchAllPaged<{ event_type: string; cost_cents: number; quantity: number; metadata: { call_id?: string } | null }>(() =>
       sb
         .from("usage_events")
-        .select("cost_cents, metadata")
+        .select("event_type, cost_cents, quantity, metadata")
         .eq("org_id", orgId)
         .gte("occurred_at", prevFrom.toISOString())
-        .lt("occurred_at", prevTo.toISOString()) as unknown as Rangeable<{ cost_cents: number; metadata: { call_id?: string } | null }>,
+        .lt("occurred_at", prevTo.toISOString()) as unknown as Rangeable<{ event_type: string; cost_cents: number; quantity: number; metadata: { call_id?: string } | null }>,
     );
     let prevCents = 0;
     for (const u of prevUsage) {
+      if (u.event_type === "retell_call") continue;
       const cid = u.metadata?.call_id;
       if (cid ? !prevIds.has(cid) : scope !== null) continue;
-      prevCents += Number(u.cost_cents) || 0;
+      const qty = Number(u.quantity) || 0;
+      switch (u.event_type) {
+        case "call_minutes": prevCents += Number(u.cost_cents) || 0; break;
+        case "tts_chars":    prevCents += (qty / 1000) * COST_RATES.tts_1k_chars_cents; break;
+        case "stt_minutes":  prevCents += qty * COST_RATES.stt_minute_cents; break;
+        case "llm_tokens":   break; // bundled in LiveKit
+        default:             prevCents += Number(u.cost_cents) || 0;
+      }
+    }
+    for (const r of prevRows) {
+      const secs = Number(r.duration_secs) || 0;
+      if (secs > 0) prevCents += Math.ceil(secs / 60) * COST_RATES.livekit_minute_cents;
     }
     previous.cost = Math.round(prevCents) / 100;
   }
