@@ -126,6 +126,9 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
         const maxOut = Math.max(1, ...cp.by_outcome.map((o) => o.cost));
         const maxHour = Math.max(0.01, ...cp.by_hour.map((h) => h.cost));
         const maxDay = Math.max(0.01, ...(cp.by_day ?? []).map((d) => d.cost));
+        // Daily trend only makes sense across ≥2 days — on a single-day period
+        // it's just one bar, so we hide it and let the other two charts fill.
+        const showDaily = (cp.by_day ?? []).length >= 2;
         const costTiles: { label: string; value: string; sub?: string; tone?: string }[] = [
           { label: t("Dépense totale"), value: cp.total > 0 ? fmtMoney(cp.total) : t("Aucun coût"), sub: `${k.total.toLocaleString()} ${t("appels")}`, tone: "var(--warn)" },
           { label: t("Coût moyen / appel"), value: fmtMoney(cp.avg_per_call), tone: "var(--info)" },
@@ -136,8 +139,8 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
           <div className="card">
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap", marginBottom: 2 }}>
               <h3 style={{ marginTop: 0, marginBottom: 0, display: "flex", alignItems: "center", gap: 6 }}><DollarSign size={15} /> {t("Coûts des appels")}</h3>
-              <span className="muted" style={{ fontSize: 12 }}>
-                {fmtMoney(cp.total)} {t("dépensés")} · {fmtMoney(data.previous.cost)} {t("période précédente")}
+              <span className="muted" style={{ fontSize: 12 }} title={t("« Période précédente » = même durée juste avant celle sélectionnée (ex. Aujourd'hui → hier, 7 derniers jours → les 7 jours d'avant).")}>
+                {fmtMoney(cp.total)} {t("dépensés")} · {fmtMoney(data.previous.cost)} {t("période précédente (même durée avant)")}
               </span>
             </div>
             <p className="muted" style={{ fontSize: 11, margin: "0 0 14px" }}>
@@ -214,37 +217,33 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
               {t("Twilio et AssemblyAI sont facturés à l'usage réel. LiveKit ($50/mois) et ElevenLabs ($22/mois) sont des abonnements mensuels — les montants par appel sont une estimation à partir de l'usage réel × tarif unitaire, pour analyser et optimiser la consommation. Le LLM (OpenAI/Anthropic) est inclus dans LiveKit.")}
             </p>
 
-            {/* ── Daily cost trend + by-hour + by-outcome ── */}
-            <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1.2fr) minmax(0,1fr) minmax(0,1fr)", gap: 16, flexWrap: "wrap" }}>
-              {/* Daily trend */}
-              <div>
-                <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 8 }}>{t("Tendance journalière")}</div>
-                {(cp.by_day ?? []).length === 0 ? (
-                  <p className="muted" style={{ fontSize: 12 }}>{t("Aucune donnée.")}</p>
-                ) : (
-                  <>
-                    <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min((cp.by_day ?? []).length, 30)}, 1fr)`, gap: 2, alignItems: "end", height: 70 }}>
-                      {(cp.by_day ?? []).slice(-30).map((d) => (
-                        <div
-                          key={d.date}
-                          title={`${d.date} — ${fmtMoney(d.cost)}`}
-                          style={{
-                            background: d.cost > 0 ? "var(--warn)" : "var(--bg-2)",
-                            height: `${Math.max(4, (d.cost / maxDay) * 100)}%`,
-                            borderRadius: 2, minHeight: 2,
-                          }}
-                        />
-                      ))}
-                    </div>
-                    <div className="muted" style={{ fontSize: 9, display: "flex", justifyContent: "space-between", marginTop: 2 }}>
-                      <span>{(cp.by_day ?? [])[0]?.date ?? ""}</span>
-                      <span>{(cp.by_day ?? []).at(-1)?.date ?? ""}</span>
-                    </div>
-                  </>
-                )}
-              </div>
+            {/* ── (Daily cost trend) + by-hour + by-outcome ── */}
+            <div style={{ display: "grid", gridTemplateColumns: showDaily ? "minmax(0,1.2fr) minmax(0,1fr) minmax(0,1fr)" : "minmax(0,1fr) minmax(0,1fr)", gap: 16, flexWrap: "wrap" }}>
+              {/* Daily trend — only shown across ≥2 days */}
+              {showDaily && (
+                <div>
+                  <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 8 }}>{t("Tendance journalière")}</div>
+                  <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min((cp.by_day ?? []).length, 30)}, 1fr)`, gap: 2, alignItems: "end", height: 70 }}>
+                    {(cp.by_day ?? []).slice(-30).map((d) => (
+                      <div
+                        key={d.date}
+                        title={`${d.date} — ${fmtMoney(d.cost)}`}
+                        style={{
+                          background: d.cost > 0 ? "var(--warn)" : "var(--bg-2)",
+                          height: `${Math.max(4, (d.cost / maxDay) * 100)}%`,
+                          borderRadius: 2, minHeight: 2,
+                        }}
+                      />
+                    ))}
+                  </div>
+                  <div className="muted" style={{ fontSize: 9, display: "flex", justifyContent: "space-between", marginTop: 2 }}>
+                    <span>{(cp.by_day ?? [])[0]?.date ?? ""}</span>
+                    <span>{(cp.by_day ?? []).at(-1)?.date ?? ""}</span>
+                  </div>
+                </div>
+              )}
 
-              {/* Cost by hour */}
+              {/* Cost by hour — hour axis every 6h; exact hour shown on hover */}
               <div>
                 <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 8 }}>{t("Coût par heure")}</div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(24, 1fr)", gap: 2, alignItems: "end", height: 90 }}>
@@ -252,7 +251,11 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
                     <div key={h.hour} title={`${h.hour}h — ${fmtMoney(h.cost)}`} style={{ background: h.cost > 0 ? "var(--warn)" : "var(--bg-2)", height: `${Math.max(2, (h.cost / maxHour) * 100)}%`, borderRadius: 2, minHeight: 2 }} />
                   ))}
                 </div>
-                <div className="muted" style={{ fontSize: 9, display: "flex", justifyContent: "space-between", marginTop: 2 }}><span>0h</span><span>12h</span><span>23h</span></div>
+                <div className="muted" style={{ fontSize: 9, display: "grid", gridTemplateColumns: "repeat(24, 1fr)", marginTop: 3 }}>
+                  {cp.by_hour.map((h) => (
+                    <span key={h.hour} style={{ textAlign: "center", gridColumn: `${h.hour + 1}` }}>{h.hour % 6 === 0 || h.hour === 23 ? `${h.hour}h` : ""}</span>
+                  ))}
+                </div>
               </div>
 
               {/* Cost by outcome */}

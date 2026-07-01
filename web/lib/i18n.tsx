@@ -859,6 +859,8 @@ const EN: Record<string, string> = {
   "Répartition par fournisseur": "Provider breakdown",
   "Gratuit — palier actuel": "Free — current tier",
   "Coût par outil (usage réel de la période)": "Cost per tool (real usage for the period)",
+  "période précédente (même durée avant)": "previous period (same span before)",
+  "« Période précédente » = même durée juste avant celle sélectionnée (ex. Aujourd'hui → hier, 7 derniers jours → les 7 jours d'avant).": "\"Previous period\" = the same span immediately before the selected one (e.g. Today → yesterday, Last 7 days → the 7 days before).",
   "Inclut le LLM (OpenAI / Anthropic) + SIP + observability": "Includes the LLM (OpenAI / Anthropic) + SIP + observability",
   "Inclus dans LiveKit (non facturé séparément)": "Included in LiveKit (not billed separately)",
   "Twilio et AssemblyAI sont facturés à l'usage réel. LiveKit ($50/mois) et ElevenLabs ($22/mois) sont des abonnements mensuels — les montants par appel sont une estimation à partir de l'usage réel × tarif unitaire, pour analyser et optimiser la consommation. Le LLM (OpenAI/Anthropic) est inclus dans LiveKit.": "Twilio and AssemblyAI are billed on real usage. LiveKit ($50/mo) and ElevenLabs ($22/mo) are monthly subscriptions — the per-call amounts are an estimate from real usage × unit rate, to analyse and optimise consumption. The LLM (OpenAI/Anthropic) is included in LiveKit.",
