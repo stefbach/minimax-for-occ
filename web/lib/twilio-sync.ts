@@ -573,6 +573,21 @@ export async function syncTwilioSms(
     }
   }
 
+  // Map each message SID → the SMS template (content_sid) it used, from the
+  // pre-call log, so the cost panel can break SMS spend down PER TEMPLATE.
+  const sidToContent = new Map<string, string>();
+  for (let i = 0; i < sids.length; i += CHUNK) {
+    const slice = sids.slice(i, i + CHUNK);
+    const { data } = await sb
+      .from("precall_sms_log")
+      .select("twilio_sid, content_sid")
+      .eq("org_id", orgId)
+      .in("twilio_sid", slice);
+    for (const r of (data ?? []) as Array<{ twilio_sid: string | null; content_sid: string | null }>) {
+      if (r.twilio_sid && r.content_sid) sidToContent.set(r.twilio_sid, r.content_sid);
+    }
+  }
+
   let priced = 0;
   let skippedUnrated = 0;
   let skippedExisting = 0;
@@ -593,6 +608,7 @@ export async function syncTwilioSms(
       metadata: {
         source: "twilio_sync",
         twilio_message_sid: sid,
+        content_sid: sidToContent.get(sid) ?? null,  // which SMS template
         twilio_price: m.price ?? null,
         twilio_price_unit: m.price_unit ?? null,
         segments,

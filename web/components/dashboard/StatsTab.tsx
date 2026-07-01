@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { AnalyticsResponse } from "@/app/api/dashboard/analytics/route";
-import { AlertTriangle, CalendarCheck, Clock, DollarSign, Flame, Lightbulb, Phone, Sparkles, Target } from "lucide-react";
+import { AlertTriangle, CalendarCheck, Clock, DollarSign, Flame, Lightbulb, MessageSquare, Phone, Sparkles, Target } from "lucide-react";
 import { appendGlobalFilters, globalFiltersKey, DEFAULT_GLOBAL_FILTERS, type GlobalFilters } from "@/lib/global-filters";
 import { useT } from "@/lib/i18n";
 
@@ -310,6 +310,30 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
           </div>
         );
       })()}
+
+      {/* ─── SMS COSTS (one card per template) ─── */}
+      {data.sms_panel.by_template.length > 0 && (
+        <div className="card">
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap", marginBottom: 2 }}>
+            <h3 style={{ marginTop: 0, marginBottom: 0, display: "flex", alignItems: "center", gap: 6 }}><MessageSquare size={15} /> {t("Coûts des SMS")}</h3>
+            <span className="muted" style={{ fontSize: 12 }}>{fmtMoney(data.sms_panel.total)} · {data.sms_panel.total_messages.toLocaleString()} SMS</span>
+          </div>
+          <p className="muted" style={{ fontSize: 11, margin: "0 0 14px" }}>{t("SMS pré-appel Twilio (coût réel réconcilié) — un carré par template pour comparer.")}</p>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 10 }}>
+            {data.sms_panel.by_template.map((s) => (
+              <div key={s.content_sid} className="card" style={{ padding: 14, borderColor: "color-mix(in srgb, #e11d48 30%, transparent)" }}>
+                <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, color: "#e11d48", marginBottom: 6, wordBreak: "break-word" }}>{s.label}</div>
+                <div style={{ fontSize: 24, fontWeight: 800, color: "#e11d48", lineHeight: 1 }}>{fmtMoney(s.cost)}</div>
+                <div className="muted" style={{ fontSize: 11, marginTop: 8, display: "grid", gridTemplateColumns: "1fr auto", rowGap: 3, columnGap: 8 }}>
+                  <span>{t("SMS envoyés")}</span><span style={{ fontWeight: 600, textAlign: "right" }}>{s.messages.toLocaleString()}</span>
+                  <span>{t("Segments moy. / SMS")}</span><span style={{ fontWeight: 600, textAlign: "right", color: s.avg_segments > 1.5 ? "var(--bad)" : "var(--good)" }}>{s.avg_segments}</span>
+                  <span>{t("Coût moy. / SMS")}</span><span style={{ fontWeight: 600, textAlign: "right" }}>{fmtMoney(s.avg_cost)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ─── CONVERSION FUNNEL ─── */}
       <div className="card">

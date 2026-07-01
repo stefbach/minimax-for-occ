@@ -77,6 +77,21 @@ export type CostPanel = {
   by_provider: ProviderRow[];                  // per event_type with quantity
   by_day: { date: string; cost: number }[];    // daily cost trend (YYYY-MM-DD)
 };
+// SMS costs — its own dashboard section, broken down PER TEMPLATE so the old
+// (4-segment) template can be compared against a new (1-segment) one.
+export type SmsPanel = {
+  total: number;            // total SMS spend (USD) over the period
+  total_messages: number;
+  by_template: {
+    content_sid: string;
+    label: string;          // friendly template name (or the content_sid)
+    messages: number;
+    segments: number;
+    avg_segments: number;   // segments per message — 1 vs 4 tells the story
+    cost: number;           // total USD
+    avg_cost: number;       // USD per message
+  }[];
+};
 export type SlotRow = { key: "matin" | "midi" | "soir" | "hors"; label: string; total: number; answered: number };
 // Eligibility pipeline (S2 UK NHS WMP) — eligible leads still callable vs lost.
 export type EligLead = { name: string | null; phone: string | null; bmi: number; status: string; calls: number; source: string };
@@ -106,6 +121,7 @@ export type AnalyticsResponse = {
   previous: PreviousPeriod;
   business: BusinessMetrics;
   cost_panel: CostPanel;
+  sms_panel: SmsPanel;
   slots: SlotRow[];
   eligibility: Eligibility;
   volume: Bucket[];
@@ -286,7 +302,9 @@ export async function GET(request: Request) {
   // Real cost from recorded usage (telephony minutes + LLM tokens + TTS chars +
   // STT minutes), summed over the period and restricted to in-scope calls.
   const inScopeIds = new Set(rows.map((r) => r.id));
-  type UsageRow = { event_type: string; cost_cents: number; quantity: number; occurred_at: string; metadata: { call_id?: string } | null };
+  type UsageRow = { event_type: string; cost_cents: number; quantity: number; occurred_at: string; metadata: { call_id?: string; content_sid?: string | null } | null };
+  // SMS spend split by template (content_sid) → its own "Coûts des SMS" section.
+  const smsByTemplate = new Map<string, { cents: number; segments: number; count: number }>();
   const { rows: usage } = await fetchAllPaged<UsageRow>(
     () =>
       sb
@@ -333,6 +351,14 @@ export async function GET(request: Request) {
     if (k in breakdown) {
       breakdown[k] += cents;
       qtyByType[k] = (qtyByType[k] ?? 0) + (Number(u.quantity) || 0);
+    }
+    if (u.event_type === "sms") {
+      const tpl = u.metadata?.content_sid || "unknown";
+      const cur = smsByTemplate.get(tpl) ?? { cents: 0, segments: 0, count: 0 };
+      cur.cents += cents;
+      cur.segments += Number(u.quantity) || 0;
+      cur.count += 1;
+      smsByTemplate.set(tpl, cur);
     }
     // Daily cost trend — keyed by UTC date of the event.
     if (u.occurred_at) {
@@ -643,7 +669,6 @@ export async function GET(request: Request) {
   // table + provider invoices), not the code's historical defaults.
   const PROVIDERS: { event_type: string; label: string; color: string; unit: string; scale: number }[] = [
     { event_type: "call_minutes", label: "Twilio · Téléphonie", color: "#2563eb", unit: "min", scale: 1 },
-    { event_type: "sms",          label: "Twilio · SMS", color: "#e11d48", unit: "segments", scale: 1 },
     { event_type: "stt_minutes",  label: "AssemblyAI · STT", color: "#d97706", unit: "min", scale: 1 },
     { event_type: "tts_chars",    label: "ElevenLabs · TTS", color: "#059669", unit: "k chars", scale: 1000 },
     { event_type: "livekit",      label: "LiveKit · Infra + LLM", color: "#0ea5e9", unit: "min", scale: 1 },
@@ -781,6 +806,40 @@ export async function GET(request: Request) {
     previous.cost = Math.round(prevCents) / 100;
   }
 
+  // ── SMS cost panel (per template) ──────────────────────────────────────────
+  // Resolve each content_sid → a friendly template name from the org's
+  // campaigns (precall_message.sms / legacy precall_sms), so each SMS template
+  // shows up as its own labelled row with cost + avg segments + avg cost/SMS.
+  const smsNameByContentSid = new Map<string, string>();
+  if (smsByTemplate.size > 0) {
+    const { data: camps } = await sb.from("campaigns").select("metadata").eq("org_id", orgId);
+    for (const c of (camps ?? []) as Array<{ metadata: Record<string, unknown> | null }>) {
+      const pm = c.metadata as {
+        precall_message?: { sms?: { content_sid?: string; template_name?: string } };
+        precall_sms?: { content_sid?: string; template_name?: string };
+      } | null;
+      for (const s of [pm?.precall_message?.sms, pm?.precall_sms]) {
+        if (s?.content_sid && s?.template_name) smsNameByContentSid.set(s.content_sid, s.template_name);
+      }
+    }
+  }
+  const smsRows = Array.from(smsByTemplate.entries())
+    .map(([content_sid, v]) => ({
+      content_sid,
+      label: smsNameByContentSid.get(content_sid) || (content_sid === "unknown" ? "Sans template" : content_sid),
+      messages: v.count,
+      segments: v.segments,
+      avg_segments: v.count > 0 ? Math.round((v.segments / v.count) * 10) / 10 : 0,
+      cost: r2(v.cents),
+      avg_cost: v.count > 0 ? Math.round(v.cents / v.count) / 100 : 0,
+    }))
+    .sort((a, b) => b.cost - a.cost);
+  const sms_panel: SmsPanel = {
+    total: r2(Array.from(smsByTemplate.values()).reduce((a, v) => a + v.cents, 0)),
+    total_messages: Array.from(smsByTemplate.values()).reduce((a, v) => a + v.count, 0),
+    by_template: smsRows,
+  };
+
   const body: AnalyticsResponse = {
     from: from.toISOString(),
     to: to.toISOString(),
@@ -789,6 +848,7 @@ export async function GET(request: Request) {
     previous,
     business,
     cost_panel,
+    sms_panel,
     slots,
     eligibility,
     volume,
