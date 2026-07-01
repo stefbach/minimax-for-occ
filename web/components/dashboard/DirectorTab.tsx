@@ -271,7 +271,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
   return (
     <div style={{ display: "grid", gap: 16 }}>
       {/* KPI ROW */}
-      <div className="grid-kpi">
+      <div className="grid-kpi" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
         {tiles.map((tile) => {
           const inner = (
             <>
