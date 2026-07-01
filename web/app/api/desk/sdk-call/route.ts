@@ -119,6 +119,7 @@ export async function PATCH(req: Request) {
     call_id?: string;
     state?: "ringing" | "in_progress" | "wrap_up" | "ended";
     disposition?: string;
+    twilio_call_sid?: string;
   } | null;
   if (!body?.call_id || !body.state) {
     return NextResponse.json({ error: "call_id and state required" }, { status: 400 });
@@ -152,6 +153,12 @@ export async function PATCH(req: Request) {
   if (body.state === "ended") {
     patch.ended_at = new Date().toISOString();
     if (body.disposition) patch.disposition = body.disposition;
+  }
+  // Stamp Twilio's own CallSid (from Twilio.Device call.parameters.CallSid,
+  // available once the call is accepted) so the recording-status webhook —
+  // fired after the call ends — can find this row by twilio_call_sid.
+  if (body.twilio_call_sid && /^CA[0-9a-f]{32}$/i.test(body.twilio_call_sid)) {
+    patch.twilio_call_sid = body.twilio_call_sid;
   }
 
   const { data, error } = await admin

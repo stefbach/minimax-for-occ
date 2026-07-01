@@ -98,10 +98,21 @@ export async function POST(req: Request) {
   // Twilio's <Dial> bridges the calling WebRTC leg into the PSTN leg.
   // answerOnBridge keeps the originating SDK leg ringing until the PSTN
   // side answers — closer to a real softphone experience.
+  //
+  // record="record-from-answer-dual" captures both legs (agent + patient) as
+  // separate tracks from the moment the PSTN side picks up. Twilio POSTs the
+  // finished recording to recordingStatusCallback (the existing
+  // /api/twilio/recording-status webhook, shared with the AI dialer) — it
+  // resolves the calls row by top-level twilio_call_sid = the Dial's parent
+  // CallSid, which Softphone.tsx stamps on `accept` via call.parameters.CallSid.
+  const appUrl = (process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "");
+  const recordingCbAttr = appUrl
+    ? ` recordingStatusCallback="${escapeXml(`${appUrl}/api/twilio/recording-status`)}" recordingStatusCallbackEvent="completed"`
+    : "";
   const callerAttr = from ? ` callerId="${escapeXml(from)}"` : "";
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Dial answerOnBridge="true"${callerAttr}>
+  <Dial answerOnBridge="true" record="record-from-answer-dual"${recordingCbAttr}${callerAttr}>
     <Number>${escapeXml(to)}</Number>
   </Dial>
 </Response>`;

@@ -341,6 +341,7 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
         OrgId: handle.org_id,
       };
       if (humanFrom) params.HumanFrom = humanFrom;
+      if (callId) params.CallId = callId;
 
       const call = await device.connect({ params });
       twilioCallRef.current = call;
@@ -350,18 +351,23 @@ export function Softphone({ compact = false, onExpand }: SoftphoneProps = {}) {
       const patchCall = (
         state: "in_progress" | "ended",
         disposition?: string,
+        twilioCallSid?: string,
       ) => {
         if (!callId) return;
         void fetch("/api/desk/sdk-call", {
           method: "PATCH",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ call_id: callId, state, disposition }),
+          body: JSON.stringify({ call_id: callId, state, disposition, twilio_call_sid: twilioCallSid }),
         }).catch(() => {});
       };
 
       call.on("accept", () => {
         setTwilioCallState("in-progress");
-        patchCall("in_progress");
+        // call.parameters.CallSid is Twilio's own SID for this leg, only
+        // available once the call is accepted — stamp it on the row so the
+        // recording-status webhook (fired after hangup) can find it back.
+        const sid = (call as unknown as { parameters?: Record<string, string> }).parameters?.CallSid;
+        patchCall("in_progress", undefined, sid);
       });
       call.on("ringing", () => setTwilioCallState("ringing"));
       call.on("disconnect", () => {
