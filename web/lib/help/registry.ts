@@ -830,6 +830,7 @@ Suivi quotidien de l'activité de la coordinatrice Rain sur ses 4 listes de miss
 2. Cliquez sur une **carte de mission** pour filtrer la liste correspondante.
 3. Utilisez les filtres **Tous / Appelés / En attente** pour affiner.
 4. Cliquez sur un **nom de patient** pour ouvrir le détail de son dernier appel et générer l'analyse IA.
+5. Ouvrez la section **"Rapport de fin de journée"** en bas de l'onglet pour voir la synthèse IA de tous les appels du jour (verdict global, points forts, points à améliorer).
 
 ## Bonnes pratiques
 - Un rapport automatique est envoyé chaque jour à 18h30 (heure Maurice) sur Telegram avec le taux de complétion.
@@ -853,6 +854,7 @@ Daily tracking of coordinator Rain's activity across her 4 mission lists.
 2. Click a **mission card** to filter the matching list.
 3. Use the **All / Called / Pending** filters to narrow it down.
 4. Click a **patient's name** to open their last call detail and generate the AI analysis.
+5. Open the **"End-of-day report"** section at the bottom of the tab for an AI synthesis of every call placed that day (overall verdict, strengths, areas to improve).
 
 ## Best practices
 - An automatic report is sent every day at 6:30 PM (Mauritius time) on Telegram with the completion rate.

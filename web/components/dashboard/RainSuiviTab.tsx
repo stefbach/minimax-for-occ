@@ -4,10 +4,11 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import type { ReactNode } from "react";
 import {
   UserRound, RefreshCw, ClipboardList, Building2,
-  CheckCircle2, Clock, Sparkles, AlertTriangle, XCircle, MicOff, X,
+  CheckCircle2, Clock, Sparkles, AlertTriangle, XCircle, MicOff, X, FileBarChart, ChevronDown, ChevronUp,
 } from "lucide-react";
 import type { RainSuiviResponse, RainPatient, NhsPatient, RainMissionStats } from "@/app/api/dashboard/rain-suivi/route";
 import type { RainCallDetail, RainAiReview } from "@/app/api/dashboard/rain-call-detail/route";
+import type { RainDailyReportResponse, DailyReportCall } from "@/app/api/dashboard/rain-daily-report/route";
 
 type MissionTab = "humain" | "rappels" | "suivis" | "nhs";
 
@@ -585,6 +586,165 @@ function PatientDetailPanel({
   );
 }
 
+const RATING_DOT: Record<string, string> = {
+  bon: "var(--good)",
+  moyen: "var(--accent)",
+  insuffisant: "var(--bad)",
+};
+
+function DailyReportCallRow({ c }: { c: DailyReportCall }) {
+  const color = c.ai_review?.rating ? RATING_DOT[c.ai_review.rating] : "var(--muted)";
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
+      <span style={{ width: 8, height: 8, borderRadius: "50%", background: color, flexShrink: 0 }} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 600, fontSize: 13 }}>{c.nom ?? c.numero_telephone ?? "—"}</div>
+        {c.ai_review ? (
+          <div style={{ fontSize: 12, color: "var(--muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {c.ai_review.summary}
+          </div>
+        ) : (
+          <div style={{ fontSize: 12, color: "var(--muted)" }}>
+            {c.status === "no_recording" ? "Pas d'enregistrement" : c.status === "failed" ? `Échec analyse : ${c.error_message ?? ""}` : "Pas encore analysé"}
+          </div>
+        )}
+      </div>
+      <div style={{ fontSize: 11, color: "var(--muted)", flexShrink: 0 }}>{fmtDate(c.started_at)}</div>
+    </div>
+  );
+}
+
+function DailyReportSection({ date }: { date: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const [report, setReport] = useState<RainDailyReportResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadQuick = useCallback(() => {
+    setLoading(true);
+    setError(null);
+    fetch(`/api/dashboard/rain-daily-report?date=${date}`)
+      .then((r) => r.json())
+      .then((j: RainDailyReportResponse & { error?: string }) => {
+        if (j.error) setError(j.error);
+        else setReport(j);
+      })
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : "Erreur réseau"))
+      .finally(() => setLoading(false));
+  }, [date]);
+
+  useEffect(() => { if (expanded && !report) loadQuick(); }, [expanded, report, loadQuick]);
+  useEffect(() => { setReport(null); }, [date]);
+
+  function generateFull() {
+    setGenerating(true);
+    setError(null);
+    fetch("/api/dashboard/rain-daily-report", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ date }),
+    })
+      .then((r) => r.json())
+      .then((j: RainDailyReportResponse & { error?: string }) => {
+        if (j.error) setError(j.error);
+        else setReport(j);
+      })
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : "Erreur réseau"))
+      .finally(() => setGenerating(false));
+  }
+
+  const pendingCt = report?.calls.filter((c) => c.status === "skipped").length ?? 0;
+
+  return (
+    <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="ghost"
+        style={{
+          width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "14px 18px", borderRadius: 0, border: "none", background: "transparent",
+        }}
+      >
+        <span style={{ display: "flex", alignItems: "center", gap: 9, fontWeight: 700, fontSize: 15 }}>
+          <FileBarChart size={17} /> Rapport de fin de journée
+        </span>
+        {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+      </button>
+
+      {expanded && (
+        <div style={{ padding: "0 18px 18px", display: "flex", flexDirection: "column", gap: 14 }}>
+          {loading ? (
+            <div className="muted" style={{ padding: 12 }}>Chargement…</div>
+          ) : error ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--bad)", fontSize: 13 }}>
+              <AlertTriangle size={14} /> {error}
+            </div>
+          ) : report ? (
+            <>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 8 }}>
+                <div className="card" style={{ padding: "10px 12px" }}>
+                  <div style={{ fontSize: 20, fontWeight: 700 }}>{report.total_calls}</div>
+                  <div style={{ fontSize: 11, color: "var(--muted)" }}>Appels répondus</div>
+                </div>
+                <div className="card" style={{ padding: "10px 12px" }}>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: "var(--good)" }}>{report.analyzed}</div>
+                  <div style={{ fontSize: 11, color: "var(--muted)" }}>Analysés</div>
+                </div>
+                <div className="card" style={{ padding: "10px 12px" }}>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: "var(--good)" }}>{report.ratings.bon}</div>
+                  <div style={{ fontSize: 11, color: "var(--muted)" }}>Bons</div>
+                </div>
+                <div className="card" style={{ padding: "10px 12px" }}>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: "var(--accent)" }}>{report.ratings.moyen}</div>
+                  <div style={{ fontSize: 11, color: "var(--muted)" }}>Moyens</div>
+                </div>
+                <div className="card" style={{ padding: "10px 12px" }}>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: "var(--bad)" }}>{report.ratings.insuffisant}</div>
+                  <div style={{ fontSize: 11, color: "var(--muted)" }}>Insuffisants</div>
+                </div>
+              </div>
+
+              {report.synthesis && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  <div className="card" style={{ padding: 14 }}>
+                    <div style={{ fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>Verdict global</div>
+                    <div style={{ fontSize: 13.5, fontWeight: 600 }}>{report.synthesis.overall_verdict}</div>
+                  </div>
+                  <div className="card" style={{ padding: 14 }}>
+                    <div style={{ fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>Points forts</div>
+                    <div style={{ fontSize: 13, lineHeight: 1.5 }}>{report.synthesis.strengths}</div>
+                  </div>
+                  <div className="card" style={{ padding: 14 }}>
+                    <div style={{ fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>Points à améliorer</div>
+                    <div style={{ fontSize: 13, lineHeight: 1.5 }}>{report.synthesis.improvements}</div>
+                  </div>
+                </div>
+              )}
+
+              {pendingCt > 0 && (
+                <button onClick={generateFull} disabled={generating} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, padding: "9px 16px" }}>
+                  <Sparkles size={15} />
+                  {generating ? `Analyse en cours… (peut prendre plusieurs minutes)` : `Analyser les ${pendingCt} appel(s) restant(s)`}
+                </button>
+              )}
+
+              <details>
+                <summary style={{ cursor: "pointer", fontSize: 12.5, color: "var(--muted)" }}>
+                  Voir le détail par appel ({report.calls.length})
+                </summary>
+                <div style={{ marginTop: 8 }}>
+                  {report.calls.map((c) => <DailyReportCallRow key={c.call_id} c={c} />)}
+                </div>
+              </details>
+            </>
+          ) : null}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function RainSuiviTab({ refreshKey }: { refreshKey?: number }) {
   const [data, setData] = useState<RainSuiviResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -821,6 +981,8 @@ export function RainSuiviTab({ refreshKey }: { refreshKey?: number }) {
           </div>
         )}
       </div>
+
+      {dateRange.from === dateRange.to && <DailyReportSection date={dateRange.from} />}
 
       {selectedPatient && (
         <PatientDetailPanel patient={selectedPatient} onClose={() => setSelectedPatient(null)} />
