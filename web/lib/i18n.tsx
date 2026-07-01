@@ -845,6 +845,12 @@ const EN: Record<string, string> = {
   "Aucune table de phases configurée pour cette organisation.":
     "No phase table configured for this organisation.",
   // ── Auth pages ──
+  "Espace client": "Client area",
+  "Accédez à vos agents vocaux, vos campagnes et votre supervision en direct.": "Access your voice agents, campaigns and live supervision.",
+  "Déployez votre premier agent vocal — opérationnel en 48 heures.": "Deploy your first voice agent — live in 48 hours.",
+  "Finalisez votre compte pour rejoindre votre équipe sur Axon.": "Finalise your account to join your team on Axon.",
+  "Accueil": "Home",
+  "Pendant que vous dormez, votre entreprise avance.": "While you sleep, your business moves forward.",
   "Connexion": "Sign in",
   "Connexion…": "Signing in…",
   "Se connecter": "Sign in",
