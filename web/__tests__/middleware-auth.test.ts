@@ -148,10 +148,14 @@ describe("middleware auth + role resolution", () => {
 
   it("uses the role from the org pointed to by axon.org_id when valid", async () => {
     const { middleware } = await import("@/middleware");
-    state.perOrgMemberships = [{ org_id: "org-A", user_id: "user-1", role: "admin" }];
+    // /admin is platform-only (super_admin). Use super_admin here so the probe
+    // path actually exercises "the cookie-targeted org's role wins over the
+    // oldest membership": super_admin (org-A) is allowed through, whereas the
+    // agent fallback would be bounced.
+    state.perOrgMemberships = [{ org_id: "org-A", user_id: "user-1", role: "super_admin" }];
     state.oldestMembership = { role: "agent" };
 
-    // Cookie says org-A where user is admin → /admin should be allowed.
+    // Cookie says org-A where user is super_admin → /admin should be allowed.
     await middleware(
       makeRequest({ path: "/admin", cookies: { "axon.org_id": "org-A" } }) as never,
     );
