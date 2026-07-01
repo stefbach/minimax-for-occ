@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { AnalyticsResponse } from "@/app/api/dashboard/analytics/route";
 import { AlertTriangle, CalendarCheck, Clock, DollarSign, Flame, Lightbulb, Phone, Sparkles, Target } from "lucide-react";
 import { appendGlobalFilters, globalFiltersKey, DEFAULT_GLOBAL_FILTERS, type GlobalFilters } from "@/lib/global-filters";
+import { useT } from "@/lib/i18n";
 
 function fmtDuration(secs: number): string {
   const m = Math.floor(secs / 60);
@@ -36,6 +37,7 @@ function heatCellStyle(rate: number, total: number): { background: string; color
 }
 
 export function StatsTab({ from, to, direction, leadsSource = "prod", system = "all", global = DEFAULT_GLOBAL_FILTERS, campaignId }: { from: string; to: string; direction: string; leadsSource?: "prod" | "test"; system?: "all" | "retell" | "axon"; global?: GlobalFilters; campaignId?: string }) {
+  const t = useT();
   const [data, setData] = useState<AnalyticsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -118,22 +120,32 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
       </div>
       <style jsx>{`@keyframes stat-pulse{0%,100%{opacity:.4}50%{opacity:1}}`}</style>
 
-      {/* ─── CALL COSTS ─── */}
+      {/* ─── COST BREAKDOWN ─── */}
       {(() => {
         const cp = data.cost_panel;
         const maxOut = Math.max(1, ...cp.by_outcome.map((o) => o.cost));
         const maxHour = Math.max(0.01, ...cp.by_hour.map((h) => h.cost));
+        const maxDay = Math.max(0.01, ...(cp.by_day ?? []).map((d) => d.cost));
         const costTiles: { label: string; value: string; sub?: string; tone?: string }[] = [
-          { label: "Total spend", value: fmtMoney(cp.total), sub: `${k.total.toLocaleString()} calls`, tone: "var(--warn)" },
-          { label: "Avg cost / call", value: fmtMoney(cp.avg_per_call), tone: "var(--info)" },
-          { label: "Cost per appointment", value: cp.cost_per_rdv > 0 ? fmtMoney(cp.cost_per_rdv) : "—", tone: "var(--accent)" },
-          { label: "Wasted (wrong no. / no answer)", value: fmtMoney(cp.wasted), sub: `${pct(cp.wasted_pct)} of spend`, tone: "var(--bad)" },
+          { label: t("Dépense totale"), value: cp.total > 0 ? fmtMoney(cp.total) : t("Aucun coût"), sub: `${k.total.toLocaleString()} ${t("appels")}`, tone: "var(--warn)" },
+          { label: t("Coût moyen / appel"), value: fmtMoney(cp.avg_per_call), tone: "var(--info)" },
+          { label: t("Coût par RDV"), value: cp.cost_per_rdv > 0 ? fmtMoney(cp.cost_per_rdv) : "—", tone: "var(--accent)" },
+          { label: t("Gaspillé (faux n° / sans réponse)"), value: fmtMoney(cp.wasted), sub: `${pct(cp.wasted_pct)} ${t("de la dépense")}`, tone: "var(--bad)" },
         ];
         return (
           <div className="card">
-            <h3 style={{ marginTop: 0, marginBottom: 2, display: "flex", alignItems: "center", gap: 6 }}><DollarSign size={15} /> Call costs</h3>
-            <p className="muted" style={{ fontSize: 12, margin: "0 0 12px" }}>{fmtMoney(cp.total)} spent · {fmtMoney(data.previous.cost)} previous period</p>
-            <div className="grid-kpi" style={{ marginBottom: 14 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap", marginBottom: 2 }}>
+              <h3 style={{ marginTop: 0, marginBottom: 0, display: "flex", alignItems: "center", gap: 6 }}><DollarSign size={15} /> {t("Coûts des appels")}</h3>
+              <span className="muted" style={{ fontSize: 12 }}>
+                {fmtMoney(cp.total)} {t("dépensés")} · {fmtMoney(data.previous.cost)} {t("période précédente")}
+              </span>
+            </div>
+            <p className="muted" style={{ fontSize: 11, margin: "0 0 14px" }}>
+              {t("Dépenses réelles depuis")} <code>usage_events</code> · {t("respecte les filtres de période")}
+            </p>
+
+            {/* ── Headline KPI tiles ── */}
+            <div className="grid-kpi" style={{ marginBottom: 16 }}>
               {costTiles.map((tile) => (
                 <div key={tile.label} className="card" style={{ padding: 14 }}>
                   <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4 }}>{tile.label}</div>
@@ -142,26 +154,108 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
                 </div>
               ))}
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 16 }}>
+
+            {/* ── Provider breakdown cards ── */}
+            {cp.total === 0 ? (
+              <p className="muted" style={{ fontSize: 13, marginBottom: 16 }}>{t("Aucun coût enregistré pour cette période.")}</p>
+            ) : (
+              <>
+                <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, fontWeight: 600, marginBottom: 8 }}>
+                  {t("Répartition par fournisseur")}
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 16 }}>
+                  {(cp.by_provider ?? []).map((p) => (
+                    <div
+                      key={p.event_type}
+                      className="card"
+                      style={{
+                        padding: 14,
+                        borderColor: p.cost > 0 ? p.color : undefined,
+                        background: p.cost > 0 ? `color-mix(in srgb, ${p.color} 6%, transparent)` : undefined,
+                      }}
+                    >
+                      {/* Color chip + label */}
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                        <span style={{ width: 10, height: 10, borderRadius: 3, background: p.color, flexShrink: 0 }} />
+                        <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, color: p.cost > 0 ? p.color : "var(--muted)" }}>
+                          {p.label}
+                        </span>
+                      </div>
+                      {/* Cost */}
+                      <div style={{ fontSize: 26, fontWeight: 800, color: p.cost > 0 ? p.color : "var(--muted)", lineHeight: 1 }}>
+                        {fmtMoney(p.cost)}
+                      </div>
+                      {/* Quantity + percentage */}
+                      <div className="muted" style={{ fontSize: 11, marginTop: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span>{p.quantity > 0 ? `${p.quantity.toLocaleString()} ${p.unit}` : "—"}</span>
+                        <span style={{ fontWeight: 600, color: p.cost > 0 ? p.color : "var(--muted)" }}>
+                          {cp.total > 0 ? `${(p.pct * 100).toFixed(1)}%` : "0%"}
+                        </span>
+                      </div>
+                      {/* Free-tier badge for LiveKit */}
+                      {p.event_type === "livekit" && (
+                        <div className="muted" style={{ fontSize: 10, marginTop: 4 }}>{t("Gratuit — palier actuel")}</div>
+                      )}
+                      {/* Mini bar */}
+                      <div style={{ background: "var(--bg-2)", borderRadius: 3, height: 4, marginTop: 6, overflow: "hidden" }}>
+                        <div style={{ width: `${(p.pct * 100).toFixed(1)}%`, height: "100%", background: p.color }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {/* ── Daily cost trend + by-hour + by-outcome ── */}
+            <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1.2fr) minmax(0,1fr) minmax(0,1fr)", gap: 16, flexWrap: "wrap" }}>
+              {/* Daily trend */}
+              <div>
+                <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 8 }}>{t("Tendance journalière")}</div>
+                {(cp.by_day ?? []).length === 0 ? (
+                  <p className="muted" style={{ fontSize: 12 }}>{t("Aucune donnée.")}</p>
+                ) : (
+                  <>
+                    <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min((cp.by_day ?? []).length, 30)}, 1fr)`, gap: 2, alignItems: "end", height: 70 }}>
+                      {(cp.by_day ?? []).slice(-30).map((d) => (
+                        <div
+                          key={d.date}
+                          title={`${d.date} — ${fmtMoney(d.cost)}`}
+                          style={{
+                            background: d.cost > 0 ? "var(--warn)" : "var(--bg-2)",
+                            height: `${Math.max(4, (d.cost / maxDay) * 100)}%`,
+                            borderRadius: 2, minHeight: 2,
+                          }}
+                        />
+                      ))}
+                    </div>
+                    <div className="muted" style={{ fontSize: 9, display: "flex", justifyContent: "space-between", marginTop: 2 }}>
+                      <span>{(cp.by_day ?? [])[0]?.date ?? ""}</span>
+                      <span>{(cp.by_day ?? []).at(-1)?.date ?? ""}</span>
+                    </div>
+                  </>
+                )}
+              </div>
+
               {/* Cost by hour */}
               <div>
-                <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 8 }}>Cost by hour</div>
+                <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 8 }}>{t("Coût par heure")}</div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(24, 1fr)", gap: 2, alignItems: "end", height: 90 }}>
                   {cp.by_hour.map((h) => (
                     <div key={h.hour} title={`${h.hour}h — ${fmtMoney(h.cost)}`} style={{ background: h.cost > 0 ? "var(--warn)" : "var(--bg-2)", height: `${Math.max(2, (h.cost / maxHour) * 100)}%`, borderRadius: 2, minHeight: 2 }} />
                   ))}
                 </div>
-                <div className="muted" style={{ fontSize: 9, display: "flex", justifyContent: "space-between", marginTop: 2 }}><span>0h</span><span>6h</span><span>12h</span><span>18h</span><span>23h</span></div>
+                <div className="muted" style={{ fontSize: 9, display: "flex", justifyContent: "space-between", marginTop: 2 }}><span>0h</span><span>12h</span><span>23h</span></div>
               </div>
+
               {/* Cost by outcome */}
               <div>
                 <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 8 }}>Cost by outcome</div>
                 {cp.by_outcome.length === 0 ? (
                   <p className="muted" style={{ fontSize: 12 }}>No cost attributed.</p>
                 ) : cp.by_outcome.map((o) => (
-                  <div key={o.key} style={{ display: "grid", gridTemplateColumns: "120px 1fr 56px", gap: 8, alignItems: "center", marginBottom: 4 }}>
+                  <div key={o.key} style={{ display: "grid", gridTemplateColumns: "100px 1fr 52px", gap: 6, alignItems: "center", marginBottom: 4 }}>
                     <span style={{ fontSize: 11 }}>{o.label}</span>
-                    <div style={{ background: "var(--bg-2)", borderRadius: 4, height: 14, overflow: "hidden" }}>
+                    <div style={{ background: "var(--bg-2)", borderRadius: 4, height: 12, overflow: "hidden" }}>
                       <div style={{ width: `${(o.cost / maxOut) * 100}%`, height: "100%", background: "var(--warn)" }} />
                     </div>
                     <span className="muted" style={{ fontSize: 11, textAlign: "right" }}>{fmtMoney(o.cost)}</span>
@@ -202,23 +296,35 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
       {/* ─── TWO COLUMNS: Qualifications + Lead Source ─── */}
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 16 }}>
         <div className="card">
-          <h3 style={{ marginTop: 0 }}>Qualifications</h3>
+          <h3 style={{ marginTop: 0 }}>{t("Qualifications")}</h3>
           <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>
-            Outcome of each call, normalised into 9 categories
+            {t("Résultats des appels classés par catégorie")}
           </p>
           {data.qualifications.every((q) => q.count === 0) ? (
-            <p className="muted" style={{ fontSize: 13 }}>No qualifications in this period.</p>
+            <p className="muted" style={{ fontSize: 13 }}>{t("Aucune qualification sur la période.")}</p>
           ) : (
             <div style={{ display: "grid", gap: 4 }}>
-              {data.qualifications.map((q) => {
+              {[
+                ...data.qualifications.filter((q) => q.key === "passer_humain" || q.key === "pas_interesse"),
+                ...data.qualifications.filter((q) => q.key !== "passer_humain" && q.key !== "pas_interesse"),
+              ].map((q) => {
+                const isPriority = q.key === "passer_humain" || q.key === "pas_interesse";
+                const barColor = q.key === "passer_humain" ? "var(--good)" : q.key === "pas_interesse" ? "var(--bad)" : q.count > 0 ? "var(--accent)" : "transparent";
                 const max = Math.max(1, ...data.qualifications.map((x) => x.count));
                 return (
-                  <div key={q.key} style={{ display: "grid", gridTemplateColumns: "160px 1fr 40px", gap: 8, alignItems: "center" }}>
-                    <span style={{ fontSize: 12 }}>{q.label}</span>
-                    <div style={{ background: "var(--bg-2)", borderRadius: 4, overflow: "hidden", height: 14 }}>
-                      <div style={{ width: `${(q.count / max) * 100}%`, height: "100%", background: q.count > 0 ? "var(--accent)" : "transparent" }} />
+                  <div key={q.key} style={{
+                    display: "grid", gridTemplateColumns: "160px 1fr 40px", gap: 8, alignItems: "center",
+                    padding: isPriority ? "4px 6px" : "0",
+                    borderRadius: isPriority ? 5 : 0,
+                    background: isPriority
+                      ? q.key === "passer_humain" ? "color-mix(in srgb, var(--good) 8%, transparent)" : "color-mix(in srgb, var(--bad) 8%, transparent)"
+                      : "transparent",
+                  }}>
+                    <span style={{ fontSize: 12, fontWeight: isPriority ? 700 : 400, color: isPriority ? barColor : undefined }}>{t(q.label)}</span>
+                    <div style={{ background: "var(--bg-2)", borderRadius: 4, overflow: "hidden", height: isPriority ? 18 : 14 }}>
+                      <div style={{ width: `${(q.count / max) * 100}%`, height: "100%", background: barColor }} />
                     </div>
-                    <span className="muted" style={{ fontSize: 12, textAlign: "right" }}>{q.count}</span>
+                    <span style={{ fontSize: 12, textAlign: "right", fontWeight: isPriority ? 700 : 400, color: isPriority ? barColor : "var(--muted)" }}>{q.count}</span>
                   </div>
                 );
               })}

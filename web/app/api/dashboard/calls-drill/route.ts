@@ -198,8 +198,9 @@ export async function GET(request: Request) {
       const b = bucketForCall(r);
       if (qualParam === "unqualified") {
         if (b !== "autre") return false;
-      } else if (b !== qualParam) {
-        return false;
+      } else {
+        const qualList = qualParam.split(",").map((q) => q.trim());
+        if (!qualList.includes(b)) return false;
       }
     }
     return true;

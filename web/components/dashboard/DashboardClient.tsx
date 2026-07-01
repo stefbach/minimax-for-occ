@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { AlertTriangle, BarChart2, Building2, ClipboardList, Home, MessageSquare, Phone, PhoneIncoming, Radio, Sparkles, Users } from "lucide-react";
+import { AlertTriangle, BarChart2, Building2, ClipboardList, Home, MessageSquare, Phone, PhoneIncoming, Radio, Sparkles } from "lucide-react";
 import type { DashboardOverviewResponse } from "@/app/api/dashboard/overview/route";
 import type { NhsPatientsResponse } from "@/app/api/dashboard/nhs-suivi/patients/route";
 import { KpiGrid } from "./KpiGrid";
@@ -28,11 +28,10 @@ import { ReportButton } from "./ReportButton";
 import { ApiStatusPill } from "./ApiStatusPill";
 import { useT } from "@/lib/i18n";
 
-type TabId = "overview" | "stats" | "leads" | "logs" | "entrants" | "live" | "errors" | "ai" | "nhs" | "sms";
+type TabId = "overview" | "stats" | "logs" | "entrants" | "live" | "errors" | "ai" | "nhs" | "sms";
 const ALL_TABS: { id: TabId; label: string; icon: ReactNode }[] = [
   { id: "overview", label: "Vue d'ensemble", icon: <Home size={15} /> },
   { id: "stats", label: "Statistiques", icon: <BarChart2 size={15} /> },
-  { id: "leads", label: "Leads", icon: <Users size={15} /> },
   { id: "logs", label: "Call Logs", icon: <ClipboardList size={15} /> },
   { id: "entrants", label: "Entrants", icon: <PhoneIncoming size={15} /> },
   { id: "sms", label: "SMS", icon: <MessageSquare size={15} /> },
@@ -366,7 +365,7 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
         {tab !== "nhs" && tab !== "overview" && (() => {
           const active = TABS.find((x) => x.id === tab);
           if (!active) return null;
-          const periodScoped = tab === "stats" || tab === "logs" || tab === "entrants" || tab === "ai" || tab === "leads" || tab === "sms";
+          const periodScoped = tab === "stats" || tab === "logs" || tab === "entrants" || tab === "ai" || tab === "sms";
           return (
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
               <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
@@ -411,6 +410,7 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
             <PeriodBar period={period} filters={filters} onPeriod={setPeriod} onFilters={setFilters} />
             <DirectorTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} system={filters.system} slot={filters.slot} global={filters} refreshKey={refreshKey} campaignId={filters.campaignId} />
             {data && <CampaignsTable rows={data.campaigns} />}
+            <LeadsTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} system={filters.system} global={filters} refreshKey={refreshKey} orgId={orgId} campaignId={filters.campaignId} />
           </>
         )}
 
@@ -447,13 +447,6 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
               periodLabel={periodLabelFor(period)}
               campaignId={filters.campaignId}
             />
-          </>
-        )}
-
-        {tab === "leads" && (
-          <>
-            <PeriodBar period={period} filters={filters} onPeriod={setPeriod} onFilters={setFilters} />
-            <LeadsTab from={period.from} to={period.to} direction={filters.direction} leadsSource={filters.leadsSource} system={filters.system} global={filters} refreshKey={refreshKey} orgId={orgId} campaignId={filters.campaignId} />
           </>
         )}
 

@@ -97,6 +97,8 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
   const [qualifyMsg, setQualifyMsg] = useState<string | null>(null);
   // Drill-down: which card was clicked. null = sheet closed.
   const [drill, setDrill] = useState<DrillSpec | null>(null);
+  // Cost breakdown modal
+  const [costModalOpen, setCostModalOpen] = useState(false);
 
   // Every card opens the SAME sheet — passes the current period + direction +
   // leads source + calling-system, plus the per-card filter. Keeps all scoping
@@ -245,10 +247,9 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
   const tiles: Tile[] = [
     { label: t("Total appels"), value: k.totalCalls.toLocaleString(), icon: "📞", displayIcon: <Phone size={15} />, tone: "var(--info)", pctLabel: "100%", drill: {} },
     { label: t("Décrochés"), value: `${k.answeredUniqueContacts.toLocaleString()} · ${k.answeredPct.toFixed(0)}%`, icon: "✅", displayIcon: <CheckCircle2 size={15} />, tone: "var(--good)", drill: { answered: "yes" } },
-    // Cost is an aggregate over usage_events, not a call subset → no drill.
-    // Drill = every call in the period (each one contributed to the spend),
-    // mirroring the legacy "Cost consumed" panel.
-    { label: t("Coût consommé"), value: `$${k.cost.toFixed(2)}`, icon: "$", displayIcon: <span>$</span>, tone: "var(--warn)", drill: {} },
+    // Cost is an aggregate over usage_events — opens a provider breakdown modal,
+    // not a call logs drill (drill: null disables the default sheet).
+    { label: t("Coût consommé"), value: `$${k.cost.toFixed(2)}`, icon: "$", displayIcon: <span>$</span>, tone: "var(--warn)", drill: null },
     { label: t("RDV confirmés"), value: k.rdvConfirmed.toLocaleString(), icon: "📅", displayIcon: <CalendarCheck size={15} />, tone: "var(--good)", highlight: true, pctLabel: pct(k.rdvConfirmed), drill: { qualification: "rdv_confirme" } },
     // Conversion = RDV / Total → drill to the RDV calls (the numerator).
     { label: t("Taux de conversion"), value: `${k.conversionRate.toFixed(1)}%`, icon: "📈", displayIcon: <TrendingUp size={15} />, tone: "var(--accent-2)", drill: { qualification: "rdv_confirme" } },
@@ -287,6 +288,19 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
               )}
             </>
           );
+          // Cost card: drill is null but we still want a clickable card for the modal
+          if (tile.icon === "$") {
+            return (
+              <ClickCard
+                key={tile.label}
+                ariaLabel={`${tile.label} — ${t("voir la répartition des coûts")}`}
+                onClick={() => setCostModalOpen(true)}
+                style={{ padding: 16 }}
+              >
+                {inner}
+              </ClickCard>
+            );
+          }
           if (!tile.drill) {
             return (
               <div key={tile.label} className="card" style={{ padding: 16, borderColor: tile.highlight ? "var(--good)" : undefined }}>
@@ -357,25 +371,84 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
         ))}
       </div>
 
-      {/* QUALIFICATIONS GRID — 9 fixed cards */}
+      {/* QUALIFICATIONS GRID — efficacy heroes + remaining buckets */}
       <div className="card">
         <h3 style={{ marginTop: 0, marginBottom: 4 }}>{t("Qualifications")}</h3>
         <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>
           {t("Source")} : <code>calls.metadata.qualification</code> + <code>calls.disposition</code>
         </p>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10 }}>
+
+        {/* ── Efficacy hero row (Task 7) ── */}
+        {(() => {
+          const passerHumain = data.qualifications.find((q) => q.key === "passer_humain")?.count ?? 0;
+          const pasInteresse = data.qualifications.find((q) => q.key === "pas_interesse")?.count ?? 0;
+          const efficacyRate = pasInteresse > 0 ? (passerHumain / pasInteresse) * 100 : null;
+          return (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12, marginBottom: 14 }}>
+              {/* Efficacy Rate */}
+              <div className="card" style={{ padding: 16, borderColor: "var(--accent-2)", background: "color-mix(in srgb, var(--accent-2) 7%, transparent)" }}>
+                <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 700, color: "var(--accent-2)" }}>
+                  📊 {t("Taux d'efficacité")}
+                </div>
+                <div style={{ fontSize: 38, fontWeight: 800, marginTop: 6, color: "var(--accent-2)", lineHeight: 1 }}>
+                  {efficacyRate !== null ? `${efficacyRate.toFixed(1)}%` : "N/A"}
+                </div>
+                <div className="muted" style={{ fontSize: 11, marginTop: 6 }}
+                  title={t("Ratio de transferts à l'humain par rapport aux refus explicites")}>
+                  {t("Ratio transferts / refus")}
+                </div>
+              </div>
+              {/* À PASSER À L'HUMAIN — green */}
+              <ClickCard
+                ariaLabel={`${t("À PASSER À L'HUMAIN")} — ${t("voir les appels")}`}
+                onClick={() => openDrill(t("À PASSER À L'HUMAIN"), "🤝", "var(--good)", { qualification: "passer_humain" as QualBucket })}
+                style={{ padding: 16, borderColor: "var(--good)", borderWidth: 2, background: "color-mix(in srgb, var(--good) 8%, transparent)" }}
+              >
+                <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 700, color: "var(--good)" }}>🤝 {t("À PASSER À L'HUMAIN")}</div>
+                <div style={{ fontSize: 38, fontWeight: 800, marginTop: 6, color: "var(--good)", lineHeight: 1 }}>{passerHumain}</div>
+                <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>{t("Patients à confier à un expert")}</div>
+              </ClickCard>
+              {/* PAS INTÉRESSÉ — red */}
+              <ClickCard
+                ariaLabel={`${t("PAS INTÉRESSÉ")} — ${t("voir les appels")}`}
+                onClick={() => openDrill(t("PAS INTÉRESSÉ"), "✗", "var(--bad)", { qualification: "pas_interesse" as QualBucket })}
+                style={{ padding: 16, borderColor: "var(--bad)", borderWidth: 2, background: "color-mix(in srgb, var(--bad) 8%, transparent)" }}
+              >
+                <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 700, color: "var(--bad)" }}>✗ {t("PAS INTÉRESSÉ")}</div>
+                <div style={{ fontSize: 38, fontWeight: 800, marginTop: 6, color: "var(--bad)", lineHeight: 1 }}>{pasInteresse}</div>
+                <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>{t("Patients ayant décliné explicitement")}</div>
+              </ClickCard>
+            </div>
+          );
+        })()}
+
+        {/* ── Remaining buckets + merged Faux Numéro+DNR (Tasks 7+10) ── */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>
           {(() => {
-            // Merge RAPPEL into PAS DE REPONSE: a quick hang-up is a non-answer,
-            // not a genuine callback intent — Wati 30/06.
+            // Merge RAPPEL into PAS DE REPONSE (main's 30/06 change).
             const rappelCount = data.qualifications.find((q) => q.key === "rappel")?.count ?? 0;
-            return data.qualifications
-              .filter((q) => q.key !== "rappel")
+            // Merge FAUX NUMERO + NE PAS RAPPELER (Task 10).
+            const fauxNumeroCount = data.qualifications.find((q) => q.key === "faux_numero")?.count ?? 0;
+            const dnrCount = data.qualifications.find((q) => q.key === "ne_pas_rappeler")?.count ?? 0;
+            const mergedDnrCount = fauxNumeroCount + dnrCount;
+
+            const filtered = data.qualifications
+              .filter((q) => !["rappel", "passer_humain", "pas_interesse", "faux_numero", "ne_pas_rappeler"].includes(q.key))
               .map((q) => q.key === "pas_de_reponse" ? { ...q, count: q.count + rappelCount } : q);
+
+            const mergedDnrCard = { key: "faux_numero+dnr", label: "Faux numéro + DNR", count: mergedDnrCount };
+            return [...filtered, mergedDnrCard];
           })().map((q) => (
             <ClickCard
               key={q.key}
               ariaLabel={`${t(q.label)} — ${t("voir les appels")}`}
-              onClick={() => openDrill(t(q.label), "tag", "var(--accent)", { qualification: q.key as QualBucket })}
+              onClick={() => {
+                if (q.key === "faux_numero+dnr") {
+                  openDrill(t("Faux numéro + DNR"), "tag", "var(--muted)", { qualification: "faux_numero,ne_pas_rappeler" as QualBucket });
+                } else {
+                  openDrill(t(q.label), "tag", "var(--accent)", { qualification: q.key as QualBucket });
+                }
+              }}
               style={{ padding: 12, textAlign: "center", borderColor: q.count > 0 ? "var(--accent)" : undefined }}
             >
               <div style={{ fontSize: 24, fontWeight: 700, color: q.count > 0 ? "var(--accent)" : "var(--muted)" }}>
@@ -741,6 +814,79 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
         // and the tiles otherwise stay frozen on the data fetched at mount.
         onClosed={loadDirector}
       />
+
+      {/* ── Cost breakdown modal ── */}
+      {costModalOpen && data && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={t("Répartition des coûts")}
+          style={{
+            position: "fixed", inset: 0, zIndex: 1000,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            background: "rgba(0,0,0,0.45)",
+          }}
+          onClick={() => setCostModalOpen(false)}
+        >
+          <div
+            className="card"
+            style={{ padding: 24, minWidth: 340, maxWidth: 480, width: "90vw", position: "relative" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--warn)" }}>
+                  💰 {t("Répartition des coûts")}
+                </div>
+                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
+                  {from} → {to}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCostModalOpen(false)}
+                aria-label={t("Fermer")}
+                style={{ background: "none", border: "none", cursor: "pointer", fontSize: 18, color: "var(--muted)", lineHeight: 1, padding: 4 }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Total */}
+            <div style={{ textAlign: "center", marginBottom: 20, padding: "14px 0", borderTop: "1px solid var(--border)", borderBottom: "1px solid var(--border)" }}>
+              <div style={{ fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>{t("Total")}</div>
+              <div style={{ fontSize: 36, fontWeight: 800, color: "var(--warn)", lineHeight: 1 }}>
+                ${data.kpis.cost.toFixed(2)}
+              </div>
+            </div>
+
+            {/* Provider rows */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {(data.kpis.costByProvider ?? []).map((p) => (
+                <div key={p.event_type} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ width: 10, height: 10, borderRadius: 3, background: p.color, flexShrink: 0 }} />
+                  <span style={{ flex: 1, fontSize: 13, fontWeight: 500 }}>{p.label}</span>
+                  {p.freeTier && (
+                    <span style={{ fontSize: 10, color: "var(--muted)", marginRight: 4 }}>{t("Gratuit — palier actuel")}</span>
+                  )}
+                  <span style={{ fontSize: 14, fontWeight: 700, color: p.cost > 0 ? p.color : "var(--muted)" }}>
+                    ${p.cost.toFixed(2)}
+                  </span>
+                  <span style={{ fontSize: 11, color: "var(--muted)", width: 42, textAlign: "right" }}>
+                    {data.kpis.cost > 0 ? `${(p.pct * 100).toFixed(1)}%` : "0%"}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {/* Footer note */}
+            <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 16, paddingTop: 12, borderTop: "1px solid var(--border)" }}>
+              {t("Les coûts Retell AI (ancienne infrastructure) sont exclus.")}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

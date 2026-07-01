@@ -23,6 +23,15 @@ export const dynamic = "force-dynamic";
 
 const ACTIVE = new Set(["ringing", "ivr", "in_progress", "wrap_up"]);
 
+export type CostProviderRow = {
+  event_type: string;
+  label: string;
+  color: string;
+  cost: number;
+  pct: number;
+  freeTier?: boolean;
+};
+
 export type DirectorKpis = {
   totalCalls: number;
   answered: number;
@@ -30,6 +39,7 @@ export type DirectorKpis = {
   notAnswered: number;
   answeredPct: number;
   cost: number;
+  costByProvider: CostProviderRow[];
   rdvConfirmed: number;
   conversionRate: number;
   avgDuration: number;
@@ -317,26 +327,47 @@ export async function GET(request: Request) {
   // (or vice versa). Match on metadata.call_id which is what the agent
   // and Twilio status webhook both set.
   const inScopeIds = new Set(rows.map((r) => r.id));
-  const { rows: usage } = await fetchAllPaged<{ cost_cents: number; metadata: { call_id?: string } | null }>(
+  const { rows: usage } = await fetchAllPaged<{ event_type: string; cost_cents: number; metadata: { call_id?: string } | null }>(
     () =>
       sb
         .from("usage_events")
-        .select("cost_cents, metadata")
+        .select("event_type, cost_cents, metadata")
         .eq("org_id", orgId)
         .gte("occurred_at", from.toISOString())
-        .lte("occurred_at", to.toISOString()) as unknown as Rangeable<{ cost_cents: number; metadata: { call_id?: string } | null }>,
+        .lte("occurred_at", to.toISOString()) as unknown as Rangeable<{ event_type: string; cost_cents: number; metadata: { call_id?: string } | null }>,
   );
-  const cost =
-    usage
-      .filter((u) => {
-        const cid = u.metadata?.call_id;
-        // Keep events with no call_id only when there is no filter active
-        // (scope === null), otherwise we'd leak sandbox events back into
-        // the prod view.
-        if (!cid) return scope === null;
-        return inScopeIds.has(cid);
-      })
-      .reduce((a, u) => a + (Number(u.cost_cents) || 0), 0) / 100;
+  const COST_PROVIDERS: { event_type: string; label: string; color: string; freeTier?: boolean }[] = [
+    { event_type: "call_minutes", label: "Twilio Voice", color: "#2563eb" },
+    { event_type: "llm_tokens",   label: "AI (DeepSeek)", color: "#7c3aed" },
+    { event_type: "tts_chars",    label: "Text-to-Speech", color: "#059669" },
+    { event_type: "stt_minutes",  label: "Speech-to-Text", color: "#d97706" },
+    { event_type: "livekit",      label: "LiveKit", color: "#0ea5e9", freeTier: true },
+  ];
+  const providerCents: Record<string, number> = Object.fromEntries(COST_PROVIDERS.map((p) => [p.event_type, 0]));
+  let totalCostCents = 0;
+  const inScopeUsage = usage.filter((u) => {
+    if (u.event_type === "retell_call") return false;
+    const cid = u.metadata?.call_id;
+    if (!cid) return scope === null;
+    return inScopeIds.has(cid);
+  });
+  for (const u of inScopeUsage) {
+    const cents = Number(u.cost_cents) || 0;
+    totalCostCents += cents;
+    if (u.event_type in providerCents) providerCents[u.event_type] += cents;
+  }
+  const cost = Math.round(totalCostCents) / 100;
+  const costByProvider: CostProviderRow[] = COST_PROVIDERS.map((p) => {
+    const cents = providerCents[p.event_type] ?? 0;
+    return {
+      event_type: p.event_type,
+      label: p.label,
+      color: p.color,
+      cost: Math.round((cents / 100) * 100) / 100,
+      pct: totalCostCents > 0 ? cents / totalCostCents : 0,
+      freeTier: p.freeTier,
+    };
+  });
 
   // Chaîne d'agents — count distinct agents touched per call from call_events.
   // Initial agent is calls.agent_handle_id (may be null for inbound). Handoffs
@@ -516,7 +547,8 @@ export async function GET(request: Request) {
       answeredUniqueContacts,
       notAnswered,
       answeredPct: total ? (answered / total) * 100 : 0,
-      cost: Math.round(cost * 100) / 100,
+      cost,
+      costByProvider,
       rdvConfirmed,
       conversionRate: total ? (rdvConfirmed / total) * 100 : 0,
       avgDuration: answered ? Math.round(answeredDur / answered) : 0,
