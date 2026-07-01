@@ -143,7 +143,7 @@ Aucune URL/domaine figé dans le schéma → **rien à changer côté base** pou
 | **AssemblyAI** (STT) | Oui (défaut prod) | Non |
 | **DeepSeek / OpenAI / Anthropic** (LLM) | Oui (7/7/2 agents) | Non |
 | **Cartesia / ElevenLabs** (TTS) | Oui (8/5 agents) | Non |
-| **MiniMax / Replicate** (TTS) | Dispo (Voice Studio) | Non |
+| **MiniMax / Replicate** (TTS) | **Disponibles** (MiniMax : 17+17 voix dans le sélecteur) mais **aucun agent ne les utilise** aujourd'hui (voix réelles = Cartesia/ElevenLabs) | Non |
 | **n8n** | ❌ **NON** (0 binding en base) | — |
 | **Retell** | Legacy (route existe) | Oui si actif |
 | **Stripe** | Facturation | Oui (webhook) |
@@ -165,11 +165,23 @@ Aucune URL/domaine figé dans le schéma → **rien à changer côté base** pou
 
 > Pour tes collègues : rien ne change. `git push` → le web se redéploie tout seul ; `axon-ai.tech` montrera automatiquement la nouvelle version.
 
+### 6.1bis Inventaire réel des déploiements (vérifié dans les consoles LiveKit + Fly)
+- **LiveKit Cloud** — projet **`minimax`** (`p_3kreo1a8e9g`), **2 agents, tous deux RUNNING** :
+  - **`CA_PFUfvaBhC8Wk`** = **PROD** (nom `axon-voice-agent`). Secret **`NEXT_PUBLIC_APP_URL` présent**.
+  - **`CA_PbChboVCvPJC`** = **TEST**. Secret **`NEXT_PUBLIC_APP_URL` présent** aussi.
+  - ⚙️ Routage prod/test (`web/app/api/token/route.ts`) : **tant que `LIVEKIT_AGENT_NAME_TEST` n'est PAS défini sur Vercel, TOUT part sur la prod** — l'agent test ne reçoit alors aucun trafic. À vérifier : la valeur de `LIVEKIT_AGENT_NAME_TEST` côté Vercel dit si le test est actif.
+  - Les deux agents portent bien `HUMAN_FIRST_INBOUND` (mis à jour le 30/06 = activation des entrants), + toutes les clés STT/LLM/TTS.
+- **Fly.io** — **3 apps** :
+  - **`axon-agent`** (1 machine, CDG) — l'Agent vocal (même code que LiveKit Cloud).
+  - **`minimax-for-occ`** (2 machines, CDG) — le **Dialer**.
+  - **`minimax-for-occ-xfnyag`** (**Pending**, non déployée) — ⚠️ probablement une app **abandonnée/doublon**, à investiguer et sans doute à supprimer.
+- ➡️ **L'Agent tourne donc à 2-3 endroits** (LiveKit prod + LiveKit test + Fly `axon-agent`). Pour la migration, `NEXT_PUBLIC_APP_URL` doit être mis à jour **partout où l'agent tourne réellement** (au minimum LiveKit prod + Fly `axon-agent` ; aussi le test s'il est utilisé).
+
 ### 6.2 Les SEULES variables « URL vers le web » à changer
 | Variable | Où | Impact |
 |---|---|---|
 | **`APP_URL`** + **`NEXT_PUBLIC_APP_URL`** | **Vercel** (web) | Origine publique, liens, callbacks |
-| **`NEXT_PUBLIC_APP_URL`** | **Fly `axon-agent`** (+ LiveKit Cloud) | ⚠️ Post-appel (résumés/qualif) |
+| **`NEXT_PUBLIC_APP_URL`** | **Agent : LiveKit prod `CA_PFUfvaBhC8Wk` + Fly `axon-agent`** (+ LiveKit test `CA_PbChboVCvPJC` si utilisé) | ⚠️ Post-appel (résumés/qualif) — **secret déjà présent aux 3 endroits**, à repointer |
 | **`APP_URL`** | **Fly `minimax-for-occ`** (dialer) | Fallback TwiML + sync prix |
 | `STRIPE_SUCCESS_URL` / `CANCEL_URL` | Vercel (si posées) | — |
 
@@ -223,12 +235,13 @@ Aucune URL/domaine figé dans le schéma → **rien à changer côté base** pou
 
 1. **`DEEPGRAM_API_KEY`** = variable morte (STT réel = AssemblyAI).
 2. **`REDIS_URL`** = documentée mais **non utilisée** (dialer en mémoire) → README à corriger.
-3. **Agent = 2 déploiements** (Fly + LiveKit Cloud) → clarifier la vraie prod, mettre les secrets aux 2 endroits.
-4. **Deux `minimax-for-occ`** (Vercel web + Fly dialer) → risque de confusion.
-5. **Automatisations : sous-agents en `error`** (Agent 2..7 d'OCC) → à investiguer (ops, pas migration).
-6. **Commentaires de code périmés** : `voice-inbound/route.ts` dit « no real inbound live » — **faux** aujourd'hui.
-7. **Doc n8n obsolète** : les templates `n8n/` ne sont plus utilisés (moteur natif à la place).
-8. Migrations Supabase **appliquées à la main** (pas de `config.toml`) → process à documenter.
+3. **Agent = 2-3 déploiements vivants** (LiveKit prod `CA_PFUfvaBhC8Wk` + LiveKit test `CA_PbChboVCvPJC` + Fly `axon-agent`) → clarifier lesquels servent vraiment, mettre les secrets d'URL partout.
+4. **App Fly `minimax-for-occ-xfnyag` en "Pending"** → probablement abandonnée, à supprimer après vérification.
+5. **Deux `minimax-for-occ`** (Vercel web + Fly dialer) → risque de confusion.
+6. **Automatisations : sous-agents en `error`** (Agent 2..7 d'OCC) → à investiguer (ops, pas migration).
+7. **Commentaires de code périmés** : `voice-inbound/route.ts` dit « no real inbound live » — **faux** aujourd'hui.
+8. **Doc n8n obsolète** : les templates `n8n/` ne sont plus utilisés (moteur natif à la place).
+9. Migrations Supabase **appliquées à la main** (pas de `config.toml`) → process à documenter.
 
 ---
 
