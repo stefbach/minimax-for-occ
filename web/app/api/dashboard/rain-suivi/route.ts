@@ -153,9 +153,22 @@ export async function GET(req: Request) {
 
   const LEAD_COLS = "id, nom, numero_telephone, qualification, last_qualification_update, last_call_datetime, call_count, note, missing_documents, document_status";
 
+  // "À l'humain" is no longer every currently-qualified patient — Summer
+  // validates the evening before who actually gets a "Rain will call you
+  // tomorrow" notice, and only THOSE patients enter Rain's list for that
+  // target date (rain_call_notifications.status = 'sent').
+  const { data: sentNotifs } = await sb
+    .from("rain_call_notifications")
+    .select("lead_id")
+    .eq("status", "sent")
+    .gte("target_date", rangeFrom)
+    .lte("target_date", rangeTo);
+  const notifiedLeadIds = Array.from(new Set((sentNotifs ?? []).map((n) => n.lead_id)));
+
   const [humainRes, rappelsRes, suivisRes, nhsRes] = await Promise.all([
     sb.from("leads_rdv").select(LEAD_COLS)
-      .eq("qualification", "A PASSER A L'HUMAIN").eq("do_not_call", false)
+      .in("id", notifiedLeadIds.length > 0 ? notifiedLeadIds : ["00000000-0000-0000-0000-000000000000"])
+      .eq("do_not_call", false)
       .order("last_qualification_update", { ascending: false }),
 
     sb.from("leads_rdv").select(LEAD_COLS)

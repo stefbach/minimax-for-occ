@@ -865,6 +865,59 @@ Daily tracking of coordinator Rain's activity across her 4 mission lists.
 - [NHS S2 Tracking](/dashboard)`,
   },
 
+  "dashboard.rainValidation": {
+    title: "Rain Validation tab",
+    title_fr: "Onglet Validation Rain",
+    learnMoreHref: docHref("dashboard"),
+    fr: `## Validation Rain
+Chaque soir, Summer valide qui reçoit le message "Rain vous appellera demain" parmi les patients qualifiés "À passer à l'humain".
+
+## À quoi sert cet onglet
+- Voir tous les patients actuellement dans la qualification **"À passer à l'humain"**.
+- Choisir, pour chacun, le **canal** (SMS ou WhatsApp) du message de prévenance, ou ne rien envoyer.
+- Envoyer le message **ce soir** — le patient est prévenu que Rain l'appellera demain.
+- Seuls les patients **notifiés avec succès** entrent dans la liste "À l'humain" de Rain le lendemain.
+
+## Comment l'utiliser
+1. Vérifiez la **date cible** en haut à droite (par défaut : demain).
+2. Pour chaque patient, cliquez sur **SMS** ou **WhatsApp** pour le sélectionner.
+3. Utilisez l'icône **œil** pour prévisualiser le message exact avant l'envoi.
+4. Cliquez sur **"Valider et envoyer"** — les messages partent immédiatement.
+5. Les patients déjà notifiés apparaissent grisés avec un badge "Envoyé".
+
+## Bonnes pratiques
+- À faire **en fin de journée**, une fois que la qualification "à l'humain" du jour est stabilisée.
+- Un patient qui refuse ou ne répond pas peut être re-sélectionné un autre soir.
+
+## Liens utiles
+- [Suivi Rain](/dashboard)
+- [Contacts](/contacts)`,
+
+    default: `## Rain Validation tab
+Every evening, Summer validates who receives the "Rain will call you tomorrow" notice among patients qualified "needs human follow-up".
+
+## What this tab is for
+- See every patient currently qualified as **"needs human follow-up"**.
+- Choose, per patient, the **channel** (SMS or WhatsApp) for the heads-up message, or send nothing.
+- Send the message **tonight** — the patient is told Rain will call them tomorrow.
+- Only patients **successfully notified** enter Rain's "human follow-up" list the next day.
+
+## How to use it
+1. Check the **target date** in the top right (defaults to tomorrow).
+2. For each patient, click **SMS** or **WhatsApp** to select them.
+3. Use the **eye icon** to preview the exact message before sending.
+4. Click **"Validate and send"** — messages go out immediately.
+5. Already-notified patients appear greyed out with a "Sent" badge.
+
+## Best practices
+- Do this **at the end of the day**, once today's "needs human" qualifications have settled.
+- A patient who declines or doesn't answer can be re-selected another evening.
+
+## Useful links
+- [Rain tracking](/dashboard)
+- [Contacts](/contacts)`,
+  },
+
   // ──────────────────────────────────────────────────────────────────────
   // ANALYTICS
   // ──────────────────────────────────────────────────────────────────────
