@@ -861,6 +861,7 @@ const EN: Record<string, string> = {
   "Coût par outil (usage réel de la période)": "Cost per tool (real usage for the period)",
   "Coûts des SMS": "SMS costs",
   "Tous les templates": "All templates",
+  "Aucun coût SMS enregistré pour cette période — la section se remplit après le sync Twilio (bouton « Synchroniser Twilio » ou cron, en production).": "No SMS cost recorded for this period yet — this section fills in after the Twilio sync runs (the \"Sync Twilio\" button or the cron, in production).",
   "SMS pré-appel Twilio (coût réel réconcilié) — un carré par template pour comparer.": "Twilio pre-call SMS (real reconciled cost) — one card per template to compare.",
   "SMS envoyés": "SMS sent",
   "Segments moy. / SMS": "Avg segments / SMS",

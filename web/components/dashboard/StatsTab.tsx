@@ -313,7 +313,7 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
       })()}
 
       {/* ─── SMS COSTS (one card per template) ─── */}
-      {data.sms_panel.by_template.length > 0 && (() => {
+      {(() => {
         const all = data.sms_panel.by_template;
         const shown = smsTemplate === "all" ? all : all.filter((s) => s.content_sid === smsTemplate);
         const selTotal = shown.reduce((a, s) => a + s.cost, 0);
@@ -322,7 +322,7 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
           <div className="card">
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap", marginBottom: 2 }}>
               <h3 style={{ marginTop: 0, marginBottom: 0, display: "flex", alignItems: "center", gap: 6 }}><MessageSquare size={15} /> {t("Coûts des SMS")}</h3>
-              <span className="muted" style={{ fontSize: 12 }}>{fmtMoney(selTotal)} · {selMsgs.toLocaleString()} SMS</span>
+              {all.length > 0 && <span className="muted" style={{ fontSize: 12 }}>{fmtMoney(selTotal)} · {selMsgs.toLocaleString()} SMS</span>}
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "6px 0 14px", flexWrap: "wrap" }}>
               <span className="muted" style={{ fontSize: 11 }}>{t("SMS pré-appel Twilio (coût réel réconcilié) — un carré par template pour comparer.")}</span>
@@ -337,6 +337,9 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
                 </select>
               )}
             </div>
+            {all.length === 0 && (
+              <p className="muted" style={{ fontSize: 13 }}>{t("Aucun coût SMS enregistré pour cette période — la section se remplit après le sync Twilio (bouton « Synchroniser Twilio » ou cron, en production).")}</p>
+            )}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 10 }}>
               {shown.map((s) => (
                 <div key={s.content_sid} className="card" style={{ padding: 14, borderColor: "color-mix(in srgb, #e11d48 30%, transparent)" }}>
