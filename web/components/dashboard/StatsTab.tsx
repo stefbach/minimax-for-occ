@@ -261,8 +261,10 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
                 {cp.by_outcome.length === 0 ? (
                   <p className="muted" style={{ fontSize: 12 }}>{t("Aucun coût attribué.")}</p>
                 ) : cp.by_outcome.map((o) => (
-                  <div key={o.key} style={{ display: "grid", gridTemplateColumns: "100px 1fr 52px", gap: 6, alignItems: "center", marginBottom: 4 }}>
-                    <span style={{ fontSize: 11 }}>{t(o.label)}</span>
+                  <div key={o.key} style={{ display: "grid", gridTemplateColumns: "115px 1fr 52px", gap: 6, alignItems: "center", marginBottom: 4 }}>
+                    <span style={{ fontSize: 11 }}>
+                      {t(o.label)} <span className="muted" style={{ fontSize: 9 }}>×{o.count.toLocaleString()}</span>
+                    </span>
                     <div style={{ background: "var(--bg-2)", borderRadius: 4, height: 12, overflow: "hidden" }}>
                       <div style={{ width: `${(o.cost / maxOut) * 100}%`, height: "100%", background: "var(--warn)" }} />
                     </div>

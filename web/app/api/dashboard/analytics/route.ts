@@ -72,7 +72,7 @@ export type CostPanel = {
   cost_per_rdv: number;
   wasted: number;       // spend on faux_numero + pas_de_reponse
   wasted_pct: number;
-  by_outcome: { key: QualBucket; label: string; cost: number }[];
+  by_outcome: { key: QualBucket; label: string; cost: number; count: number }[];
   by_hour: { hour: number; cost: number }[];
   by_provider: ProviderRow[];                  // per event_type with quantity
   by_day: { date: string; cost: number }[];    // daily cost trend (YYYY-MM-DD)
@@ -623,12 +623,14 @@ export async function GET(request: Request) {
   // ── Cost panel: spend by outcome + by hour, plus headline tiles ──
   const d2 = (cents: number) => Math.round(cents) / 100;
   const outCost = new Map<QualBucket, number>();
+  const outCount = new Map<QualBucket, number>();
   const hourCost = new Array<number>(24).fill(0);
   let wastedCents = 0;
   for (const r of rows) {
     const c = costByCall.get(r.id) ?? 0;
     const b = bucketForCall(r);
     outCost.set(b, (outCost.get(b) ?? 0) + c);
+    outCount.set(b, (outCount.get(b) ?? 0) + 1);
     if (r.started_at) hourCost[new Date(r.started_at).getHours()] += c;
     if (b === "faux_numero" || b === "pas_de_reponse") wastedCents += c;
   }
@@ -670,8 +672,8 @@ export async function GET(request: Request) {
     wasted: d2(wastedCents),
     wasted_pct: totalCents > 0 ? wastedCents / totalCents : 0,
     by_outcome: QUAL_BUCKETS
-      .map((b) => ({ key: b.key, label: b.label, cost: d2(outCost.get(b.key) ?? 0) }))
-      .filter((x) => x.cost > 0)
+      .map((b) => ({ key: b.key, label: b.label, cost: d2(outCost.get(b.key) ?? 0), count: outCount.get(b.key) ?? 0 }))
+      .filter((x) => x.count > 0)
       .sort((a, b) => b.cost - a.cost),
     by_hour: hourCost.map((c, h) => ({ hour: h, cost: d2(c) })),
     by_provider,
