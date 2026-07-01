@@ -1,6 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
+import type { ReactNode } from "react";
+import {
+  UserRound, RefreshCw, ClipboardList, Building2,
+  CheckCircle2, Clock, Sparkles, AlertTriangle, XCircle, MicOff, X,
+} from "lucide-react";
 import type { RainSuiviResponse, RainPatient, NhsPatient, RainMissionStats } from "@/app/api/dashboard/rain-suivi/route";
 import type { RainCallDetail, RainAiReview } from "@/app/api/dashboard/rain-call-detail/route";
 
@@ -30,7 +35,7 @@ function MissionCard({
   onClick,
 }: {
   label: string;
-  icon: string;
+  icon: ReactNode;
   stats: RainMissionStats;
   active: boolean;
   onClick: () => void;
@@ -49,7 +54,7 @@ function MissionCard({
       }}
     >
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-        <span style={{ fontSize: 13, color: "var(--muted)" }}>{icon} {label}</span>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, color: "var(--muted)" }}>{icon} {label}</span>
         <span style={{ fontSize: 18, fontWeight: 700, color }}>{pct}%</span>
       </div>
       <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>
@@ -66,13 +71,19 @@ function CallStatus({ called, duration, disposition }: { called: boolean; durati
   if (called) {
     return (
       <div>
-        <span className="tag good">✅ Appelé</span>
+        <span className="tag good" style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+          <CheckCircle2 size={13} /> Appelé
+        </span>
         {disposition && <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>{disposition}</div>}
         {duration ? <div style={{ fontSize: 11, color: "var(--muted)" }}>{fmtDuration(duration)}</div> : null}
       </div>
     );
   }
-  return <span className="tag" style={{ background: "var(--bad-bg,#fef2f2)", color: "var(--bad)" }}>⏳ En attente</span>;
+  return (
+    <span className="tag" style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "var(--bad-bg,#fef2f2)", color: "var(--bad)" }}>
+      <Clock size={13} /> En attente
+    </span>
+  );
 }
 
 function PatientNameButton({ nom, onClick }: { nom: string | null; onClick: () => void }) {
@@ -385,10 +396,10 @@ function DateNavigator({
   );
 }
 
-const RATING_STYLE: Record<NonNullable<RainAiReview["rating"]>, { label: string; color: string }> = {
-  bon: { label: "✅ Bon appel", color: "var(--good)" },
-  moyen: { label: "⚠️ Moyen", color: "var(--accent)" },
-  insuffisant: { label: "❌ Insuffisant", color: "var(--bad)" },
+const RATING_STYLE: Record<NonNullable<RainAiReview["rating"]>, { label: string; color: string; icon: ReactNode }> = {
+  bon: { label: "Bon appel", color: "var(--good)", icon: <CheckCircle2 size={16} /> },
+  moyen: { label: "Moyen", color: "var(--accent)", icon: <AlertTriangle size={16} /> },
+  insuffisant: { label: "Insuffisant", color: "var(--bad)", icon: <XCircle size={16} /> },
 };
 
 function PatientDetailPanel({
@@ -486,7 +497,9 @@ function PatientDetailPanel({
               </a>
             )}
           </div>
-          <button onClick={onClose} className="ghost" style={{ padding: "4px 10px", fontSize: 13 }}>✕</button>
+          <button onClick={onClose} className="ghost" style={{ display: "grid", placeItems: "center", padding: "4px 8px" }}>
+            <X size={15} />
+          </button>
         </div>
 
         {loading ? (
@@ -520,8 +533,9 @@ function PatientDetailPanel({
                 <audio controls style={{ width: "100%" }} src={`/api/dashboard/call-recording?id=${encodeURIComponent(detail.call_id)}`} />
               </div>
             ) : (
-              <div className="card" style={{ padding: 14, fontSize: 12.5, color: "var(--muted)" }}>
-                🎙️ Pas d'enregistrement disponible pour cet appel (l'enregistrement automatique a été activé récemment — les appels à venir seront capturés).
+              <div className="card" style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: 14, fontSize: 12.5, color: "var(--muted)" }}>
+                <MicOff size={15} style={{ flexShrink: 0, marginTop: 1 }} />
+                <span>Pas d'enregistrement disponible pour cet appel (l'enregistrement automatique a été activé récemment — les appels à venir seront capturés).</span>
               </div>
             )}
 
@@ -529,7 +543,9 @@ function PatientDetailPanel({
             {detail.ai_review ? (
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                 {rating && (
-                  <div style={{ fontWeight: 700, color: RATING_STYLE[rating].color }}>{RATING_STYLE[rating].label}</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 7, fontWeight: 700, color: RATING_STYLE[rating].color }}>
+                    {RATING_STYLE[rating].icon} {RATING_STYLE[rating].label}
+                  </div>
                 )}
                 <div className="card" style={{ padding: 16 }}>
                   <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.4 }}>
@@ -552,11 +568,13 @@ function PatientDetailPanel({
               </div>
             ) : detail.has_recording ? (
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                <button onClick={runAnalysis} disabled={analyzing} style={{ padding: "9px 16px" }}>
-                  {analyzing ? "Analyse en cours… (peut prendre 1 min)" : "✨ Générer transcription + analyse IA"}
+                <button onClick={runAnalysis} disabled={analyzing} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, padding: "9px 16px" }}>
+                  {analyzing ? "Analyse en cours… (peut prendre 1 min)" : <><Sparkles size={15} /> Générer transcription + analyse IA</>}
                 </button>
                 {analysisError && (
-                  <div style={{ fontSize: 12.5, color: "var(--bad)" }}>⚠️ {analysisError}</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: "var(--bad)" }}>
+                    <AlertTriangle size={13} /> {analysisError}
+                  </div>
                 )}
               </div>
             ) : null}
@@ -594,11 +612,11 @@ export function RainSuiviTab({ refreshKey }: { refreshKey?: number }) {
   const ms = data?.mission_stats;
   const stats = data?.stats;
 
-  const TABS: { id: MissionTab; label: string; icon: string }[] = [
-    { id: "humain", label: "À l'humain", icon: "👤" },
-    { id: "rappels", label: "Rappels", icon: "🔁" },
-    { id: "suivis", label: "Suivis", icon: "📋" },
-    { id: "nhs", label: "NHS manquants", icon: "🏥" },
+  const TABS: { id: MissionTab; label: string; icon: ReactNode }[] = [
+    { id: "humain", label: "À l'humain", icon: <UserRound size={14} /> },
+    { id: "rappels", label: "Rappels", icon: <RefreshCw size={14} /> },
+    { id: "suivis", label: "Suivis", icon: <ClipboardList size={14} /> },
+    { id: "nhs", label: "NHS manquants", icon: <Building2 size={14} /> },
   ];
 
   function getList(): (RainPatient | NhsPatient)[] {
@@ -633,7 +651,9 @@ export function RainSuiviTab({ refreshKey }: { refreshKey?: number }) {
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 14 }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: 20 }}>Suivi activité — Rain 👩</h2>
+          <h2 style={{ margin: 0, fontSize: 20, display: "flex", alignItems: "center", gap: 9 }}>
+            <UserRound size={19} /> Suivi activité — Rain
+          </h2>
           {data?.generated_at && (
             <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
               Actualisé à {new Date(data.generated_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
@@ -652,8 +672,8 @@ export function RainSuiviTab({ refreshKey }: { refreshKey?: number }) {
             title="Actualiser"
             style={{ display: "grid", placeItems: "center", width: 38, height: 38, padding: 0, borderRadius: 10 }}
           >
-            <span style={{ display: "inline-block", transformOrigin: "center", animation: loading ? "rain-spin 0.8s linear infinite" : "none" }}>
-              ↻
+            <span style={{ display: "grid", placeItems: "center", animation: loading ? "rain-spin 0.8s linear infinite" : "none" }}>
+              <RefreshCw size={16} />
             </span>
           </button>
         </div>
@@ -661,7 +681,9 @@ export function RainSuiviTab({ refreshKey }: { refreshKey?: number }) {
       <style>{`@keyframes rain-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
 
       {error && (
-        <div className="card" style={{ color: "var(--bad)", padding: 14 }}>⚠️ {error}</div>
+        <div className="card" style={{ display: "flex", alignItems: "center", gap: 7, color: "var(--bad)", padding: 14 }}>
+          <AlertTriangle size={15} /> {error}
+        </div>
       )}
 
       {/* Overall KPIs */}
@@ -747,9 +769,9 @@ export function RainSuiviTab({ refreshKey }: { refreshKey?: number }) {
                 key={f}
                 className={filter === f ? "" : "ghost"}
                 onClick={() => setFilter(f)}
-                style={{ padding: "4px 12px", fontSize: 12 }}
+                style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "4px 12px", fontSize: 12 }}
               >
-                {f === "all" ? `Tous (${rawList.length})` : f === "done" ? `✅ (${doneCt})` : `⏳ (${pendingCt})`}
+                {f === "all" ? `Tous (${rawList.length})` : f === "done" ? <><CheckCircle2 size={12} /> {doneCt}</> : <><Clock size={12} /> {pendingCt}</>}
               </button>
             ))}
           </div>
@@ -758,8 +780,8 @@ export function RainSuiviTab({ refreshKey }: { refreshKey?: number }) {
         {loading && !data ? (
           <div className="card muted" style={{ padding: 24, textAlign: "center" }}>Chargement…</div>
         ) : visible.length === 0 ? (
-          <div className="card" style={{ padding: 24, textAlign: "center", color: "var(--muted)" }}>
-            {filter === "pending" ? "✅ Tous les patients de cette liste ont été contactés !" : "Aucun patient dans cette liste."}
+          <div className="card" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, padding: 24, textAlign: "center", color: "var(--muted)" }}>
+            {filter === "pending" ? (<><CheckCircle2 size={20} /> Tous les patients de cette liste ont été contactés !</>) : "Aucun patient dans cette liste."}
           </div>
         ) : activeTab === "nhs" ? (
           <div className="card" style={{ padding: 0, overflow: "hidden" }}>
