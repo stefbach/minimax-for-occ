@@ -4,7 +4,7 @@ import { Suspense, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabase-browser";
-import { Brand } from "@/components/brand/Brand";
+import { AuthMark } from "@/components/auth/AuthMark";
 import { useT } from "@/lib/i18n";
 
 function landingForRole(role: string | undefined): string {
@@ -93,49 +93,48 @@ function SignupForm() {
   }
 
   return (
-    <div className="card" style={{ display: "grid", gap: 14 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <Brand size={22} />
-        <span style={{ color: "var(--muted)", marginLeft: 6 }}>
-          · {token ? t("Acceptation d'invitation") : t("Inscription")}
-        </span>
+    <>
+      <div className="ax-auth-logo">
+        <AuthMark size={24} />
+        Axon<span className="acc">.</span>ai
       </div>
-      {token && (
-        <div className="tag" style={{ width: "fit-content" }}>
-          {t("Vous rejoignez une organisation existante")}
+      <div className="ax-auth-kicker">{token ? t("Acceptation d'invitation") : t("Inscription")}</div>
+      <h1 className="ax-auth-h">{token ? t("Rejoindre") : t("Créer un compte")}</h1>
+      <p className="ax-auth-sub">
+        {token
+          ? t("Finalisez votre compte pour rejoindre votre équipe sur Axon.")
+          : t("Déployez votre premier agent vocal — opérationnel en 48 heures.")}
+      </p>
+
+      {token && <div className="ax-auth-chip" style={{ marginBottom: 22 }}>{t("Vous rejoignez une organisation existante")}</div>}
+
+      <form className="ax-auth-form" onSubmit={onSubmit}>
+        <div className="ax-auth-field">
+          <label htmlFor="email">Email</label>
+          <input id="email" type="email" required value={email} placeholder="vous@entreprise.mu" onChange={(e) => setEmail(e.target.value)} />
         </div>
-      )}
-      <form onSubmit={onSubmit} style={{ display: "grid", gap: 12 }}>
-        <div>
-          <label>Email</label>
-          <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
-        </div>
-        <div>
-          <label>{t("Mot de passe (8+ caractères)")}</label>
-          <input
-            type="password"
-            required
-            minLength={8}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
+        <div className="ax-auth-field">
+          <label htmlFor="password">{t("Mot de passe (8+ caractères)")}</label>
+          <input id="password" type="password" required minLength={8} value={password} placeholder="••••••••" onChange={(e) => setPassword(e.target.value)} />
         </div>
         {!token && (
-          <div>
-            <label>{t("Nom de votre organisation")}</label>
-            <input value={orgName} onChange={(e) => setOrgName(e.target.value)} placeholder="Hôtel Belvédère, Tibok, etc." />
+          <div className="ax-auth-field">
+            <label htmlFor="org">{t("Nom de votre organisation")}</label>
+            <input id="org" value={orgName} onChange={(e) => setOrgName(e.target.value)} placeholder="Hôtel Belvédère, Tibok, etc." />
           </div>
         )}
-        {error && <div style={{ color: "var(--bad)", fontSize: 13 }}>{error}</div>}
-        {info && <div style={{ color: "var(--good)", fontSize: 13 }}>{info}</div>}
-        <button type="submit" disabled={busy || !email || !password}>
+        {error && <div className="ax-auth-msg ax-auth-err">{error}</div>}
+        {info && <div className="ax-auth-msg ax-auth-ok">{info}</div>}
+        <button className="ax-auth-btn" type="submit" disabled={busy || !email || !password}>
           {busy ? t("Création…") : token ? t("Rejoindre l'organisation") : t("Créer mon compte")}
         </button>
       </form>
-      <div style={{ fontSize: 13, color: "var(--muted)" }}>
-        {t("Déjà un compte ?")} <Link href={`/login${next ? `?next=${next}` : ""}`} style={{ color: "var(--accent-2)" }}>{t("Se connecter")}</Link>
+
+      <div className="ax-auth-alt">
+        {t("Déjà un compte ?")}{" "}
+        <Link href={`/login${next ? `?next=${next}` : ""}`} className="ax-auth-link">{t("Se connecter")}</Link>
       </div>
-    </div>
+    </>
   );
 }
 
