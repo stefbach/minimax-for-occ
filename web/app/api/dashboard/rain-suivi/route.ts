@@ -21,6 +21,7 @@ export type RainPatient = {
   called_today: boolean;
   call_duration_secs: number | null;
   call_disposition: string | null;
+  last_call_id: string | null;
 };
 
 export type NhsPatient = {
@@ -34,6 +35,7 @@ export type NhsPatient = {
   called_today: boolean;
   call_duration_secs: number | null;
   call_disposition: string | null;
+  last_call_id: string | null;
 };
 
 export type RainCallStat = {
@@ -96,13 +98,13 @@ export async function GET(req: Request) {
   const calls = rainCalls ?? [];
 
   // Phone → best call info (keep longest duration)
-  const callByPhone = new Map<string, { duration_secs: number | null; disposition: string | null }>();
+  const callByPhone = new Map<string, { id: string; duration_secs: number | null; disposition: string | null }>();
   for (const c of calls) {
     const phone = (c.to_e164 ?? c.from_e164 ?? "").replace(/\s/g, "");
     if (!phone) continue;
     const existing = callByPhone.get(phone);
     if (!existing || (existing.duration_secs ?? 0) < (c.duration_secs ?? 0)) {
-      callByPhone.set(phone, { duration_secs: c.duration_secs, disposition: c.disposition });
+      callByPhone.set(phone, { id: c.id, duration_secs: c.duration_secs, disposition: c.disposition });
     }
   }
 
@@ -128,6 +130,7 @@ export async function GET(req: Request) {
         called_today: Boolean(callInfo),
         call_duration_secs: callInfo?.duration_secs ?? null,
         call_disposition: callInfo?.disposition ?? null,
+        last_call_id: callInfo?.id ?? null,
       };
     });
   }
@@ -182,6 +185,7 @@ export async function GET(req: Request) {
       called_today: Boolean(callInfo),
       call_duration_secs: callInfo?.duration_secs ?? null,
       call_disposition: callInfo?.disposition ?? null,
+      last_call_id: callInfo?.id ?? null,
     };
   });
 

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { RainSuiviResponse, RainPatient, NhsPatient, RainMissionStats } from "@/app/api/dashboard/rain-suivi/route";
+import type { RainCallDetail, RainAiReview } from "@/app/api/dashboard/rain-call-detail/route";
 
 type MissionTab = "humain" | "rappels" | "suivis" | "nhs";
 
@@ -74,10 +75,26 @@ function CallStatus({ called, duration, disposition }: { called: boolean; durati
   return <span className="tag" style={{ background: "var(--bad-bg,#fef2f2)", color: "var(--bad)" }}>⏳ En attente</span>;
 }
 
-function LeadRow({ p }: { p: RainPatient }) {
+function PatientNameButton({ nom, onClick }: { nom: string | null; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="ghost"
+      style={{
+        padding: 0, border: "none", background: "none", fontWeight: 600,
+        color: "var(--text)", textDecoration: "underline", textDecorationColor: "var(--border-2)",
+        textUnderlineOffset: 3, cursor: "pointer", textAlign: "left",
+      }}
+    >
+      {nom ?? "—"}
+    </button>
+  );
+}
+
+function LeadRow({ p, onSelect }: { p: RainPatient; onSelect: (p: RainPatient) => void }) {
   return (
     <tr>
-      <td style={{ fontWeight: 600 }}>{p.nom ?? "—"}</td>
+      <td><PatientNameButton nom={p.nom} onClick={() => onSelect(p)} /></td>
       <td>
         {p.numero_telephone ? (
           <a href={`tel:${p.numero_telephone}`} style={{ color: "var(--accent-2)" }}>{p.numero_telephone}</a>
@@ -95,11 +112,11 @@ function LeadRow({ p }: { p: RainPatient }) {
   );
 }
 
-function NhsRow({ p }: { p: NhsPatient }) {
+function NhsRow({ p, onSelect }: { p: NhsPatient; onSelect: (p: NhsPatient) => void }) {
   const pct = p.dossier_completion_pct ?? 0;
   return (
     <tr>
-      <td style={{ fontWeight: 600 }}>{p.nom ?? "—"}</td>
+      <td><PatientNameButton nom={p.nom} onClick={() => onSelect(p)} /></td>
       <td>
         {p.numero_telephone ? (
           <a href={`tel:${p.numero_telephone}`} style={{ color: "var(--accent-2)" }}>{p.numero_telephone}</a>
@@ -313,6 +330,188 @@ function DateNavigator({
   );
 }
 
+const RATING_STYLE: Record<NonNullable<RainAiReview["rating"]>, { label: string; color: string }> = {
+  bon: { label: "✅ Bon appel", color: "var(--good)" },
+  moyen: { label: "⚠️ Moyen", color: "var(--accent)" },
+  insuffisant: { label: "❌ Insuffisant", color: "var(--bad)" },
+};
+
+function PatientDetailPanel({
+  patient,
+  onClose,
+}: {
+  patient: RainPatient | NhsPatient;
+  onClose: () => void;
+}) {
+  const [detail, setDetail] = useState<RainCallDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
+
+  const phone = (patient.numero_telephone ?? "").replace(/\s/g, "");
+  const lastCallId = "last_call_id" in patient ? patient.last_call_id : null;
+
+  const load = useCallback(() => {
+    if (!lastCallId && !phone) {
+      setDetail({ call_id: null, started_at: null, duration_secs: null, disposition: null, has_recording: false, ai_review: null });
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    const qs = lastCallId ? `call_id=${encodeURIComponent(lastCallId)}` : `phone=${encodeURIComponent(phone)}`;
+    fetch(`/api/dashboard/rain-call-detail?${qs}`)
+      .then((r) => r.json())
+      .then((j: RainCallDetail) => setDetail(j))
+      .catch(() => setDetail(null))
+      .finally(() => setLoading(false));
+  }, [phone, lastCallId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) { if (e.key === "Escape") onClose(); }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  function runAnalysis() {
+    if (!detail?.call_id) return;
+    setAnalyzing(true);
+    setAnalysisError(null);
+    fetch("/api/dashboard/rain-call-analysis", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ call_id: detail.call_id }),
+    })
+      .then((r) => r.json())
+      .then((j: { ok?: boolean; ai_review?: RainAiReview; error?: string; message?: string }) => {
+        if (j.ok && j.ai_review) {
+          setDetail((d) => (d ? { ...d, ai_review: j.ai_review! } : d));
+        } else {
+          setAnalysisError(j.message ?? j.error ?? "Analyse impossible.");
+        }
+      })
+      .catch((e: unknown) => setAnalysisError(e instanceof Error ? e.message : "Erreur réseau"))
+      .finally(() => setAnalyzing(false));
+  }
+
+  const rating = detail?.ai_review?.rating;
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0, zIndex: 60,
+        background: "rgba(6,8,13,0.6)",
+        display: "flex", justifyContent: "flex-end",
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: "min(480px, 100vw)",
+          height: "100%",
+          background: "var(--panel)",
+          borderLeft: "1px solid var(--border)",
+          overflowY: "auto",
+          padding: 24,
+          display: "flex",
+          flexDirection: "column",
+          gap: 18,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
+          <div>
+            <div style={{ fontSize: 17, fontWeight: 700 }}>{patient.nom ?? "—"}</div>
+            {patient.numero_telephone && (
+              <a href={`tel:${patient.numero_telephone}`} style={{ color: "var(--accent-2)", fontSize: 13 }}>
+                {patient.numero_telephone}
+              </a>
+            )}
+          </div>
+          <button onClick={onClose} className="ghost" style={{ padding: "4px 10px", fontSize: 13 }}>✕</button>
+        </div>
+
+        {loading ? (
+          <div className="card muted" style={{ padding: 20, textAlign: "center" }}>Chargement…</div>
+        ) : !detail?.call_id ? (
+          <div className="card" style={{ padding: 20, textAlign: "center", color: "var(--muted)" }}>
+            Aucun appel de Rain trouvé pour ce patient.
+          </div>
+        ) : (
+          <>
+            {/* Last call summary */}
+            <div className="card" style={{ padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.4 }}>Dernier appel</div>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+                <span>{fmtDate(detail.started_at)}</span>
+                <span style={{ color: "var(--muted)" }}>{detail.duration_secs ? fmtDuration(detail.duration_secs) : "—"}</span>
+              </div>
+              {detail.disposition && (
+                <span className="tag" style={{ width: "fit-content", background: "var(--panel-2)", color: "var(--text)" }}>
+                  {detail.disposition}
+                </span>
+              )}
+            </div>
+
+            {/* Audio player */}
+            {detail.has_recording && detail.call_id ? (
+              <div className="card" style={{ padding: 16 }}>
+                <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.4 }}>
+                  Enregistrement
+                </div>
+                <audio controls style={{ width: "100%" }} src={`/api/dashboard/call-recording?id=${encodeURIComponent(detail.call_id)}`} />
+              </div>
+            ) : (
+              <div className="card" style={{ padding: 14, fontSize: 12.5, color: "var(--muted)" }}>
+                🎙️ Pas d'enregistrement disponible pour cet appel (l'enregistrement automatique a été activé récemment — les appels à venir seront capturés).
+              </div>
+            )}
+
+            {/* AI review */}
+            {detail.ai_review ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                {rating && (
+                  <div style={{ fontWeight: 700, color: RATING_STYLE[rating].color }}>{RATING_STYLE[rating].label}</div>
+                )}
+                <div className="card" style={{ padding: 16 }}>
+                  <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.4 }}>
+                    Résumé de l'appel
+                  </div>
+                  <div style={{ fontSize: 13.5, lineHeight: 1.5 }}>{detail.ai_review.summary}</div>
+                </div>
+                <div className="card" style={{ padding: 16 }}>
+                  <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.4 }}>
+                    Analyse critique — prestation de Rain
+                  </div>
+                  <div style={{ fontSize: 13.5, lineHeight: 1.5 }}>{detail.ai_review.critique}</div>
+                </div>
+                <details>
+                  <summary style={{ cursor: "pointer", fontSize: 12.5, color: "var(--muted)" }}>Voir la transcription complète</summary>
+                  <div style={{ fontSize: 12.5, lineHeight: 1.6, color: "var(--muted)", whiteSpace: "pre-wrap", marginTop: 8 }}>
+                    {detail.ai_review.transcript}
+                  </div>
+                </details>
+              </div>
+            ) : detail.has_recording ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <button onClick={runAnalysis} disabled={analyzing} style={{ padding: "9px 16px" }}>
+                  {analyzing ? "Analyse en cours… (peut prendre 1 min)" : "✨ Générer transcription + analyse IA"}
+                </button>
+                {analysisError && (
+                  <div style={{ fontSize: 12.5, color: "var(--bad)" }}>⚠️ {analysisError}</div>
+                )}
+              </div>
+            ) : null}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function RainSuiviTab({ refreshKey }: { refreshKey?: number }) {
   const [data, setData] = useState<RainSuiviResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -320,6 +519,7 @@ export function RainSuiviTab({ refreshKey }: { refreshKey?: number }) {
   const [activeTab, setActiveTab] = useState<MissionTab>("humain");
   const [filter, setFilter] = useState<"all" | "done" | "pending">("all");
   const [selectedDate, setSelectedDate] = useState<string>(todayIso());
+  const [selectedPatient, setSelectedPatient] = useState<RainPatient | NhsPatient | null>(null);
 
   const load = useCallback((date: string) => {
     setLoading(true);
@@ -512,7 +712,7 @@ export function RainSuiviTab({ refreshKey }: { refreshKey?: number }) {
                 </tr>
               </thead>
               <tbody>
-                {(visible as NhsPatient[]).map((p) => <NhsRow key={p.id} p={p} />)}
+                {(visible as NhsPatient[]).map((p) => <NhsRow key={p.id} p={p} onSelect={setSelectedPatient} />)}
               </tbody>
             </table>
           </div>
@@ -530,12 +730,16 @@ export function RainSuiviTab({ refreshKey }: { refreshKey?: number }) {
                 </tr>
               </thead>
               <tbody>
-                {(visible as RainPatient[]).map((p) => <LeadRow key={p.id} p={p} />)}
+                {(visible as RainPatient[]).map((p) => <LeadRow key={p.id} p={p} onSelect={setSelectedPatient} />)}
               </tbody>
             </table>
           </div>
         )}
       </div>
+
+      {selectedPatient && (
+        <PatientDetailPanel patient={selectedPatient} onClose={() => setSelectedPatient(null)} />
+      )}
     </div>
   );
 }
