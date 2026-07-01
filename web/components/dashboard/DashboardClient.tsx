@@ -6,7 +6,7 @@ import type { ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   AlertTriangle, BarChart2, Building2, ClipboardList, Home, Phone, PhoneIncoming, Radio, Sparkles,
-  MessageSquare, Users, UserRound, Send,
+  MessageSquare, Users, UserRound,
 } from "lucide-react";
 import type { DashboardOverviewResponse } from "@/app/api/dashboard/overview/route";
 import type { NhsPatientsResponse } from "@/app/api/dashboard/nhs-suivi/patients/route";
@@ -24,7 +24,6 @@ import { AiInsightsTab } from "./AiInsightsTab";
 import { LeadsTab } from "./LeadsTab";
 import { NhsSuiviTab } from "./NhsSuiviTab";
 import { RainSuiviTab } from "./RainSuiviTab";
-import { RainValidationTab } from "./RainValidationTab";
 import { ErrorsAlertsTab } from "./ErrorsAlertsTab";
 import { PrecallSmsTab } from "./PrecallSmsTab";
 import { PeriodBar, presetToRange, DEFAULT_FILTERS, type Period, type Filters } from "./PeriodBar";
@@ -33,7 +32,7 @@ import { ReportButton } from "./ReportButton";
 import { ApiStatusPill } from "./ApiStatusPill";
 import { useT } from "@/lib/i18n";
 
-type TabId = "overview" | "stats" | "logs" | "entrants" | "sms" | "live" | "errors" | "ai" | "leads" | "nhs" | "rain" | "rainValidation";
+type TabId = "overview" | "stats" | "logs" | "entrants" | "sms" | "live" | "errors" | "ai" | "leads" | "nhs" | "rain";
 const ALL_TABS: { id: TabId; label: string; icon: ReactNode }[] = [
   { id: "overview", label: "Vue d'ensemble", icon: <Home size={15} /> },
   { id: "stats", label: "Statistiques", icon: <BarChart2 size={15} /> },
@@ -46,7 +45,6 @@ const ALL_TABS: { id: TabId; label: string; icon: ReactNode }[] = [
   { id: "leads", label: "Leads", icon: <Users size={15} /> },
   { id: "nhs", label: "Suivi NHS S2", icon: <Building2 size={15} /> },
   { id: "rain", label: "Suivi Rain", icon: <UserRound size={15} /> },
-  { id: "rainValidation", label: "Validation Rain", icon: <Send size={15} /> },
 ];
 
 // Short human label for the active period, e.g. "05/06" or "01/06 – 05/06".
@@ -76,7 +74,6 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
   const TABS = ALL_TABS.filter((t) => {
     if (t.id === "nhs") return showNhs;
     if (t.id === "rain") return showRain;
-    if (t.id === "rainValidation") return showRain;
     return true;
   });
   const t = useT();
@@ -376,7 +373,7 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
           );
         })()}
 
-        {tab !== "nhs" && tab !== "rain" && tab !== "rainValidation" && tab !== "overview" && (() => {
+        {tab !== "nhs" && tab !== "rain" && tab !== "overview" && (() => {
           const active = TABS.find((x) => x.id === tab);
           if (!active) return null;
           const periodScoped = tab === "stats" || tab === "logs" || tab === "entrants" || tab === "ai" || tab === "leads" || tab === "sms";
@@ -491,10 +488,6 @@ export function DashboardClient({ initial, initialError, orgId, orgSlug }: Props
 
         {tab === "rain" && showRain && (
           <RainSuiviTab refreshKey={refreshKey} />
-        )}
-
-        {tab === "rainValidation" && showRain && (
-          <RainValidationTab />
         )}
       </div>
     </div>

@@ -12,12 +12,20 @@ export const maxDuration = 120;
 // show up (once sent) in Rain's list for that target date.
 //
 // GET  ?date=YYYY-MM-DD  → candidates for that date: every currently
-//      qualified patient, each tagged with any existing notification row
-//      for that date (pending/sent/failed/rejected) or null if untouched.
-// POST { date, decisions: [{ lead_id, channel }] } → sends the notice to
-//      each decision (channel = "sms" | "whatsapp"), upserts the row with
-//      the outcome. Patients omitted from `decisions` are left untouched
-//      (Summer can call this multiple times through the evening).
+//      qualified patient, each tagged with any existing notification rows
+//      for that date (one per channel: pending/sent/failed/rejected).
+// POST { date, decisions: [{ lead_id, channels: ["sms","whatsapp"] }] } →
+//      sends the notice via each requested channel (both can be picked for
+//      the same patient), upserts a row per channel with the outcome.
+//      Patients omitted from `decisions` are left untouched (Summer can
+//      call this multiple times through the evening).
+
+export type ValidationNotification = {
+  channel: NotificationChannel;
+  status: "pending" | "sent" | "failed" | "rejected";
+  sent_at: string | null;
+  error: string | null;
+};
 
 export type ValidationCandidate = {
   lead_id: string;
@@ -26,12 +34,8 @@ export type ValidationCandidate = {
   qualification: string | null;
   last_qualification_update: string | null;
   note: string | null;
-  notification: {
-    channel: NotificationChannel;
-    status: "pending" | "sent" | "failed" | "rejected";
-    sent_at: string | null;
-    error: string | null;
-  } | null;
+  reason: string | null;
+  notifications: ValidationNotification[];
 };
 
 export type RainValidationResponse = {
@@ -40,6 +44,11 @@ export type RainValidationResponse = {
   callback_number: string;
   generated_at: string;
 };
+
+function summarizeReason(note: string | null, callOutcome: string | null, missingDocuments: string | null): string | null {
+  const parts = [note, callOutcome, missingDocuments].map((v) => (v ?? "").trim()).filter(Boolean);
+  return parts.length > 0 ? parts[0] : null;
+}
 
 export async function GET(req: Request) {
   await requestOrgId(req);
@@ -51,14 +60,14 @@ export async function GET(req: Request) {
 
   const { data: leads, error } = await sb
     .from("leads_rdv")
-    .select("id, nom, numero_telephone, qualification, last_qualification_update, note")
+    .select("id, nom, numero_telephone, qualification, last_qualification_update, note, call_outcome, missing_documents")
     .eq("qualification", "A PASSER A L'HUMAIN")
     .eq("do_not_call", false)
     .order("last_qualification_update", { ascending: false });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   const leadIds = (leads ?? []).map((l) => l.id);
-  const notifByLead = new Map<string, { channel: NotificationChannel; status: string; sent_at: string | null; error: string | null }>();
+  const notifsByLead = new Map<string, ValidationNotification[]>();
   if (leadIds.length > 0) {
     const { data: notifs } = await sb
       .from("rain_call_notifications")
@@ -66,24 +75,22 @@ export async function GET(req: Request) {
       .eq("target_date", targetDate)
       .in("lead_id", leadIds);
     for (const n of notifs ?? []) {
-      notifByLead.set(n.lead_id, { channel: n.channel, status: n.status, sent_at: n.sent_at, error: n.error });
+      const list = notifsByLead.get(n.lead_id) ?? [];
+      list.push({ channel: n.channel, status: n.status as ValidationNotification["status"], sent_at: n.sent_at, error: n.error });
+      notifsByLead.set(n.lead_id, list);
     }
   }
 
-  const candidates: ValidationCandidate[] = (leads ?? []).map((l) => {
-    const n = notifByLead.get(l.id);
-    return {
-      lead_id: l.id,
-      nom: l.nom,
-      numero_telephone: l.numero_telephone,
-      qualification: l.qualification,
-      last_qualification_update: l.last_qualification_update,
-      note: l.note,
-      notification: n
-        ? { channel: n.channel, status: n.status as "pending" | "sent" | "failed" | "rejected", sent_at: n.sent_at, error: n.error }
-        : null,
-    };
-  });
+  const candidates: ValidationCandidate[] = (leads ?? []).map((l) => ({
+    lead_id: l.id,
+    nom: l.nom,
+    numero_telephone: l.numero_telephone,
+    qualification: l.qualification,
+    last_qualification_update: l.last_qualification_update,
+    note: l.note,
+    reason: summarizeReason(l.note, l.call_outcome, l.missing_documents),
+    notifications: notifsByLead.get(l.id) ?? [],
+  }));
 
   return NextResponse.json({
     target_date: targetDate,
@@ -99,7 +106,7 @@ export async function POST(req: Request) {
 
   const body = (await req.json().catch(() => ({}))) as {
     date?: string;
-    decisions?: { lead_id: string; channel: NotificationChannel }[];
+    decisions?: { lead_id: string; channels: NotificationChannel[] }[];
   };
   const targetDate = body.date;
   const decisions = body.decisions ?? [];
@@ -114,32 +121,34 @@ export async function POST(req: Request) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   const leadById = new Map((leads ?? []).map((l) => [l.id, l]));
 
-  const results: { lead_id: string; ok: boolean; error?: string }[] = [];
+  const results: { lead_id: string; channel: NotificationChannel; ok: boolean; error?: string }[] = [];
 
   for (const d of decisions) {
     const lead = leadById.get(d.lead_id);
-    if (!lead || !lead.numero_telephone) {
-      results.push({ lead_id: d.lead_id, ok: false, error: "lead introuvable ou sans téléphone" });
-      continue;
+    for (const channel of d.channels ?? []) {
+      if (!lead || !lead.numero_telephone) {
+        results.push({ lead_id: d.lead_id, channel, ok: false, error: "lead introuvable ou sans téléphone" });
+        continue;
+      }
+
+      const sendResult = await sendRainNotice(lead.numero_telephone, lead.nom, channel, RAIN_CALLBACK_NUMBER);
+
+      await sb.from("rain_call_notifications").upsert(
+        {
+          lead_id: d.lead_id,
+          target_date: targetDate,
+          channel,
+          status: sendResult.ok ? "sent" : "failed",
+          twilio_sid: sendResult.sid ?? null,
+          error: sendResult.ok ? null : (sendResult.error ?? "échec inconnu").slice(0, 500),
+          validated_at: new Date().toISOString(),
+          sent_at: sendResult.ok ? new Date().toISOString() : null,
+        },
+        { onConflict: "lead_id,target_date,channel" },
+      );
+
+      results.push({ lead_id: d.lead_id, channel, ok: sendResult.ok, error: sendResult.ok ? undefined : sendResult.error });
     }
-
-    const sendResult = await sendRainNotice(lead.numero_telephone, lead.nom, d.channel, RAIN_CALLBACK_NUMBER);
-
-    await sb.from("rain_call_notifications").upsert(
-      {
-        lead_id: d.lead_id,
-        target_date: targetDate,
-        channel: d.channel,
-        status: sendResult.ok ? "sent" : "failed",
-        twilio_sid: sendResult.sid ?? null,
-        error: sendResult.ok ? null : (sendResult.error ?? "échec inconnu").slice(0, 500),
-        validated_at: new Date().toISOString(),
-        sent_at: sendResult.ok ? new Date().toISOString() : null,
-      },
-      { onConflict: "lead_id,target_date" },
-    );
-
-    results.push({ lead_id: d.lead_id, ok: sendResult.ok, error: sendResult.ok ? undefined : sendResult.error });
   }
 
   return NextResponse.json({

@@ -3,12 +3,13 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { ReactNode } from "react";
 import {
-  UserRound, RefreshCw, ClipboardList, Building2,
+  UserRound, RefreshCw, ClipboardList, Building2, Send,
   CheckCircle2, Clock, Sparkles, AlertTriangle, XCircle, MicOff, X, FileBarChart, ChevronDown, ChevronUp,
 } from "lucide-react";
 import type { RainSuiviResponse, RainPatient, NhsPatient, RainMissionStats } from "@/app/api/dashboard/rain-suivi/route";
 import type { RainCallDetail, RainAiReview } from "@/app/api/dashboard/rain-call-detail/route";
 import type { RainDailyReportResponse, DailyReportCall } from "@/app/api/dashboard/rain-daily-report/route";
+import { RainValidationTab } from "./RainValidationTab";
 
 type MissionTab = "humain" | "rappels" | "suivis" | "nhs";
 
@@ -745,7 +746,10 @@ function DailyReportSection({ date }: { date: string }) {
   );
 }
 
+type OuterTab = "suivi" | "validation";
+
 export function RainSuiviTab({ refreshKey }: { refreshKey?: number }) {
+  const [outerTab, setOuterTab] = useState<OuterTab>("suivi");
   const [data, setData] = useState<RainSuiviResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -814,7 +818,7 @@ export function RainSuiviTab({ refreshKey }: { refreshKey?: number }) {
           <h2 style={{ margin: 0, fontSize: 20, display: "flex", alignItems: "center", gap: 9 }}>
             <UserRound size={19} /> Suivi activité — Rain
           </h2>
-          {data?.generated_at && (
+          {outerTab === "suivi" && data?.generated_at && (
             <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
               Actualisé à {new Date(data.generated_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
               {" — "}
@@ -824,21 +828,45 @@ export function RainSuiviTab({ refreshKey }: { refreshKey?: number }) {
             </div>
           )}
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <DateNavigator value={dateRange} onChange={setDateRange} />
-          <button
-            onClick={() => load(dateRange)}
-            disabled={loading}
-            title="Actualiser"
-            style={{ display: "grid", placeItems: "center", width: 38, height: 38, padding: 0, borderRadius: 10 }}
-          >
-            <span style={{ display: "grid", placeItems: "center", animation: loading ? "rain-spin 0.8s linear infinite" : "none" }}>
-              <RefreshCw size={16} />
-            </span>
-          </button>
-        </div>
+        {outerTab === "suivi" && (
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <DateNavigator value={dateRange} onChange={setDateRange} />
+            <button
+              onClick={() => load(dateRange)}
+              disabled={loading}
+              title="Actualiser"
+              style={{ display: "grid", placeItems: "center", width: 38, height: 38, padding: 0, borderRadius: 10 }}
+            >
+              <span style={{ display: "grid", placeItems: "center", animation: loading ? "rain-spin 0.8s linear infinite" : "none" }}>
+                <RefreshCw size={16} />
+              </span>
+            </button>
+          </div>
+        )}
       </div>
       <style>{`@keyframes rain-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+
+      {/* Sub-tabs: daily monitoring vs Summer's evening validation */}
+      <div style={{ display: "flex", gap: 6, borderBottom: "1px solid var(--border)", paddingBottom: 2 }}>
+        {([
+          { id: "suivi" as const, label: "Suivi", icon: <UserRound size={14} /> },
+          { id: "validation" as const, label: "Validation Rain", icon: <Send size={14} /> },
+        ]).map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setOuterTab(t.id)}
+            className={outerTab === t.id ? "" : "ghost"}
+            style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 14px", fontSize: 13, fontWeight: 600, borderRadius: "8px 8px 0 0" }}
+          >
+            {t.icon} {t.label}
+          </button>
+        ))}
+      </div>
+
+      {outerTab === "validation" ? (
+        <RainValidationTab />
+      ) : (
+      <>
 
       {error && (
         <div className="card" style={{ display: "flex", alignItems: "center", gap: 7, color: "var(--bad)", padding: 14 }}>
@@ -986,6 +1014,8 @@ export function RainSuiviTab({ refreshKey }: { refreshKey?: number }) {
 
       {selectedPatient && (
         <PatientDetailPanel patient={selectedPatient} onClose={() => setSelectedPatient(null)} />
+      )}
+      </>
       )}
     </div>
   );

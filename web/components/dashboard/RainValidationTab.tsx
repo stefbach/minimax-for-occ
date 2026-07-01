@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { Send, MessageSquare, CheckCircle2, AlertTriangle, Clock, Eye } from "lucide-react";
-import type { RainValidationResponse, ValidationCandidate } from "@/app/api/dashboard/rain-validation/route";
+import type { RainValidationResponse, ValidationCandidate, ValidationNotification } from "@/app/api/dashboard/rain-validation/route";
 
 type Channel = "sms" | "whatsapp";
 
@@ -19,15 +19,33 @@ function tomorrowIso(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-function StatusBadge({ n }: { n: ValidationCandidate["notification"] }) {
-  if (!n) return null;
-  if (n.status === "sent") {
-    return <span className="tag good" style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><CheckCircle2 size={12} /> Envoyé ({n.channel})</span>;
-  }
-  if (n.status === "failed") {
-    return <span className="tag" style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "var(--bad-bg,#fef2f2)", color: "var(--bad)" }}><AlertTriangle size={12} /> Échec</span>;
-  }
-  return <span className="tag" style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "var(--panel-2)", color: "var(--muted)" }}><Clock size={12} /> {n.status}</span>;
+function NotifBadges({ notifications }: { notifications: ValidationNotification[] }) {
+  if (notifications.length === 0) return <span className="muted" style={{ fontSize: 12 }}>—</span>;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+      {notifications.map((n) => {
+        if (n.status === "sent") {
+          return (
+            <span key={n.channel} className="tag good" style={{ display: "inline-flex", alignItems: "center", gap: 5, width: "fit-content" }}>
+              <CheckCircle2 size={12} /> {n.channel === "sms" ? "SMS" : "WhatsApp"} envoyé
+            </span>
+          );
+        }
+        if (n.status === "failed") {
+          return (
+            <span key={n.channel} className="tag" style={{ display: "inline-flex", alignItems: "center", gap: 5, width: "fit-content", background: "var(--bad-bg,#fef2f2)", color: "var(--bad)" }}>
+              <AlertTriangle size={12} /> {n.channel === "sms" ? "SMS" : "WhatsApp"} échec
+            </span>
+          );
+        }
+        return (
+          <span key={n.channel} className="tag" style={{ display: "inline-flex", alignItems: "center", gap: 5, width: "fit-content", background: "var(--panel-2)", color: "var(--muted)" }}>
+            <Clock size={12} /> {n.channel === "sms" ? "SMS" : "WhatsApp"} {n.status}
+          </span>
+        );
+      })}
+    </div>
+  );
 }
 
 export function RainValidationTab() {
@@ -35,7 +53,7 @@ export function RainValidationTab() {
   const [data, setData] = useState<RainValidationResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<Record<string, Channel>>({});
+  const [selected, setSelected] = useState<Record<string, Channel[]>>({});
   const [sending, setSending] = useState(false);
   const [sendResult, setSendResult] = useState<{ sent: number; failed: number } | null>(null);
   const [previewName, setPreviewName] = useState<string | null>(null);
@@ -55,17 +73,23 @@ export function RainValidationTab() {
 
   useEffect(() => { setSelected({}); setSendResult(null); load(); }, [load]);
 
+  function isSentOn(candidate: ValidationCandidate, channel: Channel): boolean {
+    return candidate.notifications.some((n) => n.channel === channel && n.status === "sent");
+  }
+
   function toggle(leadId: string, channel: Channel) {
     setSelected((prev) => {
-      const next = { ...prev };
-      if (next[leadId] === channel) delete next[leadId];
-      else next[leadId] = channel;
-      return next;
+      const current = prev[leadId] ?? [];
+      const next = current.includes(channel) ? current.filter((c) => c !== channel) : [...current, channel];
+      const copy = { ...prev };
+      if (next.length === 0) delete copy[leadId];
+      else copy[leadId] = next;
+      return copy;
     });
   }
 
   function sendSelected() {
-    const decisions = Object.entries(selected).map(([lead_id, channel]) => ({ lead_id, channel }));
+    const decisions = Object.entries(selected).map(([lead_id, channels]) => ({ lead_id, channels }));
     if (decisions.length === 0) return;
     setSending(true);
     setSendResult(null);
@@ -88,21 +112,16 @@ export function RainValidationTab() {
   }
 
   const candidates = data?.candidates ?? [];
-  const pending = candidates.filter((c) => !c.notification || c.notification.status === "failed");
-  const done = candidates.filter((c) => c.notification?.status === "sent");
+  const done = candidates.filter((c) => c.notifications.some((n) => n.status === "sent"));
+  const pending = candidates.filter((c) => !c.notifications.some((n) => n.status === "sent"));
   const selectedCount = Object.keys(selected).length;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
-        <div>
-          <h2 style={{ margin: 0, fontSize: 20, display: "flex", alignItems: "center", gap: 9 }}>
-            <Send size={19} /> Validation Rain — appels de demain
-          </h2>
-          <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
-            Sélectionnez qui reçoit ce soir le message « Rain vous appellera demain » pour le{" "}
-            {new Date(`${date}T00:00:00`).toLocaleDateString("fr-FR", { weekday: "long", day: "2-digit", month: "long" })}.
-          </div>
+        <div className="muted" style={{ fontSize: 12 }}>
+          Sélectionnez qui reçoit ce soir le message « Rain vous appellera demain » pour le{" "}
+          {new Date(`${date}T00:00:00`).toLocaleDateString("fr-FR", { weekday: "long", day: "2-digit", month: "long" })}.
         </div>
         <input
           type="date"
@@ -153,6 +172,7 @@ export function RainValidationTab() {
               <tr>
                 <th>Patient</th>
                 <th>Téléphone</th>
+                <th>Pourquoi Rain doit appeler</th>
                 <th>Qualifié le</th>
                 <th>SMS</th>
                 <th>WhatsApp</th>
@@ -162,26 +182,30 @@ export function RainValidationTab() {
             </thead>
             <tbody>
               {candidates.map((c) => {
-                const isDone = c.notification?.status === "sent";
-                const choice = selected[c.lead_id];
+                const choices = selected[c.lead_id] ?? [];
+                const smsSent = isSentOn(c, "sms");
+                const waSent = isSentOn(c, "whatsapp");
                 return (
-                  <tr key={c.lead_id} style={{ opacity: isDone ? 0.6 : 1 }}>
+                  <tr key={c.lead_id}>
                     <td style={{ fontWeight: 600 }}>{c.nom ?? "—"}</td>
                     <td>
                       {c.numero_telephone ? (
                         <a href={`tel:${c.numero_telephone}`} style={{ color: "var(--accent-2)" }}>{c.numero_telephone}</a>
                       ) : "—"}
                     </td>
+                    <td style={{ color: "var(--muted)", fontSize: 12, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={c.reason ?? undefined}>
+                      {c.reason ?? "—"}
+                    </td>
                     <td style={{ color: "var(--muted)", fontSize: 12 }}>
                       {c.last_qualification_update ? new Date(c.last_qualification_update).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }) : "—"}
                     </td>
                     <td>
-                      <input type="radio" name={`ch-${c.lead_id}`} checked={choice === "sms"} disabled={isDone} onChange={() => toggle(c.lead_id, "sms")} />
+                      <input type="checkbox" checked={choices.includes("sms")} disabled={smsSent} onChange={() => toggle(c.lead_id, "sms")} />
                     </td>
                     <td>
-                      <input type="radio" name={`ch-${c.lead_id}`} checked={choice === "whatsapp"} disabled={isDone} onChange={() => toggle(c.lead_id, "whatsapp")} />
+                      <input type="checkbox" checked={choices.includes("whatsapp")} disabled={waSent} onChange={() => toggle(c.lead_id, "whatsapp")} />
                     </td>
-                    <td><StatusBadge n={c.notification} /></td>
+                    <td><NotifBadges notifications={c.notifications} /></td>
                     <td>
                       <button className="ghost" style={{ display: "grid", placeItems: "center", padding: "4px 8px" }} onClick={() => setPreviewName(c.nom ?? "Patient")} title="Prévisualiser le message">
                         <Eye size={14} />
@@ -205,7 +229,7 @@ export function RainValidationTab() {
           {sending ? "Envoi en cours…" : `Valider et envoyer (${selectedCount})`}
         </button>
         <span className="muted" style={{ fontSize: 12 }}>
-          Chaque patient sélectionné recevra le message ce soir, via le canal choisi (SMS ou WhatsApp).
+          Chaque patient sélectionné recevra le message ce soir, sur chaque canal coché (SMS et/ou WhatsApp).
         </span>
       </div>
 
