@@ -58,11 +58,11 @@ describe("effectiveModules — role defaults + per-user override", () => {
     }
   });
 
-  it("manager role, no override -> 12 default modules (no team, no settings)", () => {
+  it("manager role, no override -> 13 default modules (settings included, no team)", () => {
     const mods = effectiveModules({ role: "manager", visible_modules: null });
-    expect(mods.length).toBe(12);
+    expect(mods.length).toBe(13);
     expect(mods).not.toContain("team");
-    expect(mods).not.toContain("settings");
+    expect(mods).toContain("settings");
     // Spot-check the managerial workhorses are present.
     for (const m of ["dashboard", "campaigns", "agents", "calls"] as ModuleId[]) {
       expect(mods).toContain(m);
