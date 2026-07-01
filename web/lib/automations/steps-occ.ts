@@ -277,20 +277,29 @@ async function gmailIngestNhsResponse(rc: RunCtx, step: Record<string, unknown>,
 
   // 1) Detect an actual NHS submission send (vs. just a drafted email) by
   // checking the Sent folder for the cover email this patient's dossier used.
+  // Business rule: "En attente NHS" = a submission mail was sent from Dr
+  // Nedelcu's inbox to the NHS and no decision has come back yet. We stamp
+  // nhs_submission_status='in_review' (which the legacy dashboard view exposes,
+  // unlike submission_email_sent) so both "En attente NHS" and "Total dossiers"
+  // derive from it. A later decision email (step 2) overwrites this.
   if (!dossier.submission_email_sent) {
     try {
       const sentIds = await searchMessages(nedelcu, `in:sent "${nom}" subject:"NHS S2 Prior Authorisation Application"`, 5);
       if (sentIds.length > 0) {
         const first = await getMessageDetails(nedelcu, sentIds[sentIds.length - 1]);
-        const sentPatch = {
+        const sentAt = new Date(first.internalDateMs).toISOString();
+        const sentPatch: Record<string, unknown> = {
           submission_email_sent: true,
-          submission_date: new Date(first.internalDateMs).toISOString(),
+          submission_date: sentAt,
           submitted_by: "automation-detected",
+          nhs_submission_date: sentAt,
         };
+        // Only set in_review if there is not already a real decision on file.
+        if (!currentStatus) sentPatch.nhs_submission_status = "in_review";
         await rc.ds.client.from(dossierTable).update(sentPatch).eq("id", dossierId);
         await mirrorDossierPatch(patientId, sentPatch);
         rc.stats.actions++;
-        rc.log("info", `A8: detected NHS submission sent for ${nom}`);
+        rc.log("info", `A8: detected NHS submission sent for ${nom} → in_review`);
       }
     } catch (e) {
       rc.log("warn", `A8: sent-folder check failed: ${e instanceof Error ? e.message : e}`);
