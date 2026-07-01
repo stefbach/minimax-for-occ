@@ -112,6 +112,63 @@ export async function getMessageAttachments(cred: GmailCred, messageId: string):
   return out;
 }
 
+export interface GmailMessageDetails {
+  id: string;
+  subject: string;
+  from: string;
+  /** ms since epoch, from Gmail's internalDate. */
+  internalDateMs: number;
+  textBody: string;
+}
+
+function walkBodyText(part: MessagePart | undefined, out: { text?: string; html?: string }): void {
+  if (!part) return;
+  const data = part.body?.data;
+  if (part.mimeType === "text/plain" && data && !out.text) {
+    out.text = Buffer.from(b64urlToB64(data), "base64").toString("utf8");
+  }
+  if (part.mimeType === "text/html" && data && !out.html) {
+    out.html = Buffer.from(b64urlToB64(data), "base64").toString("utf8");
+  }
+  for (const p of part.parts ?? []) walkBodyText(p, out);
+}
+
+function stripHtml(html: string): string {
+  return html
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Fetch subject/sender/date + plain-text body of a message (no attachments). */
+export async function getMessageDetails(cred: GmailCred, messageId: string): Promise<GmailMessageDetails> {
+  const token = await accessToken(cred);
+  const r = await fetch(`${API}/messages/${messageId}?format=full`, {
+    headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!r.ok) throw new Error(`gmail get ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  const j = (await r.json()) as {
+    payload?: MessagePart & { headers?: Array<{ name: string; value: string }> };
+    internalDate?: string;
+  };
+  const headers = j.payload?.headers ?? [];
+  const h = (name: string) => headers.find((x) => x.name.toLowerCase() === name.toLowerCase())?.value ?? "";
+  const bodyOut: { text?: string; html?: string } = {};
+  walkBodyText(j.payload, bodyOut);
+  const textBody = bodyOut.text || (bodyOut.html ? stripHtml(bodyOut.html) : "");
+  return {
+    id: messageId,
+    subject: h("Subject"),
+    from: h("From"),
+    internalDateMs: Number(j.internalDate ?? 0) || Date.now(),
+    textBody: textBody.slice(0, 8000),
+  };
+}
+
 /**
  * RFC 2047 "encoded-word" for header values (e.g. a subject containing an
  * em dash or accents). Pure-ASCII values pass through unchanged. Non-ASCII
