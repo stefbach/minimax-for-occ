@@ -190,142 +190,197 @@ function ChevronGlyph({ dir }: { dir: "left" | "right" }) {
   );
 }
 
+function rangeLabel(from: string, to: string): string {
+  const f = new Date(`${from}T00:00:00`).toLocaleDateString("fr-FR", { day: "2-digit", month: "short" });
+  const t = new Date(`${to}T00:00:00`).toLocaleDateString("fr-FR", { day: "2-digit", month: "short" });
+  return `${f} → ${t}`;
+}
+
+export type DateRange = { from: string; to: string };
+
 function DateNavigator({
   value,
   onChange,
 }: {
-  value: string;
-  onChange: (iso: string) => void;
+  value: DateRange;
+  onChange: (range: DateRange) => void;
 }) {
-  const dateInputRef = useRef<HTMLInputElement>(null);
-  const isToday = value === todayIso();
-  const isYesterday = value === yesterdayIso();
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [draftFrom, setDraftFrom] = useState(value.from);
+  const [draftTo, setDraftTo] = useState(value.to);
+  const popoverRef = useRef<HTMLDivElement>(null);
 
-  function openPicker() {
-    const el = dateInputRef.current as (HTMLInputElement & { showPicker?: () => void }) | null;
-    if (!el) return;
-    if (typeof el.showPicker === "function") {
-      el.showPicker();
-    } else {
-      el.focus();
+  const isSingleDay = value.from === value.to;
+  const isToday = isSingleDay && value.from === todayIso();
+  const isYesterday = isSingleDay && value.from === yesterdayIso();
+  const isCustom = !isToday && !isYesterday;
+
+  useEffect(() => {
+    if (!pickerOpen) return;
+    setDraftFrom(value.from);
+    setDraftTo(value.to);
+    function onOutside(e: MouseEvent) {
+      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) setPickerOpen(false);
     }
+    document.addEventListener("mousedown", onOutside);
+    return () => document.removeEventListener("mousedown", onOutside);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pickerOpen]);
+
+  function applyDraft() {
+    const from = draftFrom <= draftTo ? draftFrom : draftTo;
+    const to = draftFrom <= draftTo ? draftTo : draftFrom;
+    onChange({ from, to: to > todayIso() ? todayIso() : to });
+    setPickerOpen(false);
   }
 
-  return (
-    <div
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 2,
-        padding: 3,
-        borderRadius: 11,
-        background: "var(--panel-2)",
-        border: "1px solid var(--border)",
-      }}
-    >
-      <button
-        aria-label="Jour précédent"
-        onClick={() => onChange(shiftIso(value, -1))}
-        style={{
-          display: "grid",
-          placeItems: "center",
-          width: 30,
-          height: 30,
-          padding: 0,
-          borderRadius: 8,
-          background: "transparent",
-          border: "none",
-          color: "var(--muted)",
-        }}
-        className="ghost"
-      >
-        <ChevronGlyph dir="left" />
-      </button>
+  function setSingleDay(iso: string) {
+    onChange({ from: iso, to: iso });
+    setPickerOpen(false);
+  }
 
-      <div style={{ display: "flex", gap: 2, padding: "0 2px" }}>
-        {(["today", "yesterday"] as const).map((k) => {
-          const iso = k === "today" ? todayIso() : yesterdayIso();
-          const active = k === "today" ? isToday : isYesterday;
-          return (
-            <button
-              key={k}
-              onClick={() => onChange(iso)}
-              style={{
-                padding: "6px 13px",
-                fontSize: 13,
-                fontWeight: 600,
-                borderRadius: 8,
-                border: "none",
-                background: active ? "var(--accent)" : "transparent",
-                color: active ? "#1a0d05" : "var(--text)",
-                transition: "background 0.15s ease, color 0.15s ease",
-              }}
-            >
-              {k === "today" ? "Aujourd'hui" : "Hier"}
-            </button>
-          );
-        })}
+  function shiftSingleDay(deltaDays: number) {
+    if (!isSingleDay) return;
+    const iso = shiftIso(value.from, deltaDays);
+    onChange({ from: iso, to: iso });
+  }
+
+  const label = isToday ? "Aujourd'hui" : isYesterday ? "Hier" : isSingleDay ? dateLabel(value.from) : rangeLabel(value.from, value.to);
+
+  return (
+    <div style={{ position: "relative", display: "inline-flex" }}>
+      <div
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 2,
+          padding: 3,
+          borderRadius: 11,
+          background: "var(--panel-2)",
+          border: "1px solid var(--border)",
+        }}
+      >
+        <button
+          aria-label="Jour précédent"
+          onClick={() => shiftSingleDay(-1)}
+          disabled={!isSingleDay}
+          style={{
+            display: "grid", placeItems: "center", width: 30, height: 30, padding: 0,
+            borderRadius: 8, background: "transparent", border: "none",
+            color: isSingleDay ? "var(--muted)" : "var(--border-2)",
+            cursor: isSingleDay ? "pointer" : "default",
+          }}
+          className="ghost"
+        >
+          <ChevronGlyph dir="left" />
+        </button>
+
+        <div style={{ display: "flex", gap: 2, padding: "0 2px" }}>
+          {(["today", "yesterday"] as const).map((k) => {
+            const iso = k === "today" ? todayIso() : yesterdayIso();
+            const active = k === "today" ? isToday : isYesterday;
+            return (
+              <button
+                key={k}
+                onClick={() => setSingleDay(iso)}
+                style={{
+                  padding: "6px 13px", fontSize: 13, fontWeight: 600, borderRadius: 8, border: "none",
+                  background: active ? "var(--accent)" : "transparent",
+                  color: active ? "#1a0d05" : "var(--text)",
+                  transition: "background 0.15s ease, color 0.15s ease",
+                }}
+              >
+                {k === "today" ? "Aujourd'hui" : "Hier"}
+              </button>
+            );
+          })}
+        </div>
+
+        <div style={{ width: 1, height: 20, background: "var(--border-2)", margin: "0 2px" }} />
+
+        <button
+          onClick={() => setPickerOpen((v) => !v)}
+          title="Choisir une date ou une plage"
+          style={{
+            display: "flex", alignItems: "center", gap: 7,
+            padding: "6px 12px 6px 10px", fontSize: 13,
+            fontWeight: isCustom ? 600 : 500,
+            borderRadius: 8, border: "none",
+            background: isCustom ? "var(--accent-soft)" : "transparent",
+            color: isCustom ? "var(--accent-2)" : "var(--muted)",
+          }}
+        >
+          <CalendarGlyph />
+          <span>{isCustom ? label : "Choisir…"}</span>
+        </button>
+
+        <button
+          aria-label="Jour suivant"
+          onClick={() => shiftSingleDay(1)}
+          disabled={!isSingleDay || isToday}
+          style={{
+            display: "grid", placeItems: "center", width: 30, height: 30, padding: 0,
+            borderRadius: 8, background: "transparent", border: "none",
+            color: (!isSingleDay || isToday) ? "var(--border-2)" : "var(--muted)",
+            cursor: (!isSingleDay || isToday) ? "default" : "pointer",
+          }}
+          className="ghost"
+        >
+          <ChevronGlyph dir="right" />
+        </button>
       </div>
 
-      <div style={{ width: 1, height: 20, background: "var(--border-2)", margin: "0 2px" }} />
-
-      <button
-        onClick={openPicker}
-        title="Choisir une date"
-        style={{
-          position: "relative",
-          display: "flex",
-          alignItems: "center",
-          gap: 7,
-          padding: "6px 12px 6px 10px",
-          fontSize: 13,
-          fontWeight: !isToday && !isYesterday ? 600 : 500,
-          borderRadius: 8,
-          border: "none",
-          background: !isToday && !isYesterday ? "var(--accent-soft)" : "transparent",
-          color: !isToday && !isYesterday ? "var(--accent-2)" : "var(--muted)",
-        }}
-      >
-        <CalendarGlyph />
-        <span>{!isToday && !isYesterday ? dateLabel(value) : "Choisir…"}</span>
-        <input
-          ref={dateInputRef}
-          type="date"
-          value={value}
-          max={todayIso()}
-          onChange={(e) => e.target.value && onChange(e.target.value)}
+      {pickerOpen && (
+        <div
+          ref={popoverRef}
           style={{
-            position: "absolute",
-            inset: 0,
-            width: "100%",
-            height: "100%",
-            opacity: 0,
-            border: "none",
-            cursor: "pointer",
+            position: "absolute", top: "calc(100% + 8px)", right: 0, zIndex: 50,
+            background: "var(--panel)", border: "1px solid var(--border)", borderRadius: 12,
+            padding: 16, width: 260, boxShadow: "0 12px 32px rgba(0,0,0,0.4)",
+            display: "flex", flexDirection: "column", gap: 12,
           }}
-        />
-      </button>
-
-      <button
-        aria-label="Jour suivant"
-        onClick={() => onChange(shiftIso(value, 1))}
-        disabled={isToday}
-        style={{
-          display: "grid",
-          placeItems: "center",
-          width: 30,
-          height: 30,
-          padding: 0,
-          borderRadius: 8,
-          background: "transparent",
-          border: "none",
-          color: isToday ? "var(--border-2)" : "var(--muted)",
-          cursor: isToday ? "default" : "pointer",
-        }}
-        className="ghost"
-      >
-        <ChevronGlyph dir="right" />
-      </button>
+        >
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.4 }}>
+            Choisir une plage
+          </div>
+          <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: "var(--muted)" }}>
+            Du
+            <input
+              type="date"
+              value={draftFrom}
+              max={todayIso()}
+              onChange={(e) => setDraftFrom(e.target.value)}
+              style={{
+                padding: "7px 10px", borderRadius: 8, border: "1px solid var(--border-2)",
+                background: "var(--panel-2)", color: "var(--text)", fontSize: 13,
+                colorScheme: "dark",
+              }}
+            />
+          </label>
+          <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: "var(--muted)" }}>
+            Au
+            <input
+              type="date"
+              value={draftTo}
+              max={todayIso()}
+              onChange={(e) => setDraftTo(e.target.value)}
+              style={{
+                padding: "7px 10px", borderRadius: 8, border: "1px solid var(--border-2)",
+                background: "var(--panel-2)", color: "var(--text)", fontSize: 13,
+                colorScheme: "dark",
+              }}
+            />
+          </label>
+          <div style={{ display: "flex", gap: 8, marginTop: 2 }}>
+            <button onClick={() => setPickerOpen(false)} className="ghost" style={{ flex: 1, padding: "7px 0", fontSize: 13 }}>
+              Annuler
+            </button>
+            <button onClick={applyDraft} style={{ flex: 1, padding: "7px 0", fontSize: 13 }}>
+              Appliquer
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -518,13 +573,13 @@ export function RainSuiviTab({ refreshKey }: { refreshKey?: number }) {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<MissionTab>("humain");
   const [filter, setFilter] = useState<"all" | "done" | "pending">("all");
-  const [selectedDate, setSelectedDate] = useState<string>(todayIso());
+  const [dateRange, setDateRange] = useState<DateRange>({ from: todayIso(), to: todayIso() });
   const [selectedPatient, setSelectedPatient] = useState<RainPatient | NhsPatient | null>(null);
 
-  const load = useCallback((date: string) => {
+  const load = useCallback((range: DateRange) => {
     setLoading(true);
     setError(null);
-    fetch(`/api/dashboard/rain-suivi?date=${date}`)
+    fetch(`/api/dashboard/rain-suivi?from=${range.from}&to=${range.to}`)
       .then((r) => r.json())
       .then((j: RainSuiviResponse & { error?: string }) => {
         if (j.error) { setError(j.error); setData(null); }
@@ -534,7 +589,7 @@ export function RainSuiviTab({ refreshKey }: { refreshKey?: number }) {
       .finally(() => setLoading(false));
   }, []);
 
-  useEffect(() => { load(selectedDate); }, [load, refreshKey, selectedDate]);
+  useEffect(() => { load(dateRange); }, [load, refreshKey, dateRange]);
 
   const ms = data?.mission_stats;
   const stats = data?.stats;
@@ -566,6 +621,11 @@ export function RainSuiviTab({ refreshKey }: { refreshKey?: number }) {
 
   const doneCt = rawList.filter((p) => p.called_today).length;
   const pendingCt = rawList.length - doneCt;
+  const statusColLabel = dateRange.from !== dateRange.to
+    ? "Statut sur la période"
+    : dateRange.from === todayIso()
+      ? "Statut aujourd'hui"
+      : "Statut ce jour";
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
@@ -577,14 +637,17 @@ export function RainSuiviTab({ refreshKey }: { refreshKey?: number }) {
           {data?.generated_at && (
             <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
               Actualisé à {new Date(data.generated_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
-              {" — "}Données du {new Date(`${selectedDate}T00:00:00`).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" })}
+              {" — "}
+              {dateRange.from === dateRange.to
+                ? <>Données du {new Date(`${dateRange.from}T00:00:00`).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" })}</>
+                : <>Données du {new Date(`${dateRange.from}T00:00:00`).toLocaleDateString("fr-FR", { day: "2-digit", month: "long" })} au {new Date(`${dateRange.to}T00:00:00`).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" })}</>}
             </div>
           )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <DateNavigator value={selectedDate} onChange={setSelectedDate} />
+          <DateNavigator value={dateRange} onChange={setDateRange} />
           <button
-            onClick={() => load(selectedDate)}
+            onClick={() => load(dateRange)}
             disabled={loading}
             title="Actualiser"
             style={{ display: "grid", placeItems: "center", width: 38, height: 38, padding: 0, borderRadius: 10 }}
@@ -708,7 +771,7 @@ export function RainSuiviTab({ refreshKey }: { refreshKey?: number }) {
                   <th>Statut dossier</th>
                   <th>Complété</th>
                   <th>Dernier contact</th>
-                  <th>Statut aujourd'hui</th>
+                  <th>{statusColLabel}</th>
                 </tr>
               </thead>
               <tbody>
@@ -725,7 +788,7 @@ export function RainSuiviTab({ refreshKey }: { refreshKey?: number }) {
                   <th>Téléphone</th>
                   <th>Mis à jour le</th>
                   <th>Nb appels</th>
-                  <th>Statut aujourd'hui</th>
+                  <th>{statusColLabel}</th>
                   <th>Note</th>
                 </tr>
               </thead>

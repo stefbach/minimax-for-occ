@@ -64,6 +64,8 @@ export type RainSuiviResponse = {
     overall: RainMissionStats;
   };
   selected_date: string;
+  range_from: string;
+  range_to: string;
   generated_at: string;
 };
 
@@ -80,14 +82,28 @@ export async function GET(req: Request) {
 
   const { searchParams } = new URL(req.url);
   const dateParam = searchParams.get("date"); // "YYYY-MM-DD", defaults to today
+  const fromParam = searchParams.get("from"); // range mode: "YYYY-MM-DD"
+  const toParam = searchParams.get("to");
 
-  const dayStart = dateParam ? new Date(`${dateParam}T00:00:00`) : new Date();
-  if (!dateParam) dayStart.setHours(0, 0, 0, 0);
-  const dayEnd = new Date(dayStart);
-  dayEnd.setHours(23, 59, 59, 999);
-  const selectedDate = dayStart.toISOString().slice(0, 10);
+  let dayStart: Date;
+  let dayEnd: Date;
+  if (fromParam || toParam) {
+    dayStart = new Date(`${fromParam ?? toParam}T00:00:00`);
+    dayEnd = new Date(`${toParam ?? fromParam}T23:59:59.999`);
+  } else if (dateParam) {
+    dayStart = new Date(`${dateParam}T00:00:00`);
+    dayEnd = new Date(dayStart);
+    dayEnd.setHours(23, 59, 59, 999);
+  } else {
+    dayStart = new Date();
+    dayStart.setHours(0, 0, 0, 0);
+    dayEnd = new Date(dayStart);
+    dayEnd.setHours(23, 59, 59, 999);
+  }
+  const rangeFrom = dayStart.toISOString().slice(0, 10);
+  const rangeTo = dayEnd.toISOString().slice(0, 10);
 
-  // Rain's calls for the selected day
+  // Rain's calls in the selected range (a single day when from === to)
   const { data: rainCalls } = await sb
     .from("calls")
     .select("id, started_at, duration_secs, disposition, to_e164, from_e164")
@@ -216,7 +232,9 @@ export async function GET(req: Request) {
       nhs: calcMission(nhs),
       overall,
     },
-    selected_date: selectedDate,
+    selected_date: rangeFrom,
+    range_from: rangeFrom,
+    range_to: rangeTo,
     generated_at: new Date().toISOString(),
   } satisfies RainSuiviResponse);
 }
