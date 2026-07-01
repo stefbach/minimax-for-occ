@@ -17,7 +17,7 @@
  *  - sections renumbered to stay contiguous after Pricing (§08) was dropped.
  */
 
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Instrument_Serif, JetBrains_Mono, Inter } from "next/font/google";
 import "./axon-home.css";
@@ -482,6 +482,31 @@ export default function AxonHome({ lang = "fr", spaceHref }: { lang?: Lang; spac
   const c = COPY[lang];
   const [filter, setFilter] = useState<string>("all");
   const [openIds, setOpenIds] = useState<Set<string>>(() => new Set([c.sectors.data[0].id]));
+
+  // Bridge the homepage's own language (FR at "/", EN at "/en") into the app's
+  // shared language store so it carries across "Sign in" → login → workspace.
+  // The rest of the app reads localStorage "axon.lang" (see lib/i18n.tsx and
+  // ThemeLangSwitcher); the marketing page has its own COPY[lang] system and
+  // never wrote it, so choosing EN on the homepage was lost after login. Mirror
+  // the exact write pattern ThemeLangSwitcher uses (key + event + <html> attrs).
+  useEffect(() => {
+    try {
+      localStorage.setItem("axon.lang", lang);
+    } catch {
+      /* localStorage unavailable */
+    }
+    try {
+      document.documentElement.setAttribute("data-lang", lang);
+      document.documentElement.setAttribute("lang", lang);
+    } catch {
+      /* ignore */
+    }
+    try {
+      window.dispatchEvent(new CustomEvent("axon:lang", { detail: lang }));
+    } catch {
+      /* ignore */
+    }
+  }, [lang]);
 
   const visibleSectors = useMemo(
     () => (filter === "all" ? c.sectors.data : c.sectors.data.filter((s) => s.id === filter)),
