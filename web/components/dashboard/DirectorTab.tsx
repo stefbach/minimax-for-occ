@@ -431,7 +431,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
               ariaLabel={`${t(q.label)} — ${t("voir les appels")}`}
               onClick={() => {
                 if (q.key === "faux_numero+dnr") {
-                  openDrill(t("Faux numéro + DNR"), "tag", "var(--muted)", { qualification: "faux_numero" as QualBucket });
+                  openDrill(t("Faux numéro + DNR"), "tag", "var(--muted)", { qualification: "faux_numero,ne_pas_rappeler" as QualBucket });
                 } else {
                   openDrill(t(q.label), "tag", "var(--accent)", { qualification: q.key as QualBucket });
                 }
