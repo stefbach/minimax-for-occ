@@ -126,17 +126,29 @@ function NhsRow({ p }: { p: NhsPatient }) {
   );
 }
 
+function todayIso(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function yesterdayIso(): string {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 export function RainSuiviTab({ refreshKey }: { refreshKey?: number }) {
   const [data, setData] = useState<RainSuiviResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<MissionTab>("humain");
   const [filter, setFilter] = useState<"all" | "done" | "pending">("all");
+  const [selectedDate, setSelectedDate] = useState<string>(todayIso());
 
-  const load = useCallback(() => {
+  const load = useCallback((date: string) => {
     setLoading(true);
     setError(null);
-    fetch("/api/dashboard/rain-suivi")
+    fetch(`/api/dashboard/rain-suivi?date=${date}`)
       .then((r) => r.json())
       .then((j: RainSuiviResponse & { error?: string }) => {
         if (j.error) { setError(j.error); setData(null); }
@@ -146,7 +158,7 @@ export function RainSuiviTab({ refreshKey }: { refreshKey?: number }) {
       .finally(() => setLoading(false));
   }, []);
 
-  useEffect(() => { load(); }, [load, refreshKey]);
+  useEffect(() => { load(selectedDate); }, [load, refreshKey, selectedDate]);
 
   const ms = data?.mission_stats;
   const stats = data?.stats;
@@ -189,12 +201,36 @@ export function RainSuiviTab({ refreshKey }: { refreshKey?: number }) {
           {data?.generated_at && (
             <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
               Actualisé à {new Date(data.generated_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
+              {" — "}Données du {new Date(`${selectedDate}T00:00:00`).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" })}
             </div>
           )}
         </div>
-        <button onClick={load} disabled={loading} style={{ padding: "6px 14px" }}>
-          {loading ? "Chargement…" : "↻ Actualiser"}
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <button
+            className={selectedDate === todayIso() ? "" : "ghost"}
+            onClick={() => setSelectedDate(todayIso())}
+            style={{ padding: "6px 12px", fontSize: 13 }}
+          >
+            Aujourd'hui
+          </button>
+          <button
+            className={selectedDate === yesterdayIso() ? "" : "ghost"}
+            onClick={() => setSelectedDate(yesterdayIso())}
+            style={{ padding: "6px 12px", fontSize: 13 }}
+          >
+            Hier
+          </button>
+          <input
+            type="date"
+            value={selectedDate}
+            max={todayIso()}
+            onChange={(e) => setSelectedDate(e.target.value)}
+            style={{ padding: "5px 8px", fontSize: 13, borderRadius: 6, border: "1px solid var(--border)", background: "var(--panel)", color: "var(--text)" }}
+          />
+          <button onClick={() => load(selectedDate)} disabled={loading} style={{ padding: "6px 14px" }}>
+            {loading ? "Chargement…" : "↻ Actualiser"}
+          </button>
+        </div>
       </div>
 
       {error && (

@@ -61,6 +61,7 @@ export type RainSuiviResponse = {
     nhs: RainMissionStats;
     overall: RainMissionStats;
   };
+  selected_date: string;
   generated_at: string;
 };
 
@@ -75,18 +76,22 @@ export async function GET(req: Request) {
 
   const sb = supabaseServer();
 
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
-  const todayEnd = new Date();
-  todayEnd.setHours(23, 59, 59, 999);
+  const { searchParams } = new URL(req.url);
+  const dateParam = searchParams.get("date"); // "YYYY-MM-DD", defaults to today
 
-  // Rain's calls today
+  const dayStart = dateParam ? new Date(`${dateParam}T00:00:00`) : new Date();
+  if (!dateParam) dayStart.setHours(0, 0, 0, 0);
+  const dayEnd = new Date(dayStart);
+  dayEnd.setHours(23, 59, 59, 999);
+  const selectedDate = dayStart.toISOString().slice(0, 10);
+
+  // Rain's calls for the selected day
   const { data: rainCalls } = await sb
     .from("calls")
     .select("id, started_at, duration_secs, disposition, to_e164, from_e164")
     .eq("agent_handle_id", RAIN_HANDLE_ID)
-    .gte("started_at", todayStart.toISOString())
-    .lte("started_at", todayEnd.toISOString());
+    .gte("started_at", dayStart.toISOString())
+    .lte("started_at", dayEnd.toISOString());
 
   const calls = rainCalls ?? [];
 
@@ -207,6 +212,7 @@ export async function GET(req: Request) {
       nhs: calcMission(nhs),
       overall,
     },
+    selected_date: selectedDate,
     generated_at: new Date().toISOString(),
   } satisfies RainSuiviResponse);
 }
