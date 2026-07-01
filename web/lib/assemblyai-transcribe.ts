@@ -24,10 +24,13 @@ export async function transcribeAudioBuffer(
   const headers = { authorization: apiKey };
 
   // 1. Upload the raw audio bytes, get back a temporary AssemblyAI-hosted URL.
+  // fetch's BodyInit doesn't include Node's Buffer type in the DOM lib typings
+  // used by this project — a plain Uint8Array view over the same bytes
+  // satisfies BodyInit without copying.
   const uploadRes = await fetch(`${ASSEMBLYAI_API}/upload`, {
     method: "POST",
     headers,
-    body: audioBuf,
+    body: new Uint8Array(audioBuf),
   });
   if (!uploadRes.ok) throw new Error(`assemblyai upload failed: ${await uploadRes.text()}`);
   const { upload_url } = (await uploadRes.json()) as { upload_url: string };
