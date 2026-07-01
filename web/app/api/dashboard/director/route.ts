@@ -335,6 +335,9 @@ export async function GET(request: Request) {
   let costCents = usage
     .filter((u) => {
       if (u.event_type === "retell_call") return false;
+      // SMS spend is reported in the Statistics "Coûts des SMS" section, not the
+      // call-cost "Coût consommé" tile — excluding it avoids double-counting.
+      if (u.event_type === "sms") return false;
       const cid = u.metadata?.call_id;
       // Keep events with no call_id only when there is no filter active
       // (scope === null), otherwise we'd leak sandbox events back into
