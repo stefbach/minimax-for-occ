@@ -1,8 +1,9 @@
 import { type RunCtx, loadCredential } from "./runtime";
 import { renderTemplate, type Ctx } from "./templating";
 import { analyzeFiles, generateText, runAgent, type AnthropicCred } from "./ai";
-import { searchMessages, getMessageAttachments, sendEmail, createDraft, type GmailCred, type GmailAttachment } from "./gmail";
+import { searchMessages, getMessageAttachments, getMessageDetails, sendEmail, createDraft, type GmailCred, type GmailAttachment } from "./gmail";
 import { uploadObject, downloadObject, publicUrl, upsertNhsDocument, renderPdf } from "./storage";
+import { mirrorDossierPatch } from "./nhs-legacy-sync";
 import { extractClinicalPrompt, medicalReportPrompt, undueDelayPrompt, s2SubmissionEmailPrompt } from "./prompts-occ";
 import { buildComms } from "./comms-occ";
 import { sendWhatsAppTemplate, sendWhatsAppFreeform } from "./whatsapp-twilio";
@@ -220,10 +221,9 @@ async function gmailIngestDocuments(rc: RunCtx, step: Record<string, unknown>, c
     }
     // Reflect named docs onto the dossier flags immediately.
     if (category.field && dossierId) {
-      await rc.ds.client
-        .from(dossierTable)
-        .update({ [category.field]: "received", [`${category.field}_url`]: url })
-        .eq("id", dossierId);
+      const docPatch = { [category.field]: "received", [`${category.field}_url`]: url };
+      await rc.ds.client.from(dossierTable).update(docPatch).eq("id", dossierId);
+      await mirrorDossierPatch(patientId, docPatch);
     }
     stored.push({ filename: a.filename, category: category.name, doc_field: category.field, public_url: url });
     rc.stats.actions++;
@@ -233,6 +233,135 @@ async function gmailIngestDocuments(rc: RunCtx, step: Record<string, unknown>, c
   ctx.stored_count = stored.length;
   ctx.stored = stored;
   rc.log("info", `A3: ${atts.length} attachments, ${stored.length} stored for ${nom || patientId}`);
+}
+
+// ── Agent 8: NHS Response Ingest (reads Dr Nedelcu's mailbox for real NHS
+// decisions and writes nhs_submission_status so the dashboard's submitted /
+// approved / rejected / in-review / elements-requis counts are driven by
+// actual correspondence instead of a manually maintained report) ────────────
+
+const NHS_VERDICT_PROMPT = `You are reading an email that may be a reply from the NHS (or an NHS-commissioning body / ICB) regarding a patient's S2 funded-treatment application for bariatric surgery abroad. Read the email content below and decide which ONE of the following best describes it:
+- approved — the NHS has approved / accepted the funding request
+- rejected — the NHS has rejected / declined / refused the request
+- info_requested — the NHS is asking for additional documents, evidence, or clarification before it can decide
+- in_review — the NHS confirms receipt and says the case is under review / being assessed, with no decision yet
+- unrelated — this email is not an NHS decision/response about this patient's S2 application at all (e.g. spam, an unrelated automated notice, or a message about a different patient)
+Respond with ONLY one of these five words, nothing else.`;
+
+const NHS_VERDICT_TO_STATUS: Record<string, string> = {
+  approved: "approved",
+  rejected: "rejected",
+  info_requested: "info_requested",
+  in_review: "in_review",
+};
+
+async function gmailIngestNhsResponse(rc: RunCtx, step: Record<string, unknown>, ctx: Ctx): Promise<void> {
+  const anthropic = (await cred(rc, step.anthropic_credential_id as string)) as AnthropicCred | null;
+  const nedelcu = (await cred(rc, step.gmail_nedelcu_credential_id as string)) as GmailCred | null;
+  if (!anthropic || !nedelcu) { rc.log("warn", "A8: anthropic/nedelcu credential missing — skipping"); rc.stats.skipped++; return; }
+  const dossierTable = String(step.table_dossier ?? "nhs_dossiers");
+  const responsesTable = String(step.table_responses ?? "nhs_response_emails");
+  const maxMessages = Number(step.max_messages ?? 15);
+
+  const patientId = String(ctx.patient_id ?? "");
+  const dossierId = String(ctx.dossier_id ?? "");
+  const nom = String(ctx.nom ?? "").trim();
+  const dossier = (ctx.dossier as Record<string, unknown>) ?? {};
+  if (!dossierId || !nom) { rc.stats.skipped++; return; }
+
+  // Only auto-process while the status isn't already a terminal human-confirmed
+  // decision — avoids an automated re-classification silently overturning a
+  // previously approved/rejected outcome.
+  const currentStatus = String(dossier.nhs_submission_status ?? "");
+  if (currentStatus === "approved" || currentStatus === "rejected") { return; }
+
+  // 1) Detect an actual NHS submission send (vs. just a drafted email) by
+  // checking the Sent folder for the cover email this patient's dossier used.
+  if (!dossier.submission_email_sent) {
+    try {
+      const sentIds = await searchMessages(nedelcu, `in:sent "${nom}" subject:"NHS S2 Prior Authorisation Application"`, 5);
+      if (sentIds.length > 0) {
+        const first = await getMessageDetails(nedelcu, sentIds[sentIds.length - 1]);
+        const sentPatch = {
+          submission_email_sent: true,
+          submission_date: new Date(first.internalDateMs).toISOString(),
+          submitted_by: "automation-detected",
+        };
+        await rc.ds.client.from(dossierTable).update(sentPatch).eq("id", dossierId);
+        await mirrorDossierPatch(patientId, sentPatch);
+        rc.stats.actions++;
+        rc.log("info", `A8: detected NHS submission sent for ${nom}`);
+      }
+    } catch (e) {
+      rc.log("warn", `A8: sent-folder check failed: ${e instanceof Error ? e.message : e}`);
+    }
+  }
+
+  // 2) Scan for NHS reply emails mentioning this patient, classify each with
+  // Claude, and persist the first clear verdict found (new messages only).
+  let ids: string[] = [];
+  try {
+    ids = await searchMessages(nedelcu, `(from:nhs.net OR from:nhs.uk OR from:nhs.scot) "${nom}"`, maxMessages);
+  } catch (e) {
+    rc.log("warn", `A8: NHS reply search failed: ${e instanceof Error ? e.message : e}`);
+    return;
+  }
+
+  const { data: seenRows } = await rc.ds.client
+    .from(responsesTable)
+    .select("message_id")
+    .eq("dossier_id", dossierId);
+  const seen = new Set(((seenRows ?? []) as Array<{ message_id: string }>).map((r) => r.message_id));
+
+  let verdictApplied: string | null = null;
+  for (const mid of ids) {
+    if (seen.has(mid)) continue;
+    let details;
+    try { details = await getMessageDetails(nedelcu, mid); } catch { continue; }
+    let verdict = "unrelated";
+    try {
+      const raw = (
+        await generateText({
+          cred: anthropic,
+          prompt: `${NHS_VERDICT_PROMPT}\n\nSubject: ${details.subject}\nFrom: ${details.from}\nPatient: ${nom}\n\nBody:\n${details.textBody}`,
+          maxTokens: 10,
+        })
+      ).trim().toLowerCase();
+      if (raw.includes("approved")) verdict = "approved";
+      else if (raw.includes("rejected")) verdict = "rejected";
+      else if (raw.includes("info_requested") || raw.includes("info requested")) verdict = "info_requested";
+      else if (raw.includes("in_review") || raw.includes("in review")) verdict = "in_review";
+    } catch (e) {
+      rc.log("warn", `A8: classify message ${mid} failed: ${e instanceof Error ? e.message : e}`);
+    }
+
+    await rc.ds.client.from(responsesTable).insert({
+      message_id: mid,
+      dossier_id: dossierId,
+      lead_id: patientId,
+      verdict,
+      email_date: new Date(details.internalDateMs).toISOString(),
+      subject: details.subject.slice(0, 500),
+    });
+    rc.stats.actions++;
+
+    if (verdict !== "unrelated" && !verdictApplied) {
+      const status = NHS_VERDICT_TO_STATUS[verdict] ?? verdict;
+      const verdictPatch = {
+        nhs_submission_status: status,
+        nhs_response_date: new Date(details.internalDateMs).toISOString(),
+        nhs_notes: details.textBody.slice(0, 500),
+      };
+      await rc.ds.client.from(dossierTable).update(verdictPatch).eq("id", dossierId);
+      await mirrorDossierPatch(patientId, verdictPatch);
+      verdictApplied = status;
+      rc.stats.actions++;
+    }
+  }
+
+  ctx.nhs_response_checked = true;
+  ctx.nhs_response_verdict = verdictApplied;
+  rc.log("info", `A8: ${ids.length} NHS messages scanned for ${nom}${verdictApplied ? ` → ${verdictApplied}` : ""}`);
 }
 
 // ── Agent 5: Supabase Controller (agentic, tool-using) ──────────────────────
@@ -406,6 +535,7 @@ async function screenDossier(rc: RunCtx, step: Record<string, unknown>, ctx: Ctx
   dossierPatch.last_analysed_at = new Date().toISOString();
   if (dossierId) await rc.ds.client.from(dossierTable).update(dossierPatch).eq("id", dossierId);
   if (patientId) await rc.ds.client.from(leadTable).update({ document_status: status, last_updated: new Date().toISOString() }).eq("id", patientId);
+  await mirrorDossierPatch(patientId, dossierPatch);
 
   ctx.docs = outDocs;
   ctx.dossier_status = status;
@@ -531,17 +661,16 @@ async function generateDocuments(rc: RunCtx, step: Record<string, unknown>, ctx:
     rc.stats.actions++;
   }
 
-  await rc.ds.client
-    .from(dossierTable)
-    .update({
-      doc_medical_report: "received",
-      doc_medical_report_url: urls.doc_medical_report,
-      doc_undue_delay_letter: "received",
-      doc_undue_delay_letter_url: urls.doc_undue_delay_letter,
-      documents_generated: true,
-      documents_generated_at: new Date().toISOString(),
-    })
-    .eq("id", dossierId);
+  const genPatch = {
+    doc_medical_report: "received",
+    doc_medical_report_url: urls.doc_medical_report,
+    doc_undue_delay_letter: "received",
+    doc_undue_delay_letter_url: urls.doc_undue_delay_letter,
+    documents_generated: true,
+    documents_generated_at: new Date().toISOString(),
+  };
+  await rc.ds.client.from(dossierTable).update(genPatch).eq("id", dossierId);
+  await mirrorDossierPatch(patientId, genPatch);
 
   ctx.generated_skipped = false;
   ctx.medical_report_url = urls.doc_medical_report;
@@ -855,6 +984,7 @@ const HANDLERS: Record<string, OccHandler> = {
   generate_documents: generateDocuments,
   communicate_patient: communicatePatient,
   prepare_nhs_submission: prepareNhsSubmission,
+  gmail_ingest_nhs_response: gmailIngestNhsResponse,
 };
 
 export async function runOccStep(rc: RunCtx, step: { type: string; [k: string]: unknown }, ctx: Ctx): Promise<boolean> {

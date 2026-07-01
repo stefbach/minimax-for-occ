@@ -761,9 +761,10 @@ type NhsReportCard = {
   patients: NhsReportPatient[];
 };
 
-// Live counts from nhs_tracking (total, approved, pending, rejected, to_submit).
-// missing_docs and dropped_out have no database equivalent yet — still static.
-// liveData is optional: callers without API data fall back to NHS_REPORT statics.
+// Live counts from nhs_tracking (total, approved, pending, rejected, missing_docs)
+// and abandoned_count. All driven by the automation (Agent 8 NHS Response
+// Ingest + drop-out flags on leads_rdv) once real data exists; liveData is
+// optional so callers without API data still fall back to NHS_REPORT statics.
 function useNhsReportCards(liveData?: NhsSuiviResponse | null): NhsReportCard[] {
   const t = useT();
   const breakdown = NHS_REPORT_APPROVED_BREAKDOWN;
@@ -772,7 +773,9 @@ function useNhsReportCards(liveData?: NhsSuiviResponse | null): NhsReportCard[] 
     in_review: NHS_REPORT.pending_nhs.patients.length,
     accepted: NHS_REPORT.approved.patients.length,
     rejected: NHS_REPORT.rejected.patients.length,
+    missing_docs: NHS_REPORT.missing_docs.patients.length,
   };
+  const abandonedCount = liveData?.abandoned_count ?? NHS_REPORT.dropped_out.patients.length;
   const totalPatients = [
     ...NHS_REPORT.approved.patients,
     ...NHS_REPORT.pending_nhs.patients,
@@ -811,7 +814,7 @@ function useNhsReportCards(liveData?: NhsSuiviResponse | null): NhsReportCard[] 
     {
       key: "missing_docs",
       label: t("Éléments requis"),
-      value: NHS_REPORT.missing_docs.patients.length,
+      value: tr.missing_docs,
       hint: t("documents à fournir"),
       tone: "var(--warn)",
       icon: "📄",
@@ -829,7 +832,7 @@ function useNhsReportCards(liveData?: NhsSuiviResponse | null): NhsReportCard[] 
     {
       key: "dropped_out",
       label: t("Abandons"),
-      value: NHS_REPORT.dropped_out.patients.length,
+      value: abandonedCount,
       hint: t("ne souhaitent pas continuer"),
       tone: "var(--muted)",
       icon: "↓",

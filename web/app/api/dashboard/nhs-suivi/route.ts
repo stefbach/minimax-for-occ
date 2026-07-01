@@ -78,7 +78,9 @@ export type NhsSuiviResponse = {
     in_review: number;
     accepted: number;
     rejected: number;
+    missing_docs: number;
   };
+  abandoned_count: number;
   pipeline: {
     initial_call: number;
     email_reminder: number;
@@ -88,9 +90,11 @@ export type NhsSuiviResponse = {
   };
 };
 
-// qualification for the stalled list (not in the shared LEAD_SELECT)
-const LEAD_SELECT_EXT = LEAD_SELECT + ", qualification";
-type LeadRowExt = LeadRow & { qualification: string | null };
+// qualification + drop-out marker for the stalled list / Abandons card (not in the shared LEAD_SELECT)
+const LEAD_SELECT_EXT = LEAD_SELECT + ", qualification, raison_ne_pas_rappeler";
+type LeadRowExt = LeadRow & { qualification: string | null; raison_ne_pas_rappeler: string | null };
+
+const DROPOUT_QUALIFICATIONS = new Set(["PAS INTERESSE", "NE PAS RAPPELER", "FAUX NUMERO", "NON ELIGIBLE"]);
 
 // Clinic-produced docs: any truthy value (URL / "yes" / "generated") counts.
 function truthyDoc(v: unknown): boolean {
@@ -180,12 +184,13 @@ export async function GET(request: Request) {
   );
   const clinicDocs = { medical_report: 0, undue_delay_letter: 0, s2_provider_declaration: 0, medical_estimate: 0 };
   const tracking = hasLiveSubmissionData
-    ? { submitted: 0, in_review: 0, accepted: 0, rejected: 0 }
+    ? { submitted: 0, in_review: 0, accepted: 0, rejected: 0, missing_docs: 0 }
     : {
         submitted: NHS_REPORT_TOTAL_SUBMITTED,
         in_review: NHS_REPORT.pending_nhs.patients.length,
         accepted: NHS_REPORT.approved.patients.length,
         rejected: NHS_REPORT.rejected.patients.length,
+        missing_docs: NHS_REPORT.missing_docs.patients.length,
       };
   let readyToSubmit = hasLiveSubmissionData ? 0 : NHS_REPORT.to_submit.patients.length;
   let submittedThisMonth = 0;
@@ -203,13 +208,22 @@ export async function GET(request: Request) {
     const submitted = Boolean(submissionDate) || Boolean(submissionStatus?.trim());
     if (submitted) tracking.submitted++;
     const status = (submissionStatus ?? "").toLowerCase();
-    if (/review|pending|instruction|examen/.test(status)) tracking.in_review++;
+    if (/info_requested|info requested|elements requis|documents requis/.test(status)) tracking.missing_docs++;
+    else if (/review|pending|instruction|examen/.test(status)) tracking.in_review++;
     if (/accept|approv/.test(status)) tracking.accepted++;
     if (/refus|reject/.test(status)) tracking.rejected++;
 
     if (d.submission_ready && !submitted) readyToSubmit++;
     if (submissionDate && submissionDate >= monthStart) submittedThisMonth++;
   }
+
+  // Abandons: patients in the programme who were later flagged do-not-call or
+  // disqualified — i.e. started the NHS pathway but dropped out of it. Falls
+  // back to the static report count until at least one such flag is live.
+  const liveAbandoned = entries.filter(
+    ({ lead }) => !!lead.raison_ne_pas_rappeler || DROPOUT_QUALIFICATIONS.has(lead.qualification ?? ""),
+  ).length;
+  const abandonedCount = liveAbandoned > 0 ? liveAbandoned : NHS_REPORT.dropped_out.patients.length;
 
   // ── Step 7: stalled patients (partiels/aucun-doc, no activity 5j+) ────
   const stalledPatients: NhsStalledPatient[] = [];
@@ -332,6 +346,7 @@ export async function GET(request: Request) {
     comms,
     file_status,
     nhs_tracking: tracking,
+    abandoned_count: abandonedCount,
     pipeline,
   };
   return NextResponse.json(body);
