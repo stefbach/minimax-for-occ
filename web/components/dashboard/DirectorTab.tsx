@@ -273,6 +273,29 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
+      {/* QUALIFICATIONS MODE TOGGLE — top of tab, affects both totals strip and qual cards */}
+      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+        <div style={{ display: "flex", gap: 2, background: "var(--bg-2)", borderRadius: 6, padding: 2 }}>
+          {(["calls", "leads"] as const).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => setQualMode(mode)}
+              style={{
+                padding: "5px 14px", fontSize: 12, fontWeight: 600, borderRadius: 4, border: "none",
+                cursor: "pointer", whiteSpace: "nowrap",
+                background: qualMode === mode ? "var(--bg)" : "transparent",
+                color: qualMode === mode ? "var(--fg)" : "var(--muted)",
+                boxShadow: qualMode === mode ? "0 1px 3px rgba(0,0,0,0.12)" : "none",
+                transition: "all 120ms",
+              }}
+            >
+              {mode === "calls" ? t("Appels totaux") : t("Leads uniques")}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* KPI ROW */}
       <div className="grid-kpi">
         {tiles.map((tile) => {
@@ -357,50 +380,56 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
         </div>
       </div>
 
-      {/* TOTALS STRIP */}
-      <div className="grid-kpi" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
-        {totalsCards.map((c) => (
-          <ClickCard
-            key={c.label}
-            ariaLabel={`${c.label} — ${t("voir les appels")}`}
-            onClick={() => openDrill(c.label, "phone", c.tone, c.drill)}
-            style={{ padding: 16 }}
-          >
-            <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4 }}>{c.label}</div>
-            <div style={{ fontSize: 28, fontWeight: 700, marginTop: 6, color: c.tone }}>{c.value.toLocaleString()}</div>
-            <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>{c.pctLabel} {t("des appels")}</div>
-          </ClickCard>
-        ))}
-      </div>
-
-      {/* QUALIFICATIONS GRID — efficacy heroes + remaining buckets */}
+      {/* QUALIFICATIONS GRID — totals strip + efficacy heroes + remaining buckets */}
       <div className="card">
-        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 4 }}>
+        {/* ── Totals strip (moved inside qual card, responds to toggle) ── */}
+        {(() => {
+          const isLeads = qualMode === "leads";
+          const totalVal = isLeads ? data.kpis.totalUniqueLeads : data.kpis.totalCalls;
+          const answeredVal = isLeads ? data.kpis.answeredUniqueLeads : data.kpis.answeredUniqueContacts;
+          const unansweredVal = totalVal - answeredVal;
+          const answeredPct = totalVal > 0 ? ((answeredVal / totalVal) * 100).toFixed(0) : "0";
+          const unansweredPct = totalVal > 0 ? ((unansweredVal / totalVal) * 100).toFixed(0) : "0";
+          const unitLabel = isLeads ? t("des leads") : t("des appels");
+          return (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 16, paddingBottom: 16, borderBottom: "1px solid var(--border)" }}>
+              <ClickCard
+                ariaLabel={`${t("Total")} — ${t("voir les appels")}`}
+                onClick={() => openDrill(t("Total appels"), "📞", "var(--info)", {})}
+                style={{ padding: 14 }}
+              >
+                <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4 }}>{isLeads ? t("Total leads") : t("Total appels")}</div>
+                <div style={{ fontSize: 28, fontWeight: 700, marginTop: 6, color: "var(--info)" }}>{totalVal.toLocaleString()}</div>
+                <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>100% {unitLabel}</div>
+              </ClickCard>
+              <ClickCard
+                ariaLabel={`${t("Décrochés")} — ${t("voir les appels")}`}
+                onClick={() => openDrill(t("Décrochés"), "✅", "var(--good)", { answered: "yes" })}
+                style={{ padding: 14 }}
+              >
+                <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4 }}>{t("Décrochés")}</div>
+                <div style={{ fontSize: 28, fontWeight: 700, marginTop: 6, color: "var(--good)" }}>{answeredVal.toLocaleString()}</div>
+                <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>{answeredPct}% {unitLabel}</div>
+              </ClickCard>
+              <ClickCard
+                ariaLabel={`${t("Non décrochés")} — ${t("voir les appels")}`}
+                onClick={() => openDrill(t("Non décrochés"), "✕", "var(--bad)", { answered: "no" })}
+                style={{ padding: 14 }}
+              >
+                <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4 }}>{t("Non décrochés")}</div>
+                <div style={{ fontSize: 28, fontWeight: 700, marginTop: 6, color: "var(--bad)" }}>{unansweredVal.toLocaleString()}</div>
+                <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>{unansweredPct}% {unitLabel}</div>
+              </ClickCard>
+            </div>
+          );
+        })()}
+
+        <div style={{ display: "flex", alignItems: "flex-start", marginBottom: 4 }}>
           <div>
             <h3 style={{ marginTop: 0, marginBottom: 4 }}>{t("Qualifications")}</h3>
             <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>
               {t("Source")} : <code>calls.metadata.qualification</code> + <code>calls.disposition</code>
             </p>
-          </div>
-          {/* Toggle: Total Calls vs Unique Leads */}
-          <div style={{ display: "flex", gap: 2, background: "var(--bg-2)", borderRadius: 6, padding: 2, flexShrink: 0 }}>
-            {(["calls", "leads"] as const).map((mode) => (
-              <button
-                key={mode}
-                type="button"
-                onClick={() => setQualMode(mode)}
-                style={{
-                  padding: "4px 10px", fontSize: 11, fontWeight: 600, borderRadius: 4, border: "none",
-                  cursor: "pointer", whiteSpace: "nowrap",
-                  background: qualMode === mode ? "var(--bg)" : "transparent",
-                  color: qualMode === mode ? "var(--fg)" : "var(--muted)",
-                  boxShadow: qualMode === mode ? "0 1px 3px rgba(0,0,0,0.12)" : "none",
-                  transition: "all 120ms",
-                }}
-              >
-                {mode === "calls" ? t("Appels totaux") : t("Leads uniques")}
-              </button>
-            ))}
           </div>
         </div>
 
@@ -409,20 +438,21 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
           const activeQuals = qualMode === "leads" ? (data.qualificationsUnique ?? data.qualifications) : data.qualifications;
           const passerHumain = activeQuals.find((q) => q.key === "passer_humain")?.count ?? 0;
           const pasInteresse = activeQuals.find((q) => q.key === "pas_interesse")?.count ?? 0;
-          const efficacyRate = pasInteresse > 0 ? (passerHumain / pasInteresse) * 100 : null;
+          // Display as ratio "1 : XX.XX" — how many "not interested" per transfer
+          const ratioVal = passerHumain > 0 ? (pasInteresse / passerHumain).toFixed(2) : null;
           return (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12, marginBottom: 14 }}>
-              {/* Efficacy Rate */}
+              {/* Efficacy Rate — shown as ratio */}
               <div className="card" style={{ padding: 16, borderColor: "var(--accent-2)", background: "color-mix(in srgb, var(--accent-2) 7%, transparent)" }}>
                 <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 700, color: "var(--accent-2)" }}>
                   📊 {t("Taux d'efficacité")}
                 </div>
-                <div style={{ fontSize: 38, fontWeight: 800, marginTop: 6, color: "var(--accent-2)", lineHeight: 1 }}>
-                  {efficacyRate !== null ? `${efficacyRate.toFixed(1)}%` : "N/A"}
+                <div style={{ fontSize: 30, fontWeight: 800, marginTop: 6, color: "var(--accent-2)", lineHeight: 1, letterSpacing: -0.5 }}>
+                  {ratioVal !== null ? `1 : ${ratioVal}` : "N/A"}
                 </div>
                 <div className="muted" style={{ fontSize: 11, marginTop: 6 }}
                   title={t("Ratio de transferts à l'humain par rapport aux refus explicites")}>
-                  {t("Ratio transferts / refus")}
+                  {t("Transfert : Pas intéressé")}
                 </div>
               </div>
               {/* À PASSER À L'HUMAIN — green */}
@@ -492,45 +522,6 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
           ))}
         </div>
 
-        {/* Answered-but-unqualified calls — visible instead of silently dropped,
-            with a one-click AI pass to slot them into the right card. The count
-            itself is clickable to drill into the offending calls. */}
-        {data.unqualified > 0 && (
-          <div
-            style={{
-              marginTop: 12, padding: 12, borderRadius: 8,
-              border: "1px solid var(--warn)",
-              background: "color-mix(in srgb, var(--warn) 8%, transparent)",
-              display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
-            }}
-          >
-            <button
-              type="button"
-              onClick={() => openDrill(t("Appels décrochés non qualifiés"), "alert", "var(--warn)", { qualification: "unqualified" })}
-              aria-label={t("Voir les appels non qualifiés")}
-              style={{
-                fontSize: 22, fontWeight: 700, color: "var(--warn)",
-                background: "transparent", border: "none", padding: 0, cursor: "pointer",
-              }}
-            >
-              {data.unqualified}
-            </button>
-            <div style={{ flex: 1, minWidth: 200 }}>
-              <div style={{ fontWeight: 600, fontSize: 13 }}>
-                {t("Appels décrochés non qualifiés")}
-              </div>
-              <div className="muted" style={{ fontSize: 11 }}>
-                {t("Qualification IA automatique : chaque appel décroché est classé par l'IA d'après son transcript. Le reliquat se résorbe tout seul.")}
-              </div>
-            </div>
-            <span className="muted" style={{ fontSize: 11, display: "inline-flex", alignItems: "center", gap: 6 }}>
-              {qualifying && <Sparkles size={14} className="ai-spin" aria-hidden />}
-              {qualifying
-                ? (qualifyMsg ?? t("Qualification IA en cours…"))
-                : (qualifyMsg ?? <><Sparkles size={14} style={{ verticalAlign: "middle" }} /> {t("Qualification IA automatique")}</>)}
-            </span>
-          </div>
-        )}
         <style jsx>{`@keyframes ai-spin-kf{0%,100%{opacity:.45}50%{opacity:1}} .ai-spin{animation:ai-spin-kf 1s ease-in-out infinite}`}</style>
       </div>
 

@@ -40,6 +40,8 @@ export type DirectorKpis = {
   answeredPct: number;
   cost: number;
   costByProvider: CostProviderRow[];
+  totalUniqueLeads: number;
+  answeredUniqueLeads: number;
   rdvConfirmed: number;
   conversionRate: number;
   avgDuration: number;
@@ -274,6 +276,13 @@ export async function GET(request: Request) {
     pas_de_reponse: 0, repondeur: 0, faux_numero: 0, non_eligible: 0,
     ne_pas_rappeler: 0, suivi_requis: 0, autre: 0,
   };
+  // Buckets that count as "human answered" for the unique-leads view.
+  const HUMAN_ANSWERED_BUCKETS = new Set<QualBucket>([
+    "rdv_confirme", "passer_humain", "pas_interesse", "rappel",
+    "faux_numero", "ne_pas_rappeler", "non_eligible", "suivi_requis",
+  ]);
+  let totalUniqueLeads = 0;
+  let answeredUniqueLeads = 0;
   {
     // Group by lead key, keep latest call per lead.
     const latestByLead = new Map<string, { bucket: QualBucket; started_at: string }>();
@@ -285,8 +294,10 @@ export async function GET(request: Request) {
         latestByLead.set(key, { bucket, started_at: row.started_at ?? "" });
       }
     }
+    totalUniqueLeads = latestByLead.size;
     for (const { bucket } of latestByLead.values()) {
       qcountUnique[bucket] += 1;
+      if (HUMAN_ANSWERED_BUCKETS.has(bucket)) answeredUniqueLeads += 1;
     }
   }
 
@@ -575,6 +586,8 @@ export async function GET(request: Request) {
       answeredPct: total ? (answered / total) * 100 : 0,
       cost,
       costByProvider,
+      totalUniqueLeads,
+      answeredUniqueLeads,
       rdvConfirmed,
       conversionRate: total ? (rdvConfirmed / total) * 100 : 0,
       avgDuration: answered ? Math.round(answeredDur / answered) : 0,
