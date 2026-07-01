@@ -355,7 +355,7 @@ export async function GET(request: Request) {
   }
 
   // RDV / callbacks via bucket counts (consistent with the grid).
-  const rdvConfirmed = qcount.rdv_confirme;
+  const rdvConfirmed = qcount.rdv_confirme + qcount.passer_humain;
   const callbacks = qcount.rappel;
 
   // Cost over the period — but only for the calls that survived the

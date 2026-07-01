@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { DirectorResponse } from "@/app/api/dashboard/director/route";
 import type { QualBucket } from "@/lib/qualification";
-import { AlertTriangle, ArrowDownLeft, ArrowUpRight, CalendarCheck, CheckCircle2, Link2, Moon, Phone, Sparkles, Sunrise, Sun, Sunset, Tag, Timer, TrendingUp } from "lucide-react";
+import { AlertTriangle, ArrowDownLeft, ArrowUpRight, CheckCircle2, Link2, Moon, Phone, Sparkles, Sunrise, Sun, Sunset, Tag, Timer } from "lucide-react";
 import { useT } from "@/lib/i18n";
 import { DrillSheet, type DrillFilters, type DrillSpec } from "./DrillSheet";
 import { SLOT_WINDOWS } from "@/lib/call-slots";
@@ -252,9 +252,6 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
     // Cost is an aggregate over usage_events — opens a provider breakdown modal,
     // not a call logs drill (drill: null disables the default sheet).
     { label: t("Coût consommé"), value: `$${k.cost.toFixed(2)}`, icon: "$", displayIcon: <span>$</span>, tone: "var(--warn)", drill: null },
-    { label: t("RDV confirmés"), value: k.rdvConfirmed.toLocaleString(), icon: "📅", displayIcon: <CalendarCheck size={15} />, tone: "var(--good)", highlight: true, pctLabel: pct(k.rdvConfirmed), drill: { qualification: "rdv_confirme" } },
-    // Conversion = RDV / Total → drill to the RDV calls (the numerator).
-    { label: t("Taux de conversion"), value: `${k.conversionRate.toFixed(1)}%`, icon: "📈", displayIcon: <TrendingUp size={15} />, tone: "var(--accent-2)", drill: { qualification: "rdv_confirme" } },
     { label: t("Durée moyenne"), value: fmtDur(k.avgDuration), icon: "⏱", displayIcon: <Timer size={15} />, tone: "var(--info)", drill: { answered: "yes" } },
     { label: t("Callbacks demandés"), value: k.callbacks.toLocaleString(), icon: "↺", displayIcon: <span>↺</span>, tone: "var(--accent)", pctLabel: pct(k.callbacks), drill: { qualification: "rappel" } },
     { label: `${t("Durée")} > ${k.threshold}s`, value: k.callsOverThreshold.toLocaleString(), icon: "⧖", displayIcon: <span>⧖</span>, tone: "var(--muted)", pctLabel: pct(k.callsOverThreshold), drill: { min_duration: k.threshold } },
@@ -492,7 +489,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
             const mergedDnrCount = fauxNumeroCount + dnrCount;
 
             const filtered = activeQuals
-              .filter((q) => !["rappel", "passer_humain", "pas_interesse", "faux_numero", "ne_pas_rappeler"].includes(q.key))
+              .filter((q) => !["rappel", "passer_humain", "pas_interesse", "faux_numero", "ne_pas_rappeler", "rdv_confirme"].includes(q.key))
               .map((q) => q.key === "pas_de_reponse" ? { ...q, count: q.count + rappelCount } : q);
 
             const mergedDnrCard = { key: "faux_numero+dnr", label: "Faux numéro + DNR", count: mergedDnrCount };

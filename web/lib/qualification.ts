@@ -17,7 +17,6 @@ export type QualBucket =
   | "autre";
 
 export const QUAL_BUCKETS: { key: QualBucket; label: string }[] = [
-  { key: "rdv_confirme", label: "RDV CONFIRME" },
   { key: "passer_humain", label: "À PASSER À L'HUMAIN" },
   { key: "rappel", label: "RAPPEL" },
   { key: "pas_interesse", label: "PAS INTERESSE" },
@@ -35,7 +34,7 @@ export function normalizeQualification(raw: string | null | undefined): QualBuck
   // Order matters: more specific patterns first.
   if (/(ne[\s_-]*pas[\s_-]*rappel|do[\s_-]*not[\s_-]*call|dnc|faux[\s_-]*num|wrong[\s_-]*number|invalid[\s_-]*number|bad[\s_-]*number)/.test(s)) return "ne_pas_rappeler";
   if (/(non[\s_-]*éligible|non[\s_-]*eligible|ineligib|not[\s_-]*eligib)/.test(s)) return "non_eligible";
-  if (/(rdv|rendez|appointment|booked|confirm)/.test(s)) return "rdv_confirme";
+  if (/(rdv|rendez|appointment|booked|confirm)/.test(s)) return "passer_humain";
   // OCC's canonical label is "A PASSER A L'HUMAIN" (no accent on either A).
   // The earlier pattern required à (accented) inside the optional 'à l''
   // group, so "a passer a l'humain" silently fell through to 'autre' and
