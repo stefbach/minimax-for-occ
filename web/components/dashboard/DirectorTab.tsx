@@ -368,8 +368,7 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
         {(() => {
           const passerHumain = data.qualifications.find((q) => q.key === "passer_humain")?.count ?? 0;
           const pasInteresse = data.qualifications.find((q) => q.key === "pas_interesse")?.count ?? 0;
-          const totalAnswered = data.kpis.answeredUniqueContacts;
-          const efficacyRate = totalAnswered > 0 ? ((passerHumain + pasInteresse) / totalAnswered) * 100 : null;
+          const efficacyRate = pasInteresse > 0 ? (passerHumain / pasInteresse) * 100 : null;
           return (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12, marginBottom: 14 }}>
               {/* Efficacy Rate */}
@@ -381,8 +380,8 @@ export function DirectorTab({ from, to, direction, leadsSource = "prod", system 
                   {efficacyRate !== null ? `${efficacyRate.toFixed(1)}%` : "N/A"}
                 </div>
                 <div className="muted" style={{ fontSize: 11, marginTop: 6 }}
-                  title={t("% des appels qualifiés avec une issue claire : transfert humain ou déclin explicite")}>
-                  {t("% appels avec issue claire")} · transfert + déclin
+                  title={t("Ratio de transferts à l'humain par rapport aux refus explicites")}>
+                  {t("Ratio transferts / refus")}
                 </div>
               </div>
               {/* À PASSER À L'HUMAIN — green */}

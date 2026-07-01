@@ -1914,6 +1914,8 @@ const EN: Record<string, string> = {
   "Taux d'efficacité": "Efficacy Rate",
   "% appels avec issue claire": "% calls with clear outcome",
   "% des appels qualifiés avec une issue claire : transfert humain ou déclin explicite": "% of qualified calls with a clear outcome: human transfer or explicit decline",
+  "Ratio transferts / refus": "Ratio transfers / declines",
+  "Ratio de transferts à l'humain par rapport aux refus explicites": "Ratio of human transfers to explicit declines",
   "Patients à confier à un expert": "Patients to hand over to a specialist",
   "PAS INTÉRESSÉ": "NOT INTERESTED",
   "Patients ayant décliné explicitement": "Patients who explicitly declined",
