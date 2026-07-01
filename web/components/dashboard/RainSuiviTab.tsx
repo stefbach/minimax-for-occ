@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import type { RainSuiviResponse, RainPatient, NhsPatient, RainMissionStats } from "@/app/api/dashboard/rain-suivi/route";
 
 type MissionTab = "humain" | "rappels" | "suivis" | "nhs";
@@ -137,6 +137,182 @@ function yesterdayIso(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+function shiftIso(iso: string, deltaDays: number): string {
+  const d = new Date(`${iso}T00:00:00`);
+  d.setDate(d.getDate() + deltaDays);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function dateLabel(iso: string): string {
+  if (iso === todayIso()) return "Aujourd'hui";
+  if (iso === yesterdayIso()) return "Hier";
+  return new Date(`${iso}T00:00:00`).toLocaleDateString("fr-FR", {
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+  });
+}
+
+function CalendarGlyph() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="4.5" width="18" height="16" rx="3" />
+      <line x1="3" y1="9.5" x2="21" y2="9.5" />
+      <line x1="8" y1="2.5" x2="8" y2="6.5" />
+      <line x1="16" y1="2.5" x2="16" y2="6.5" />
+    </svg>
+  );
+}
+
+function ChevronGlyph({ dir }: { dir: "left" | "right" }) {
+  const d = dir === "left" ? "M14 6l-6 6 6 6" : "M10 6l6 6-6 6";
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+      <path d={d} />
+    </svg>
+  );
+}
+
+function DateNavigator({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (iso: string) => void;
+}) {
+  const dateInputRef = useRef<HTMLInputElement>(null);
+  const isToday = value === todayIso();
+  const isYesterday = value === yesterdayIso();
+
+  function openPicker() {
+    const el = dateInputRef.current as (HTMLInputElement & { showPicker?: () => void }) | null;
+    if (!el) return;
+    if (typeof el.showPicker === "function") {
+      el.showPicker();
+    } else {
+      el.focus();
+    }
+  }
+
+  return (
+    <div
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 2,
+        padding: 3,
+        borderRadius: 11,
+        background: "var(--panel-2)",
+        border: "1px solid var(--border)",
+      }}
+    >
+      <button
+        aria-label="Jour précédent"
+        onClick={() => onChange(shiftIso(value, -1))}
+        style={{
+          display: "grid",
+          placeItems: "center",
+          width: 30,
+          height: 30,
+          padding: 0,
+          borderRadius: 8,
+          background: "transparent",
+          border: "none",
+          color: "var(--muted)",
+        }}
+        className="ghost"
+      >
+        <ChevronGlyph dir="left" />
+      </button>
+
+      <div style={{ display: "flex", gap: 2, padding: "0 2px" }}>
+        {(["today", "yesterday"] as const).map((k) => {
+          const iso = k === "today" ? todayIso() : yesterdayIso();
+          const active = k === "today" ? isToday : isYesterday;
+          return (
+            <button
+              key={k}
+              onClick={() => onChange(iso)}
+              style={{
+                padding: "6px 13px",
+                fontSize: 13,
+                fontWeight: 600,
+                borderRadius: 8,
+                border: "none",
+                background: active ? "var(--accent)" : "transparent",
+                color: active ? "#1a0d05" : "var(--text)",
+                transition: "background 0.15s ease, color 0.15s ease",
+              }}
+            >
+              {k === "today" ? "Aujourd'hui" : "Hier"}
+            </button>
+          );
+        })}
+      </div>
+
+      <div style={{ width: 1, height: 20, background: "var(--border-2)", margin: "0 2px" }} />
+
+      <button
+        onClick={openPicker}
+        title="Choisir une date"
+        style={{
+          position: "relative",
+          display: "flex",
+          alignItems: "center",
+          gap: 7,
+          padding: "6px 12px 6px 10px",
+          fontSize: 13,
+          fontWeight: !isToday && !isYesterday ? 600 : 500,
+          borderRadius: 8,
+          border: "none",
+          background: !isToday && !isYesterday ? "var(--accent-soft)" : "transparent",
+          color: !isToday && !isYesterday ? "var(--accent-2)" : "var(--muted)",
+        }}
+      >
+        <CalendarGlyph />
+        <span>{!isToday && !isYesterday ? dateLabel(value) : "Choisir…"}</span>
+        <input
+          ref={dateInputRef}
+          type="date"
+          value={value}
+          max={todayIso()}
+          onChange={(e) => e.target.value && onChange(e.target.value)}
+          style={{
+            position: "absolute",
+            inset: 0,
+            width: "100%",
+            height: "100%",
+            opacity: 0,
+            border: "none",
+            cursor: "pointer",
+          }}
+        />
+      </button>
+
+      <button
+        aria-label="Jour suivant"
+        onClick={() => onChange(shiftIso(value, 1))}
+        disabled={isToday}
+        style={{
+          display: "grid",
+          placeItems: "center",
+          width: 30,
+          height: 30,
+          padding: 0,
+          borderRadius: 8,
+          background: "transparent",
+          border: "none",
+          color: isToday ? "var(--border-2)" : "var(--muted)",
+          cursor: isToday ? "default" : "pointer",
+        }}
+        className="ghost"
+      >
+        <ChevronGlyph dir="right" />
+      </button>
+    </div>
+  );
+}
+
 export function RainSuiviTab({ refreshKey }: { refreshKey?: number }) {
   const [data, setData] = useState<RainSuiviResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -195,7 +371,7 @@ export function RainSuiviTab({ refreshKey }: { refreshKey?: number }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
 
       {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 14 }}>
         <div>
           <h2 style={{ margin: 0, fontSize: 20 }}>Suivi activité — Rain 👩</h2>
           {data?.generated_at && (
@@ -205,33 +381,21 @@ export function RainSuiviTab({ refreshKey }: { refreshKey?: number }) {
             </div>
           )}
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <DateNavigator value={selectedDate} onChange={setSelectedDate} />
           <button
-            className={selectedDate === todayIso() ? "" : "ghost"}
-            onClick={() => setSelectedDate(todayIso())}
-            style={{ padding: "6px 12px", fontSize: 13 }}
+            onClick={() => load(selectedDate)}
+            disabled={loading}
+            title="Actualiser"
+            style={{ display: "grid", placeItems: "center", width: 38, height: 38, padding: 0, borderRadius: 10 }}
           >
-            Aujourd'hui
-          </button>
-          <button
-            className={selectedDate === yesterdayIso() ? "" : "ghost"}
-            onClick={() => setSelectedDate(yesterdayIso())}
-            style={{ padding: "6px 12px", fontSize: 13 }}
-          >
-            Hier
-          </button>
-          <input
-            type="date"
-            value={selectedDate}
-            max={todayIso()}
-            onChange={(e) => setSelectedDate(e.target.value)}
-            style={{ padding: "5px 8px", fontSize: 13, borderRadius: 6, border: "1px solid var(--border)", background: "var(--panel)", color: "var(--text)" }}
-          />
-          <button onClick={() => load(selectedDate)} disabled={loading} style={{ padding: "6px 14px" }}>
-            {loading ? "Chargement…" : "↻ Actualiser"}
+            <span style={{ display: "inline-block", transformOrigin: "center", animation: loading ? "rain-spin 0.8s linear infinite" : "none" }}>
+              ↻
+            </span>
           </button>
         </div>
       </div>
+      <style>{`@keyframes rain-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
 
       {error && (
         <div className="card" style={{ color: "var(--bad)", padding: 14 }}>⚠️ {error}</div>
