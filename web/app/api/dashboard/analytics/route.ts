@@ -296,8 +296,8 @@ export async function GET(request: Request) {
         .gte("occurred_at", from.toISOString())
         .lte("occurred_at", to.toISOString()) as unknown as Rangeable<UsageRow>,
   );
-  const breakdown = { call_minutes: 0, llm_tokens: 0, tts_chars: 0, stt_minutes: 0, livekit: 0 };
-  const qtyByType: Record<string, number> = { call_minutes: 0, llm_tokens: 0, tts_chars: 0, stt_minutes: 0, livekit: 0 };
+  const breakdown = { call_minutes: 0, llm_tokens: 0, tts_chars: 0, stt_minutes: 0, livekit: 0, sms: 0 };
+  const qtyByType: Record<string, number> = { call_minutes: 0, llm_tokens: 0, tts_chars: 0, stt_minutes: 0, livekit: 0, sms: 0 };
   let totalCents = 0;
   const costByCall = new Map<string, number>(); // call_id → cents, for the cost panel
   const costByDay = new Map<string, number>();   // YYYY-MM-DD → cents
@@ -313,6 +313,7 @@ export async function GET(request: Request) {
       case "call_minutes": return Number(u.cost_cents) || 0;         // Twilio, real
       case "tts_chars":    return (qty / 1000) * COST_RATES.tts_1k_chars_cents;
       case "stt_minutes":  return qty * COST_RATES.stt_minute_cents;
+      case "sms":          return Number(u.cost_cents) || 0;          // Twilio, real (reconciled)
       case "llm_tokens":   return 0;                                  // bundled in LiveKit
       default:             return Number(u.cost_cents) || 0;
     }
@@ -321,9 +322,10 @@ export async function GET(request: Request) {
     // Legacy Retell AI costs predate the current LiveKit/Twilio stack — exclude.
     if (u.event_type === "retell_call") continue;
     const cid = u.metadata?.call_id;
-    // Drop events that belong to filtered-out calls. Untagged events
-    // (no call_id) only count when no filter is active.
-    if (cid ? !inScopeIds.has(cid) : scope !== null) continue;
+    // SMS are an org-level cost not tied to a single call → always count them
+    // (they carry no call_id). Everything else: drop events for filtered-out
+    // calls; untagged events only count when no leads-source filter is active.
+    if (u.event_type !== "sms" && (cid ? !inScopeIds.has(cid) : scope !== null)) continue;
     const cents = eventCents(u);
     totalCents += cents;
     if (cid) costByCall.set(cid, (costByCall.get(cid) ?? 0) + cents);
@@ -641,6 +643,7 @@ export async function GET(request: Request) {
   // table + provider invoices), not the code's historical defaults.
   const PROVIDERS: { event_type: string; label: string; color: string; unit: string; scale: number }[] = [
     { event_type: "call_minutes", label: "Twilio · Téléphonie", color: "#2563eb", unit: "min", scale: 1 },
+    { event_type: "sms",          label: "Twilio · SMS", color: "#e11d48", unit: "segments", scale: 1 },
     { event_type: "stt_minutes",  label: "AssemblyAI · STT", color: "#d97706", unit: "min", scale: 1 },
     { event_type: "tts_chars",    label: "ElevenLabs · TTS", color: "#059669", unit: "k chars", scale: 1000 },
     { event_type: "livekit",      label: "LiveKit · Infra + LLM", color: "#0ea5e9", unit: "min", scale: 1 },

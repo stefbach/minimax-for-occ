@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { hasSupabase } from "@/lib/supabase";
 import { requestOrgId } from "@/lib/request-org";
 import { requireModule } from "@/lib/permissions-server";
-import { syncTwilioCalls } from "@/lib/twilio-sync";
+import { syncTwilioCalls, syncTwilioSms } from "@/lib/twilio-sync";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,7 +34,11 @@ export async function POST(request: Request) {
   const { sinceMs, maxCalls } = parseWindow(new URL(request.url).searchParams);
   try {
     const result = await syncTwilioCalls(orgId, { sinceMs, maxCalls });
-    return NextResponse.json({ ok: true, ...result });
+    // Reconcile SMS costs too (best-effort — never fail the call sync over it).
+    let sms: Awaited<ReturnType<typeof syncTwilioSms>> | { error: string } | undefined;
+    try { sms = await syncTwilioSms(orgId, { sinceMs }); }
+    catch (e) { sms = { error: e instanceof Error ? e.message : String(e) }; }
+    return NextResponse.json({ ok: true, ...result, sms });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error(`[sync-twilio] POST failed org=${orgId}: ${msg}`);
@@ -54,7 +58,10 @@ export async function GET(request: Request) {
     const { sinceMs, maxCalls } = parseWindow(searchParams);
     try {
       const result = await syncTwilioCalls(orgId, { sinceMs, maxCalls });
-      return NextResponse.json({ ok: true, cron: true, ...result });
+      let sms: Awaited<ReturnType<typeof syncTwilioSms>> | { error: string } | undefined;
+      try { sms = await syncTwilioSms(orgId, { sinceMs }); }
+      catch (e) { sms = { error: e instanceof Error ? e.message : String(e) }; }
+      return NextResponse.json({ ok: true, cron: true, ...result, sms });
     } catch (e) {
       return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : String(e) }, { status: 200 });
     }

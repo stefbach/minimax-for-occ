@@ -487,3 +487,135 @@ async function reconcileCallCosts(
   if (priced > 0) console.log(`[twilio-sync] org=${orgId} priced ${priced} call cost(s) from Twilio invoices`);
   return priced;
 }
+
+// ── SMS cost reconciliation ────────────────────────────────────────────────
+// Same idea as the call reconciliation, for messaging. Twilio bills SMS PER
+// SEGMENT and rates them asynchronously (price is null at send time), so we
+// pull the Messages list and record each rated message's REAL price into
+// usage_events (event_type "sms"). Idempotent by the Twilio Message SID.
+
+interface TwilioMessage {
+  sid?: string;
+  status?: string;
+  direction?: string;        // 'outbound-api' | 'inbound' | 'outbound-reply'
+  price?: string | null;     // NEGATIVE, account currency, null until rated
+  price_unit?: string | null;
+  num_segments?: string;     // "1", "4", …
+  date_sent?: string | null;
+  date_created?: string;
+  to?: string;
+  from?: string;
+}
+
+async function listTwilioMessages(sinceMs: number, maxMsgs: number): Promise<TwilioMessage[]> {
+  const accountSid = process.env.TWILIO_ACCOUNT_SID;
+  const auth = authHeader();
+  if (!accountSid || !auth) throw new Error("TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN missing");
+  const sinceDate = new Date(sinceMs).toISOString().slice(0, 10);
+  let path: string | null =
+    `/2010-04-01/Accounts/${accountSid}/Messages.json?DateSent>=${sinceDate}&PageSize=1000`;
+  const all: TwilioMessage[] = [];
+  for (let page = 0; page < 50 && path; page++) {
+    const res = await fetch(`${TWILIO_API}${path}`, {
+      headers: { Authorization: auth },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => "");
+      throw new Error(`Twilio API ${res.status}: ${txt.slice(0, 200)}`);
+    }
+    const json = (await res.json()) as { messages?: TwilioMessage[]; next_page_uri?: string | null };
+    for (const m of json.messages ?? []) all.push(m);
+    if (all.length >= maxMsgs) break;
+    path = json.next_page_uri || null;
+  }
+  return all;
+}
+
+export interface TwilioSmsSyncResult {
+  fetched: number;
+  priced: number;           // new usage_events written with a real SMS price
+  skipped_unrated: number;  // Twilio hasn't rated the message yet — next pass
+  skipped_existing: number; // already recorded
+  error?: string;
+}
+
+/** Reconcile Twilio message costs into usage_events (event_type "sms"). */
+export async function syncTwilioSms(
+  orgId: string,
+  opts: { sinceMs?: number; maxMsgs?: number } = {},
+): Promise<TwilioSmsSyncResult> {
+  const sinceMs = opts.sinceMs ?? Date.now() - 2 * 86400_000;
+  const maxMsgs = Math.min(opts.maxMsgs ?? 5000, 50000);
+  const sb = supabaseServer();
+
+  const raw = await listTwilioMessages(sinceMs, maxMsgs);
+  const msgs = raw.filter((m) => {
+    const t = m.date_sent ? Date.parse(m.date_sent) : m.date_created ? Date.parse(m.date_created) : NaN;
+    return Number.isFinite(t) && t >= sinceMs;
+  });
+
+  // Idempotency: skip messages we've already priced (keyed by Message SID).
+  const sids = msgs.map((m) => str(m.sid)).filter(Boolean) as string[];
+  const known = new Set<string>();
+  const CHUNK = 300;
+  for (let i = 0; i < sids.length; i += CHUNK) {
+    const slice = sids.slice(i, i + CHUNK);
+    const { data } = await sb
+      .from("usage_events")
+      .select("metadata")
+      .eq("org_id", orgId)
+      .eq("event_type", "sms")
+      .in("metadata->>twilio_message_sid", slice);
+    for (const r of (data ?? []) as Array<{ metadata: { twilio_message_sid?: string } | null }>) {
+      const s = r.metadata?.twilio_message_sid;
+      if (s) known.add(s);
+    }
+  }
+
+  let priced = 0;
+  let skippedUnrated = 0;
+  let skippedExisting = 0;
+  const toInsert: Record<string, unknown>[] = [];
+  for (const m of msgs) {
+    const sid = str(m.sid);
+    if (!sid) continue;
+    if (known.has(sid)) { skippedExisting += 1; continue; }
+    const cents = twilioPriceToCents(m.price, m.price_unit);
+    if (cents === null) { skippedUnrated += 1; continue; } // rated later
+    const segments = Number(m.num_segments) || 1;
+    toInsert.push({
+      org_id: orgId,
+      event_type: "sms",
+      quantity: segments,
+      cost_cents: cents,
+      occurred_at: m.date_sent ? new Date(m.date_sent).toISOString() : new Date().toISOString(),
+      metadata: {
+        source: "twilio_sync",
+        twilio_message_sid: sid,
+        twilio_price: m.price ?? null,
+        twilio_price_unit: m.price_unit ?? null,
+        segments,
+        direction: m.direction ?? null,
+        to: m.to ?? null,
+      },
+    });
+  }
+
+  const INS = 500;
+  for (let i = 0; i < toInsert.length; i += INS) {
+    const chunk = toInsert.slice(i, i + INS);
+    const { data, error } = await sb.from("usage_events").insert(chunk).select("id");
+    if (error) throw new Error(error.message);
+    priced += (data ?? []).length;
+  }
+
+  const result: TwilioSmsSyncResult = {
+    fetched: raw.length,
+    priced,
+    skipped_unrated: skippedUnrated,
+    skipped_existing: skippedExisting,
+  };
+  console.log(`[twilio-sms-sync] org=${orgId} done`, result);
+  return result;
+}
