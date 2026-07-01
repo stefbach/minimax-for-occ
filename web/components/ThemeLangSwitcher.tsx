@@ -25,6 +25,13 @@ function applyLang(l: Lang) {
   document.documentElement.setAttribute("data-lang", l);
   document.documentElement.setAttribute("lang", l);
 }
+// Mirrors the language into a cookie so server components (e.g. the /help
+// full-guide page, which can't read localStorage) can render in the right
+// language on first paint.
+function writeLangCookie(l: Lang) {
+  if (typeof document === "undefined") return;
+  document.cookie = `axon_lang=${l}; path=/; max-age=31536000; samesite=lax`;
+}
 
 export function ThemeLangSwitcher() {
   const t = useT();
@@ -41,6 +48,7 @@ export function ThemeLangSwitcher() {
       setLang(l === "en" ? "en" : "fr");
       applyTheme(t === "light" ? "light" : "dark");
       applyLang(l === "en" ? "en" : "fr");
+      writeLangCookie(l === "en" ? "en" : "fr");
     } catch {
       /* localStorage unavailable */
     }
@@ -64,6 +72,7 @@ export function ThemeLangSwitcher() {
     } catch {
       /* ignore */
     }
+    writeLangCookie(l);
     // Tell any subscriber the language changed so they can re-render labels.
     try {
       window.dispatchEvent(new CustomEvent("axon:lang", { detail: l }));

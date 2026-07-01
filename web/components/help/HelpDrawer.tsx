@@ -180,7 +180,7 @@ export function HelpDrawer({
                 background: "transparent",
               }}
             >
-              📖 Ouvrir le guide complet
+              📖 {t("Ouvrir le guide complet")}
             </a>
             <a
               href="/help/how-it-works"
@@ -198,7 +198,7 @@ export function HelpDrawer({
                 background: "transparent",
               }}
             >
-              🛠️ Comment ça marche ?
+              🛠️ {t("Comment ça marche ?")}
             </a>
             {role && (
               <p
@@ -209,7 +209,7 @@ export function HelpDrawer({
                   textAlign: "center",
                 }}
               >
-                Vue adaptée à votre rôle : <strong>{role}</strong>
+                {t("Vue adaptée à votre rôle")} : <strong>{role}</strong>
               </p>
             )}
           </footer>

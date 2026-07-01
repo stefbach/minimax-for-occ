@@ -1,10 +1,13 @@
 import { promises as fs } from "fs";
 import path from "path";
-import { HELP, allContextKeys, type HelpRole } from "@/lib/help/registry";
+import { cookies } from "next/headers";
+import { allContextKeys, resolveHelp, type HelpRole } from "@/lib/help/registry";
 import { renderMarkdown } from "@/lib/help/markdown";
 import { HelpPageScroller } from "@/components/help/HelpPageScroller";
 
-export const dynamic = "force-static";
+// Reads the axon_lang cookie (mirrored from localStorage by ThemeLangSwitcher)
+// so this page renders in the user's chosen language on first paint —
+// server components can't read localStorage directly.
 export const revalidate = 3600;
 
 export const metadata = {
@@ -12,6 +15,42 @@ export const metadata = {
   description:
     "Full documentation and user guide for the Axon platform.",
 };
+
+const STRINGS = {
+  fr: {
+    title: "Guide d'utilisation",
+    intro: "Tout ce qu'il faut savoir pour utiliser la plateforme au quotidien. Cliquez sur une section dans le sommaire pour y accéder directement.",
+    howItWorks: "Comment ça marche (sous le capot) →",
+    contents: "Sommaire",
+    introLink: "Introduction",
+    bySection: "Par section",
+    fullGuide: "Guide utilisateur complet",
+    bySectionTitle: "Par section de l'application",
+    bySectionIntro: "Une vue détaillée de chaque page de la plateforme — pratique, pédagogique, avec cas d'usage et pièges à éviter.",
+    fullManualTitle: "Manuel utilisateur complet",
+    fullManualIntro: "Voici le manuel complet de la plateforme couvrant tous les workflows et concepts.",
+    manualMissing: "Le manuel complet (docs/USER_GUIDE.md) n'a pas pu être chargé dans cet environnement. Les sections ci-dessus restent disponibles.",
+  },
+  en: {
+    title: "User guide",
+    intro: "Everything you need to know to use the platform day-to-day. Click a section in the contents to jump straight to it.",
+    howItWorks: "How it works (under the hood) →",
+    contents: "Contents",
+    introLink: "Introduction",
+    bySection: "By app section",
+    fullGuide: "Full user manual",
+    bySectionTitle: "By app section",
+    bySectionIntro: "A detailed view of each platform page — practical, educational, with use cases and pitfalls to avoid.",
+    fullManualTitle: "Full user manual",
+    fullManualIntro: "Below is the complete platform manual covering all workflows and concepts.",
+    manualMissing: "The full manual (docs/USER_GUIDE.md) could not be loaded in this environment. The sections above are still available.",
+  },
+} as const;
+
+async function loadLang(): Promise<"fr" | "en"> {
+  const store = await cookies();
+  return store.get("axon_lang")?.value === "en" ? "en" : "fr";
+}
 
 /**
  * Locate USER_GUIDE.md. In dev we have the repo root two levels up from
@@ -45,17 +84,18 @@ type Section = {
   body: string;
 };
 
-function sectionsFromRegistry(role: HelpRole | null): Section[] {
+function sectionsFromRegistry(role: HelpRole | null, lang: "fr" | "en"): Section[] {
   return allContextKeys().map((key) => {
-    const entry = HELP[key];
-    const body = (role && entry[role]) || entry.default;
-    return { key, title: entry.title, body };
+    const resolved = resolveHelp(key, role, lang);
+    return { key, title: resolved?.title ?? key, body: resolved?.body ?? "" };
   });
 }
 
 export default async function HelpPage() {
+  const lang = await loadLang();
+  const str = STRINGS[lang];
   const guide = await loadUserGuide();
-  const sections = sectionsFromRegistry(null);
+  const sections = sectionsFromRegistry(null, lang);
 
   return (
     <div
@@ -90,7 +130,7 @@ export default async function HelpPage() {
             padding: "4px 8px 10px",
           }}
         >
-          Contents
+          {str.contents}
         </div>
         <a
           href="#top"
@@ -103,7 +143,7 @@ export default async function HelpPage() {
             opacity: 0.9,
           }}
         >
-          Introduction
+          {str.introLink}
         </a>
         <a
           href="#registry"
@@ -116,7 +156,7 @@ export default async function HelpPage() {
             opacity: 0.9,
           }}
         >
-          By app section
+          {str.bySection}
         </a>
         <div
           style={{
@@ -155,7 +195,7 @@ export default async function HelpPage() {
               opacity: 0.9,
             }}
           >
-            Guide utilisateur complet
+            {str.fullGuide}
           </a>
         )}
       </aside>
@@ -165,7 +205,7 @@ export default async function HelpPage() {
         <HelpPageScroller />
         <section id="top" style={{ scrollMarginTop: 16 }}>
           <h1 style={{ margin: "0 0 8px", fontSize: 28 }}>
-            User guide
+            {str.title}
           </h1>
           <p
             style={{
@@ -174,8 +214,7 @@ export default async function HelpPage() {
               fontSize: 15,
             }}
           >
-            Everything you need to know to use the platform day-to-day.
-            Click a section in the contents to jump straight to it.
+            {str.intro}
           </p>
           <div
             style={{
@@ -200,7 +239,7 @@ export default async function HelpPage() {
                 background: "rgba(106,160,255,0.06)",
               }}
             >
-              How it works (under the hood) →
+              {str.howItWorks}
             </a>
           </div>
         </section>
@@ -214,11 +253,10 @@ export default async function HelpPage() {
               paddingBottom: 8,
             }}
           >
-            By app section
+            {str.bySectionTitle}
           </h2>
           <p style={{ color: "var(--muted, #8b93a7)", marginTop: 0 }}>
-            A detailed view of each platform page — practical, educational,
-            with use cases and pitfalls to avoid.
+            {str.bySectionIntro}
           </p>
 
           {sections.map((s) => (
@@ -271,10 +309,10 @@ export default async function HelpPage() {
             }}
           >
             <h2 style={{ fontSize: 22, margin: "0 0 16px" }}>
-              Full user manual
+              {str.fullManualTitle}
             </h2>
             <p style={{ color: "var(--muted, #8b93a7)", marginTop: 0 }}>
-              Below is the complete platform manual covering all workflows and concepts.
+              {str.fullManualIntro}
             </p>
             <div style={{ fontSize: 14 }}>
               {renderMarkdown(guide, { headingIds: true })}
@@ -294,8 +332,7 @@ export default async function HelpPage() {
               fontSize: 13,
             }}
           >
-            The full manual (<code>docs/USER_GUIDE.md</code>) could not be
-            loaded in this environment. The sections above are still available.
+            {str.manualMissing}
           </section>
         )}
       </article>

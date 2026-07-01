@@ -1910,6 +1910,11 @@ const EN: Record<string, string> = {
   "Campagne créée en brouillon.": "Campaign created as draft.",
   "création impossible": "creation failed",
   "erreur inconnue": "unknown error",
+
+  // ── Contextual help drawer ──
+  "Ouvrir le guide complet": "Open the full guide",
+  "Comment ça marche ?": "How it works?",
+  "Vue adaptée à votre rôle": "View adapted to your role",
 };
 
 function readLang(): Lang {
