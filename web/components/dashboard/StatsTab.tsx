@@ -129,9 +129,22 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
         // Daily trend only makes sense across ≥2 days — on a single-day period
         // it's just one bar, so we hide it and let the other two charts fill.
         const showDaily = (cp.by_day ?? []).length >= 2;
+        const answered = data.kpis.answered;
+        // Spend trend vs the previous equivalent period — for cost, DOWN is good.
+        const costDelta = makeDelta(cp.total, data.previous.cost);
+        // Biggest avoidable spend: the highest-cost non-productive outcome, with a
+        // concrete optimisation tip — turns the numbers into an action.
+        const AVOIDABLE: Record<string, string> = {
+          repondeur: t("améliorer la détection répondeur et raccrocher plus vite sur messagerie"),
+          pas_de_reponse: t("ajuster les créneaux d'appel et limiter les tentatives sur les numéros qui ne répondent jamais"),
+          faux_numero: t("nettoyer la base des numéros invalides"),
+          non_eligible: t("filtrer les leads non éligibles avant d'appeler"),
+        };
+        const topAvoidable = cp.by_outcome.find((o) => AVOIDABLE[o.key] && o.cost > 0) ?? null;
         const costTiles: { label: string; value: string; sub?: string; tone?: string }[] = [
           { label: t("Dépense totale"), value: cp.total > 0 ? fmtMoney(cp.total) : t("Aucun coût"), sub: `${k.total.toLocaleString()} ${t("appels")}`, tone: "var(--warn)" },
-          { label: t("Coût moyen / appel"), value: fmtMoney(cp.avg_per_call), tone: "var(--info)" },
+          { label: t("Coût / appel décroché"), value: answered > 0 ? fmtMoney(cp.total / answered) : "—", sub: `${answered.toLocaleString()} ${t("décrochés")}`, tone: "var(--info)" },
+          { label: t("Coût moyen / appel"), value: fmtMoney(cp.avg_per_call), sub: t("tous les appels"), tone: "var(--info)" },
           { label: t("Coût par RDV"), value: cp.cost_per_rdv > 0 ? fmtMoney(cp.cost_per_rdv) : "—", tone: "var(--accent)" },
           { label: t("Gaspillé (faux n° / sans réponse)"), value: fmtMoney(cp.wasted), sub: `${pct(cp.wasted_pct)} ${t("de la dépense")}`, tone: "var(--bad)" },
         ];
@@ -140,12 +153,30 @@ export function StatsTab({ from, to, direction, leadsSource = "prod", system = "
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap", marginBottom: 2 }}>
               <h3 style={{ marginTop: 0, marginBottom: 0, display: "flex", alignItems: "center", gap: 6 }}><DollarSign size={15} /> {t("Coûts des appels")}</h3>
               <span className="muted" style={{ fontSize: 12 }} title={t("« Période précédente » = même durée juste avant celle sélectionnée (ex. Aujourd'hui → hier, 7 derniers jours → les 7 jours d'avant).")}>
-                {fmtMoney(cp.total)} {t("dépensés")} · {fmtMoney(data.previous.cost)} {t("période précédente (même durée avant)")}
+                {fmtMoney(cp.total)} {t("dépensés")}
+                {costDelta.show && (
+                  <span style={{ marginLeft: 6, fontWeight: 700, color: costDelta.pct <= 0 ? "var(--good)" : "var(--bad)" }}>
+                    {costDelta.pct <= 0 ? "▼" : "▲"} {Math.abs(Math.round(costDelta.pct))}%
+                  </span>
+                )}
+                {" · "}{fmtMoney(data.previous.cost)} {t("période précédente (même durée avant)")}
               </span>
             </div>
             <p className="muted" style={{ fontSize: 11, margin: "0 0 14px" }}>
               {t("Dépenses réelles depuis")} <code>usage_events</code> · {t("respecte les filtres de période")}
             </p>
+
+            {/* Actionable insight — biggest avoidable spend + how to cut it */}
+            {topAvoidable && (
+              <div style={{
+                fontSize: 12, lineHeight: 1.5, margin: "0 0 16px", padding: "9px 12px", borderRadius: 8,
+                background: "color-mix(in srgb, var(--bad) 8%, transparent)",
+                border: "1px solid color-mix(in srgb, var(--bad) 25%, transparent)",
+              }}>
+                🔦 <b>{t("Plus gros poste évitable")}</b> : {t(topAvoidable.label)} — <b>{fmtMoney(topAvoidable.cost)}</b> · {topAvoidable.count.toLocaleString()} {t("appels")}.{" "}
+                <span className="muted">{t("Piste")} : {AVOIDABLE[topAvoidable.key]}.</span>
+              </div>
+            )}
 
             {/* ── Headline KPI tiles ── */}
             <div className="grid-kpi" style={{ marginBottom: 16 }}>
