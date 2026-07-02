@@ -774,7 +774,12 @@ export async function dialTarget(job: DialJob): Promise<void> {
             to: isWa ? `whatsapp:${toE164}` : toE164,
             from: isWa ? `whatsapp:${chFrom}` : chFrom,
             contentSid: ch.contentSid,
-            variables: { "1": firstName, "number": chFrom },
+            // {{1}} = first name, and the caller number is exposed under BOTH
+            // "2" and "number": Twilio's Content Template Builder only detects
+            // NUMBERED placeholders ({{2}}), while legacy templates used the
+            // named {{number}}. Sending both keys keeps new numbered templates
+            // and older named ones working (unused variables are ignored).
+            variables: { "1": firstName, "2": chFrom, "number": chFrom },
           });
           anySent = true;
           dlog("info", { ...ctx, call_id: sms.sid }, `precall-${ch.channel} sent to=${toE164} attempt=${upcoming} — dial in ~${leadMin}min`);
